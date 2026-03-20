@@ -1,0 +1,25 @@
+services:
+  site-dev:
+    build:
+      context: .
+      dockerfile: docker/site/Dockerfile
+      target: dev
+    container_name: agiliz-site-dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./site:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    restart: unless-stopped
+
+  site-prod:
+    build:
+      context: .
+      dockerfile: docker/site/Dockerfile
+      target: prod
+    container_name: agiliz-site-prod
+    ports:
+      - "80:80"
+    restart: unless-stopped
