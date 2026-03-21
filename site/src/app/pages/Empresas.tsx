@@ -168,7 +168,7 @@ export function Empresas() {
                     </div>
                     <div className="p-4 bg-zinc-950 rounded-lg">
                       <div className="text-3xl font-bold text-pink-500 mb-1">
-                        0€
+                        R$ 0,00
                       </div>
                       <p className="text-sm text-gray-400">
                         Custo de setup
