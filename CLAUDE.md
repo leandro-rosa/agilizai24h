@@ -13,6 +13,7 @@ observability.
 | `backend/apps/` | vazio | futuros microserviços NestJS |
 | `backend/common/nest-libs/` | 8 libs reais | ver [backend/CLAUDE.md](backend/CLAUDE.md) |
 | `frontend/apps/site/` | app real | site institucional — ver [CLAUDE.md](frontend/apps/site/CLAUDE.md) / [DESIGN.md](frontend/apps/site/DESIGN.md) |
+| `frontend/apps/admin/` | app real | painel de gestão (vendas, financeiro, abastecimento, estoque, produtos, lojas), Next.js — ver [CLAUDE.md](frontend/apps/admin/CLAUDE.md) / [DESIGN.md](frontend/apps/admin/DESIGN.md) |
 | `frontend/common/` | vazio | futuras libs/hooks/slices RTK compartilhadas entre frontends |
 | `cli/` | app real | `agiliz-cli` — CLI Docker Compose para a devbox — ver [cli/CLAUDE.md](cli/CLAUDE.md) |
 | `mcp-servers/`, `observability/`, `docker/composes/` | vazios/placeholder | sem CLAUDE.md até terem conteúdo real |
@@ -29,7 +30,8 @@ em código:
 - **Backend**: NestJS. Módulos globais focados (padrão já usado nos
   `nest-libs`), um `CLAUDE.md` por app/lib.
 - **Frontend**: RTK + RTK Query para state management e data-fetching em
-  todos os apps (nenhum frontend usa ainda — ver gap em
+  todos os apps (`frontend/apps/admin` é a primeira implementação real;
+  `frontend/apps/site` ainda não usa — ver
   [frontend/CLAUDE.md](frontend/CLAUDE.md)). shadcn/Radix como kit de UI
   canônico.
 - **Mudanças não-triviais**: workflow OpenSpec (propose → apply →

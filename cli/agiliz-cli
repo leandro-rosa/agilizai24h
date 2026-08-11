@@ -9,20 +9,24 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
 readonly PROJECT_ROOT="${AGILIZ_ROOT:-$(cd -- "${SCRIPT_DIR}/.." && pwd -P)}"
 readonly SHARED_NETWORK_NAME='agiliz_network'
-readonly -a UP_ORDER=(site)
-readonly -a DOWN_ORDER=(site)
-readonly -a VALID_PROJECTS=(site)
+readonly -a UP_ORDER=(site admin)
+readonly -a DOWN_ORDER=(admin site)
+readonly -a VALID_PROJECTS=(site admin)
 readonly -A PROJECT_DIRECTORIES=(
   [site]='frontend/apps/site'
+  [admin]='frontend/apps/admin'
 )
 readonly -A PROJECT_FILES=(
   [site]='docker-compose.yml'
+  [admin]='docker-compose.yml'
 )
 readonly -A PROJECT_DEV_SERVICE=(
   [site]='site-dev'
+  [admin]='admin-dev'
 )
 readonly -A PROJECT_PROD_SERVICE=(
   [site]='site-prod'
+  [admin]='admin-prod'
 )
 
 ACTION=''
@@ -70,6 +74,7 @@ COMMANDS:
 
 PROJECTS:
   site   frontend/apps/site/docker-compose.yml (servicos: site-dev, site-prod)
+  admin  frontend/apps/admin/docker-compose.yml (servicos: admin-dev, admin-prod)
 
 SELECTION OPTIONS:
   -i, --include PROJECTS  Inclui projetos. Aceita repeticao ou lista com virgulas
@@ -94,7 +99,7 @@ MODE:
 
 DEFAULTS AND EFFECTS:
   up cria a rede externa agiliz_network se necessario e executa
-  'docker compose up --build --detach' na ordem: site.
+  'docker compose up --build --detach' na ordem: site, admin.
   down executa 'docker compose down --remove-orphans' na ordem inversa.
   logs usa '--follow --tail=all' para todos os projetos selecionados.
   stats monitora somente containers selecionados que estejam em execucao.
@@ -162,7 +167,7 @@ BEHAVIOR:
   'docker compose up --build --detach' separadamente em cada projeto.
   Sem --production, sobe o servico de desenvolvimento de cada projeto
   (ex.: site-dev); com --production, sobe o de producao (ex.: site-prod).
-  Ordem: site.
+  Ordem: site, admin.
   Sem filtros, opera sobre todos os projetos.
 
 EXAMPLES:
@@ -206,7 +211,7 @@ BEHAVIOR:
   Executa 'docker compose down --remove-orphans' separadamente em cada projeto.
   Sem --production, encerra o servico de desenvolvimento de cada projeto
   (ex.: site-dev); com --production, encerra o de producao (ex.: site-prod).
-  Ordem: site.
+  Ordem: admin, site.
   Nao passa --volumes.
   Sem filtros, opera sobre todos os projetos.
 
@@ -334,7 +339,7 @@ USAGE:
   ${PROGRAM_NAME} exec --help
 
 POSITIONAL ARGUMENTS:
-  PROJECT  Projeto gerenciado: site
+  PROJECT  Projeto gerenciado: site, admin
   SERVICE  Nome do servico declarado no Compose file do projeto (ex.: site-dev, site-prod)
   COMMAND  Comando e argumentos encaminhados sem reinterpretacao
 
@@ -1232,7 +1237,7 @@ _agiliz_cli_completion() {
   local previous="${COMP_WORDS[COMP_CWORD - 1]:-}"
   local commands='up down logs stats exec deploy:pull completion'
   local options='-i --include -e --exclude --production -h --help'
-  local projects='site'
+  local projects='site admin'
 
   if [[ "${previous}" == '-i' || "${previous}" == '--include' ||
     "${previous}" == '-e' || "${previous}" == '--exclude' ]]; then

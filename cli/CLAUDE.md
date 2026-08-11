@@ -51,6 +51,7 @@ seu diretório, arquivo Compose e serviços dev/production. Hoje só existe:
 | Projeto | Diretório | Compose | Dev | Production |
 |---|---|---|---|---|
 | `site` | `frontend/apps/site` | `docker-compose.yml` | `site-dev` | `site-prod` |
+| `admin` | `frontend/apps/admin` | `docker-compose.yml` | `admin-dev` | `admin-prod` |
 
 ## Adicionando um novo projeto
 

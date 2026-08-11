@@ -1,0 +1,38 @@
+networks:
+  agiliz_network:
+    external: true
+
+services:
+  admin-dev:
+    build:
+      context: .
+      target: dev
+    container_name: agiliz-admin-dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - WATCHPACK_POLLING=true
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+
+  admin-prod:
+    build:
+      context: .
+      target: prod
+    container_name: agiliz-admin-prod
+    ports:
+      - "8080:3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
