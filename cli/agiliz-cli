@@ -1,0 +1,1312 @@
+#!/usr/bin/env bash
+# Gerencia os projetos Docker Compose da devbox Agiliz.AI.
+
+set -Eeuo pipefail
+
+readonly PROGRAM_NAME='agiliz-cli'
+readonly PROGRAM_VERSION='0.1.0'
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly SCRIPT_DIR
+readonly PROJECT_ROOT="${AGILIZ_ROOT:-$(cd -- "${SCRIPT_DIR}/.." && pwd -P)}"
+readonly SHARED_NETWORK_NAME='agiliz_network'
+readonly -a UP_ORDER=(site)
+readonly -a DOWN_ORDER=(site)
+readonly -a VALID_PROJECTS=(site)
+readonly -A PROJECT_DIRECTORIES=(
+  [site]='frontend/apps/site'
+)
+readonly -A PROJECT_FILES=(
+  [site]='docker-compose.yml'
+)
+readonly -A PROJECT_DEV_SERVICE=(
+  [site]='site-dev'
+)
+readonly -A PROJECT_PROD_SERVICE=(
+  [site]='site-prod'
+)
+
+ACTION=''
+EXEC_PROJECT=''
+EXEC_SERVICE=''
+PROD_MODE=false
+declare -a EXEC_COMMAND=()
+declare -a INCLUDE_PROJECTS=()
+declare -a EXCLUDE_PROJECTS=()
+declare -a SELECTED_PROJECTS=()
+declare -a CHILD_PIDS=()
+
+#######################################
+# Exibe a ajuda completa da CLI e seu contrato operacional.
+# Globals:
+#   PROGRAM_NAME
+#   VALID_PROJECTS
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve a ajuda global em stdout.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+print_help() {
+  cat <<EOF
+Gerencia os projetos Docker Compose da devbox Agiliz.AI.
+
+USAGE:
+  ${PROGRAM_NAME} <command> [options]
+  ${PROGRAM_NAME} completion bash
+  ${PROGRAM_NAME} --version
+  ${PROGRAM_NAME} --help
+
+COMMANDS:
+  up          Constroi e inicia os projetos selecionados em background
+  down        Para e remove os projetos selecionados, sem remover volumes
+  logs        Acompanha simultaneamente os logs dos projetos selecionados
+  stats       Exibe Docker Stats para os containers selecionados em execucao
+  exec        Executa um comando em um servico Compose especifico
+  deploy:pull Atualiza main e reconstroi a devbox
+  completion  Gera completion para o shell solicitado
+
+PROJECTS:
+  site   frontend/apps/site/docker-compose.yml (servicos: site-dev, site-prod)
+
+SELECTION OPTIONS:
+  -i, --include PROJECTS  Inclui projetos. Aceita repeticao ou lista com virgulas
+  -e, --exclude PROJECTS  Exclui projetos. Aceita repeticao ou lista com virgulas
+  --production             Usa o servico de producao de cada projeto
+  -h, --help              Exibe a ajuda completa do command
+
+EXEC TARGETS:
+  exec recebe PROJECT e SERVICE como alvos posicionais e nao usa -i/-e/--production.
+
+SELECTION RULES:
+  Sem -i, todos os projetos sao incluidos inicialmente.
+  Com -i, somente os projetos informados sao incluidos inicialmente.
+  As exclusoes de -e sao aplicadas por ultimo.
+  Projetos validos: ${VALID_PROJECTS[*]}
+
+MODE:
+  Sem --production, up/down/logs/stats/deploy:pull operam sobre o servico
+  de desenvolvimento de cada projeto (ex.: site-dev). Com --production,
+  operam sobre o servico de producao (ex.: site-prod). Projetos sem essa
+  distincao sao afetados por inteiro em ambos os modos.
+
+DEFAULTS AND EFFECTS:
+  up cria a rede externa agiliz_network se necessario e executa
+  'docker compose up --build --detach' na ordem: site.
+  down executa 'docker compose down --remove-orphans' na ordem inversa.
+  logs usa '--follow --tail=all' para todos os projetos selecionados.
+  stats monitora somente containers selecionados que estejam em execucao.
+  exec usa /bin/sh quando COMMAND nao e informado.
+  deploy:pull exige worktree limpo e opera sobre todos os projetos.
+
+ENVIRONMENT:
+  AGILIZ_ROOT  Sobrescreve o diretorio raiz do repositorio.
+               Padrao: diretorio pai de onde ${PROGRAM_NAME} esta localizado.
+  Variaveis exigidas pelos Compose files continuam sendo lidas pelo Docker Compose.
+
+EXAMPLES:
+  ${PROGRAM_NAME} up
+  ${PROGRAM_NAME} up --production
+  ${PROGRAM_NAME} up -i site
+  ${PROGRAM_NAME} down -e site
+  ${PROGRAM_NAME} logs --include site
+  ${PROGRAM_NAME} stats -i site
+  ${PROGRAM_NAME} exec site site-dev node --version
+  ${PROGRAM_NAME} exec site site-prod
+  ${PROGRAM_NAME} deploy:pull
+  ${PROGRAM_NAME} deploy:pull --production
+  source <(${PROGRAM_NAME} completion bash)
+
+EXIT CODES:
+  0  Sucesso
+  1  Falha de dependencia ou de uma operacao Docker
+  2  Command, option ou projeto invalido
+  130 Interrompido por SIGINT
+  143 Encerrado por SIGTERM
+
+Use '${PROGRAM_NAME} <command> --help' para a ajuda completa de um command.
+EOF
+}
+
+#######################################
+# Exibe a ajuda completa do subcomando up.
+# Globals:
+#   PROGRAM_NAME
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve a ajuda de up em stdout.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+print_up_help() {
+  cat <<EOF
+Constroi e inicia os projetos Docker Compose selecionados.
+
+USAGE:
+  ${PROGRAM_NAME} up [-i PROJECTS]... [-e PROJECTS]... [--production]
+  ${PROGRAM_NAME} up --help
+
+OPTIONS:
+  -i, --include PROJECTS  Inclui projetos; repetivel ou separado por virgulas
+  -e, --exclude PROJECTS  Exclui projetos; repetivel ou separado por virgulas
+  --production             Sobe o servico de producao em vez do de desenvolvimento
+  -h, --help              Exibe esta ajuda
+
+BEHAVIOR:
+  Cria a rede externa agiliz_network se necessario e executa
+  'docker compose up --build --detach' separadamente em cada projeto.
+  Sem --production, sobe o servico de desenvolvimento de cada projeto
+  (ex.: site-dev); com --production, sobe o de producao (ex.: site-prod).
+  Ordem: site.
+  Sem filtros, opera sobre todos os projetos.
+
+EXAMPLES:
+  ${PROGRAM_NAME} up
+  ${PROGRAM_NAME} up --production
+  ${PROGRAM_NAME} up -i site
+
+EXIT CODES:
+  0 sucesso; 1 falha Docker/dependencia; 2 entrada invalida.
+EOF
+}
+
+#######################################
+# Exibe a ajuda completa do subcomando down.
+# Globals:
+#   PROGRAM_NAME
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve a ajuda de down em stdout.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+print_down_help() {
+  cat <<EOF
+Para e remove os projetos Docker Compose selecionados.
+
+USAGE:
+  ${PROGRAM_NAME} down [-i PROJECTS]... [-e PROJECTS]... [--production]
+  ${PROGRAM_NAME} down --help
+
+OPTIONS:
+  -i, --include PROJECTS  Inclui projetos; repetivel ou separado por virgulas
+  -e, --exclude PROJECTS  Exclui projetos; repetivel ou separado por virgulas
+  --production             Encerra o servico de producao em vez do de desenvolvimento
+  -h, --help              Exibe esta ajuda
+
+BEHAVIOR:
+  Executa 'docker compose down --remove-orphans' separadamente em cada projeto.
+  Sem --production, encerra o servico de desenvolvimento de cada projeto
+  (ex.: site-dev); com --production, encerra o de producao (ex.: site-prod).
+  Ordem: site.
+  Nao passa --volumes.
+  Sem filtros, opera sobre todos os projetos.
+
+EXAMPLES:
+  ${PROGRAM_NAME} down
+  ${PROGRAM_NAME} down --production
+  ${PROGRAM_NAME} down -i site
+
+EXIT CODES:
+  0 sucesso; 1 falha Docker/dependencia; 2 entrada invalida.
+EOF
+}
+
+#######################################
+# Exibe a ajuda completa do subcomando logs.
+# Globals:
+#   PROGRAM_NAME
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve a ajuda de logs em stdout.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+print_logs_help() {
+  cat <<EOF
+Acompanha os logs dos projetos Docker Compose selecionados.
+
+USAGE:
+  ${PROGRAM_NAME} logs [-i PROJECTS]... [-e PROJECTS]... [--production]
+  ${PROGRAM_NAME} logs --help
+
+OPTIONS:
+  -i, --include PROJECTS  Inclui projetos; repetivel ou separado por virgulas
+  -e, --exclude PROJECTS  Exclui projetos; repetivel ou separado por virgulas
+  --production             Acompanha o servico de producao em vez do de desenvolvimento
+  -h, --help              Exibe esta ajuda
+
+BEHAVIOR:
+  Executa 'docker compose logs --follow --tail=all' para cada projeto em
+  paralelo. Linhas podem ser intercaladas e mantem os prefixos do Compose.
+  Sem --production, acompanha o servico de desenvolvimento de cada projeto
+  (ex.: site-dev); com --production, acompanha o de producao (ex.: site-prod).
+  SIGINT e SIGTERM sao encaminhados a todos os seguidores de log.
+  Sem filtros, opera sobre todos os projetos.
+
+EXAMPLES:
+  ${PROGRAM_NAME} logs
+  ${PROGRAM_NAME} logs --production
+  ${PROGRAM_NAME} logs -i site
+
+EXIT CODES:
+  0 sucesso; 1 falha Docker/dependencia; 2 entrada invalida;
+  130 SIGINT; 143 SIGTERM.
+EOF
+}
+
+#######################################
+# Exibe a ajuda completa do subcomando stats.
+# Globals:
+#   PROGRAM_NAME
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve a ajuda de stats em stdout.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+print_stats_help() {
+  cat <<EOF
+Monitora recursos dos containers selecionados com Docker Stats.
+
+USAGE:
+  ${PROGRAM_NAME} stats [-i PROJECTS]... [-e PROJECTS]... [--production]
+  ${PROGRAM_NAME} stats --help
+
+OPTIONS:
+  -i, --include PROJECTS  Inclui projetos; repetivel ou separado por virgulas
+  -e, --exclude PROJECTS  Exclui projetos; repetivel ou separado por virgulas
+  --production             Monitora o servico de producao em vez do de desenvolvimento
+  -h, --help              Exibe esta ajuda
+
+BEHAVIOR:
+  Consulta os containers em execucao de cada projeto com
+  'docker compose ps --quiet' e abre uma unica visualizacao 'docker stats'.
+  Sem --production, monitora o servico de desenvolvimento de cada projeto
+  (ex.: site-dev); com --production, monitora o de producao (ex.: site-prod).
+  Containers parados nao sao exibidos. Falha se nenhum container selecionado
+  estiver em execucao. Sem filtros, consulta todos os projetos.
+
+EXAMPLES:
+  ${PROGRAM_NAME} stats
+  ${PROGRAM_NAME} stats --production
+  ${PROGRAM_NAME} stats -i site
+
+EXIT CODES:
+  0 sucesso; 1 falha Docker ou nenhum container em execucao; 2 entrada invalida.
+EOF
+}
+
+#######################################
+# Exibe a ajuda completa do subcomando exec.
+# Globals:
+#   PROGRAM_NAME
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve a ajuda de exec em stdout.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+print_exec_help() {
+  cat <<EOF
+Executa um comando em um servico Docker Compose especifico.
+
+USAGE:
+  ${PROGRAM_NAME} exec PROJECT SERVICE [COMMAND [ARG...]]
+  ${PROGRAM_NAME} exec PROJECT SERVICE -- COMMAND [ARG...]
+  ${PROGRAM_NAME} exec --help
+
+POSITIONAL ARGUMENTS:
+  PROJECT  Projeto gerenciado: site
+  SERVICE  Nome do servico declarado no Compose file do projeto (ex.: site-dev, site-prod)
+  COMMAND  Comando e argumentos encaminhados sem reinterpretacao
+
+OPTIONS:
+  -h, --help  Exibe esta ajuda quando usado imediatamente depois de exec
+  --          Encerra os argumentos da CLI antes de COMMAND
+
+BEHAVIOR:
+  Executa 'docker compose exec SERVICE COMMAND ARG...' no diretorio do projeto.
+  Sem COMMAND, executa /bin/sh. O servico deve existir e estar em execucao.
+  Este command usa um alvo unico e explicito; -i/-e nao se aplicam.
+
+EXAMPLES:
+  ${PROGRAM_NAME} exec site site-dev
+  ${PROGRAM_NAME} exec site site-dev node --version
+  ${PROGRAM_NAME} exec site site-prod -- env
+
+EXIT CODES:
+  0 sucesso; 1 falha Docker/dependencia; 2 projeto ou argumentos invalidos.
+EOF
+}
+
+#######################################
+# Exibe a ajuda completa do subcomando deploy:pull.
+# Globals:
+#   PROGRAM_NAME
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve a ajuda de deploy:pull em stdout.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+print_deploy_pull_help() {
+  cat <<EOF
+Atualiza main e reconstroi toda a devbox.
+
+USAGE:
+  ${PROGRAM_NAME} deploy:pull [--production]
+  ${PROGRAM_NAME} deploy:pull --help
+
+OPTIONS:
+  --production  Reconstroi e reinicia o servico de producao em vez do de desenvolvimento
+  -h, --help    Exibe esta ajuda
+
+BEHAVIOR:
+  Exige worktree sem alteracoes rastreadas ou nao rastreadas.
+  Executa 'git switch main' e 'git pull --ff-only origin main'.
+  Encerra todos os projetos sem remover volumes, constroi todas as imagens
+  e reinicia a devbox. Sem --production, opera sobre o servico de
+  desenvolvimento de cada projeto; com --production, sobre o de producao.
+  Nao aceita filtros, nao solicita confirmacao e interrompe na primeira falha.
+
+EXAMPLES:
+  ${PROGRAM_NAME} deploy:pull
+  ${PROGRAM_NAME} deploy:pull --production
+
+EXIT CODES:
+  0 sucesso; 1 worktree sujo ou falha Git/Docker;
+  2 argumento invalido.
+EOF
+}
+
+#######################################
+# Exibe a ajuda completa do subcomando completion.
+# Globals:
+#   PROGRAM_NAME
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve a ajuda de completion em stdout.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+print_completion_help() {
+  cat <<EOF
+Gera programmable completion para Bash.
+
+USAGE:
+  ${PROGRAM_NAME} completion bash
+  ${PROGRAM_NAME} completion --help
+
+SHELLS:
+  bash  Completa commands, options e nomes dos projetos sem acessar Docker
+
+EXAMPLES:
+  source <(${PROGRAM_NAME} completion bash)
+  ${PROGRAM_NAME} completion bash > /tmp/${PROGRAM_NAME}.bash
+
+EXIT CODES:
+  0 sucesso; 2 shell ou argumento invalido.
+EOF
+}
+
+#######################################
+# Direciona a ajuda para o subcomando solicitado.
+# Globals:
+#   Nenhuma
+# Arguments:
+#   $1 - Nome do subcomando.
+# Outputs:
+#   Escreve a ajuda correspondente em stdout ou erro em stderr.
+# Returns:
+#   0 para subcomando conhecido; encerra com 2 para nome invalido.
+# Side effects:
+#   Pode encerrar o processo por meio de die.
+#######################################
+print_command_help() {
+  local command_name="$1"
+
+  case "${command_name}" in
+    up) print_up_help ;;
+    down) print_down_help ;;
+    logs) print_logs_help ;;
+    stats) print_stats_help ;;
+    exec) print_exec_help ;;
+    deploy:pull) print_deploy_pull_help ;;
+    completion) print_completion_help ;;
+    *) die "Command desconhecido para ajuda: ${command_name}. Use --help." 2 ;;
+  esac
+}
+
+#######################################
+# Exibe a versao publica da CLI.
+# Globals:
+#   PROGRAM_NAME
+#   PROGRAM_VERSION
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve nome e versao em stdout.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+print_version() {
+  printf '%s %s\n' "${PROGRAM_NAME}" "${PROGRAM_VERSION}"
+}
+
+#######################################
+# Encerra a execucao com uma mensagem de erro acionavel.
+# Globals:
+#   Nenhuma
+# Arguments:
+#   $1 - Mensagem de erro.
+#   $2 - Codigo de saida opcional; padrao 1.
+# Outputs:
+#   Escreve a mensagem em stderr.
+# Returns:
+#   Nao retorna; encerra o processo com o codigo solicitado.
+# Side effects:
+#   Encerra o processo atual.
+#######################################
+die() {
+  local message="$1"
+  local exit_code="${2:-1}"
+
+  printf 'Erro: %s\n' "${message}" >&2
+  exit "${exit_code}"
+}
+
+#######################################
+# Verifica se um executavel obrigatorio esta disponivel no PATH.
+# Globals:
+#   Nenhuma
+# Arguments:
+#   $1 - Nome do executavel.
+# Outputs:
+#   Escreve erro acionavel em stderr quando ausente.
+# Returns:
+#   0 quando disponivel; encerra com 1 quando ausente.
+# Side effects:
+#   Pode encerrar o processo por meio de die.
+#######################################
+require_command() {
+  local command_name="$1"
+
+  command -v "${command_name}" >/dev/null 2>&1 ||
+    die "Dependencia ausente: '${command_name}'. Instale-a e tente novamente." 1
+}
+
+#######################################
+# Informa se um nome pertence ao conjunto de projetos gerenciados.
+# Globals:
+#   VALID_PROJECTS
+# Arguments:
+#   $1 - Nome do projeto.
+# Outputs:
+#   Nenhum
+# Returns:
+#   0 para projeto valido; 1 caso contrario.
+# Side effects:
+#   Nenhum
+#######################################
+is_valid_project() {
+  local requested_project="$1"
+  local valid_project
+
+  for valid_project in "${VALID_PROJECTS[@]}"; do
+    [[ "${requested_project}" == "${valid_project}" ]] && return 0
+  done
+
+  return 1
+}
+
+#######################################
+# Adiciona projetos de uma lista CSV a um array indicado por referencia.
+# Globals:
+#   VALID_PROJECTS
+# Arguments:
+#   $1 - Nome do array de destino.
+#   $2 - Um ou mais projetos separados por virgula.
+# Outputs:
+#   Escreve erro acionavel em stderr para valores invalidos.
+# Returns:
+#   0 em sucesso; encerra com 2 para lista vazia ou projeto invalido.
+# Side effects:
+#   Acrescenta valores ao array de destino; pode encerrar por meio de die.
+#######################################
+append_project_list() {
+  local destination_name="$1"
+  local raw_list="$2"
+  local -a parsed_projects=()
+  local project
+  local -n destination="${destination_name}"
+
+  [[ -n "${raw_list}" ]] || die "A lista de projetos nao pode ser vazia." 2
+  IFS=',' read -r -a parsed_projects <<<"${raw_list}"
+
+  for project in "${parsed_projects[@]}"; do
+    [[ -n "${project}" ]] || die "A lista '${raw_list}' contem um projeto vazio." 2
+    is_valid_project "${project}" ||
+      die "Projeto invalido: '${project}'. Use: ${VALID_PROJECTS[*]}." 2
+    destination+=("${project}")
+  done
+}
+
+#######################################
+# Analisa os alvos e o comando posicional do subcomando exec.
+# Globals:
+#   EXEC_COMMAND
+#   EXEC_PROJECT
+#   EXEC_SERVICE
+#   PROGRAM_NAME
+#   VALID_PROJECTS
+# Arguments:
+#   $@ - PROJECT, SERVICE e comando opcional.
+# Outputs:
+#   Pode exibir ajuda em stdout ou erro de uso em stderr.
+# Returns:
+#   0 em sucesso; encerra com 2 para entrada invalida ou ajuda.
+# Side effects:
+#   Atualiza o estado global de exec ou encerra o processo.
+#######################################
+parse_exec_args() {
+  if [[ "${1:-}" == '-h' || "${1:-}" == '--help' ]]; then
+    (($# == 1)) || die "Argumentos inesperados apos 'exec --help'." 2
+    print_exec_help
+    exit 0
+  fi
+
+  (($# >= 2)) || die "Use '${PROGRAM_NAME} exec PROJECT SERVICE [COMMAND [ARG...]]'." 2
+  EXEC_PROJECT="$1"
+  EXEC_SERVICE="$2"
+  shift 2
+
+  is_valid_project "${EXEC_PROJECT}" ||
+    die "Projeto invalido: '${EXEC_PROJECT}'. Use: ${VALID_PROJECTS[*]}." 2
+  [[ -n "${EXEC_SERVICE}" && "${EXEC_SERVICE}" != -* ]] ||
+    die "SERVICE invalido: '${EXEC_SERVICE}'. Informe um nome de servico Compose." 2
+
+  if [[ "${1:-}" == '--' ]]; then
+    shift
+  fi
+
+  if (($# == 0)); then
+    EXEC_COMMAND=(/bin/sh)
+  else
+    EXEC_COMMAND=("$@")
+  fi
+}
+
+#######################################
+# Converte os argumentos da CLI em acao e filtros validados.
+# Globals:
+#   ACTION
+#   EXCLUDE_PROJECTS
+#   INCLUDE_PROJECTS
+# Arguments:
+#   $@ - Argumentos originais da CLI.
+# Outputs:
+#   Pode exibir ajuda, versao ou completion em stdout; erros em stderr.
+# Returns:
+#   0 quando os argumentos sao validos; encerra para opcoes terminais ou erros.
+# Side effects:
+#   Atualiza o estado global do parser ou encerra o processo.
+#######################################
+parse_args() {
+  (($# > 0)) || {
+    print_help
+    exit 2
+  }
+
+  case "$1" in
+    -h | --help)
+      print_help
+      exit 0
+      ;;
+    --version)
+      print_version
+      exit 0
+      ;;
+    up | down | logs | stats)
+      ACTION="$1"
+      shift
+      ;;
+    exec)
+      ACTION='exec'
+      shift
+      parse_exec_args "$@"
+      return 0
+      ;;
+    deploy:pull)
+      ACTION='deploy:pull'
+      shift
+      if [[ "${1:-}" == '-h' || "${1:-}" == '--help' ]]; then
+        (($# == 1)) || die "Argumentos inesperados apos 'deploy:pull --help'." 2
+        print_deploy_pull_help
+        exit 0
+      fi
+      if [[ "${1:-}" == '--production' ]]; then
+        (($# == 1)) || die "Argumentos inesperados apos 'deploy:pull --production'." 2
+        PROD_MODE=true
+        return 0
+      fi
+      (($# == 0)) || die "'deploy:pull' nao aceita argumentos alem de --production. Use '${PROGRAM_NAME} deploy:pull --help'." 2
+      return 0
+      ;;
+    completion)
+      if [[ "${2:-}" == '-h' || "${2:-}" == '--help' ]]; then
+        (($# == 2)) || die "Argumentos inesperados apos 'completion --help'." 2
+        print_completion_help
+        exit 0
+      fi
+      [[ "${2:-}" == 'bash' && $# -eq 2 ]] ||
+        die "Use '${PROGRAM_NAME} completion bash'." 2
+      print_bash_completion
+      exit 0
+      ;;
+    -*) die "Option global desconhecida: '$1'. Use --help." 2 ;;
+    *) die "Command desconhecido: '$1'. Use --help." 2 ;;
+  esac
+
+  while (($# > 0)); do
+    case "$1" in
+      -i | --include)
+        (($# > 1)) || die "A option '$1' exige PROJECTS." 2
+        append_project_list INCLUDE_PROJECTS "$2"
+        shift 2
+        ;;
+      --include=*)
+        append_project_list INCLUDE_PROJECTS "${1#*=}"
+        shift
+        ;;
+      -e | --exclude)
+        (($# > 1)) || die "A option '$1' exige PROJECTS." 2
+        append_project_list EXCLUDE_PROJECTS "$2"
+        shift 2
+        ;;
+      --exclude=*)
+        append_project_list EXCLUDE_PROJECTS "${1#*=}"
+        shift
+        ;;
+      --production)
+        PROD_MODE=true
+        shift
+        ;;
+      -h | --help)
+        (($# == 1)) || die "Argumentos inesperados apos '$1'." 2
+        print_command_help "${ACTION}"
+        exit 0
+        ;;
+      --)
+        shift
+        (($# == 0)) || die "Argumento inesperado: '$1'. Use '${PROGRAM_NAME} ${ACTION} --help'." 2
+        ;;
+      -*) die "Option desconhecida para '${ACTION}': '$1'. Use '${PROGRAM_NAME} ${ACTION} --help'." 2 ;;
+      *) die "Argumento inesperado para '${ACTION}': '$1'. Use '${PROGRAM_NAME} ${ACTION} --help'." 2 ;;
+    esac
+  done
+}
+
+#######################################
+# Resolve inclusoes e exclusoes na ordem exigida pela acao atual.
+# Globals:
+#   ACTION
+#   DOWN_ORDER
+#   EXCLUDE_PROJECTS
+#   INCLUDE_PROJECTS
+#   SELECTED_PROJECTS
+#   UP_ORDER
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve erro em stderr se os filtros eliminarem todos os projetos.
+# Returns:
+#   0 quando ha selecao; encerra com 2 quando a selecao fica vazia.
+# Side effects:
+#   Substitui SELECTED_PROJECTS pelo resultado ordenado; pode encerrar por die.
+#######################################
+resolve_selection() {
+  local -a operation_order=()
+  local project
+  local -A included=()
+  local -A excluded=()
+
+  if ((${#INCLUDE_PROJECTS[@]} == 0)); then
+    for project in "${UP_ORDER[@]}"; do
+      included["${project}"]=1
+    done
+  else
+    for project in "${INCLUDE_PROJECTS[@]}"; do
+      included["${project}"]=1
+    done
+  fi
+
+  for project in "${EXCLUDE_PROJECTS[@]}"; do
+    excluded["${project}"]=1
+  done
+
+  if [[ "${ACTION}" == 'down' ]]; then
+    operation_order=("${DOWN_ORDER[@]}")
+  else
+    operation_order=("${UP_ORDER[@]}")
+  fi
+
+  SELECTED_PROJECTS=()
+  for project in "${operation_order[@]}"; do
+    if [[ -n "${included[${project}]:-}" && -z "${excluded[${project}]:-}" ]]; then
+      SELECTED_PROJECTS+=("${project}")
+    fi
+  done
+
+  ((${#SELECTED_PROJECTS[@]} > 0)) ||
+    die "Nenhum projeto restou apos aplicar -i/-e. Revise os filtros." 2
+}
+
+#######################################
+# Valida Docker Compose e os arquivos dos projetos antes de qualquer operacao.
+# Globals:
+#   PROJECT_DIRECTORIES
+#   PROJECT_FILES
+#   PROJECT_ROOT
+#   SELECTED_PROJECTS
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve diagnosticos de dependencia ou arquivo ausente em stderr.
+# Returns:
+#   0 quando o ambiente esta valido; encerra com 1 caso contrario.
+# Side effects:
+#   Executa uma consulta local de versao do Docker Compose; pode encerrar por die.
+#######################################
+validate_environment() {
+  local project
+  local compose_path
+
+  require_command docker
+  docker compose version >/dev/null ||
+    die "Docker Compose v2 nao esta disponivel. Verifique 'docker compose version'." 1
+
+  for project in "${SELECTED_PROJECTS[@]}"; do
+    compose_path="${PROJECT_ROOT}/${PROJECT_DIRECTORIES[${project}]}/${PROJECT_FILES[${project}]}"
+    [[ -f "${compose_path}" ]] ||
+      die "Compose file ausente para '${project}': ${compose_path}." 1
+  done
+}
+
+#######################################
+# Resolve o servico Compose alvo de um projeto conforme o modo atual.
+# Globals:
+#   PROD_MODE
+#   PROJECT_DEV_SERVICE
+#   PROJECT_PROD_SERVICE
+# Arguments:
+#   $1 - Nome validado do projeto.
+# Outputs:
+#   Escreve o nome do servico em stdout, ou nada se o projeto nao
+#   distinguir dev/production.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+project_target_service() {
+  local project="$1"
+
+  if [[ "${PROD_MODE}" == true ]]; then
+    printf '%s' "${PROJECT_PROD_SERVICE[${project}]:-}"
+  else
+    printf '%s' "${PROJECT_DEV_SERVICE[${project}]:-}"
+  fi
+}
+
+#######################################
+# Executa Docker Compose no diretorio pertencente ao projeto informado.
+# Globals:
+#   PROJECT_DIRECTORIES
+#   PROJECT_FILES
+#   PROJECT_ROOT
+# Arguments:
+#   $1 - Nome validado do projeto.
+#   $@ - Argumentos restantes enviados ao Docker Compose.
+# Outputs:
+#   Propaga stdout e stderr do Docker Compose.
+# Returns:
+#   Propaga o codigo de saida do Docker Compose.
+# Side effects:
+#   Executa a operacao Compose solicitada em um subshell.
+#######################################
+run_compose() {
+  local project="$1"
+  local project_directory
+  local compose_file="${PROJECT_FILES[${project}]}"
+  shift
+
+  project_directory="${PROJECT_ROOT}/${PROJECT_DIRECTORIES[${project}]}"
+  (cd -- "${project_directory}" && docker compose -f "${compose_file}" "$@")
+}
+
+#######################################
+# Garante que a rede externa compartilhada exista antes de subir containers.
+# Globals:
+#   SHARED_NETWORK_NAME
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve progresso em stderr.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Cria a rede Docker externa se ainda nao existir.
+#######################################
+ensure_shared_network() {
+  docker network inspect "${SHARED_NETWORK_NAME}" >/dev/null 2>&1 && return 0
+
+  printf 'Criando rede compartilhada: %s\n' "${SHARED_NETWORK_NAME}" >&2
+  docker network create "${SHARED_NETWORK_NAME}" >/dev/null
+}
+
+#######################################
+# Constroi e inicia os projetos selecionados na ordem de dependencia.
+# Globals:
+#   SELECTED_PROJECTS
+#   SHARED_NETWORK_NAME
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve progresso em stderr e propaga a saida do Docker Compose.
+# Returns:
+#   0 em sucesso; propaga a primeira falha Docker.
+# Side effects:
+#   Cria a rede compartilhada e inicia/reconstroi containers e imagens.
+#######################################
+run_up() {
+  local project
+  local target_service
+
+  ensure_shared_network
+
+  for project in "${SELECTED_PROJECTS[@]}"; do
+    target_service="$(project_target_service "${project}")"
+    printf 'Iniciando projeto: %s\n' "${project}" >&2
+    if [[ -n "${target_service}" ]]; then
+      run_compose "${project}" up --build --detach "${target_service}"
+    else
+      run_compose "${project}" up --build --detach
+    fi
+  done
+}
+
+#######################################
+# Para e remove os projetos selecionados na ordem inversa de dependencia.
+# Globals:
+#   SELECTED_PROJECTS
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve progresso em stderr e propaga a saida do Docker Compose.
+# Returns:
+#   0 em sucesso; propaga a primeira falha Docker.
+# Side effects:
+#   Para e remove containers e recursos Compose, preservando volumes.
+#######################################
+run_down() {
+  local project
+  local target_service
+
+  for project in "${SELECTED_PROJECTS[@]}"; do
+    target_service="$(project_target_service "${project}")"
+    printf 'Encerrando projeto: %s\n' "${project}" >&2
+    if [[ -n "${target_service}" ]]; then
+      run_compose "${project}" down --remove-orphans "${target_service}"
+    else
+      run_compose "${project}" down --remove-orphans
+    fi
+  done
+}
+
+#######################################
+# Constroi as imagens dos projetos selecionados na ordem de dependencia.
+# Globals:
+#   SELECTED_PROJECTS
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve progresso em stderr e propaga a saida do Docker Compose.
+# Returns:
+#   0 em sucesso; propaga a primeira falha Docker.
+# Side effects:
+#   Atualiza imagens locais dos projetos selecionados.
+#######################################
+run_build() {
+  local project
+  local target_service
+
+  for project in "${SELECTED_PROJECTS[@]}"; do
+    target_service="$(project_target_service "${project}")"
+    printf 'Construindo projeto: %s\n' "${project}" >&2
+    if [[ -n "${target_service}" ]]; then
+      run_compose "${project}" build "${target_service}"
+    else
+      run_compose "${project}" build
+    fi
+  done
+}
+
+#######################################
+# Inicia imagens ja construidas dos projetos na ordem de dependencia.
+# Globals:
+#   SELECTED_PROJECTS
+#   SHARED_NETWORK_NAME
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve progresso em stderr e propaga a saida do Docker Compose.
+# Returns:
+#   0 em sucesso; propaga a primeira falha Docker.
+# Side effects:
+#   Cria a rede compartilhada e inicia containers sem reconstruir imagens.
+#######################################
+run_start_without_build() {
+  local project
+  local target_service
+
+  ensure_shared_network
+
+  for project in "${SELECTED_PROJECTS[@]}"; do
+    target_service="$(project_target_service "${project}")"
+    printf 'Iniciando projeto: %s\n' "${project}" >&2
+    if [[ -n "${target_service}" ]]; then
+      run_compose "${project}" up --detach --no-build "${target_service}"
+    else
+      run_compose "${project}" up --detach --no-build
+    fi
+  done
+}
+
+#######################################
+# Executa atualizacao Git e deploy integral da devbox com falha imediata.
+# Globals:
+#   DOWN_ORDER
+#   PROJECT_ROOT
+#   SELECTED_PROJECTS
+#   UP_ORDER
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve progresso em stderr e propaga saidas de Git e Docker.
+# Returns:
+#   0 em sucesso; encerra com 1 para worktree sujo ou falha operacional.
+# Side effects:
+#   Atualiza main e encerra/recria containers e imagens dos projetos.
+#######################################
+run_deploy_pull() {
+  local worktree_status
+
+  require_command git
+  if ! worktree_status="$(git -C "${PROJECT_ROOT}" status --porcelain)"; then
+    die "Nao foi possivel consultar o estado Git em '${PROJECT_ROOT}'." 1
+  fi
+  [[ -z "${worktree_status}" ]] ||
+    die 'O repositorio possui alteracoes locais. Faca commit, stash ou descarte-as antes do deploy.' 1
+
+  printf 'Selecionando branch main\n' >&2
+  git -C "${PROJECT_ROOT}" switch main ||
+    die "Nao foi possivel selecionar a branch 'main'." 1
+  printf 'Atualizando main a partir de origin/main\n' >&2
+  git -C "${PROJECT_ROOT}" pull --ff-only origin main ||
+    die "Nao foi possivel atualizar 'main' por fast-forward a partir de 'origin/main'." 1
+
+  SELECTED_PROJECTS=("${UP_ORDER[@]}")
+  validate_environment
+
+  SELECTED_PROJECTS=("${DOWN_ORDER[@]}")
+  run_down
+
+  SELECTED_PROJECTS=("${UP_ORDER[@]}")
+  run_build
+  run_start_without_build
+}
+
+#######################################
+# Encaminha um sinal aos seguidores de logs e encerra com codigo convencional.
+# Globals:
+#   CHILD_PIDS
+# Arguments:
+#   $1 - Sinal INT ou TERM.
+# Outputs:
+#   Nenhum
+# Returns:
+#   Nao retorna; encerra com 130 para INT ou 143 para TERM.
+# Side effects:
+#   Sinaliza e espera todos os processos filhos registrados.
+#######################################
+handle_log_signal() {
+  local signal_name="$1"
+  local exit_code=143
+  local child_pid
+
+  [[ "${signal_name}" == 'INT' ]] && exit_code=130
+  trap - INT TERM
+
+  for child_pid in "${CHILD_PIDS[@]}"; do
+    kill -s "${signal_name}" -- "${child_pid}" 2>/dev/null || true
+  done
+  for child_pid in "${CHILD_PIDS[@]}"; do
+    wait "${child_pid}" 2>/dev/null || true
+  done
+
+  exit "${exit_code}"
+}
+
+#######################################
+# Acompanha em paralelo os logs de todos os projetos selecionados.
+# Globals:
+#   CHILD_PIDS
+#   SELECTED_PROJECTS
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Propaga logs em stdout/stderr e mensagens do Docker Compose.
+# Returns:
+#   0 se todos os seguidores terminarem com sucesso; primeiro codigo de falha.
+# Side effects:
+#   Inicia processos Docker Compose em background e instala traps temporarios.
+#######################################
+run_logs() {
+  local project
+  local target_service
+  local child_pid
+  local child_status
+  local final_status=0
+
+  CHILD_PIDS=()
+  trap 'handle_log_signal INT' INT
+  trap 'handle_log_signal TERM' TERM
+
+  for project in "${SELECTED_PROJECTS[@]}"; do
+    target_service="$(project_target_service "${project}")"
+    printf 'Acompanhando logs: %s\n' "${project}" >&2
+    if [[ -n "${target_service}" ]]; then
+      run_compose "${project}" logs --follow --tail=all "${target_service}" &
+    else
+      run_compose "${project}" logs --follow --tail=all &
+    fi
+    CHILD_PIDS+=("$!")
+  done
+
+  for child_pid in "${CHILD_PIDS[@]}"; do
+    if wait "${child_pid}"; then
+      continue
+    else
+      child_status=$?
+      ((final_status == 0)) && final_status="${child_status}"
+    fi
+  done
+
+  trap - INT TERM
+  CHILD_PIDS=()
+  return "${final_status}"
+}
+
+#######################################
+# Exibe Docker Stats para containers selecionados que estejam em execucao.
+# Globals:
+#   SELECTED_PROJECTS
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Propaga a tabela interativa de Docker Stats e diagnosticos em stderr.
+# Returns:
+#   0 em sucesso; encerra com 1 sem containers; propaga outras falhas Docker.
+# Side effects:
+#   Consulta os Compose projects e inicia uma sessao Docker Stats.
+#######################################
+run_stats() {
+  local project
+  local target_service
+  local compose_ids
+  local container_id
+  local -a container_ids=()
+  local -A seen_ids=()
+
+  for project in "${SELECTED_PROJECTS[@]}"; do
+    target_service="$(project_target_service "${project}")"
+    if [[ -n "${target_service}" ]]; then
+      compose_ids="$(run_compose "${project}" ps --quiet "${target_service}")" || return 1
+    else
+      compose_ids="$(run_compose "${project}" ps --quiet)" || return 1
+    fi
+
+    while IFS= read -r container_id; do
+      [[ -n "${container_id}" ]] || continue
+      if [[ -z "${seen_ids[${container_id}]:-}" ]]; then
+        seen_ids["${container_id}"]=1
+        container_ids+=("${container_id}")
+      fi
+    done <<<"${compose_ids}"
+  done
+
+  ((${#container_ids[@]} > 0)) ||
+    die "Nenhum container selecionado esta em execucao. Execute '${PROGRAM_NAME} up' ou ajuste -i/-e." 1
+
+  docker stats "${container_ids[@]}"
+}
+
+#######################################
+# Executa o comando solicitado no servico Compose explicitamente escolhido.
+# Globals:
+#   EXEC_COMMAND
+#   EXEC_PROJECT
+#   EXEC_SERVICE
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Propaga stdout e stderr do Docker Compose e do comando remoto.
+# Returns:
+#   Propaga o codigo de saida de Docker Compose exec.
+# Side effects:
+#   Executa um processo dentro do container do servico informado.
+#######################################
+run_exec() {
+  run_compose "${EXEC_PROJECT}" exec "${EXEC_SERVICE}" "${EXEC_COMMAND[@]}"
+}
+
+#######################################
+# Emite programmable completion contextual para Bash.
+# Globals:
+#   Nenhuma
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Escreve o script de completion em stdout.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Nenhum
+#######################################
+print_bash_completion() {
+  cat <<'EOF'
+# Completion Bash para agiliz-cli.
+#######################################
+# Completa commands, options e nomes de projetos da Agiliz CLI.
+# Globals:
+#   COMP_CWORD
+#   COMP_WORDS
+#   COMPREPLY
+# Arguments:
+#   Nenhum
+# Outputs:
+#   Preenche COMPREPLY com candidatos contextuais.
+# Returns:
+#   0 sempre.
+# Side effects:
+#   Altera COMPREPLY no shell interativo atual.
+#######################################
+_agiliz_cli_completion() {
+  local current="${COMP_WORDS[COMP_CWORD]}"
+  local previous="${COMP_WORDS[COMP_CWORD - 1]:-}"
+  local commands='up down logs stats exec deploy:pull completion'
+  local options='-i --include -e --exclude --production -h --help'
+  local projects='site'
+
+  if [[ "${previous}" == '-i' || "${previous}" == '--include' ||
+    "${previous}" == '-e' || "${previous}" == '--exclude' ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "${projects}" -- "${current}")
+    return 0
+  fi
+
+  if [[ "${previous}" == 'completion' ]]; then
+    mapfile -t COMPREPLY < <(compgen -W 'bash --help' -- "${current}")
+    return 0
+  fi
+
+  if [[ "${COMP_WORDS[1]:-}" == 'exec' ]]; then
+    if ((COMP_CWORD == 2)); then
+      mapfile -t COMPREPLY < <(compgen -W "${projects}" -- "${current}")
+    fi
+    return 0
+  fi
+
+  if [[ "${COMP_WORDS[1]:-}" == 'deploy:pull' ]]; then
+    mapfile -t COMPREPLY < <(compgen -W '--production -h --help' -- "${current}")
+    return 0
+  fi
+
+  if ((COMP_CWORD == 1)); then
+    mapfile -t COMPREPLY < <(compgen -W "${commands} --help --version" -- "${current}")
+    return 0
+  fi
+
+  mapfile -t COMPREPLY < <(compgen -W "${options}" -- "${current}")
+}
+
+complete -F _agiliz_cli_completion agiliz-cli ./agiliz-cli
+EOF
+}
+
+#######################################
+# Coordena validacao, selecao e execucao da operacao solicitada.
+# Globals:
+#   ACTION
+# Arguments:
+#   $@ - Argumentos originais da CLI.
+# Outputs:
+#   Delega resultados e diagnosticos para as funcoes chamadas.
+# Returns:
+#   0 em sucesso; propaga codigos de uso, dependencia, Docker ou sinal.
+# Side effects:
+#   Executa a operacao Docker selecionada.
+#######################################
+main() {
+  if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); then
+    die 'Bash 4.3 ou superior e obrigatorio.' 1
+  fi
+
+  parse_args "$@"
+  if [[ "${ACTION}" == 'deploy:pull' ]]; then
+    run_deploy_pull
+    return 0
+  fi
+  if [[ "${ACTION}" == 'exec' ]]; then
+    SELECTED_PROJECTS=("${EXEC_PROJECT}")
+  else
+    resolve_selection
+  fi
+  validate_environment
+
+  case "${ACTION}" in
+    up) run_up ;;
+    down) run_down ;;
+    logs) run_logs ;;
+    stats) run_stats ;;
+    exec) run_exec ;;
+    *) die "Estado interno invalido: command '${ACTION}'." 2 ;;
+  esac
+}
+
+main "$@"

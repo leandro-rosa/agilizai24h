@@ -14,7 +14,8 @@ observability.
 | `backend/common/nest-libs/` | 8 libs reais | ver [backend/CLAUDE.md](backend/CLAUDE.md) |
 | `frontend/apps/site/` | app real | site institucional — ver [CLAUDE.md](frontend/apps/site/CLAUDE.md) / [DESIGN.md](frontend/apps/site/DESIGN.md) |
 | `frontend/common/` | vazio | futuras libs/hooks/slices RTK compartilhadas entre frontends |
-| `cli/`, `mcp-servers/`, `observability/`, `docker/composes/` | vazios/placeholder | sem CLAUDE.md até terem conteúdo real |
+| `cli/` | app real | `agiliz-cli` — CLI Docker Compose para a devbox — ver [cli/CLAUDE.md](cli/CLAUDE.md) |
+| `mcp-servers/`, `observability/`, `docker/composes/` | vazios/placeholder | sem CLAUDE.md até terem conteúdo real |
 
 Sem workspace tooling configurado ainda (sem root `package.json`,
 `pnpm-workspace.yaml` ou `turbo.json`) — ver stack-alvo abaixo.

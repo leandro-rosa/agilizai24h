@@ -39,10 +39,6 @@ abaixo).
   OKLCH neutros) — não reflete a paleta de marca. Cor de marca hoje está
   hardcoded em classes Tailwind soltas (`pink-500`, `purple-600`,
   `zinc-950`) em `Header.tsx`/`Footer.tsx`, não centralizada nos tokens.
-- `Dockerfile`/`docker-compose.yml`/`nginx.conf` assumem um subdiretório
-  `site/` (`COPY site/package*.json`, volume `./site:/app`,
-  `docker/site/nginx.conf`) que não existe nesta estrutura — build vai
-  falhar como está.
 - Mistura MUI (`@mui/material`, `@emotion/*`) com Radix/shadcn — dois
   sistemas de UI coexistindo; shadcn é o padrão do workspace (ver
   [../../CLAUDE.md](../../CLAUDE.md)), MUI não deveria ser usado em código
