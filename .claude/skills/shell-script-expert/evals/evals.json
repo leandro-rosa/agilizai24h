@@ -1,0 +1,46 @@
+{
+  "skill_name": "shell-script-expert",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Crie uma CLI Bash 4+ chamada backupctl para criar, listar e restaurar backups locais. Ela deve funcionar em CI, ter ajuda em portugues, dry-run, confirmacao segura para restauracao e autocomplete Bash. Entregue o script, o completion e testes automatizados em um diretorio de saida informado pelo avaliador.",
+      "expected_output": "CLI funcional e testada, com parser consistente, funcoes documentadas, modos interativo e nao interativo e completion sincronizado.",
+      "files": [],
+      "expectations": [
+        "Todos os arquivos Bash passam em bash -n e ShellCheck.",
+        "Todas as funcoes possuem documentacao de contrato.",
+        "Ajuda, parser e completion apresentam os mesmos subcomandos e opcoes.",
+        "A restauracao possui dry-run e confirmacao que nao bloqueia sem TTY.",
+        "Os testes cobrem ajuda, entrada invalida, dry-run e modo nao interativo."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Implemente em Bash uma ferramenta clean-workspace que remova caches selecionados de um projeto. A remocao e destrutiva: desenhe uma UX segura para terminal e CI, suporte nomes de arquivo com espacos, forneca --dry-run e autocomplete Bash e escreva testes Bats.",
+      "expected_output": "Ferramenta de limpeza segura, idempotente e automatizavel, com confirmacao proporcional ao risco e tratamento robusto de caminhos.",
+      "files": [],
+      "expectations": [
+        "A ferramenta rejeita alvos vazios ou perigosos e protege operandos iniciados por hifen.",
+        "Nenhum prompt ocorre quando stdin nao e TTY ou --no-input esta ativo.",
+        "Dry-run nao remove arquivos e descreve as acoes planejadas.",
+        "Completion nao executa rede, escrita ou remocao.",
+        "Testes exercitam caminhos com espacos e repeticao idempotente."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Revise e refatore um script Bash legado fornecido pelo avaliador que usa eval, variaveis sem aspas, arquivos temporarios previsiveis e prompts obrigatorios. Preserve a interface publica quando for seguro, documente todas as funcoes, adicione completion e testes e explique cada mudanca comportamental inevitavel.",
+      "expected_output": "Correcao focada na causa raiz, preservando comportamento legitimo e tornando seguranca, automacao e manutencao verificaveis.",
+      "files": [
+        "evals/files/legacy-report.sh"
+      ],
+      "expectations": [
+        "O resultado remove eval e expansoes inseguras sem substituir por outra forma de execucao de strings.",
+        "Temporarios usam mktemp e limpeza por trap que preserva o status.",
+        "A interface preservada permanece documentada; mudancas necessarias sao explicadas.",
+        "Todos os prompts possuem alternativa nao interativa.",
+        "Os testes reproduzem pelo menos uma falha ou vulnerabilidade do legado."
+      ]
+    }
+  ]
+}
