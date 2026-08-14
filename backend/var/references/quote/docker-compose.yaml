@@ -1,0 +1,141 @@
+name: smartparts-backend
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smartparts-backend-postgres
+    environment:
+      POSTGRES_USER: quote
+      POSTGRES_PASSWORD: quote
+      POSTGRES_DB: quote
+    ports:
+      - "5430:5432"
+    volumes:
+      - smartparts_backend_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quote"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - smartparts-backend
+
+  # Simulates real S3 locally (decision recorded in backend/apps/quote/CLAUDE.md,
+  # "Decisões pendentes (resolvidas)") — quote-api's common/nest-libs/aws
+  # S3Service talks to this instead of a real AWS account in development.
+  localstack:
+    image: localstack/localstack:3
+    container_name: smartparts-backend-localstack
+    environment:
+      SERVICES: s3
+      DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - smartparts_backend_localstack_data:/var/lib/localstack
+      # Auto-creates the AWS_S3_BUCKET below on container start.
+      - ./localstack-init/create-bucket.sh:/etc/localstack/init/ready.d/create-bucket.sh:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+    networks:
+      - smartparts-backend
+
+
+  quote-api:
+    build:
+      context: ../..
+      dockerfile: apps/quote/Dockerfile
+    container_name: smartparts-backend-quote-api
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://quote:quote@postgres:5432/quote?schema=public
+      # Shared Redis (docker-compose.redis.yaml at the repo root) — required
+      # so BullMQ jobs enqueued here can be consumed by apps/search's
+      # worker, and vice versa. Not started by this compose project; bring
+      # it up first (see root README.md).
+      REDIS_QUEUE_HOST: smartparts-redis
+      REDIS_QUEUE_PORT: 6379
+      MATCH_ITEM_WORKER_CONCURRENCY: ${MATCH_ITEM_WORKER_CONCURRENCY:-10}
+      SEARCH_MATCH_RESULT_WORKER_CONCURRENCY: ${SEARCH_MATCH_RESULT_WORKER_CONCURRENCY:-10}
+      SEARCH_MATCH_V2_ENABLED: ${SEARCH_MATCH_V2_ENABLED:-true}
+      WITH_KAFKA_BROKERS: "false"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://grafana:4318
+      OTEL_SERVICE_NAME: quote-api
+      # LocalStack S3 (see the localstack service above) — dummy credentials,
+      # LocalStack does not validate them.
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: localstack
+      AWS_SECRET_ACCESS_KEY: localstack
+      AWS_S3_ENDPOINT: http://localstack:4566
+      AWS_S3_FORCE_PATH_STYLE: "true"
+      AWS_S3_BUCKET: quote-uploads
+      # quote-demo-products index (see the elasticsearch service above).
+      ELASTIC_SEARCH_URI: http://10.10.1.207:9200
+      # backend/apps/search — reached over shared_network (already joined
+      # below), same container-name convention frontend/docker-compose.yaml
+      # already uses for the same service. Used only by SearchCatalogService
+      # to fetch fresh product data when generating a quote export.
+      SEARCH_API_URL: http://search-api:3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      # elasticsearch:
+      #   condition: service_healthy
+      # redis is external (docker-compose.redis.yaml, repo root) — Compose
+      # depends_on cannot reach a service defined in another project, same
+      # already-accepted limitation as observability_network/grafana below.
+      # ioredis reconnects on its own if Redis isn't up yet at startup.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/health')
+          .then(response => process.exit(response.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - smartparts-backend
+      - shared_network
+      - observability_network
+      - redis_network
+
+volumes:
+  smartparts_backend_postgres_data:
+  smartparts_backend_localstack_data:
+  smartparts_backend_elasticsearch_data:
+
+networks:
+  smartparts-backend:
+    driver: bridge
+  # Bridges this compose project with frontend/docker-compose.yaml's
+  # frontend service (see README.md for the combined-up command) so the
+  # frontend's same-origin BFF (frontend/server/quote/quote.gateway.ts)
+  # can reach quote-api by container name at QUOTE_API_URL=http://quote-api:3000.
+  shared_network:
+    external: true
+  # Bridges this compose project with the root docker-compose.observability.yaml's
+  # grafana service so quote-api can export traces/metrics to
+  # http://grafana:4318 — see backend/apps/quote/CLAUDE.md, "Observability".
+  observability_network:
+    external: true
+  # Bridges this compose project with the root docker-compose.redis.yaml's
+  # redis service — shared with backend/apps/search so BullMQ job delivery
+  # works across both microservices. See docker-compose.redis.yaml.
+  redis_network:
+    external: true

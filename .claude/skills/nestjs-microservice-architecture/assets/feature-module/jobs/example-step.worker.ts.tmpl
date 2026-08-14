@@ -1,0 +1,29 @@
+// nestjs-microservice-architecture skill template.
+import { Injectable } from '@nestjs/common';
+import { Job } from 'bullmq';
+import { HoldItProcessor, HoldItWorkerHost } from '@app/hold-it';
+import { __FEATURE_NAME___SYNC_QUEUE, __FeatureName__JobEnvelope } from './__FEATURE_NAME__-job-envelope';
+import { __FeatureName__SyncPayload } from './__FEATURE_NAME__-sync.producer';
+import { __FeatureName__Repository } from '../../db-client/repository/__FEATURE_NAME__.repository';
+
+@Injectable()
+@HoldItProcessor(__FEATURE_NAME___SYNC_QUEUE, { concurrency: 5 })
+export class __FeatureName__SyncWorker extends HoldItWorkerHost<__FeatureName__JobEnvelope<__FeatureName__SyncPayload>> {
+  constructor(private readonly repository: __FeatureName__Repository) {
+    super();
+  }
+
+  async process(job: Job<__FeatureName__JobEnvelope<__FeatureName__SyncPayload>>): Promise<void> {
+    const envelope = job.data;
+    if (envelope.schemaVersion !== 1) {
+      throw new Error(`Unsupported __FEATURE_NAME__ job schemaVersion ${envelope.schemaVersion}`);
+    }
+
+    // Idempotent conditional update — re-checks expected status so a retried
+    // or duplicate run of this job can't double-apply the result.
+    await this.repository.updateByCriteria(
+      { sync_status: 'synced' },
+      { id: envelope.__FEATURE_NAME__Id, sync_status: 'pending' },
+    );
+  }
+}

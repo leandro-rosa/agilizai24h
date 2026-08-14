@@ -1,0 +1,63 @@
+name: smartparts-observability
+
+# This is the only docker-compose file kept at the repository root. It is
+# reserved for infrastructure shared across microservices — today the
+# observability stack, consumed by backend/apps/quote and backend/apps/search
+# (see each one's own docker-compose.yaml observability_network join and its
+# own CLAUDE.md, "Observability"). Any future backend/apps/* microservice
+# would join observability_network the same way rather than getting its own
+# Grafana stack.
+
+services:
+  # All-in-one Grafana + Tempo (traces) + Loki (logs) + Mimir/Prometheus
+  # (metrics) + an embedded OpenTelemetry Collector accepting OTLP on
+  # 4317 (gRPC) / 4318 (HTTP). quote-api/quote-worker export exclusively
+  # to this collector — never directly to Tempo/Loki/Mimir (see plan
+  # section 11). See ADR/Decision 6 in the implementation plan for why an
+  # all-in-one image was chosen over separate containers for local dev.
+  grafana:
+    image: grafana/otel-lgtm:latest
+    container_name: smartparts-backend-grafana
+    ports:
+      - "3001:3000" # Grafana UI (3000 is taken by quote-api on the host)
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    volumes:
+      - smartparts_backend_grafana_data:/data
+      # Custom dashboards/alerts (Fase 17) — mounted as individual files, not
+      # whole directories, so the image's own built-in RED/JVM dashboards and
+      # provisioning stay intact alongside ours. Content is owned by the
+      # quote microservice (backend/apps/quote/observability/), not this
+      # root file, even though the container itself is global.
+      - ./backend/apps/quote/observability/grafana/dashboards/quote-api.json:/otel-lgtm/dashboards/quote-api.json:ro
+      - ./backend/apps/quote/observability/grafana/provisioning/dashboards/quote-api.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/quote-api.yaml:ro
+      - ./backend/apps/quote/observability/grafana/provisioning/alerting/quote-api.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/quote-api.yaml:ro
+      # search-api (backend/apps/search/docker-compose.yaml) — content owned
+      # by that microservice, same pattern as quote-api above.
+      - ./backend/apps/search/observability/grafana/dashboards/search-api.json:/otel-lgtm/dashboards/search-api.json:ro
+      - ./backend/apps/search/observability/grafana/provisioning/dashboards/search-api.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/search-api.yaml:ro
+      - ./backend/apps/search/observability/grafana/provisioning/alerting/search-api.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/search-api.yaml:ro
+    restart: unless-stopped
+    networks:
+      - observability_network
+
+volumes:
+  # Explicit `name:` so it isn't auto-prefixed with this file's own project
+  # name (`smartparts-observability`) — this volume previously lived under
+  # the `smartparts-backend` project as part of the old
+  # backend/docker-compose.yaml, so its Docker volume name changes once on
+  # this migration regardless (Tempo/Loki/Prometheus dev telemetry resets,
+  # not business data); this name is what it keeps going forward.
+  smartparts_backend_grafana_data:
+    name: smartparts_backend_grafana_data
+
+networks:
+  # Owned here; backend/apps/quote/docker-compose.yaml (and any future
+  # backend/apps/* microservice) joins this as external: true. Explicit
+  # `name:` is required — without it Compose prefixes the network with
+  # this file's project name (`smartparts-observability_observability_network`),
+  # which would not match the literal `observability_network` name the
+  # external lookup in backend/apps/quote/docker-compose.yaml expects.
+  observability_network:
+    name: observability_network
+    driver: bridge

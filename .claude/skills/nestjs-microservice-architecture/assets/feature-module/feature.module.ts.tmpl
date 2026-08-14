@@ -1,0 +1,19 @@
+// nestjs-microservice-architecture skill template — wires controllers, services, and producers.
+// Import __FeatureName__SharedModule too, if any worker needs a provider from this feature.
+import { Module } from '@nestjs/common';
+import { HoldItModule } from '@app/hold-it';
+import { __FeatureName__Controller } from './controllers/__FEATURE_NAME__.controller';
+import { __FeatureName__Service } from './services/__FEATURE_NAME__.service';
+import { __FeatureName__SyncProducer } from './jobs/__FEATURE_NAME__-sync.producer';
+import { __FeatureName__SyncWorker } from './jobs/__FEATURE_NAME__-sync.worker';
+import { __FEATURE_NAME___SYNC_QUEUE } from './jobs/__FEATURE_NAME__-job-envelope';
+
+@Module({
+  imports: [
+    HoldItModule.register([__FEATURE_NAME___SYNC_QUEUE]),
+    HoldItModule.registerWorker({ processors: [__FeatureName__SyncWorker] }),
+  ],
+  controllers: [__FeatureName__Controller],
+  providers: [__FeatureName__Service, __FeatureName__SyncProducer],
+})
+export class __FeatureName__Module {}

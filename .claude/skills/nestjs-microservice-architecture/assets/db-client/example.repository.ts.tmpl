@@ -1,0 +1,13 @@
+// nestjs-microservice-architecture skill template.
+// Persistence only — no business logic here; that belongs in the service layer.
+import { Injectable } from '@nestjs/common';
+import { PrismaRepository } from '@app/prisma-db-client';
+import { PrismaClientService } from '../../db-client/prisma-client.service';
+import { __TableName__ } from '../../generated/prisma';
+
+@Injectable()
+export class __FeatureName__Repository extends PrismaRepository<__TableName__, __TableName__> {
+  constructor(prisma: PrismaClientService) {
+    super(prisma, prisma.__TABLE_NAME__, '__FeatureName__');
+  }
+}

@@ -1,0 +1,52 @@
+name: smartparts-redis
+
+# This is the shared Redis instance for every backend/apps/* microservice
+# that depends on @app/hold-it (BullMQ) — today backend/apps/quote (its own
+# job queues: process-upload, match-item, generate-export),
+# backend/apps/search (the product-match queue consumer, plus
+# @app/elasticsearch's hard dependency on HoldItBullMQBroker), and
+# backend/apps/bull-board (read-only visibility across every queue). Owned
+# at the repository root, rather than by any one microservice, because
+# cross-service job delivery (apps/quote enqueuing a job apps/search
+# consumes, and vice versa) only works if both point at the same Redis —
+# see backend/apps/quote/CLAUDE.md and backend/apps/search/CLAUDE.md.
+#
+# Same ownership pattern as docker-compose.observability.yaml: a single
+# compose file at the repository root, exporting one externally-created
+# network that each microservice's own docker-compose.yaml joins as
+# `external: true`.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: smartparts-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - smartparts_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - redis_network
+
+volumes:
+  smartparts_redis_data:
+    name: smartparts_redis_data
+
+networks:
+  # Owned here; backend/apps/quote/docker-compose.yaml,
+  # backend/apps/search/docker-compose.yaml, and
+  # backend/apps/bull-board/docker-compose.yaml each join this as
+  # `external: true` and point REDIS_QUEUE_HOST at this service's
+  # container name. Explicit `name:` is required — without it Compose
+  # prefixes the network with this file's project name
+  # (`smartparts-redis_redis_network`), which would not match the literal
+  # `redis_network` name the external lookup in each microservice's own
+  # docker-compose.yaml expects.
+  redis_network:
+    name: redis_network
+    driver: bridge

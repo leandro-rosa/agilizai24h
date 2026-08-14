@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+  features = ["extendedIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Dominio quote (backend/apps/quote). Decisoes de schema documentadas em
+// backend/apps/quote/CLAUDE.md, secao "Decisoes pendentes (resolvidas)", e
+// no contrato publico frontend/docs/api-contracts.md ("Quotation (Cotação)").
+//
+// Uma familia de tabela so, com `Quote.source` como discriminador, cobre as
+// duas origens de cotacao do frontend (planilha e API de parceiro) — o
+// discriminador e interno a este backend; o BFF do frontend sempre devolve
+// as duas formas nao-fundidas `Quote`/`QuoteItem` e `PartnerQuote`/
+// `PartnerQuoteLine` (frontend/src/domain/model.ts).
+enum QuoteSource {
+  spreadsheet
+  partner_api
+
+  @@map("quote_source")
+}
+
+model Quote {
+  id         Int         @id @default(autoincrement())
+  source     QuoteSource @default(spreadsheet)
+  name       String
+  // Sem vocabulario fechado no schema de proposito — validado no DTO via
+  // class-validator @IsIn(...) contra as unioes de frontend/src/domain/model.ts
+  // (QuoteStatus). Evita migration a cada mudanca de vocabulario.
+  status     String
+  created_at DateTime    @default(now())
+  updated_at DateTime    @updatedAt
+  // String simples, nao FK para nenhuma tabela de usuario — nao existe
+  // autenticacao no backend hoje, ver CLAUDE.md.
+  created_by String?
+
+  // Origem "spreadsheet" apenas — nullable para source=partner_api.
+  original_file_name   String?
+  original_file_size_b Int?
+  original_file_s3_key String?
+  selected_sheet       String?
+  header_row           Int?
+  column_mapping_id    Int?
+  column_mapping       ColumnMappingTemplate? @relation(fields: [column_mapping_id], references: [id])
+  normalization_rules  String[]               @default([])
+
+  // Origem "partner_api" apenas.
+  partner_name String?
+  external_id  String?
+
+  // Snapshot validado das configuracoes de matching. Null preserva quotes
+  // legadas, que usam defaults tipados em runtime.
+  matching_config          Json?
+  matching_config_revision Int   @default(0)
+
+  // Contadores denormalizados, mantidos pelos workers/service — evita
+  // COUNT(*) sobre QuoteItem a cada listagem/poll de status.
+  total_rows     Int @default(0)
+  processed_rows Int @default(0)
+  reviewed_rows  Int @default(0)
+  matched_rows   Int @default(0)
+  unmatched_rows Int @default(0)
+  ambiguous_rows Int @default(0)
+  invalid_rows   Int @default(0)
+  duplicate_rows Int @default(0)
+
+  items    QuoteItem[]
+  exports  QuoteExport[]
+  activity QuoteActivityEvent[]
+
+  @@index([source])
+  @@index([status])
+  @@index([created_at])
+  @@map("quote")
+}
+
+model QuoteItem {
+  id              Int   @id @default(autoincrement())
+  quote_id        Int
+  quote           Quote @relation(fields: [quote_id], references: [id])
+  row_number      Int   @default(0)
+  // Linha original verbatim: planilha (Record<string,string>-shaped) ou
+  // originalFields de parceiro — nunca normalizado neste campo.
+  raw_input       Json
+  normalized_data Json?
+
+  // Snapshot de ProductCandidate[] (frontend/src/domain/model.ts) no momento
+  // do match — Json, nao tabela relacional: nao ha caso de uso de query
+  // cross-item sobre candidato individual.
+  candidates    Json     @default("[]")
+  match_score   Int?
+  match_reasons String[] @default([])
+  // pending|exact|strong|approximate|multiple|not_found|insufficient|invalid|duplicate|reviewed
+  match_status  String   @default("pending")
+  match_revision Int     @default(0)
+
+  selected_candidate_id String?
+  review_status         String    @default("pending")
+  review_decision       String?
+  reviewed_by           String?
+  reviewed_at           DateTime?
+  notes                 String    @default("")
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([quote_id])
+  @@index([quote_id, review_status])
+  @@index([quote_id, match_status])
+  @@map("quote_item")
+}
+
+// Modelo de mapeamento de coluna reutilizavel entre cotacoes (Etapa 2/3 do
+// briefing: "salvar configuracao como modelo reutilizavel").
+model ColumnMappingTemplate {
+  id         Int      @id @default(autoincrement())
+  name       String
+  // ColumnMapping[]-shaped (frontend/src/domain/model.ts): spreadsheetColumn,
+  // targetField, priority, normalization, examples, status.
+  mappings   Json
+  created_at DateTime @default(now())
+  created_by String?
+  quotes     Quote[]
+
+  @@map("column_mapping_template")
+}
+
+model QuoteExport {
+  id                      Int       @id @default(autoincrement())
+  quote_id                Int
+  quote                   Quote     @relation(fields: [quote_id], references: [id])
+  status                  String    @default("preparing")
+  format                  String
+  selected_fields         Json
+  /// Reviewer-typed { label, attributeKey, unitAttributeKey? } rows for
+  /// dynamic mapped_attributes columns — see
+  /// openspec/changes/quote-export-custom-mapped-attributes/design.md.
+  /// Absent/null for every export created before this column existed.
+  custom_attribute_fields Json?
+  file_s3_key             String?
+  created_at              DateTime  @default(now())
+  created_by              String?
+  expires_at              DateTime?
+
+  @@index([quote_id])
+  @@map("quote_export")
+}
+
+model QuoteActivityEvent {
+  id         Int      @id @default(autoincrement())
+  quote_id   Int
+  quote      Quote    @relation(fields: [quote_id], references: [id])
+  kind       String
+  message    String
+  actor      String?
+  metadata   Json?
+  created_at DateTime @default(now())
+
+  // Cursor pagination for GET /quotes/:id/activity orders newest event ID first.
+  @@index([quote_id, id])
+  @@map("quote_activity_event")
+}

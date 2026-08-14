@@ -1,0 +1,25 @@
+// nestjs-microservice-architecture skill template.
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { __FeatureName__Repository } from '../../db-client/repository/__FEATURE_NAME__.repository';
+import { __FeatureName__SyncProducer } from '../jobs/__FEATURE_NAME__-sync.producer';
+import { Create__FeatureName__Dto } from '../dto/create-__FEATURE_NAME__.dto';
+
+@Injectable()
+export class __FeatureName__Service {
+  constructor(
+    private readonly repository: __FeatureName__Repository,
+    private readonly syncProducer: __FeatureName__SyncProducer,
+  ) {}
+
+  async findOne(id: number) {
+    const record = await this.repository.findUnique({ id });
+    if (!record) throw new NotFoundException(`__FeatureName__ ${id} not found`);
+    return record;
+  }
+
+  async create(dto: Create__FeatureName__Dto) {
+    const record = await this.repository.create(dto);
+    await this.syncProducer.enqueue(record.id, { /* payload */ });
+    return record;
+  }
+}

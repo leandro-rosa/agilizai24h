@@ -1,0 +1,19 @@
+name: smartparts-cli-tools
+
+services:
+  cli:
+    build:
+      context: ./docker/cli
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    environment:
+      HOME: /tmp
+    user: "${UID:-1000}:${GID:-1000}"
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    init: true

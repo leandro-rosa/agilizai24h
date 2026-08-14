@@ -1,0 +1,91 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: quote_api_slo
+    folder: quote-api
+    interval: 1m
+    rules:
+      - uid: quote_api_http_5xx_rate
+        title: "quote-api: taxa de erro 5xx"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              editorMode: code
+              expr: sum(rate(http_server_request_duration_seconds_count{service_name="quote-api", http_response_status_code=~"5.."}[5m]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+                  query:
+                    params: ["A"]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+        noDataState: OK
+        execErrorState: Alerting
+        for: 5m
+        labels:
+          severity: warning
+          service: quote-api
+        annotations:
+          summary: "quote-api está retornando respostas 5xx nos últimos 5m"
+
+      - uid: quote_api_bullmq_failed_rate
+        title: "quote-api: jobs BullMQ falhando"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              editorMode: code
+              expr: sum(rate(bullmq_jobs_failed_total{service_name="quote-api"}[5m]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+                  query:
+                    params: ["A"]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+        noDataState: OK
+        execErrorState: Alerting
+        for: 5m
+        labels:
+          severity: warning
+          service: quote-api
+        annotations:
+          summary: "Fila BullMQ do quote-api com jobs falhando nos últimos 5m"

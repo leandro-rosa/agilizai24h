@@ -1,0 +1,17 @@
+// nestjs-microservice-architecture skill template — add DbClientModule only if this app uses Postgres.
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { HealthModule } from '@app/health';
+import { validateEnv } from './config/env.validation';
+// import { DbClientModule } from './modules/db-client/db-client.module';
+// import { __FeatureName__Module } from './modules/__FEATURE_NAME__/__FEATURE_NAME__.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    HealthModule,
+    // DbClientModule,
+    // __FeatureName__Module,
+  ],
+})
+export class AppModule {}

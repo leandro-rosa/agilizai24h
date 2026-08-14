@@ -1,0 +1,47 @@
+# nestjs-microservice-architecture skill template — replace __APP_NAME__.
+# The external networks below must already exist at the repo's shared/root
+# compose level — see references/repo-gaps.md before assuming they're there.
+services:
+  __APP_NAME__-api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://__APP_NAME__:__APP_NAME__@postgres:5432/__APP_NAME__
+      WITH_KAFKA_BROKERS: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - backend
+      - redis_network
+      - shared_network
+      - observability_network
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: __APP_NAME__
+      POSTGRES_PASSWORD: __APP_NAME__
+      POSTGRES_DB: __APP_NAME__
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U __APP_NAME__"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+  redis_network:
+    external: true
+  shared_network:
+    external: true
+  observability_network:
+    external: true

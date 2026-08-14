@@ -1,0 +1,27 @@
+// nestjs-microservice-architecture skill template.
+import { Injectable } from '@nestjs/common';
+import { HoldItBullMQBroker } from '@app/hold-it';
+import { __FEATURE_NAME___SYNC_QUEUE, create__FeatureName__JobEnvelope } from './__FEATURE_NAME__-job-envelope';
+
+export interface __FeatureName__SyncPayload {
+  // fields the worker needs to do its job
+}
+
+@Injectable()
+export class __FeatureName__SyncProducer {
+  constructor(private readonly broker: HoldItBullMQBroker) {}
+
+  async enqueue(__FEATURE_NAME__Id: number, payload: __FeatureName__SyncPayload) {
+    const message = create__FeatureName__JobEnvelope(__FEATURE_NAME__Id, payload);
+    await this.broker.holdIt({
+      queueName: __FEATURE_NAME___SYNC_QUEUE,
+      message,
+      options: {
+        jobId: `${__FEATURE_NAME__Id}.__FEATURE_NAME__-sync`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+      },
+    });
+    return message;
+  }
+}

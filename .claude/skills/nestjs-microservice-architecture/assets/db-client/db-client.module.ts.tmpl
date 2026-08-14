@@ -1,0 +1,24 @@
+// nestjs-microservice-architecture skill template — add one repository per model.
+import { Global, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { POSTGRES_HEALTH_CLIENT } from '@app/health';
+import { PrismaClientService } from './prisma-client.service';
+import { __FeatureName__Repository } from '../__FEATURE_NAME__/repository/__FEATURE_NAME__.repository';
+
+@Global()
+@Module({
+  providers: [
+    {
+      provide: PrismaPg,
+      useFactory: async (configService: ConfigService) =>
+        new PrismaPg({ connectionString: configService.get<string>('DATABASE_URL') }),
+      inject: [ConfigService],
+    },
+    PrismaClientService,
+    __FeatureName__Repository,
+    { provide: POSTGRES_HEALTH_CLIENT, useExisting: PrismaClientService },
+  ],
+  exports: [PrismaClientService, __FeatureName__Repository, POSTGRES_HEALTH_CLIENT],
+})
+export class DbClientModule {}

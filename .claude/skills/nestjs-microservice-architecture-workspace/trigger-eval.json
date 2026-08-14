@@ -1,0 +1,22 @@
+[
+  {"query": "preciso criar um novo microserviço chamado 'catalog' dentro de backend/apps, vai ter postgres e um worker de bullmq pra sincronizar com um sistema externo", "should_trigger": true},
+  {"query": "can you set up a new service under backend/apps called notifications? it just needs to expose a couple of REST endpoints and talk to postgres", "should_trigger": true},
+  {"query": "review backend/apps/orders and tell me if it's following our usual structure, i think someone added a global exception filter that we don't normally do here", "should_trigger": true},
+  {"query": "quero adicionar validação de env vars pro app de billing em backend/apps, hoje ele só lê process.env direto e sem tratamento nenhum", "should_trigger": true},
+  {"query": "add a bullmq worker to the pricing service in backend/apps that reprocesses stale rows whenever we get an event off the queue", "should_trigger": true},
+  {"query": "estou criando o Dockerfile pro novo app de reports em backend/apps, como que ficam os estágios de build normalmente aqui no monorepo?", "should_trigger": true},
+  {"query": "hey can we wire up postgres for the new inventory-sync app under backend/apps? i already have the prisma schema drafted, just need the module wiring", "should_trigger": true},
+  {"query": "the fulfillment microservice under backend/apps doesn't have a health endpoint yet, can you add one following whatever pattern the other services use", "should_trigger": true},
+  {"query": "add a docker-compose file to backend/apps/payments so it can run locally with its own postgres and join the shared redis network", "should_trigger": true},
+  {"query": "i want to scaffold a brand new service in backend/apps for handling loyalty points, with its own queue producer and worker", "should_trigger": true},
+  {"query": "can you add a dark mode toggle to the admin panel settings page in frontend/apps/admin", "should_trigger": false},
+  {"query": "what's the difference between bullmq and rabbitmq conceptually, just curious about tradeoffs, not building anything right now", "should_trigger": false},
+  {"query": "fix this typo in the README for frontend/apps/site, it says 'instalado' twice in the same sentence", "should_trigger": false},
+  {"query": "the site app's DESIGN.md mentions a color palette, can you update the primary color to a darker blue across the components", "should_trigger": false},
+  {"query": "write a quick python script that pings an api every 5 minutes and logs the response to a file", "should_trigger": false},
+  {"query": "can you explain in general terms what @Global() does in nestjs and when i'd want a module to be global", "should_trigger": false},
+  {"query": "our frontend admin app needs RTK Query set up for the sales dashboard, can you help wire that up", "should_trigger": false},
+  {"query": "can you set up eslint + prettier config for the whole monorepo so both frontend and backend share the same rules", "should_trigger": false},
+  {"query": "i need to write a one-off script that backfills the widgets table with a default status, gonna run it over ssh on prod once", "should_trigger": false},
+  {"query": "what's the cli command in cli/ to bring up the whole devbox with docker compose, i forgot the flag for rebuilding images", "should_trigger": false}
+]

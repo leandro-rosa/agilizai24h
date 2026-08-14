@@ -1,0 +1,30 @@
+Split: 12 train, 8 test (holdout=0.4)
+
+============================================================
+Iteration 1/5
+Description: Defines this monorepo's standard NestJS microservice architecture under backend/apps: module layout, Prisma+adapter-pg database access, BullMQ queues via @app/hold-it, env config, Fastify bootstrap, 3-tier testing, multi-stage Docker, and per-module CLAUDE.md docs. Use this whenever creating a new microservice under backend/apps, scaffolding its controller/service/repository/queue producer+worker/config/Dockerfile, reviewing an existing backend/apps service for architecture drift, or wiring database access, queues, env validation, tests, or Docker into any NestJS app here — even if the user just says "set up a new service," "add a microservice," "wire up the database," "add a queue/worker," or "add Docker to this app" without saying NestJS or architecture explicitly. Also bootstraps missing repo-wide tooling this assumes (pnpm-workspace.yaml, turbo.json, tsconfig bases, @app/* path aliases, register-paths.js) and flags the WITH_KAFKA_BROKERS DI gotcha in @app/hold-it.
+============================================================
+Train: 18/36 correct, precision=100% recall=0% accuracy=50% (38.3s)
+  [FAIL] rate=0/3 expected=True: add a bullmq worker to the pricing service in backend/apps t
+  [FAIL] rate=0/3 expected=True: i want to scaffold a brand new service in backend/apps for h
+  [FAIL] rate=0/3 expected=True: estou criando o Dockerfile pro novo app de reports em backen
+  [FAIL] rate=0/3 expected=True: hey can we wire up postgres for the new inventory-sync app u
+  [FAIL] rate=0/3 expected=True: preciso criar um novo microserviço chamado 'catalog' dentro 
+  [FAIL] rate=0/3 expected=True: can you set up a new service under backend/apps called notif
+  [PASS] rate=0/3 expected=False: can you set up eslint + prettier config for the whole monore
+  [PASS] rate=0/3 expected=False: i need to write a one-off script that backfills the widgets 
+  [PASS] rate=0/3 expected=False: can you add a dark mode toggle to the admin panel settings p
+  [PASS] rate=0/3 expected=False: what's the difference between bullmq and rabbitmq conceptual
+  [PASS] rate=0/3 expected=False: our frontend admin app needs RTK Query set up for the sales 
+  [PASS] rate=0/3 expected=False: what's the cli command in cli/ to bring up the whole devbox 
+Test : 12/24 correct, precision=100% recall=0% accuracy=50% (0.0s)
+  [FAIL] rate=0/3 expected=True: the fulfillment microservice under backend/apps doesn't have
+  [FAIL] rate=0/3 expected=True: quero adicionar validação de env vars pro app de billing em 
+  [FAIL] rate=0/3 expected=True: review backend/apps/orders and tell me if it's following our
+  [PASS] rate=0/3 expected=False: the site app's DESIGN.md mentions a color palette, can you u
+  [FAIL] rate=0/3 expected=True: add a docker-compose file to backend/apps/payments so it can
+  [PASS] rate=0/3 expected=False: fix this typo in the README for frontend/apps/site, it says 
+  [PASS] rate=0/3 expected=False: write a quick python script that pings an api every 5 minute
+  [PASS] rate=0/3 expected=False: can you explain in general terms what @Global() does in nest
+
+Improving description...

@@ -1,0 +1,16 @@
+// nestjs-microservice-architecture skill template.
+// Open-vocabulary fields (status, category, ...) are validated with @IsIn
+// against an exported const array, not a Prisma enum — see
+// references/module-structure.md for why.
+import { IsIn, IsNotEmpty, IsString } from 'class-validator';
+
+export const __FEATURE_NAME___STATUS_VALUES = ['draft', 'active', 'archived'] as const;
+
+export class Create__FeatureName__Dto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsIn(__FEATURE_NAME___STATUS_VALUES)
+  status: string;
+}

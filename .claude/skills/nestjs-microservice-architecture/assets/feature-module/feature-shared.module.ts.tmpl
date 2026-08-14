@@ -1,0 +1,14 @@
+// nestjs-microservice-architecture skill template.
+// @Global() because HoldItModule.registerWorker() puts workers in a dynamic
+// module that does NOT import __FeatureName__Module — anything a worker
+// injects has to come from here instead. Only put providers here that a
+// worker actually needs; everything else stays in the regular feature module.
+import { Global, Module } from '@nestjs/common';
+import { __FeatureName__SyncProducer } from './jobs/__FEATURE_NAME__-sync.producer';
+
+@Global()
+@Module({
+  providers: [__FeatureName__SyncProducer],
+  exports: [__FeatureName__SyncProducer],
+})
+export class __FeatureName__SharedModule {}

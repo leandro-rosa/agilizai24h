@@ -1,0 +1,19 @@
+// nestjs-microservice-architecture skill template.
+import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { __FeatureName__Service } from '../services/__FEATURE_NAME__.service';
+import { Create__FeatureName__Dto } from '../dto/create-__FEATURE_NAME__.dto';
+
+@Controller('__FEATURE_NAME__s')
+export class __FeatureName__Controller {
+  constructor(private readonly service: __FeatureName__Service) {}
+
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.service.findOne(id);
+  }
+
+  @Post()
+  create(@Body() dto: Create__FeatureName__Dto) {
+    return this.service.create(dto);
+  }
+}

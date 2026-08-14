@@ -1,0 +1,17 @@
+// nestjs-microservice-architecture skill template.
+// Versioned envelope: lets the queue evolve without breaking in-flight jobs.
+export const __FEATURE_NAME___SYNC_QUEUE = '__FEATURE_NAME__.sync';
+
+export interface __FeatureName__JobEnvelope<T> {
+  schemaVersion: 1;
+  __FEATURE_NAME__Id: number;
+  emittedAt: string;
+  payload: T;
+}
+
+export function create__FeatureName__JobEnvelope<T>(
+  __FEATURE_NAME__Id: number,
+  payload: T,
+): __FeatureName__JobEnvelope<T> {
+  return { schemaVersion: 1, __FEATURE_NAME__Id, emittedAt: new Date().toISOString(), payload };
+}
