@@ -15,6 +15,7 @@ estoque) e o painel através do `gateway-service`.
 | `GET /sales/:storeId?period=YYYY-MM` | Linhas por SKU |
 | `GET /sales/:storeId/totals?period=YYYY-MM` | Totais agregados no banco |
 | fila `ingestion.sales-rows` | Lote de um período inteiro, de `@app/ingestion-contracts` |
+| fila `period.data-updated` | **Publica** quando as vendas do período mudam |
 | `GET /health`, `GET /docs` | Health e OpenAPI |
 
 ## Decisões que não são óbvias no código
@@ -41,6 +42,17 @@ estoque) e o painel através do `gateway-service`.
 - **`SalesModule` é `@Global()`** porque `HoldItModule.registerWorker` monta os
   workers num módulo dinâmico próprio, que não importa este — sem isso o worker
   não enxergaria `SalesService`.
+
+## Publica `period.data-updated`
+
+Mesmas regras do `supply`: só identificadores, depois do commit, e só quando
+algo mudou de fato.
+
+Acrescentado quando a cadeia completa rodou pela primeira vez: só o `supply`
+publicava, então ingerir vendas deixava `inventory` e `finance` servindo uma
+cifra obsoleta — o estoque continuava marcando 91 unidades depois de 40 terem
+sido vendidas, sem nada indicando. O contrato do evento já previa
+`source: 'sales'`; isto é a outra metade dele.
 
 ## A armadilha do `WITH_KAFKA_BROKERS`
 

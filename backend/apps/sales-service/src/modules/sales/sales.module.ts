@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common'
 import { SalesController } from './controllers/sales.controller'
+import { PeriodEventsPublisher } from './services/period-events.publisher'
 import { SalesService } from './services/sales.service'
 
 /**
@@ -10,7 +11,7 @@ import { SalesService } from './services/sales.service'
 @Global()
 @Module({
   controllers: [SalesController],
-  providers: [SalesService],
-  exports: [SalesService],
+  providers: [SalesService, PeriodEventsPublisher],
+  exports: [SalesService, PeriodEventsPublisher],
 })
 export class SalesModule {}

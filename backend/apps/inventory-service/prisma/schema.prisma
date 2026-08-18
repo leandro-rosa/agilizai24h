@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Derived stock for one store, SKU and period.
+///
+/// Materialised rather than computed per request: a point-in-time read would
+/// otherwise re-sum every movement since the store opened, on every call. It is
+/// a read model — the movements in sales-service and supply-service remain the
+/// source of truth, and this is rebuilt from them.
+model StockSnapshot {
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  sku      String
+  /// The month, as YYYY-MM.
+  period   String
+
+  /// The period's own movements, kept so a figure can be explained without
+  /// calling back to the owning services.
+  restocked Int
+  sold      Int
+  removed   Int
+
+  /// Cumulative through this period. May be negative — that means the movement
+  /// data is inconsistent, and clamping it would hide the very problem that
+  /// needs fixing.
+  closing_stock Int
+
+  computed_at DateTime @default(now())
+
+  @@unique([store_id, sku, period])
+  @@index([store_id, period])
+  @@map("stock_snapshot")
+}
+
+/// The level below which a SKU is considered low at a given store.
+///
+/// Configured per store and SKU, replacing the admin panel mock's hardcoded
+/// "15 for beverages, 8 otherwise" — which was never a real setting.
+model MinimumLevel {
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  sku      String
+  minimum  Int
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([store_id, sku])
+  @@map("minimum_level")
+}
+
+/// Records that a store's stock has been derived at all.
+///
+/// Without it, "never computed" and "computed, and this SKU has no movements"
+/// both look like an empty result.
+model DerivedStore {
+  id       Int    @id @default(autoincrement())
+  store_id Int    @unique
+
+  last_computed_at DateTime @default(now())
+  latest_period    String?
+
+  @@map("derived_store")
+}

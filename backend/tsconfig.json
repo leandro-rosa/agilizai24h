@@ -2,7 +2,12 @@
   "compilerOptions": {
     "module": "commonjs",
     "target": "ES2021",
-    "lib": ["ES2021"],
+    // Runtime is Node 24 (see .nvmrc), which has everything through ES2023.
+    // Pinning `lib` below the runtime only hides APIs that are actually there —
+    // Array.prototype.at was the first to bite. `target` stays ES2021 because
+    // the emitted syntax level is a separate decision from what exists at run
+    // time.
+    "lib": ["ES2022"],
     "moduleResolution": "node",
     "esModuleInterop": true,
     "declaration": true,

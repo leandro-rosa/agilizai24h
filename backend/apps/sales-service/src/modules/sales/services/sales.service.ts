@@ -48,7 +48,12 @@ export class SalesService {
    * Idempotent by the same property: re-ingesting identical rows converges to
    * the same result, which matters because BullMQ delivers at least once.
    */
-  async ingestPeriod({ storeId, period, ingestionId, rows }: IngestPeriodInput): Promise<PeriodTotals> {
+  async ingestPeriod({ storeId, period, ingestionId, rows }: IngestPeriodInput): Promise<PeriodTotals & { changed: boolean }> {
+    // Compared before and after so the period event can be suppressed on a
+    // no-op — re-uploading an identical file is a normal operator action, and
+    // publishing anyway would trigger a downstream recomputation storm.
+    const before = await this.snapshot(storeId, period)
+
     await this.prisma.$transaction(async tx => {
       await tx.salesRecord.deleteMany({ where: { store_id: storeId, period } })
 
@@ -74,9 +79,26 @@ export class SalesService {
       })
     })
 
-    this.logger.log(`Ingested ${rows.length} sales rows for store ${storeId} period ${period}`)
+    const after = await this.snapshot(storeId, period)
+    const changed = before !== after
 
-    return this.totals(storeId, period)
+    this.logger.log(
+      `Ingested ${rows.length} sales rows for store ${storeId} period ${period}` +
+        (changed ? '' : ' (no change — event suppressed)'),
+    )
+
+    return { ...(await this.totals(storeId, period)), changed }
+  }
+
+  /** Cheap fingerprint of a store's period, used only to detect a real change. */
+  private async snapshot(storeId: number, period: string): Promise<string> {
+    const rows = await this.prisma.salesRecord.findMany({
+      where: { store_id: storeId, period },
+      select: { sku: true, quantity_sold: true, revenue_cents: true },
+      orderBy: { sku: 'asc' },
+    })
+
+    return JSON.stringify(rows)
   }
 
   async findPeriod(storeId: number, period: string): Promise<SalesRecordView[]> {

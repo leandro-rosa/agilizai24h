@@ -4,9 +4,10 @@ import { INGESTION_QUEUES } from '@app/ingestion-contracts'
 const jobFor = (data: unknown) => ({ id: '1', data, queueName: INGESTION_QUEUES.SALES_ROWS }) as never
 
 describe('SalesRowsWorker', () => {
-  const build = () => {
-    const sales = { ingestPeriod: jest.fn().mockResolvedValue({}) }
-    return { worker: new SalesRowsWorker(sales as never), sales }
+  const build = (changed = true) => {
+    const sales = { ingestPeriod: jest.fn().mockResolvedValue({ changed }) }
+    const events = { publishPeriodDataUpdated: jest.fn().mockResolvedValue(undefined) }
+    return { worker: new SalesRowsWorker(sales as never, events as never), sales, events }
   }
 
   const validJob = {
@@ -52,5 +53,44 @@ describe('SalesRowsWorker', () => {
     await worker.process(jobFor({ ...validJob, rows: [] }))
 
     expect(sales.ingestPeriod).toHaveBeenCalledWith(expect.objectContaining({ rows: [] }))
+  })
+})
+
+describe('SalesRowsWorker period event', () => {
+  const build = (changed: boolean) => {
+    const sales = { ingestPeriod: jest.fn().mockResolvedValue({ changed }) }
+    const events = { publishPeriodDataUpdated: jest.fn().mockResolvedValue(undefined) }
+    return { worker: new SalesRowsWorker(sales as never, events as never), events }
+  }
+
+  const job = {
+    id: '1',
+    data: {
+      schemaVersion: 1,
+      ingestionId: 'ing-1',
+      correlationId: 'corr-1',
+      storeId: 7,
+      period: '2026-03',
+      rows: [{ sku: 'A', quantitySold: 2, revenueCents: 500 }],
+    },
+  } as never
+
+  it('publishes when sales actually changed', async () => {
+    // Without this, inventory and finance keep serving a figure that no longer
+    // matches the data — stock read 91 units after 40 had been sold, and
+    // nothing indicated it. Found by running the full chain.
+    const { worker, events } = build(true)
+
+    await worker.process(job)
+
+    expect(events.publishPeriodDataUpdated).toHaveBeenCalledWith(7, '2026-03', 'corr-1')
+  })
+
+  it('suppresses the event on a no-op re-delivery', async () => {
+    const { worker, events } = build(false)
+
+    await worker.process(job)
+
+    expect(events.publishPeriodDataUpdated).not.toHaveBeenCalled()
   })
 })

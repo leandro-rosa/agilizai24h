@@ -1,6 +1,7 @@
 import { HoldItProcessor, HoldItWorkerHost } from '@app/hold-it'
 import { INGESTION_QUEUES, isValidPeriod, type SalesRowsJob } from '@app/ingestion-contracts'
 import type { Job } from 'bullmq'
+import { PeriodEventsPublisher } from '../services/period-events.publisher'
 import { SalesService } from '../services/sales.service'
 
 /**
@@ -13,7 +14,10 @@ import { SalesService } from '../services/sales.service'
  */
 @HoldItProcessor(INGESTION_QUEUES.SALES_ROWS)
 export class SalesRowsWorker extends HoldItWorkerHost<SalesRowsJob> {
-  constructor(private readonly sales: SalesService) {
+  constructor(
+    private readonly sales: SalesService,
+    private readonly events: PeriodEventsPublisher,
+  ) {
     super()
   }
 
@@ -37,6 +41,14 @@ export class SalesRowsWorker extends HoldItWorkerHost<SalesRowsJob> {
 
     // Idempotent: BullMQ delivers at least once, so a retried job must converge
     // rather than accumulate. Whole-period replacement gives that for free.
-    return this.sales.ingestPeriod({ storeId, period, ingestionId, rows })
+    const result = await this.sales.ingestPeriod({ storeId, period, ingestionId, rows })
+
+    // Downstream needs to know sales moved, or inventory and finance keep
+    // serving a figure that no longer matches the data.
+    if (result.changed) {
+      await this.events.publishPeriodDataUpdated(storeId, period, correlationId)
+    }
+
+    return result
   }
 }
