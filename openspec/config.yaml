@@ -1,0 +1,61 @@
+schema: spec-driven
+
+# Condensed hard constraints, injected into every artifact this CLI generates.
+# The full reference — architecture, communication matrix, library contracts,
+# domain rules, glossary, engineering standards — lives in openspec/project.md.
+# Read that file before writing any artifact.
+context: |
+  Agiliz.AI: network of unattended micro-market stores inside companies and
+  condos in Brazil. This platform replaces a manual, spreadsheet-based monthly
+  reconciliation (sales + restock/removal + cost reference, per store per month).
+  Full context: openspec/project.md — read it before writing any artifact.
+
+  Non-negotiable stack (decided by the business owner; a change that disputes
+  one of these must argue it in its own design.md, never substitute silently):
+  - Backend: NestJS, independent microservices under backend/apps/<name>.
+  - Sync inter-service comms: HTTP via @app/http-client. Async: BullMQ via
+    @app/hold-it. All non-trivial processing goes through a queue, never inside
+    an HTTP request handler.
+  - PostgreSQL always, database-per-service, Prisma via @app/prisma-db-client's
+    PrismaRepository<T, Model>. One schema and one migration history per service.
+  - Raw uploaded files go to S3-compatible storage via @app/aws's S3Service;
+    Postgres holds only parsed, structured data.
+  - Frontend: Next.js + RTK/RTK Query + shadcn on Radix. frontend/apps/admin is
+    the reference; do NOT follow frontend/apps/site's MUI-mixed pattern.
+  - Auth is session-based and does not exist yet anywhere.
+  - Monorepo tooling: Turborepo + pnpm workspaces.
+
+  Standing gotcha: every service registering HoldItModule must set
+  WITH_KAFKA_BROKERS=false (env, docker-compose, and test setup) or NestJS DI
+  crashes at startup.
+
+  Language: all code, comments, commits, API contracts, and OpenSpec artifacts
+  in English. UI copy stays in Portuguese — the operators are Brazilian. Use the
+  PT->EN glossary in openspec/project.md; do not invent alternate translations.
+
+  Architecture: nine services — gateway, iam, ingestion-worker, plus six domain
+  services mapping 1:1 to frontend/apps/admin's routes (stores, products, sales,
+  supply, finance, inventory). supply/finance/inventory stay separate and couple
+  via hold-it events, never shared tables or a merged service.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

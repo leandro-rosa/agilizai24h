@@ -5,15 +5,21 @@ networks:
 services:
   admin-dev:
     build:
-      context: .
+      # Repo root: the pnpm workspace keeps one lockfile there, so the build
+      # cannot be scoped to this folder.
+      context: ../../..
+      dockerfile: frontend/apps/admin/Dockerfile
       target: dev
     container_name: agiliz-admin-dev
     ports:
       - "3000:3000"
     volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/.next
+      - .:/repo/frontend/apps/admin
+      # Keep the image's installed dependencies and build cache; the bind mount
+      # above would otherwise hide them behind the host folder.
+      - /repo/frontend/apps/admin/node_modules
+      - /repo/frontend/apps/admin/.next
+      - /repo/node_modules
     environment:
       - WATCHPACK_POLLING=true
     networks:
@@ -22,7 +28,8 @@ services:
 
   admin-prod:
     build:
-      context: .
+      context: ../../..
+      dockerfile: frontend/apps/admin/Dockerfile
       target: prod
     container_name: agiliz-admin-prod
     ports:
@@ -31,6 +38,8 @@ services:
       - agiliz_network
     restart: unless-stopped
     healthcheck:
+      # 127.0.0.1, not localhost: Alpine's wget resolves localhost to ::1 first,
+      # and Next only listens on IPv4.
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
       interval: 30s
       timeout: 5s

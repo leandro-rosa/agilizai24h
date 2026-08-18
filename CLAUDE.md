@@ -16,17 +16,20 @@ observability.
 | `frontend/apps/admin/` | app real | painel de gestão (vendas, financeiro, abastecimento, estoque, produtos, lojas), Next.js — ver [CLAUDE.md](frontend/apps/admin/CLAUDE.md) / [DESIGN.md](frontend/apps/admin/DESIGN.md) |
 | `frontend/common/` | vazio | futuras libs/hooks/slices RTK compartilhadas entre frontends |
 | `cli/` | app real | `agiliz-cli` — CLI Docker Compose para a devbox — ver [cli/CLAUDE.md](cli/CLAUDE.md) |
-| `mcp-servers/`, `observability/`, `docker/composes/` | vazios/placeholder | sem CLAUDE.md até terem conteúdo real |
+| `docker/composes/` | infra real | `docker-compose.infra.yaml` (Redis + MinIO compartilhados). Os outros 3 arquivos são sobras de um projeto anterior ("smartparts") — não usar |
+| `mcp-servers/`, `observability/` | vazios/placeholder | sem CLAUDE.md até terem conteúdo real |
 
-Sem workspace tooling configurado ainda (sem root `package.json`,
-`pnpm-workspace.yaml` ou `turbo.json`) — ver stack-alvo abaixo.
+Workspace tooling configurado: pnpm workspaces + Turborepo na raiz
+(`package.json`, `pnpm-workspace.yaml`, `turbo.json`), bases de TypeScript em
+`backend/tsconfig.json` (alias `@app/*`) e ESLint compartilhado
+(`eslint.base.mjs` / `eslint.backend.mjs` / `eslint.frontend.mjs`).
 
 ## Stack-alvo
 
 Decisões de convenção para todo o monorepo, ainda não todas implementadas
 em código:
 
-- **Orquestração**: Turborepo + pnpm workspaces (não configurado ainda).
+- **Orquestração**: Turborepo + pnpm workspaces (configurado).
 - **Backend**: NestJS. Módulos globais focados (padrão já usado nos
   `nest-libs`), um `CLAUDE.md` por app/lib.
 - **Frontend**: RTK + RTK Query para state management e data-fetching em
@@ -35,9 +38,27 @@ em código:
   [frontend/CLAUDE.md](frontend/CLAUDE.md)). shadcn/Radix como kit de UI
   canônico.
 - **Mudanças não-triviais**: workflow OpenSpec (propose → apply →
-  archive). `openspec/` ainda não inicializado neste repo — próximo passo,
-  não algo já em uso aqui apesar de alguns `CLAUDE.md` de libs
-  referenciarem `openspec/changes/...` de um histórico anterior.
+  archive), já inicializado em `openspec/` (CLI `@fission-ai/openspec`).
+  Contexto canônico do projeto em
+  [openspec/project.md](openspec/project.md); `openspec/config.yaml` carrega
+  uma versão condensada das restrições. Referências a `openspec/changes/...`
+  em alguns `CLAUDE.md` de libs continuam sendo histórico de outro repo.
+
+## Começando
+
+Requer **Node 24** (ver `.nvmrc`) e **pnpm** (via `corepack enable pnpm`; a
+versão vem fixada em `packageManager`).
+
+```bash
+pnpm install                    # instala todo o workspace a partir da raiz
+pnpm turbo run lint typecheck   # valida todos os pacotes
+cp .env.example .env            # WITH_KAFKA_BROKERS=false já vem no template
+cli/agiliz-cli up               # sobe infra (Redis/MinIO) + site + admin
+```
+
+`cli/agiliz-cli up` respeita a ordem `infra → site → admin`; `down` inverte.
+Se as portas padrão de Redis/MinIO já estiverem ocupadas na sua máquina,
+sobrescreva `REDIS_HOST_PORT` / `MINIO_HOST_PORT` / `MINIO_CONSOLE_HOST_PORT`.
 
 ## Convenções para trabalhar aqui (redução de tokens)
 

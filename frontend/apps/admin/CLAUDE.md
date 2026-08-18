@@ -53,8 +53,10 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
 
 ## Scripts
 
-`npm run dev` (Turbopack) / `build` / `start` / `lint` (ESLint flat
-config, `next lint` foi removido no Next 16).
+`pnpm dev` (Turbopack) / `build` / `start` / `lint` / `typecheck`. ESLint flat
+config (`next lint` foi removido no Next 16) que importa o flavour
+compartilhado `eslint.frontend.mjs` da raiz. Pacote: `@agiliz/admin`, membro do
+workspace pnpm — instale sempre pela raiz.
 
 ## Docker
 
@@ -69,6 +71,15 @@ só escuta no IP do container, não em loopback — quebra o healthcheck.
 Além disso, o `wget` do Alpine resolve `localhost` para `::1` primeiro
 (Next só escuta em IPv4), por isso o healthcheck do `docker-compose.yml`
 usa `http://127.0.0.1:3000` explicitamente, não `localhost`.
+
+**Gotcha do monorepo**: com pnpm workspace, o build roda com a **raiz do repo**
+como contexto (`context: ../../..`) e o output standalone preserva a forma do
+workspace — `server.js` fica em `.next/standalone/frontend/apps/admin/`, e seus
+`node_modules` são symlinks apontando para o store virtual pnpm na raiz do
+bundle. Por isso o Dockerfile copia a árvore inteira e roda
+`node frontend/apps/admin/server.js`: achatar quebra todos os symlinks e o
+servidor morre com "Cannot find module 'next'". `outputFileTracingRoot` no
+`next.config.ts` fixa essa forma.
 
 `docker-compose.yml`: serviços `admin-dev` (porta `3000`) e `admin-prod`
 (porta `8080:3000`) na rede externa `agiliz_network`. Registrado no

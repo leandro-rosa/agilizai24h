@@ -1,0 +1,71 @@
+name: agiliz-infra
+
+# Shared development infrastructure for the whole devbox.
+#
+# Redis backs @app/hold-it (BullMQ). It is shared rather than per-service on
+# purpose: cross-service job delivery only works when every producer and
+# consumer point at the same instance — that is the mechanism behind the
+# supply -> finance "period data updated" flow.
+#
+# MinIO is the S3-compatible target for @app/aws's S3Service, which stores the
+# raw uploaded spreadsheets. Postgres is deliberately NOT here: the architecture
+# is database-per-service, so each microservice brings its own instance when it
+# is created. See openspec/changes/add-monorepo-foundation/design.md (D4, D5).
+#
+# Host ports are overridable because a developer machine may already run another
+# Redis or MinIO; containers on agiliz_network always reach each other by
+# service name on the standard internal ports regardless of these values.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: agiliz-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - agiliz_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - agiliz_network
+
+  minio:
+    image: minio/minio:latest
+    container_name: agiliz-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-agiliz}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-agiliz-dev-secret}
+    ports:
+      - "${MINIO_HOST_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - agiliz_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - agiliz_network
+
+volumes:
+  agiliz_redis_data:
+    name: agiliz_redis_data
+  agiliz_minio_data:
+    name: agiliz_minio_data
+
+networks:
+  # Created by agiliz-cli's ensure_shared_network. The explicit `name:` is
+  # required — without it Compose would look up a project-prefixed
+  # `agiliz-infra_agiliz_network` instead of the shared one every app joins.
+  agiliz_network:
+    external: true
+    name: agiliz_network

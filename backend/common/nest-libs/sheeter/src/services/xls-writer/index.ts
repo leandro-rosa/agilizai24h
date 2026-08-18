@@ -56,7 +56,7 @@ export class XlsWriterService {
       await workbook.xlsx.writeFile(filePath)
       return `Registro adicionado ao arquivo existente: ${filePath}`
     } catch (error) {
-      throw new Error(`Erro ao adicionar o registro: ${error.message}`)
+      throw new Error(`Erro ao adicionar o registro: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -97,7 +97,7 @@ export class XlsWriterService {
       await workbook.xlsx.writeFile(filePath)
       return `Novo arquivo criado e registro adicionado: ${filePath}`
     } catch (error) {
-      throw new Error(`Erro ao adicionar o registro: ${error.message}`)
+      throw new Error(`Erro ao adicionar o registro: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 

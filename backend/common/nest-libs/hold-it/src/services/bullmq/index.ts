@@ -137,13 +137,17 @@ export class BullMQService {
             if (errorSamples.length < 10) {
               errorSamples.push({
                 jobId: String(job.id ?? ''),
-                message: err?.message ?? String(err),
+                message: err instanceof Error ? err.message : String(err),
               })
             }
           }
         }
       } catch (err) {
-        this.logger.error({ queue: queue.name }, err.stack ?? err.message ?? String(err), 'ERROR_RETRYING_FAILED_JOBS')
+        this.logger.error(
+          { queue: queue.name },
+          err instanceof Error ? (err.stack ?? err.message) : String(err),
+          'ERROR_RETRYING_FAILED_JOBS',
+        )
         errors += 1
         continue
       }

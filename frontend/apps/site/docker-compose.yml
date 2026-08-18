@@ -5,14 +5,20 @@ networks:
 services:
   site-dev:
     build:
-      context: .
+      # Repo root: the pnpm workspace keeps one lockfile there, so the build
+      # cannot be scoped to this folder.
+      context: ../../..
+      dockerfile: frontend/apps/site/Dockerfile
       target: dev
     container_name: agiliz-site-dev
     ports:
       - "5173:5173"
     volumes:
-      - .:/app
-      - /app/node_modules
+      - .:/repo/frontend/apps/site
+      # Keep the image's installed dependencies; the bind mount above would
+      # otherwise hide them behind the host folder.
+      - /repo/frontend/apps/site/node_modules
+      - /repo/node_modules
     environment:
       - CHOKIDAR_USEPOLLING=true
     networks:
@@ -21,7 +27,8 @@ services:
 
   site-prod:
     build:
-      context: .
+      context: ../../..
+      dockerfile: frontend/apps/site/Dockerfile
       target: prod
     container_name: agiliz-site-prod
     ports:
@@ -31,7 +38,8 @@ services:
     restart: unless-stopped
 
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
+      # 127.0.0.1, not localhost: Alpine's wget resolves localhost to ::1 first.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

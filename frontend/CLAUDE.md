@@ -16,6 +16,16 @@ a visão geral do monorepo.
 - `common/` — **vazio**. Vai concentrar componentes/hooks/slices RTK
   compartilhados entre os frontends futuros.
 
+## Workspace e build
+
+Ambos os apps fazem parte do workspace pnpm da raiz (sem `package-lock.json`
+próprio) e são nomeados `@agiliz/site` e `@agiliz/admin`. Rode tudo da raiz:
+`pnpm install`, `pnpm turbo run lint typecheck build`.
+
+O **contexto de build do Docker é a raiz do repo** (`context: ../../..` +
+`dockerfile:` explícito nos `docker-compose.yml`), porque o lockfile do
+workspace vive lá — um contexto restrito à pasta do app não consegue instalar.
+
 ## Convenções
 
 - **State e data-fetching**: RTK + RTK Query em todos os apps.

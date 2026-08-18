@@ -122,7 +122,7 @@ export class HoldItBullMQBroker implements HoldItBrokerInterface, OnApplicationS
    */
   async isHealthy(): Promise<{ status: boolean; details?: object }> {
     const queues = this.queueMap.values()
-    const details = {}
+    const details: Record<string, string> = {}
 
     for (const queue of queues) {
       try {

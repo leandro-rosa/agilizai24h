@@ -1,0 +1,40 @@
+{
+  "name": "@app/hold-it",
+  "version": "0.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.lib.json --composite false --noEmit",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@bull-board/api": "^9.2.0",
+    "@bull-board/fastify": "^9.2.0",
+    "@kafkajs/confluent-schema-registry": "^4.1.0",
+    "avsc": "^5.7.9",
+    "bullmq": "^5.81.3",
+    "bullmq-otel": "^2.0.0",
+    "kafkajs": "^2.2.4"
+  },
+  "peerDependencies": {
+    "@elastic/elasticsearch": "^9.0.0",
+    "@nestjs/bullmq": "^11.0.0",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/config": "^4.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/event-emitter": "^3.0.0",
+    "fastify": "^5.0.0"
+  },
+  "devDependencies": {
+    "@elastic/elasticsearch": "^9.5.0",
+    "@nestjs/bullmq": "^11.0.5",
+    "@nestjs/common": "^11.2.1",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "^11.2.1",
+    "@nestjs/event-emitter": "^3.1.0",
+    "@nestjs/testing": "^11.2.1",
+    "fastify": "^5.12.0",
+    "reflect-metadata": "^0.2.2"
+  }
+}

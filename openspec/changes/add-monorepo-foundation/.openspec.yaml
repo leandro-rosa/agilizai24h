@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-08-18
+# Pure tooling/infrastructure change: workspace setup, shared config, dev
+# infrastructure, and CI. No system behaviour changes, so no spec deltas.
+skip_specs: true

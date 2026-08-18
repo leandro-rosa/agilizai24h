@@ -1,8 +1,11 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
+import frontend from "../../../eslint.frontend.mjs";
 
 const eslintConfig = defineConfig([
+  // Shared workspace flavour first; Next's own configs layer on top.
+  ...frontend,
   ...nextVitals,
   ...nextTs,
   // Override default ignores of eslint-config-next.

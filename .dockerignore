@@ -1,0 +1,17 @@
+# Docker build context is the repository root for every app (the pnpm workspace
+# keeps a single lockfile here), so this file decides what every image ships.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+
+.git
+.github
+.claude
+openspec
+graphify-out
+
+**/.env
+**/*.log
+**/.DS_Store

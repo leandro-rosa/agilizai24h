@@ -26,13 +26,15 @@ Radix-based já presentes em `src/app/components/ui/`). Origem: export do
 
 ## Scripts
 
-`npm run dev` / `build` / `preview` (npm — ver gap de package manager
-abaixo).
+`pnpm dev` / `build` / `preview` / `lint`. Pacote: `@agiliz/site`, membro do
+workspace pnpm da raiz — instale sempre pela raiz, não aqui.
 
 ## Gaps conhecidos (não corrigidos aqui — documentação apenas)
 
-- `package.json` tem `name: "@figma/my-make-file"`, sobra do export do
-  Figma Make — precisa renomear.
+- Sem `tsconfig.json` e sem `typescript` instalado, apesar de ~60 arquivos
+  `.tsx`/`.ts`: o Vite transpila via esbuild sem checar tipos. Por isso este
+  app não participa do `typecheck` do Turborepo — adicionar TypeScript de
+  verdade aqui é uma mudança à parte.
 - `src/styles/fonts.css` está vazio — nenhuma fonte customizada é
   carregada apesar do DESIGN.md pedir uma sans-serif específica.
 - `theme.css` usa os tokens genéricos do shadcn (`--primary: #030213`,
@@ -43,8 +45,8 @@ abaixo).
   sistemas de UI coexistindo; shadcn é o padrão do workspace (ver
   [../../CLAUDE.md](../../CLAUDE.md)), MUI não deveria ser usado em código
   novo.
-- `package-lock.json` (npm) convive com um bloco `pnpm.overrides`
-  vestigial no `package.json` — inconsistência de package manager, sem
-  efeito prático hoje.
+- ESLint só passa a valer para código novo: `src/app/components/ui/**`,
+  `components/figma/**` e `imports/**` estão em `globalIgnores` por serem
+  vendorizados/gerados.
 - RTK/RTK Query ainda não instalado — convenção do workspace, pendente de
   implementação.

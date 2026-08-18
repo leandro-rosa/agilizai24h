@@ -46,12 +46,21 @@ como referência.
 O script mantém um registro estático (`VALID_PROJECTS`,
 `PROJECT_DIRECTORIES`, `PROJECT_FILES`, `PROJECT_DEV_SERVICE`,
 `PROJECT_PROD_SERVICE`, `UP_ORDER`, `DOWN_ORDER`) mapeando cada projeto ao
-seu diretório, arquivo Compose e serviços dev/production. Hoje só existe:
+seu diretório, arquivo Compose e serviços dev/production. Hoje:
 
 | Projeto | Diretório | Compose | Dev | Production |
 |---|---|---|---|---|
+| `infra` | `docker/composes` | `docker-compose.infra.yaml` | — | — |
 | `site` | `frontend/apps/site` | `docker-compose.yml` | `site-dev` | `site-prod` |
 | `admin` | `frontend/apps/admin` | `docker-compose.yml` | `admin-dev` | `admin-prod` |
+
+`infra` (Redis + MinIO compartilhados) **sobe primeiro e desce por último** —
+serviços de backend dependem dele para BullMQ (`@app/hold-it`) e storage S3
+(`@app/aws`). Não tem distinção dev/production de propósito: por não estar em
+`PROJECT_DEV_SERVICE`/`PROJECT_PROD_SERVICE`, é afetado por inteiro nos dois
+modos. Suas portas de host são sobrescrevíveis (`REDIS_HOST_PORT`,
+`MINIO_HOST_PORT`, `MINIO_CONSOLE_HOST_PORT`) para não colidir com outros
+serviços já rodando na máquina.
 
 ## Adicionando um novo projeto
 
@@ -73,4 +82,9 @@ Ao criar um novo app dockerizado em `backend/apps/<nome>` ou
   `smart-parts-cli`); a lógica de migrations Prisma daquele projeto foi
   removida porque não há serviço de banco de dados aqui ainda —
   reintroduzir quando `backend/apps` ganhar um serviço que dependa disso.
+- `docker/composes/` ainda guarda 3 arquivos herdados desse mesmo projeto
+  anterior (`docker-compose.redis.yaml`, `.observability.yaml`, `.cli.yaml`),
+  que referenciam apps inexistentes e redes que este repo não usa. Só
+  `docker-compose.infra.yaml` está registrado na CLI; limpar os outros é uma
+  mudança à parte.
 - Sem testes automatizados para o script.

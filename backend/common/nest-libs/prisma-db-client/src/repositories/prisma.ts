@@ -76,7 +76,8 @@ export abstract class PrismaRepository<T, Model> {
           distinct: criteria?.distinct,
           cursor: criteria?.cursor,
         }
-        Object.keys(query).forEach(k => query[k] == null && delete query[k])
+        const prunable = query as Record<string, unknown>
+        Object.keys(prunable).forEach(k => prunable[k] == null && delete prunable[k])
 
         const items = (await this.model.findMany(query)) || []
 
@@ -100,7 +101,8 @@ export abstract class PrismaRepository<T, Model> {
           distinct: criteria?.distinct,
           cursor: criteria?.cursor,
         }
-        Object.keys(query).forEach(k => query[k] == null && delete query[k])
+        const prunable = query as Record<string, unknown>
+        Object.keys(prunable).forEach(k => prunable[k] == null && delete prunable[k])
 
         return this.model.count(query)
       },
