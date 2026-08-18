@@ -11,13 +11,14 @@ readonly PROJECT_ROOT="${AGILIZ_ROOT:-$(cd -- "${SCRIPT_DIR}/.." && pwd -P)}"
 readonly SHARED_NETWORK_NAME='agiliz_network'
 # 'infra' (Redis + MinIO) sobe primeiro e desce por ultimo: os servicos de
 # backend dependem dele para BullMQ e storage S3.
-readonly -a UP_ORDER=(infra iam stores site admin)
-readonly -a DOWN_ORDER=(admin site stores iam infra)
-readonly -a VALID_PROJECTS=(infra iam stores site admin)
+readonly -a UP_ORDER=(infra iam stores products site admin)
+readonly -a DOWN_ORDER=(admin site products stores iam infra)
+readonly -a VALID_PROJECTS=(infra iam stores products site admin)
 readonly -A PROJECT_DIRECTORIES=(
   [infra]='docker/composes'
   [iam]='backend/apps/iam-service'
   [stores]='backend/apps/stores-service'
+  [products]='backend/apps/products-service'
   [site]='frontend/apps/site'
   [admin]='frontend/apps/admin'
 )
@@ -25,6 +26,7 @@ readonly -A PROJECT_FILES=(
   [infra]='docker-compose.infra.yaml'
   [iam]='docker-compose.yml'
   [stores]='docker-compose.yml'
+  [products]='docker-compose.yml'
   [site]='docker-compose.yml'
   [admin]='docker-compose.yml'
 )
@@ -34,12 +36,14 @@ readonly -A PROJECT_FILES=(
 readonly -A PROJECT_DEV_SERVICE=(
   [iam]='iam-dev'
   [stores]='stores-dev'
+  [products]='products-dev'
   [site]='site-dev'
   [admin]='admin-dev'
 )
 readonly -A PROJECT_PROD_SERVICE=(
   [iam]='iam-prod'
   [stores]='stores-prod'
+  [products]='products-prod'
   [site]='site-prod'
   [admin]='admin-prod'
 )
@@ -91,6 +95,7 @@ PROJECTS:
   infra  docker/composes/docker-compose.infra.yaml (servicos: redis, minio)
   iam    backend/apps/iam-service/docker-compose.yml (servicos: iam-dev, iam-prod)
   stores backend/apps/stores-service/docker-compose.yml (servicos: stores-dev, stores-prod)
+  products backend/apps/products-service/docker-compose.yml (servicos: products-dev, products-prod)
   site   frontend/apps/site/docker-compose.yml (servicos: site-dev, site-prod)
   admin  frontend/apps/admin/docker-compose.yml (servicos: admin-dev, admin-prod)
 
@@ -117,7 +122,7 @@ MODE:
 
 DEFAULTS AND EFFECTS:
   up cria a rede externa agiliz_network se necessario e executa
-  'docker compose up --build --detach' na ordem: infra, iam, stores, site, admin.
+  'docker compose up --build --detach' na ordem: infra, iam, stores, products, site, admin.
   down executa 'docker compose down --remove-orphans' na ordem inversa.
   logs usa '--follow --tail=all' para todos os projetos selecionados.
   stats monitora somente containers selecionados que estejam em execucao.
@@ -185,7 +190,7 @@ BEHAVIOR:
   'docker compose up --build --detach' separadamente em cada projeto.
   Sem --production, sobe o servico de desenvolvimento de cada projeto
   (ex.: site-dev); com --production, sobe o de producao (ex.: site-prod).
-  Ordem: infra, iam, stores, site, admin.
+  Ordem: infra, iam, stores, products, site, admin.
   Sem filtros, opera sobre todos os projetos.
 
 EXAMPLES:
@@ -229,7 +234,7 @@ BEHAVIOR:
   Executa 'docker compose down --remove-orphans' separadamente em cada projeto.
   Sem --production, encerra o servico de desenvolvimento de cada projeto
   (ex.: site-dev); com --production, encerra o de producao (ex.: site-prod).
-  Ordem: admin, site, stores, iam, infra.
+  Ordem: admin, site, products, stores, iam, infra.
   Nao passa --volumes.
   Sem filtros, opera sobre todos os projetos.
 
@@ -1255,7 +1260,7 @@ _agiliz_cli_completion() {
   local previous="${COMP_WORDS[COMP_CWORD - 1]:-}"
   local commands='up down logs stats exec deploy:pull completion'
   local options='-i --include -e --exclude --production -h --help'
-  local projects='infra iam stores site admin'
+  local projects='infra iam stores products site admin'
 
   if [[ "${previous}" == '-i' || "${previous}" == '--include' ||
     "${previous}" == '-e' || "${previous}" == '--exclude' ]]; then

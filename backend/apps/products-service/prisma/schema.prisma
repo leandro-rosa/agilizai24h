@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A SKU in the canonical catalogue.
+model Product {
+  id       Int    @id @default(autoincrement())
+  sku      String @unique
+  name     String
+  /// 'meal' | 'snack' | 'beverage' | 'essential' — see PRODUCT_CATEGORY_VALUES.
+  category String
+
+  /// The name folded for matching (case, accents, whitespace). Stored rather
+  /// than computed per read, because ingestion resolves thousands of names per
+  /// uploaded file. Not unique: two catalogue products may normalise to the
+  /// same string, and that ambiguity must be reported, not silently resolved.
+  normalized_name String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  cost_versions CostVersion[]
+  name_overrides ProductNameOverride[]
+
+  @@index([normalized_name])
+  @@map("product")
+}
+
+/// A cost effective from a date, never overwritten.
+///
+/// There is deliberately NO `current_cost` column on Product. A mutable
+/// "current cost" is the easy thing to read by accident, and reading it for a
+/// historical month silently reprices that month — the figures just change,
+/// with nothing to indicate it. Modelling cost only as a dated series means
+/// there is no such field to read.
+model CostVersion {
+  id         Int      @id @default(autoincrement())
+  product_id Int
+  /// The date this cost takes effect. A lookup picks the latest version whose
+  /// effective_from is on or before the requested date.
+  effective_from DateTime @db.Date
+  /// Integer minor units (centavos). Never a float: these values are summed
+  /// across thousands of rows and multiplied by quantities, which is exactly
+  /// the pattern that accumulates binary floating-point error — and the
+  /// resulting mismatch against the operator's spreadsheet would be small,
+  /// real, and very expensive to diagnose.
+  cost_cents Int
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  /// Re-recording a cost for the same effective date replaces that version
+  /// rather than creating a second one.
+  @@unique([product_id, effective_from])
+  @@index([product_id, effective_from])
+  @@map("cost_version")
+}
+
+/// A manually curated mapping from a name seen in a POS export to a catalogue
+/// product, for names normalisation alone cannot resolve.
+///
+/// Operational data that grows as real mismatches appear, so it is a table
+/// rather than a constant in code — a mismatch must be fixable without a
+/// deploy. An override always beats a normalised match: it exists because a
+/// human looked at a real mismatch and decided the answer.
+model ProductNameOverride {
+  id         Int    @id @default(autoincrement())
+  /// The normalised form of the external name this override matches.
+  source_normalized_name String @unique
+  /// Kept for operators to see what was actually written in the file.
+  source_name String
+  product_id  Int
+
+  created_at DateTime @default(now())
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@map("product_name_override")
+}

@@ -44,6 +44,8 @@ register({
     '@app/http-client/*': ['common/nest-libs/http-client/src/*'],
     '@app/iam-contracts': ['common/nest-libs/iam-contracts/src'],
     '@app/iam-contracts/*': ['common/nest-libs/iam-contracts/src/*'],
+    '@app/products-contracts': ['common/nest-libs/products-contracts/src'],
+    '@app/products-contracts/*': ['common/nest-libs/products-contracts/src/*'],
     '@app/prisma-db-client': ['common/nest-libs/prisma-db-client/src'],
     '@app/prisma-db-client/*': ['common/nest-libs/prisma-db-client/src/*'],
     '@app/quote-search-match': ['common/nest-libs/quote-search-match/src'],

@@ -5,13 +5,15 @@ visão geral do monorepo.
 
 ## Estado atual
 
-- `apps/` — 2 microserviços:
-  [iam-service](apps/iam-service/CLAUDE.md) (contas, sessões, permissões) e
-  [stores-service](apps/stores-service/CLAUDE.md) (registro de lojas).
+- `apps/` — 3 microserviços:
+  [iam-service](apps/iam-service/CLAUDE.md) (contas, sessões, permissões),
+  [stores-service](apps/stores-service/CLAUDE.md) (registro de lojas) e
+  [products-service](apps/products-service/CLAUDE.md) (catálogo + custo datado).
   `iam-service` foi o primeiro e serve de molde para os próximos.
-- `common/nest-libs/` — 9 libs, sendo 8 abstratas e
-  [iam-contracts](common/nest-libs/iam-contracts/CLAUDE.md) (contrato
-  iam ↔ gateway, sem lógica).
+- `common/nest-libs/` — 10 libs: 8 abstratas mais dois pacotes de contrato sem
+  lógica, [iam-contracts](common/nest-libs/iam-contracts/CLAUDE.md) (iam ↔
+  gateway) e [products-contracts](common/nest-libs/products-contracts/CLAUDE.md)
+  (products → finance/supply).
 
 Vários `CLAUDE.md` das libs abaixo mencionam apps consumidores (`quote`,
 `search`, `bull-board`) — isso é histórico trazido de outro repositório;
@@ -30,6 +32,7 @@ ver [../openspec/project.md](../openspec/project.md).)
 | [http-client](common/nest-libs/http-client/CLAUDE.md) | `@nestjs/axios` com retry/backoff + camada de conveniência GraphQL |
 | [prisma-db-client](common/nest-libs/prisma-db-client/CLAUDE.md) | Repositório base `PrismaRepository<T, Model>`, schema-agnóstico |
 | [iam-contracts](common/nest-libs/iam-contracts/CLAUDE.md) | Nomes de permissão/role e shape da introspecção — contrato `iam-service` ↔ `gateway-service` |
+| [products-contracts](common/nest-libs/products-contracts/CLAUDE.md) | `BulkCostResult` particionado + `Centavos` — contrato `products-service` → `finance`/`supply` |
 | [quote-search-match](common/nest-libs/quote-search-match/CLAUDE.md) | Contrato (filas + tipos) entre apps de quote e de search — sem lógica |
 | [sheeter](common/nest-libs/sheeter/CLAUDE.md) | Leitura/escrita de planilhas/CSV sobre `hold-it` + `aws` |
 
