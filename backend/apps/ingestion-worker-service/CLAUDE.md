@@ -73,12 +73,23 @@ do PDV e pode mudar; a classificação de perda é do negócio e é estável.
   linhas —, a corrida do último chunk, o split de supply na entrega, e
   parcial vs completo.
 
-## Gaps conhecidos
+## Bugs que só apareceram rodando
 
-- Sem teste e2e do arquivo real (upload → S3 → parse → sinks); o caminho da
-  fila de cada sink é coberto nos próprios serviços.
+- **`@app/sheeter` quebrava todo serviço que o importasse.** Ele chama
+  `XLSX.set_fs(fs)` no topo do módulo, e o pacote `xlsx` do npm (0.18.5) **não
+  exporta** `set_fs` — isso só existe nos builds do CDN do SheetJS. Nunca tinha
+  aparecido porque nenhum app importava a lib. Agora a chamada é condicional; o
+  `readFile` funciona sem ela (verificado com round-trip de workbook).
+- **O MinIO subia sem bucket.** O primeiro upload falhava com `NoSuchBucket`. O
+  `docker-compose.infra.yaml` agora tem um passo `minio-provision` que cria o
+  bucket e sai.
+
+## Gaps conhecidos
 - Sem cancelamento de ingestão em andamento; corrige-se reenviando o arquivo.
 - Sem política de retenção dos arquivos crus no object storage.
 - O `StagedRowsWorker` resolve nomes por chunk; um arquivo com muitos chunks
-  faz várias chamadas ao `products`. Aceitável no volume atual (uma loja-mês
-  cabe num chunk), revisitar se deixar de ser verdade.
+  faz várias chamadas ao `products`. Aceitável no volume atual, revisitar se
+  deixar de ser verdade.
+- Sem suíte automatizada do caminho de fila **deste** serviço: a integração
+  cobre a acumulação de chunks contra o Postgres com o broker stubado, e o
+  caminho real foi exercitado no e2e manual da stack completa.

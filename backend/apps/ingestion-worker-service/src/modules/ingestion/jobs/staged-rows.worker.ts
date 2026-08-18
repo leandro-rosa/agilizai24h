@@ -57,6 +57,12 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
     const names = [...new Set(messages.map(message => String(readColumn(message.rowData, 'product') ?? '').trim()))]
       .filter(name => name !== '')
 
+    // If the file names the store it came from, it must be the store the
+    // operator picked. Nothing else catches a report uploaded against the
+    // wrong store, and every figure derived from it would be attributed to the
+    // wrong place while looking entirely plausible.
+    await this.assertStoreMatches(messages, ingestion.store_id, correlationId)
+
     const resolution = await this.upstream.resolveProductNames(names, correlationId)
     const skuByName = new Map(resolution.matched.map(match => [match.source_name, match.product.sku]))
     const unmatchedNames = new Map(resolution.unmatched.map(entry => [entry.source_name, entry.reason]))
@@ -106,6 +112,38 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
     )
 
     return { accepted: toStage.length, rejected: rejections.length, finalized: isLastChunk }
+  }
+
+  /**
+   * Fails the whole chunk when the file's own store code resolves to a
+   * different store than the one stated at upload. Deliberately fatal rather
+   * than a per-row rejection: if the file is for another store, none of its
+   * rows belong here.
+   */
+  private async assertStoreMatches(
+    messages: SheeterRowMessage[],
+    statedStoreId: number,
+    correlationId?: string,
+  ): Promise<void> {
+    const codes = [...new Set(messages.map(message => readColumn(message.rowData, 'storeCode')))]
+      .filter((code): code is string | number => code !== undefined && String(code).trim() !== '')
+      .map(code => String(code).trim())
+
+    if (codes.length === 0) return
+
+    for (const code of codes) {
+      const store = await this.upstream.resolveStoreByExternalCode(code, correlationId)
+
+      if (!store) {
+        throw new Error(`The file names store code "${code}", which matches no registered store`)
+      }
+
+      if (store.id !== statedStoreId) {
+        throw new Error(
+          `The file is for store "${code}" (id ${store.id}) but was uploaded against store ${statedStoreId}`,
+        )
+      }
+    }
   }
 
   /** Returns a rejection when the row cannot be mapped, or undefined on success. */

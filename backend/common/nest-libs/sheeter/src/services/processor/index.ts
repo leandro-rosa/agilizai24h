@@ -13,7 +13,17 @@ import { Job } from 'bullmq'
 import * as fs from 'fs'
 import { Readable } from 'stream'
 
-XLSX.set_fs(fs)
+// `set_fs` only exists in the SheetJS builds distributed from their own CDN —
+// the `xlsx` package on npm (0.18.5) does not export it, and this call sits at
+// module scope, so importing this lib crashed every consuming service at
+// startup with "XLSX.set_fs is not a function". It had never surfaced because
+// no app had imported @app/sheeter until ingestion-worker-service did.
+//
+// It is only a hint for readFile's fs access, which the npm build resolves on
+// its own — verified by round-tripping a workbook through readFile without it.
+if (typeof (XLSX as unknown as { set_fs?: (m: unknown) => void }).set_fs === 'function') {
+  ;(XLSX as unknown as { set_fs: (m: unknown) => void }).set_fs(fs)
+}
 XLSX.stream.set_readable(Readable)
 
 type RowsPerSheet = Array<{ sheet: string; rows: any[][] }>

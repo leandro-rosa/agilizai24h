@@ -7,7 +7,7 @@ import {
   type SupplyRowsJob,
 } from '@app/ingestion-contracts'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
-import { INTERNAL_QUEUES, type IngestionFileType } from '../constants/file-types'
+import { INTERNAL_QUEUES, RETRY_OPTIONS, type IngestionFileType } from '../constants/file-types'
 
 export interface CreateIngestionInput {
   id: string
@@ -55,6 +55,11 @@ export class IngestionService {
     await this.broker.holdIt({
       queueName: INTERNAL_QUEUES.PARSE_FILE,
       message: { ingestionId: input.id, correlationId: input.correlationId },
+      // @app/hold-it defaults to attempts: 0 — a job is tried once and dropped.
+      // Parsing depends on S3 and two HTTP services, so a transient blip would
+      // discard an upload with no second try. Bounded, because a genuinely
+      // malformed file must reach a terminal failure rather than loop.
+      options: RETRY_OPTIONS,
     })
 
     return ingestion
@@ -168,7 +173,7 @@ export class IngestionService {
           revenueCents: row.amount_cents ?? 0,
         })),
       }
-      await this.broker.holdIt({ queueName: INGESTION_QUEUES.SALES_ROWS, message })
+      await this.broker.holdIt({ queueName: INGESTION_QUEUES.SALES_ROWS, message, options: RETRY_OPTIONS })
     }
 
     if (ingestion.file_type === 'supply') {
@@ -187,7 +192,7 @@ export class IngestionService {
             sourceText: row.source_text ?? undefined,
           })),
       } as SupplyRowsJob
-      await this.broker.holdIt({ queueName: INGESTION_QUEUES.SUPPLY_ROWS, message })
+      await this.broker.holdIt({ queueName: INGESTION_QUEUES.SUPPLY_ROWS, message, options: RETRY_OPTIONS })
     }
 
     if (ingestion.file_type === 'cost') {
@@ -202,7 +207,7 @@ export class IngestionService {
           effectiveFrom: `${ingestion.period}-01`,
         })),
       }
-      await this.broker.holdIt({ queueName: INGESTION_QUEUES.COST_ROWS, message })
+      await this.broker.holdIt({ queueName: INGESTION_QUEUES.COST_ROWS, message, options: RETRY_OPTIONS })
     }
 
     await this.prisma.$transaction([

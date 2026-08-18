@@ -16,7 +16,17 @@ services:
       IAM_SERVICE_URL: http://agiliz-iam-prod:3000
       STORES_SERVICE_URL: http://agiliz-stores-prod:3000
       PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
+      INGESTION_SERVICE_URL: http://agiliz-ingestion-prod:3000
       PORT: 3000
+      # The gateway writes the uploaded bytes to object storage itself, since
+      # it already holds them — re-streaming to another service would double
+      # the transfer for no boundary benefit.
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-agiliz}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-agiliz-dev-secret}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-agiliz-uploads}
+      AWS_S3_ENDPOINT: http://agiliz-minio:9000
+      AWS_S3_FORCE_PATH_STYLE: "true"
     # The ONLY backend service publishing a host port: everything else is
     # reachable solely inside agiliz_network, through here.
     ports:

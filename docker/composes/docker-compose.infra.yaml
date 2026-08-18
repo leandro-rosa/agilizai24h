@@ -56,6 +56,30 @@ services:
     networks:
       - agiliz_network
 
+  # One-shot: creates the bucket the services expect and exits. Without it
+  # MinIO comes up empty and the first upload fails with NoSuchBucket, which is
+  # exactly what happened the first time the ingestion flow ran end to end.
+  minio-provision:
+    image: minio/mc:latest
+    container_name: agiliz-minio-provision
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-agiliz}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-agiliz-dev-secret}
+      BUCKET: ${AWS_S3_BUCKET:-agiliz-uploads}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://agiliz-minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing "local/$$BUCKET" &&
+        echo "bucket $$BUCKET ready"
+    networks:
+      - agiliz_network
+    restart: "no"
+
 volumes:
   agiliz_redis_data:
     name: agiliz_redis_data

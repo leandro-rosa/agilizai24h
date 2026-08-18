@@ -28,3 +28,17 @@ export const REQUIRED_HEADERS: Record<IngestionFileType, string[]> = {
   supply: ['produto', 'abastecido'],
   cost: ['produto', 'custo'],
 }
+
+/**
+ * Retry policy for every job this service publishes.
+ *
+ * @app/hold-it's defaults set `attempts: 0`, meaning a job is tried once and
+ * dropped. Parsing depends on object storage and two HTTP services, so a
+ * transient blip would silently discard an upload. Bounded at three, because a
+ * genuinely malformed file must reach a terminal failure — visible through
+ * hold-it's failed-job endpoint — rather than retry forever.
+ */
+export const RETRY_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 2000 },
+}

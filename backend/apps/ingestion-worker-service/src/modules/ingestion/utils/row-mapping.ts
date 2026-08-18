@@ -17,6 +17,12 @@ export const COLUMN_ALIASES = {
   removals: ['remocoes', 'remocao', 'retiradas'],
   removedTotal: ['removido', 'quantidade removida', 'total removido'],
   cost: ['custo', 'custo unitario', 'preco de custo'],
+  /**
+   * The POS code for the store the file belongs to, when the export carries
+   * one. Used to cross-check the store the operator picked at upload — the
+   * only thing that catches a file filed against the wrong store.
+   */
+  storeCode: ['loja', 'codigo da loja', 'unidade', 'ponto de venda'],
 } as const
 
 export type ColumnKey = keyof typeof COLUMN_ALIASES
