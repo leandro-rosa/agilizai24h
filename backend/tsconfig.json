@@ -31,6 +31,8 @@
       "@app/elasticsearch/*": ["common/nest-libs/elasticsearch/src/*"],
       "@app/health": ["common/nest-libs/health/src"],
       "@app/health/*": ["common/nest-libs/health/src/*"],
+      "@app/iam-contracts": ["common/nest-libs/iam-contracts/src"],
+      "@app/iam-contracts/*": ["common/nest-libs/iam-contracts/src/*"],
       "@app/hold-it": ["common/nest-libs/hold-it/src"],
       "@app/hold-it/*": ["common/nest-libs/hold-it/src/*"],
       "@app/http-client": ["common/nest-libs/http-client/src"],

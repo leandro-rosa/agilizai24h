@@ -51,6 +51,7 @@ seu diretório, arquivo Compose e serviços dev/production. Hoje:
 | Projeto | Diretório | Compose | Dev | Production |
 |---|---|---|---|---|
 | `infra` | `docker/composes` | `docker-compose.infra.yaml` | — | — |
+| `iam` | `backend/apps/iam-service` | `docker-compose.yml` | `iam-dev` | `iam-prod` |
 | `site` | `frontend/apps/site` | `docker-compose.yml` | `site-dev` | `site-prod` |
 | `admin` | `frontend/apps/admin` | `docker-compose.yml` | `admin-dev` | `admin-prod` |
 
@@ -80,8 +81,8 @@ Ao criar um novo app dockerizado em `backend/apps/<nome>` ou
 
 - Adaptado de uma CLI equivalente de outro projeto (histórico:
   `smart-parts-cli`); a lógica de migrations Prisma daquele projeto foi
-  removida porque não há serviço de banco de dados aqui ainda —
-  reintroduzir quando `backend/apps` ganhar um serviço que dependa disso.
+  removida. Agora que `iam-service` existe e tem migrations próprias, vale
+  reintroduzir — hoje `prisma migrate deploy` é rodado à mão por serviço.
 - `docker/composes/` ainda guarda 3 arquivos herdados desse mesmo projeto
   anterior (`docker-compose.redis.yaml`, `.observability.yaml`, `.cli.yaml`),
   que referenciam apps inexistentes e redes que este repo não usa. Só

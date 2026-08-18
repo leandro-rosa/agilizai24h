@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// An operator account. Created by an administrator — there is no public
+/// self-registration, so there is no "pending"/"unverified" state.
+model User {
+  id            Int       @id @default(autoincrement())
+  email         String    @unique
+  name          String
+  /// Argon2id hash. The plaintext password is never stored, logged or returned.
+  password_hash String
+  is_active     Boolean   @default(true)
+  /// Failed-authentication throttling, counted against the account rather than
+  /// the caller's IP: the gateway is the only client, so every attempt arrives
+  /// from one address and IP-based limiting would be useless here.
+  failed_attempts    Int       @default(0)
+  throttled_until    DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  roles    UserRole[]
+  sessions Session[]
+
+  @@map("user")
+}
+
+/// A named collection of permissions. Role names are organisational and may
+/// churn; permission names are contractual. Authorization is always expressed
+/// in permissions, never in role names.
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String
+  created_at  DateTime @default(now())
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("role")
+}
+
+/// A named permission, e.g. "finance:read". These constants are shared with
+/// the gateway through the contracts package so a typo is a compile error
+/// rather than a silent access change.
+model Permission {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String
+  created_at  DateTime @default(now())
+
+  roles RolePermission[]
+
+  @@map("permission")
+}
+
+model UserRole {
+  user_id Int
+  role_id Int
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([user_id, role_id])
+  @@map("user_role")
+}
+
+model RolePermission {
+  role_id       Int
+  permission_id Int
+
+  role       Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@id([role_id, permission_id])
+  @@map("role_permission")
+}
+
+/// A server-side session. The token handed to the caller is opaque and random;
+/// only its hash is stored, so a database read cannot be replayed as a valid
+/// session. Sessions are revocable immediately, which is why this is not a JWT.
+model Session {
+  id         Int       @id @default(autoincrement())
+  /// SHA-256 of the opaque token. Indexed because introspection runs on every
+  /// gateway request.
+  token_hash String    @unique
+  user_id    Int
+  expires_at DateTime
+  revoked_at DateTime?
+  created_at DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("session")
+}

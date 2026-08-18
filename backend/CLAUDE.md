@@ -5,9 +5,12 @@ visão geral do monorepo.
 
 ## Estado atual
 
-- `apps/` — **vazio**. Nenhum microserviço criado neste repo ainda.
-- `common/nest-libs/` — 8 libs abstratas, prontas para serem consumidas
-  por apps que ainda não existem.
+- `apps/` — 1 microserviço:
+  [iam-service](apps/iam-service/CLAUDE.md) (contas, sessões, permissões).
+  Primeiro app do repo; serve de molde para os próximos.
+- `common/nest-libs/` — 9 libs, sendo 8 abstratas e
+  [iam-contracts](common/nest-libs/iam-contracts/CLAUDE.md) (contrato
+  iam ↔ gateway, sem lógica).
 
 Vários `CLAUDE.md` das libs abaixo mencionam apps consumidores (`quote`,
 `search`, `bull-board`) — isso é histórico trazido de outro repositório;
@@ -25,6 +28,7 @@ ver [../openspec/project.md](../openspec/project.md).)
 | [hold-it](common/nest-libs/hold-it/CLAUDE.md) | Abstração de message broker (BullMQ funcional, Kafka com gap conhecido) + workers + Bull Board |
 | [http-client](common/nest-libs/http-client/CLAUDE.md) | `@nestjs/axios` com retry/backoff + camada de conveniência GraphQL |
 | [prisma-db-client](common/nest-libs/prisma-db-client/CLAUDE.md) | Repositório base `PrismaRepository<T, Model>`, schema-agnóstico |
+| [iam-contracts](common/nest-libs/iam-contracts/CLAUDE.md) | Nomes de permissão/role e shape da introspecção — contrato `iam-service` ↔ `gateway-service` |
 | [quote-search-match](common/nest-libs/quote-search-match/CLAUDE.md) | Contrato (filas + tipos) entre apps de quote e de search — sem lógica |
 | [sheeter](common/nest-libs/sheeter/CLAUDE.md) | Leitura/escrita de planilhas/CSV sobre `hold-it` + `aws` |
 
@@ -44,8 +48,14 @@ configurado via env vars.
 - As libs são consumidas como **código-fonte TypeScript** via esse alias —
   não têm script `build` próprio e não emitem `dist`. Quem compila é o app
   que as importa; por isso existe o `register-paths.js` na raiz, que refaz o
-  mapeamento `@app/*` em runtime sobre o `dist/` do app
-  (`node -r ./register-paths.js dist/backend/apps/<svc>/main.js`).
+  mapeamento `@app/*` em runtime.
+- Cada app emite um `dist` **local a si** (`apps/<svc>/dist/`), com
+  `rootDir` em `backend/` — então o build contém `apps/<svc>/src/` **e**
+  `common/nest-libs/*/src/`. Rodar de dentro da pasta do app:
+  `node -r ../../../register-paths.js dist/apps/<svc>/src/main.js`.
+  O `dist` precisa ficar dentro do app porque, com o node_modules isolado do
+  pnpm, um `dist` na raiz só alcança o node_modules da raiz — que não tem as
+  dependências de runtime do serviço.
 - Cada lib tem `package.json` (`@app/<nome>`, privado) com scripts
   `typecheck` e `lint`. Dependências de framework (NestJS etc.) são
   `peerDependencies` — quem fixa a versão é o app consumidor.

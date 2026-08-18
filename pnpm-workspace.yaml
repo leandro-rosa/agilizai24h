@@ -5,13 +5,17 @@ packages:
   - "frontend/common/*"
 
 # pnpm 11 blocks dependency build scripts unless they are explicitly allowed.
-# All five below are native/codegen postinstalls from first-party toolchains we
+# All below are native/codegen postinstalls from first-party toolchains we
 # already depend on: Tailwind v4 and Vite/esbuild for the frontends, and
 # protobuf/msgpack codecs pulled in by the OpenTelemetry and BullMQ stacks.
 allowBuilds:
+  "@prisma/engines": true
+  "@scarf/scarf": false
   "@tailwindcss/oxide": true
+  argon2: true
   esbuild: true
   msgpackr-extract: true
+  prisma: true
   protobufjs: true
   unrs-resolver: true
 
