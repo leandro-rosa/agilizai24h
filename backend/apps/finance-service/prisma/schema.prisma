@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// One store's month, valued.
+///
+/// Materialised when its inputs change rather than computed per request: a
+/// per-read computation would fan out to four services and multiply thousands
+/// of rows on every dashboard load, and — worse — a historical month's figure
+/// would depend on what products-service happened to return at that moment.
+/// Materialising makes a past month a fact that was computed once, with the
+/// valuation date recorded alongside it.
+model Reconciliation {
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  /// The month, as YYYY-MM.
+  period   String
+
+  /// The four figures, in integer minor units.
+  restocked_value_cents Int
+  cogs_cents            Int
+  remaining_value_cents Int
+  loss_value_cents      Int
+  loss_quantity         Int
+
+  /// The date costs were resolved at, so the valuation can be reproduced and
+  /// the month-end approximation is visible rather than implicit.
+  valuation_date String
+
+  /// False when any SKU could not be priced, or when a valued balance was
+  /// inconsistent. Never inferred from the totals — a total that excludes an
+  /// unpriced SKU looks perfectly plausible.
+  complete Boolean
+
+  /// SKUs whose remaining balance inventory-service flagged as inconsistent
+  /// (a negative stock: a sale or removal recorded without its restock). The
+  /// figure is still computed — it is evidence of the data problem — but the
+  /// month is never presented as clean.
+  inconsistent_stock String[]
+
+  /// Lets a caller tell a stale figure from a current one.
+  computed_at DateTime @default(now())
+
+  /// When the inputs this was computed from last changed, taken from the
+  /// period event. Null for a manual recompute, which has no such event.
+  ///
+  /// Recorded because `computed_at` alone cannot answer the question that
+  /// matters — a figure computed recently from data that changed afterwards is
+  /// stale, and looks identical to a current one without this.
+  inputs_changed_at DateTime?
+
+  by_reason ReconciliationLoss[]
+  unvalued  UnvaluedSku[]
+
+  @@unique([store_id, period])
+  @@index([period])
+  @@map("reconciliation")
+}
+
+/// Loss broken down, in units and currency.
+///
+/// Both breakdowns live here — `sku` is null for a by-reason row, `reason` is
+/// null for a by-sku row — so the two can be asserted to sum to the same total
+/// without a second table.
+model ReconciliationLoss {
+  id                Int    @id @default(autoincrement())
+  reconciliation_id Int
+
+  reason String?
+  sku    String?
+
+  quantity     Int
+  value_cents  Int
+
+  reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id], onDelete: Cascade)
+
+  @@index([reconciliation_id])
+  @@map("reconciliation_loss")
+}
+
+/// A SKU that had movement but could not be valued.
+///
+/// Recorded with its quantities, so an operator sees what was left out rather
+/// than only that something was — and so the unmatched report doubles as the
+/// work queue for products-service's override table.
+model UnvaluedSku {
+  id                Int    @id @default(autoincrement())
+  reconciliation_id Int
+
+  sku    String
+  reason String
+
+  restocked     Int
+  sold          Int
+  remaining     Int
+  loss_quantity Int
+
+  reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id], onDelete: Cascade)
+
+  @@index([reconciliation_id])
+  @@map("unvalued_sku")
+}

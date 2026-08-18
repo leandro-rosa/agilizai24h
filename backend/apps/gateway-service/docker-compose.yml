@@ -17,6 +17,7 @@ services:
       STORES_SERVICE_URL: http://agiliz-stores-prod:3000
       PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
       INGESTION_SERVICE_URL: http://agiliz-ingestion-prod:3000
+      FINANCE_SERVICE_URL: http://agiliz-finance-prod:3000
       PORT: 3000
       # The gateway writes the uploaded bytes to object storage itself, since
       # it already holds them — re-streaming to another service would double

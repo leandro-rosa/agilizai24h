@@ -1,0 +1,101 @@
+networks:
+  agiliz_network:
+    external: true
+    name: agiliz_network
+
+volumes:
+  agiliz_finance_postgres_data:
+    name: agiliz_finance_postgres_data
+
+services:
+  # Database-per-service: this Postgres belongs to finance-service alone. No other
+  # service reads these tables.
+  finance-postgres:
+    image: postgres:16-alpine
+    container_name: agiliz-finance-postgres
+    environment:
+      POSTGRES_USER: ${FINANCE_POSTGRES_USER:-agiliz}
+      POSTGRES_PASSWORD: ${FINANCE_POSTGRES_PASSWORD:-agiliz-dev-secret}
+      POSTGRES_DB: ${FINANCE_POSTGRES_DB:-finance}
+    ports:
+      - "${FINANCE_POSTGRES_HOST_PORT:-5440}:5432"
+    volumes:
+      - agiliz_finance_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${FINANCE_POSTGRES_USER:-agiliz} -d ${FINANCE_POSTGRES_DB:-finance}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - agiliz_network
+
+  finance-dev:
+    build:
+      # Repo root: the pnpm workspace keeps one lockfile there.
+      context: ../../..
+      dockerfile: backend/apps/finance-service/Dockerfile
+      target: dev
+    container_name: agiliz-finance-dev
+    depends_on:
+      finance-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${FINANCE_POSTGRES_USER:-agiliz}:${FINANCE_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-finance-postgres:5432/${FINANCE_POSTGRES_DB:-finance}
+      PORT: 3000
+      REDIS_QUEUE_HOST: agiliz-redis
+      REDIS_QUEUE_PORT: 6379
+      # Unset would default to TRUE in @app/hold-it and crash NestJS at startup.
+      WITH_KAFKA_BROKERS: "false"
+      SALES_SERVICE_URL: http://agiliz-sales-prod:3000
+      SUPPLY_SERVICE_URL: http://agiliz-supply-prod:3000
+      INVENTORY_SERVICE_URL: http://agiliz-inventory-prod:3000
+      PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
+    # No published host port: domain services stay internal to agiliz_network,
+    # reachable only through gateway-service.
+    expose:
+      - "3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      # 127.0.0.1 explicitly — Alpine resolves localhost to ::1 first.
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  finance-prod:
+    build:
+      context: ../../..
+      dockerfile: backend/apps/finance-service/Dockerfile
+      target: runtime
+    container_name: agiliz-finance-prod
+    depends_on:
+      finance-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${FINANCE_POSTGRES_USER:-agiliz}:${FINANCE_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-finance-postgres:5432/${FINANCE_POSTGRES_DB:-finance}
+      PORT: 3000
+      REDIS_QUEUE_HOST: agiliz-redis
+      REDIS_QUEUE_PORT: 6379
+      # Unset would default to TRUE in @app/hold-it and crash NestJS at startup.
+      WITH_KAFKA_BROKERS: "false"
+      SALES_SERVICE_URL: http://agiliz-sales-prod:3000
+      SUPPLY_SERVICE_URL: http://agiliz-supply-prod:3000
+      INVENTORY_SERVICE_URL: http://agiliz-inventory-prod:3000
+      PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
+    expose:
+      - "3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

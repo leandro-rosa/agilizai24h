@@ -46,7 +46,11 @@ export class InventoryService {
    * movements, so a redelivered event produces identical values. That matters
    * because the period event is delivered at least once.
    */
-  async recomputeStore(storeId: number, fromPeriod: string, correlationId?: string): Promise<number> {
+  async recomputeStore(
+    storeId: number,
+    fromPeriod: string,
+    correlationId?: string,
+  ): Promise<{ written: number; periods: string[] }> {
     // Rebuilt incrementally: periods before the change keep their snapshots, and
     // the running balance is seeded from the closing stock immediately before
     // `fromPeriod`. Rebuilding the whole history instead would mean re-fetching
@@ -114,7 +118,10 @@ export class InventoryService {
 
     this.logger.log(`Recomputed ${written} stock snapshot(s) for store ${storeId} from ${fromPeriod}`)
 
-    return written
+    // The periods come back, not just the count: every one of them has a new
+    // closing balance, and reconciliation values remaining stock from it — so
+    // each needs revaluing, not only the month the change arrived for.
+    return { written, periods }
   }
 
   /**

@@ -24,6 +24,10 @@ class EnvironmentVariables {
   @IsNotEmpty()
   INGESTION_SERVICE_URL: string
 
+  @IsString()
+  @IsNotEmpty()
+  FINANCE_SERVICE_URL: string
+
   // Object storage: the gateway holds the uploaded bytes already, so it writes
   // them once rather than re-streaming them to another service.
   @IsString()

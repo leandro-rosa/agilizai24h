@@ -268,6 +268,33 @@ describe('inventory integration', () => {
     })
   })
 
+  describe('announcing what it derived', () => {
+    it('names every period it rebuilt, not just the one that changed', async () => {
+      // finance-service revalues remaining stock per month from this list.
+      // Closing stock carries forward, so correcting March moves April and
+      // every month after it — returning only '2026-03' would leave those
+      // months valued against a balance that no longer exists, while still
+      // reporting themselves complete.
+      const store = newStore()
+      given('2026-03', [{ sku: 'A', restocked: 100, sold: 40 }])
+      given('2026-04', [{ sku: 'A', sold: 10 }])
+
+      const result = await inventory.recomputeStore(store, '2026-03')
+
+      expect(result.periods).toEqual(expect.arrayContaining(['2026-03', '2026-04']))
+      expect(result.periods[0]).toBe('2026-03')
+    })
+
+    it('reports the periods in order, so the announcement follows the balance', async () => {
+      const store = newStore()
+      given('2026-03', [{ sku: 'A', restocked: 50 }])
+
+      const { periods } = await inventory.recomputeStore(store, '2026-03')
+
+      expect([...periods].sort()).toEqual(periods)
+    })
+  })
+
   describe('absence', () => {
     it('reports a store with no derived stock as not found, never as empty', async () => {
       const store = newStore()

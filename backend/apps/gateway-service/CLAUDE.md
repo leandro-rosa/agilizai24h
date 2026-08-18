@@ -5,7 +5,8 @@ Tudo atrás dele assume que o chamador já foi autenticado e autorizado. Ver
 [../../CLAUDE.md](../../CLAUDE.md) para as convenções do workspace backend.
 
 **Consumidor**: `frontend/apps/admin`. **Depende de**: `iam-service` (todo
-request), `stores-service` e `products-service` (por rota).
+request), `stores-service`, `products-service`, `ingestion-worker-service` e
+`finance-service` (por rota).
 
 ## Rotas
 
@@ -18,6 +19,8 @@ request), `stores-service` e `products-service` (por rota).
 | `POST /stores`, `PATCH /stores/:id` | `stores:write` | |
 | `GET /products`, `GET /products/:id` | `products:read` | |
 | `POST /products`, `POST /products/:sku/costs` | `products:write` | |
+| `GET /finance/:storeId/:period`, `GET /finance/:storeId`, `GET /finance/rollup` | `finance:read` | A reconciliação mensal |
+| `POST /finance/:storeId/:period/recompute` | `finance:read` | Não cria nada que o leitor já não pudesse ver — só re-deriva |
 | `GET /overview` | `stores:read` | Agrega, com falha parcial explícita |
 | `GET /health`, `GET /docs` | pública | |
 
@@ -84,9 +87,10 @@ Nenhuma é óbvia pela assinatura, e as duas afetam a semântica acima:
 
 ## Gaps conhecidos
 
-- Sem rotas de upload — `add-ingestion-flow` as acrescenta, e é quando este
-  serviço passa a registrar `HoldItModule` (e vai precisar de
-  `WITH_KAFKA_BROKERS=false`).
+- **`sales`, `supply` e `inventory` ainda não são roteados.** `finance` foi
+  roteado agora porque `add-finance-service` exige o e2e pelo gateway; os
+  outros três ficam para `add-web-real-data`, que é quando o painel passa a
+  precisar deles.
 - Sem rate limiting além do throttle de auth do próprio `iam`.
 - Sem cache de resposta: o tráfego é de um punhado de operadores, e cache só
   acrescentaria bugs de invalidação.

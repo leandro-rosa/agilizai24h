@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query } 
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { ApiProperty } from '@nestjs/swagger'
 import { IsInt, Min } from 'class-validator'
+import { DerivedEventsPublisher } from '../services/derived-events.publisher'
 import { InventoryService } from '../services/inventory.service'
 
 export class SetMinimumDto {
@@ -14,7 +15,10 @@ export class SetMinimumDto {
 @ApiTags('inventory')
 @Controller('inventory')
 export class InventoryController {
-  constructor(private readonly inventory: InventoryService) {}
+  constructor(
+    private readonly inventory: InventoryService,
+    private readonly derived: DerivedEventsPublisher,
+  ) {}
 
   @Get(':storeId')
   @ApiOperation({
@@ -74,8 +78,15 @@ export class InventoryController {
     description: 'For backfills and corrections that produce no period event.',
   })
   @ApiQuery({ name: 'from', required: true, example: '2026-01' })
-  recompute(@Param('storeId', ParseIntPipe) storeId: number, @Query('from') from: string) {
-    return this.inventory.recomputeStore(storeId, from)
+  async recompute(@Param('storeId', ParseIntPipe) storeId: number, @Query('from') from: string) {
+    const result = await this.inventory.recomputeStore(storeId, from)
+
+    // A backfill moves closing stock exactly like an ingestion does, so
+    // reconciliation has to hear about it too — otherwise the only way to fix a
+    // stale figure downstream would be a second manual call over there.
+    await this.derived.publishPeriodsDerived(storeId, result.periods, new Date().toISOString())
+
+    return result
   }
 
   @Delete(':storeId/:sku')
