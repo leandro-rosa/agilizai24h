@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A removal reason and whether it counts as real loss.
+///
+/// Modelled as a TABLE with an explicit flag, not as an enum in code and not as
+/// a hard-coded list in a WHERE clause. A rule written as
+/// `WHERE reason IN ('expired','damaged','other')` is invisible to the
+/// operators, duplicated at every call site, and silently wrong the moment a
+/// seventh reason appears in a report. As data, the rule has one home and can
+/// be shown in the UI next to the number it produced.
+model RemovalReason {
+  id   Int    @id @default(autoincrement())
+  /// Stable machine key, e.g. "expired". Not the Portuguese label.
+  key  String @unique
+  /// What the operators call it, e.g. "Validade vencida".
+  label String
+  /// THE rule. Expired, damaged product and other reason are loss; return,
+  /// transfer and internal use are not.
+  counts_as_loss Boolean
+
+  created_at DateTime @default(now())
+
+  removals RemovalRecord[]
+
+  @@map("removal_reason")
+}
+
+/// Units put onto the shelf, per store, period and SKU.
+model RestockRecord {
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  period   String
+  sku      String
+
+  quantity_restocked Int
+  ingestion_id       String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([store_id, period, sku])
+  @@index([store_id, period])
+  @@map("restock_record")
+}
+
+/// Units taken off the shelf, ALREADY SPLIT PER REASON.
+///
+/// A reported line of "-6 Devolução, -3 Outro motivo" is stored as two rows.
+/// The combined 9 exists nowhere as a quantity: if it were stored alongside the
+/// split, the two could disagree and every consumer would have to know which to
+/// trust. Storing only the split makes "9 units removed yields 3 units of loss"
+/// structurally true rather than dependent on a correct query.
+model RemovalRecord {
+  id        Int    @id @default(autoincrement())
+  store_id  Int
+  period    String
+  sku       String
+  reason_id Int
+
+  quantity_removed Int
+  /// What the file literally said on that line. Audit only — explicitly NOT a
+  /// quantity anything computes from.
+  source_text String?
+  ingestion_id String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  reason RemovalReason @relation(fields: [reason_id], references: [id])
+
+  @@unique([store_id, period, sku, reason_id])
+  @@index([store_id, period])
+  @@map("removal_record")
+}
+
+/// Marks that a store's period was ingested, so "never ingested" stays
+/// distinguishable from "ingested with no restocks or removals".
+model IngestedPeriod {
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  period   String
+
+  ingestion_id String
+  restock_count Int
+  removal_count Int
+  ingested_at  DateTime @default(now())
+
+  @@unique([store_id, period])
+  @@map("ingested_period")
+}

@@ -46,6 +46,8 @@ register({
     '@app/iam-contracts/*': ['common/nest-libs/iam-contracts/src/*'],
     '@app/ingestion-contracts': ['common/nest-libs/ingestion-contracts/src'],
     '@app/ingestion-contracts/*': ['common/nest-libs/ingestion-contracts/src/*'],
+    '@app/period-events-contracts': ['common/nest-libs/period-events-contracts/src'],
+    '@app/period-events-contracts/*': ['common/nest-libs/period-events-contracts/src/*'],
     '@app/products-contracts': ['common/nest-libs/products-contracts/src'],
     '@app/products-contracts/*': ['common/nest-libs/products-contracts/src/*'],
     '@app/prisma-db-client': ['common/nest-libs/prisma-db-client/src'],

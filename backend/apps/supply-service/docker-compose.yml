@@ -1,0 +1,93 @@
+networks:
+  agiliz_network:
+    external: true
+    name: agiliz_network
+
+volumes:
+  agiliz_supply_postgres_data:
+    name: agiliz_supply_postgres_data
+
+services:
+  # Database-per-service: this Postgres belongs to supply-service alone. No other
+  # service reads these tables.
+  supply-postgres:
+    image: postgres:16-alpine
+    container_name: agiliz-supply-postgres
+    environment:
+      POSTGRES_USER: ${SUPPLY_POSTGRES_USER:-agiliz}
+      POSTGRES_PASSWORD: ${SUPPLY_POSTGRES_PASSWORD:-agiliz-dev-secret}
+      POSTGRES_DB: ${SUPPLY_POSTGRES_DB:-supply}
+    ports:
+      - "${SUPPLY_POSTGRES_HOST_PORT:-5437}:5432"
+    volumes:
+      - agiliz_supply_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SUPPLY_POSTGRES_USER:-agiliz} -d ${SUPPLY_POSTGRES_DB:-supply}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - agiliz_network
+
+  supply-dev:
+    build:
+      # Repo root: the pnpm workspace keeps one lockfile there.
+      context: ../../..
+      dockerfile: backend/apps/supply-service/Dockerfile
+      target: dev
+    container_name: agiliz-supply-dev
+    depends_on:
+      supply-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${SUPPLY_POSTGRES_USER:-agiliz}:${SUPPLY_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-supply-postgres:5432/${SUPPLY_POSTGRES_DB:-supply}
+      PORT: 3000
+      REDIS_QUEUE_HOST: agiliz-redis
+      REDIS_QUEUE_PORT: 6379
+      # Unset would default to TRUE in @app/hold-it and crash NestJS at startup.
+      WITH_KAFKA_BROKERS: "false"
+    # No published host port: domain services stay internal to agiliz_network,
+    # reachable only through gateway-service.
+    expose:
+      - "3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      # 127.0.0.1 explicitly — Alpine resolves localhost to ::1 first.
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  supply-prod:
+    build:
+      context: ../../..
+      dockerfile: backend/apps/supply-service/Dockerfile
+      target: runtime
+    container_name: agiliz-supply-prod
+    depends_on:
+      supply-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${SUPPLY_POSTGRES_USER:-agiliz}:${SUPPLY_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-supply-postgres:5432/${SUPPLY_POSTGRES_DB:-supply}
+      PORT: 3000
+      REDIS_QUEUE_HOST: agiliz-redis
+      REDIS_QUEUE_PORT: 6379
+      # Unset would default to TRUE in @app/hold-it and crash NestJS at startup.
+      WITH_KAFKA_BROKERS: "false"
+    expose:
+      - "3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
