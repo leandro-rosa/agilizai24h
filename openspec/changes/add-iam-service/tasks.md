@@ -60,7 +60,7 @@
 ## 9. Docker and CLI
 
 - [x] 9.1 Multi-stage Dockerfile with a repo-root build context, matching the pattern established for the frontends
-- [ ] 9.2 Start the compiled app through `node -r ./register-paths.js` so `@app/*` resolves at runtime, and verify the built image actually starts (design "Risks"). **PARTIAL**: the compiled app was verified running natively via `register-paths.js` — which is what the design flagged as the real risk, and it surfaced two genuine bugs (see the change's notes). The *image* build is NOT verified: it was interrupted by a machine crash and left unbuilt to spare memory on this host. Build and run `iam-prod` before considering this change done
+- [x] 9.2 Start the compiled app through `node -r ./register-paths.js` so `@app/*` resolves at runtime, and verify the built image actually starts (design "Risks") — verified both natively and in the `iam-prod` image, which reaches `healthy` and serves as a non-root user
 - [x] 9.3 Add `docker-compose.yml` joining the external `agiliz_network`, with a healthcheck targeting `127.0.0.1` explicitly
 - [x] 9.4 Register `iam` in `cli/agiliz-cli` (`VALID_PROJECTS`, `PROJECT_DIRECTORIES`, `PROJECT_FILES`, dev/prod service maps, ordered after `infra`), and update the `--help` PROJECTS block and completion candidates
 - [x] 9.5 Add the service's `.env.example`, deliberately omitting `WITH_KAFKA_BROKERS` and documenting why (design D7)
@@ -74,6 +74,6 @@
 ## 11. Verification
 
 - [x] 11.1 `pnpm turbo run lint typecheck build test` green across the workspace
-- [ ] 11.2 `agiliz-cli up -i infra -i iam` brings the service up healthy, and it serves introspection end to end. **BLOCKED**: deferred with 9.2 — needs the container image, held back for memory on this host
+- [x] 11.2 `agiliz-cli up -i infra -i iam` brings the service up healthy, and it serves introspection end to end — exercised via `agiliz-cli up -i iam --production`, then login/introspect/logout over `agiliz_network` by container name, which is the path gateway-service will use
 - [x] 11.3 Bootstrap an empty database, log in, introspect, log out, and confirm the token is rejected immediately afterwards — verified against the real Postgres, including bootstrap idempotency on a second run
 - [x] 11.4 `openspec validate add-iam-service --strict` passes
