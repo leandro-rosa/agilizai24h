@@ -30,6 +30,10 @@ export class DomainClient {
     return this.call<T>('products', this.config.getOrThrow<string>('PRODUCTS_SERVICE_URL'), call)
   }
 
+  ingestion<T>(call: Omit<UpstreamCall, 'service' | 'url'> & { path: string }) {
+    return this.call<T>('ingestion', this.config.getOrThrow<string>('INGESTION_SERVICE_URL'), call)
+  }
+
   private call<T>(
     service: string,
     baseUrl: string,

@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import fastifyCookie from '@fastify/cookie'
+import fastifyMultipart from '@fastify/multipart'
 import { AppModule } from './app.module'
 
 async function bootstrap(): Promise<void> {
@@ -17,6 +18,13 @@ async function bootstrap(): Promise<void> {
   // longer matches the plain FastifyPluginCallback the adapter expects. It is a
   // typing artefact, not a runtime one.
   await app.register(fastifyCookie as unknown as Parameters<typeof app.register>[0])
+
+  // Only registered because this service accepts spreadsheet uploads; the
+  // limit is enforced here so an oversized file is refused at the edge rather
+  // than after it has been read into memory.
+  await app.register(fastifyMultipart as unknown as Parameters<typeof app.register>[0], {
+    limits: { fileSize: Number(process.env.MAX_UPLOAD_BYTES ?? 25 * 1024 * 1024) },
+  })
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }))
 

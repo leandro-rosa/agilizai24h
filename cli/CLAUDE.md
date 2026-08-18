@@ -56,6 +56,7 @@ seu diretório, arquivo Compose e serviços dev/production. Hoje:
 | `products` | `backend/apps/products-service` | `docker-compose.yml` | `products-dev` | `products-prod` |
 | `sales` | `backend/apps/sales-service` | `docker-compose.yml` | `sales-dev` | `sales-prod` |
 | `supply` | `backend/apps/supply-service` | `docker-compose.yml` | `supply-dev` | `supply-prod` |
+| `ingestion` | `backend/apps/ingestion-worker-service` | `docker-compose.yml` | `ingestion-dev` | `ingestion-prod` |
 | `gateway` | `backend/apps/gateway-service` | `docker-compose.yml` | `gateway-dev` | `gateway-prod` |
 | `site` | `frontend/apps/site` | `docker-compose.yml` | `site-dev` | `site-prod` |
 | `admin` | `frontend/apps/admin` | `docker-compose.yml` | `admin-dev` | `admin-prod` |

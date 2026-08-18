@@ -20,6 +20,42 @@ class EnvironmentVariables {
   @IsNotEmpty()
   PRODUCTS_SERVICE_URL: string
 
+  @IsString()
+  @IsNotEmpty()
+  INGESTION_SERVICE_URL: string
+
+  // Object storage: the gateway holds the uploaded bytes already, so it writes
+  // them once rather than re-streaming them to another service.
+  @IsString()
+  @IsNotEmpty()
+  AWS_REGION: string
+
+  @IsString()
+  @IsNotEmpty()
+  AWS_ACCESS_KEY_ID: string
+
+  @IsString()
+  @IsNotEmpty()
+  AWS_SECRET_ACCESS_KEY: string
+
+  @IsString()
+  @IsNotEmpty()
+  AWS_S3_BUCKET: string
+
+  @IsOptional()
+  @IsString()
+  AWS_S3_ENDPOINT?: string
+
+  @IsOptional()
+  @IsString()
+  AWS_S3_FORCE_PATH_STYLE?: string
+
+  /** Largest upload accepted, in bytes. */
+  @IsOptional()
+  @IsInt()
+  @Min(1024)
+  MAX_UPLOAD_BYTES?: number
+
   @IsOptional()
   @IsInt()
   @Min(1)

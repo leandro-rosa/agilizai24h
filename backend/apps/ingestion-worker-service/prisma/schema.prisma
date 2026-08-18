@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// One uploaded file and what became of it.
+model Ingestion {
+  id        String @id
+  /// 'sales' | 'supply' | 'cost' — see INGESTION_FILE_TYPES.
+  file_type String
+  /// Where the raw file lives. Object storage holds the file; this database
+  /// holds only structured data about it.
+  object_key    String
+  original_name String
+
+  /// Stated by the uploader, not inferred from the file: the restocking
+  /// workbook has no reliable machine-readable period, and guessing it from a
+  /// filename or a cell silently attributes March's data to April.
+  store_id Int
+  period   String
+
+  /// 'accepted' | 'processing' | 'completed' | 'partially_completed' | 'failed'
+  status String @default("accepted")
+  error  String?
+
+  /// Chunk accounting. smartChunk splits a file into N queue jobs; the sinks
+  /// replace a period wholesale, so rows are staged until every chunk has
+  /// landed and then handed over as ONE batch. Without this the last chunk
+  /// would wipe what the earlier ones wrote.
+  expected_chunks  Int @default(0)
+  processed_chunks Int @default(0)
+
+  accepted_rows Int @default(0)
+  rejected_rows Int @default(0)
+
+  correlation_id String?
+  uploaded_at    DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  staged     StagedRow[]
+  rejections IngestionRejection[]
+
+  @@index([store_id, period])
+  @@index([status])
+  @@map("ingestion")
+}
+
+/// A parsed, resolved row waiting for every chunk of its file to arrive.
+///
+/// Staging exists solely so the sinks receive one replacement batch per period
+/// instead of one per chunk. It is deleted once the batch is handed over.
+model StagedRow {
+  id           Int    @id @default(autoincrement())
+  ingestion_id String
+
+  sku String
+  /// Set for supply rows; null for sales and cost rows.
+  reason_key String?
+
+  quantity   Int?
+  /// Integer minor units. Revenue for sales rows, cost for cost rows.
+  amount_cents Int?
+  /// What the file said on the removal line — audit only.
+  source_text String?
+
+  ingestion Ingestion @relation(fields: [ingestion_id], references: [id], onDelete: Cascade)
+
+  @@index([ingestion_id])
+  @@map("staged_row")
+}
+
+/// A row that could not be processed, kept so the operator can fix the file.
+///
+/// Rejections are recorded rather than skipped: a skipped row produces a total
+/// that is quietly too low, with nothing to indicate it.
+model IngestionRejection {
+  id           Int    @id @default(autoincrement())
+  ingestion_id String
+
+  /// Which row of which sheet, so it can be found in the file.
+  row_reference String
+  reason        String
+  detail        String
+
+  created_at DateTime @default(now())
+
+  ingestion Ingestion @relation(fields: [ingestion_id], references: [id], onDelete: Cascade)
+
+  @@index([ingestion_id])
+  @@map("ingestion_rejection")
+}

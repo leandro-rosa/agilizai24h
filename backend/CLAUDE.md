@@ -5,7 +5,7 @@ visão geral do monorepo.
 
 ## Estado atual
 
-- `apps/` — 6 microserviços:
+- `apps/` — 7 microserviços:
   [iam-service](apps/iam-service/CLAUDE.md) (contas, sessões, permissões),
   [stores-service](apps/stores-service/CLAUDE.md) (registro de lojas) e
   [products-service](apps/products-service/CLAUDE.md) (catálogo + custo datado)
@@ -13,7 +13,9 @@ visão geral do monorepo.
   HTTP e fronteira de confiança) e
   [sales-service](apps/sales-service/CLAUDE.md) (vendas por loja/período/SKU) e
   [supply-service](apps/supply-service/CLAUDE.md) (abastecimento, remoções e a
-  regra de perda).
+  regra de perda) e
+  [ingestion-worker-service](apps/ingestion-worker-service/CLAUDE.md)
+  (upload → parse → filas).
   `iam-service` foi o primeiro e serve de molde para os próximos.
 - `common/nest-libs/` — 10 libs: 8 abstratas mais dois pacotes de contrato sem
   lógica, [iam-contracts](common/nest-libs/iam-contracts/CLAUDE.md) (iam ↔
