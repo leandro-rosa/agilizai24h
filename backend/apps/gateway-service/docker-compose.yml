@@ -1,0 +1,53 @@
+networks:
+  agiliz_network:
+    external: true
+    name: agiliz_network
+
+# No database: the gateway holds no state worth persisting. Sessions live in
+# iam-service so revocation is authoritative in one place.
+services:
+  gateway-dev:
+    build:
+      context: ../../..
+      dockerfile: backend/apps/gateway-service/Dockerfile
+      target: dev
+    container_name: agiliz-gateway-dev
+    environment: &gateway_env
+      IAM_SERVICE_URL: http://agiliz-iam-prod:3000
+      STORES_SERVICE_URL: http://agiliz-stores-prod:3000
+      PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
+      PORT: 3000
+    # The ONLY backend service publishing a host port: everything else is
+    # reachable solely inside agiliz_network, through here.
+    ports:
+      - "${GATEWAY_HOST_PORT:-3080}:3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  gateway-prod:
+    build:
+      context: ../../..
+      dockerfile: backend/apps/gateway-service/Dockerfile
+      target: runtime
+    container_name: agiliz-gateway-prod
+    environment: *gateway_env
+    ports:
+      - "${GATEWAY_HOST_PORT:-3080}:3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

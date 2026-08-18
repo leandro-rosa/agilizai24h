@@ -198,6 +198,19 @@ routes, that name wins.
 | SKU / Produto | SKU / Product |
 | Financeiro | Finance — `apps/admin` route is `finance` |
 
+### Network topology
+
+From `add-gateway-service` onward, **`gateway-service` is the only backend
+service that publishes a host port**. Every domain service is reachable solely
+by container name inside `agiliz_network`, and each one's own compose file uses
+`expose` rather than `ports`. A new domain service must follow that, and gets
+its routes surfaced by adding them explicitly to the gateway — which is also
+where the permission each route requires is declared.
+
+The only remaining host-published ports among domain services are their
+**Postgres** containers (5433/5434/5435), kept so `prisma migrate` can be run
+from the host. Those mappings must be removed in a production deployment.
+
 ## Engineering standards
 
 Standing rules for every service. A change does not get to opt out silently.
