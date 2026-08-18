@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// What was sold, at the grain the POS actually reports: per store, per period,
+/// per SKU. Deliberately NOT per transaction — the source reports do not carry
+/// transaction detail, and modelling a grain the data cannot support would mean
+/// inventing it.
+model SalesRecord {
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  /// The month, as YYYY-MM.
+  period   String
+  sku      String
+
+  quantity_sold Int
+  /// Integer minor units (centavos). Never a float: these are summed across
+  /// thousands of rows, which is exactly the pattern that accumulates binary
+  /// floating-point error.
+  revenue_cents Int
+
+  /// Which ingestion produced this row, so any stored figure can be traced back
+  /// to the uploaded file it came from.
+  ingestion_id String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  /// The grain, enforced by the database rather than only by application logic.
+  @@unique([store_id, period, sku])
+  @@index([store_id, period])
+  @@map("sales_record")
+}
+
+/// Records that a store's period was ingested at all.
+///
+/// This is what makes "never ingested" distinguishable from "ingested, and
+/// genuinely had no sales" — without it, both look like an empty result set,
+/// and a caller cannot tell a missing upload from a quiet month.
+model IngestedPeriod {
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  period   String
+
+  ingestion_id String
+  row_count    Int
+  ingested_at  DateTime @default(now())
+
+  @@unique([store_id, period])
+  @@map("ingested_period")
+}

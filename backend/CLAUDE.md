@@ -5,12 +5,13 @@ visão geral do monorepo.
 
 ## Estado atual
 
-- `apps/` — 4 microserviços:
+- `apps/` — 5 microserviços:
   [iam-service](apps/iam-service/CLAUDE.md) (contas, sessões, permissões),
   [stores-service](apps/stores-service/CLAUDE.md) (registro de lojas) e
   [products-service](apps/products-service/CLAUDE.md) (catálogo + custo datado)
-  e [gateway-service](apps/gateway-service/CLAUDE.md) (único ponto de entrada
-  HTTP e fronteira de confiança).
+  [gateway-service](apps/gateway-service/CLAUDE.md) (único ponto de entrada
+  HTTP e fronteira de confiança) e
+  [sales-service](apps/sales-service/CLAUDE.md) (vendas por loja/período/SKU).
   `iam-service` foi o primeiro e serve de molde para os próximos.
 - `common/nest-libs/` — 10 libs: 8 abstratas mais dois pacotes de contrato sem
   lógica, [iam-contracts](common/nest-libs/iam-contracts/CLAUDE.md) (iam ↔
@@ -77,4 +78,10 @@ configurado via env vars.
   listado aqui.
 - Todo serviço que registrar `HoldItModule` precisa de
   `WITH_KAFKA_BROKERS=false` (env, docker-compose e testes) — ver
-  `.env.example` na raiz.
+  `.env.example` na raiz. Melhor ainda, e é o que `sales-service` faz: passar
+  `{ withKafkaBrokers: false }` no `register()` **e** exigir a env var na
+  validação, para o serviço não depender de ninguém lembrar.
+- **Dependência de lib é do app**: as libs `@app/*` compilam dentro do `dist`
+  do app, então o Node resolve pelo `node_modules` do app. Toda dependência de
+  runtime de uma lib precisa ser declarada também no app que a consome — já
+  mordeu com `@nestjs/terminus`, `fastify` e `@bull-board/fastify`.
