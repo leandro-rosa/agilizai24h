@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-08-18
+# Test coverage for behaviour already specified in three archived changes.
+# No system behaviour changes, so no spec deltas.
+skip_specs: true

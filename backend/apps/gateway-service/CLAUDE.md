@@ -71,6 +71,17 @@ Nenhuma é óbvia pela assinatura, e as duas afetam a semântica acima:
    (`UPSTREAM_DEADLINE_MS`), que é o que torna real o "502 rápido" em vez de um
    request pendurado.
 
+## Testes
+
+- Unitários (`pnpm test`): guard, mapeamento de erro, validação de env.
+- Integração (`pnpm test:integration`): **não precisa de container nenhum**.
+  Sobe a aplicação real e a dirige por HTTP com supertest contra um stub de
+  upstream que o próprio teste controla — é o que torna os casos interessantes
+  (inalcançável, lento, um 404 que precisa ser repassado) baratos e
+  determinísticos, exercitando guard, filtro, cookie e cliente HTTP juntos.
+  Cobre 401/403/503/502, ausência de cache de sessão, cookie HTTP-only, falha
+  parcial no `/overview` e as rotas públicas.
+
 ## Gaps conhecidos
 
 - Sem rotas de upload — `add-ingestion-flow` as acrescenta, e é quando este
@@ -84,3 +95,7 @@ Nenhuma é óbvia pela assinatura, e as duas afetam a semântica acima:
   não publicam nada — mas em produção esses mapeamentos devem sair.
 - Same-site vs CORS-com-credenciais ainda não decidido; `add-web-real-data`
   precisa resolver antes do painel ir para produção.
+- A suíte de integração usa um stub de upstream, não os serviços reais. Isso é
+  deliberado (determinismo, zero infra), mas significa que uma divergência de
+  contrato entre gateway e um serviço de domínio não é pega aqui — só pelo
+  teste e2e que `add-web-real-data` vai trazer.

@@ -65,6 +65,23 @@ app**. Este serviço declara as do `hold-it` (`@bull-board/*`, `bullmq-otel`,
 de topo são avaliados no carregamento do módulo, independentemente do provider
 ficar de fora.
 
+## Testes
+
+- Unitários (`pnpm test`): worker e validação de env.
+- Integração (`pnpm test:integration`): precisa do **Redis do `infra`** e do
+  Postgres deste serviço. Cobre o contrato de idempotência contra o banco e o
+  caminho real da fila — job enfileirado no Redis, consumido pelo worker real,
+  aterrissando no Postgres, incluindo que uma entrega repetida não dobra as
+  cifras (BullMQ é ao-menos-uma-vez) e que um job malformado falha sem escrever
+  nada.
+
+```bash
+cli/agiliz-cli up -i infra
+docker start agiliz-sales-postgres
+DATABASE_URL=... REDIS_QUEUE_HOST=127.0.0.1 REDIS_QUEUE_PORT=6390 \
+  WITH_KAFKA_BROKERS=false pnpm test:integration
+```
+
 ## Gaps conhecidos
 
 - Sem autorização própria — enforcement é do gateway.

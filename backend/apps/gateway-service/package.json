@@ -6,10 +6,10 @@
     "build": "tsc -p tsconfig.app.json",
     "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register --project tsconfig.app.json src/main.ts",
     "start": "node -r ../../../register-paths.js dist/apps/gateway-service/src/main.js",
-    "lint": "eslint src",
+    "lint": "eslint src test",
     "typecheck": "tsc -p tsconfig.app.json --composite false --noEmit",
     "test": "jest --passWithNoTests",
-    "test:integration": "jest --config jest.integration.config.js --runInBand --passWithNoTests"
+    "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest --config jest.integration.config.js --runInBand --passWithNoTests"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

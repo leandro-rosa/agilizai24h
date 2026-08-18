@@ -72,11 +72,21 @@ mesma revisão que código. Se restatement retroativo virar problema real, a
 flag precisa de vigência datada, espelhando as versões de custo em
 `products-service`.
 
+## Testes
+
+- Unitários (`pnpm test`): a derivação de perda pura, a tabela de motivos e a
+  decisão publicar/suprimir do worker.
+- Integração (`pnpm test:integration`): precisa do **Redis do `infra`** e do
+  Postgres deste serviço. Além da classificação contra o banco, cobre o caminho
+  real da fila e o evento: publicado numa mudança real, **suprimido** num
+  reenvio idêntico, e carregando só identificadores. A supressão é verificada
+  contra a fila de eventos de verdade, não com um spy — o que se quer evitar é
+  tempestade de recomputação a jusante, que é propriedade do que chega no
+  Redis, não da intenção do código.
+
 ## Gaps conhecidos
 
 - Sem autorização própria — enforcement é do gateway.
 - `other_reason` conta como perda e é o rótulo menos informativo; dividi-lo em
   categorias mais finas é refinamento de relatório, precisa de volume real
   primeiro.
-- Sem suíte automatizada do worker contra Redis (mesmo débito de `sales` e
-  `gateway`); a decisão de publicar/suprimir tem 7 testes unitários.
