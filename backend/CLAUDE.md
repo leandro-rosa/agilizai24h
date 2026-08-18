@@ -5,9 +5,10 @@ visão geral do monorepo.
 
 ## Estado atual
 
-- `apps/` — 1 microserviço:
-  [iam-service](apps/iam-service/CLAUDE.md) (contas, sessões, permissões).
-  Primeiro app do repo; serve de molde para os próximos.
+- `apps/` — 2 microserviços:
+  [iam-service](apps/iam-service/CLAUDE.md) (contas, sessões, permissões) e
+  [stores-service](apps/stores-service/CLAUDE.md) (registro de lojas).
+  `iam-service` foi o primeiro e serve de molde para os próximos.
 - `common/nest-libs/` — 9 libs, sendo 8 abstratas e
   [iam-contracts](common/nest-libs/iam-contracts/CLAUDE.md) (contrato
   iam ↔ gateway, sem lógica).

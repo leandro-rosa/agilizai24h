@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A physical Agiliz.AI location.
+///
+/// `status` and `type` are plain strings validated at the DTO layer rather than
+/// Prisma enums: both vocabularies are expected to grow, and an enum would need
+/// a migration every time one does.
+model Store {
+  id   Int    @id @default(autoincrement())
+  name String
+  address String
+  city    String
+  /// 'company' | 'condo' — see STORE_TYPE_VALUES.
+  type    String
+  /// 'active' | 'maintenance' | 'inactive' — see STORE_STATUS_VALUES. There is
+  /// no deletion: historical sales and reconciliations must keep resolving
+  /// their store even after it closes.
+  status  String @default("active")
+
+  /// The code the POS platform uses for this store in its exported reports.
+  /// Nullable because a store may be registered before its code is known, and
+  /// unique so an uploaded file resolves to exactly one store. Indexed: it is
+  /// looked up once per ingested file.
+  external_code String? @unique
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([status])
+  @@map("store")
+}

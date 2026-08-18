@@ -52,6 +52,7 @@ seu diretório, arquivo Compose e serviços dev/production. Hoje:
 |---|---|---|---|---|
 | `infra` | `docker/composes` | `docker-compose.infra.yaml` | — | — |
 | `iam` | `backend/apps/iam-service` | `docker-compose.yml` | `iam-dev` | `iam-prod` |
+| `stores` | `backend/apps/stores-service` | `docker-compose.yml` | `stores-dev` | `stores-prod` |
 | `site` | `frontend/apps/site` | `docker-compose.yml` | `site-dev` | `site-prod` |
 | `admin` | `frontend/apps/admin` | `docker-compose.yml` | `admin-dev` | `admin-prod` |
 
