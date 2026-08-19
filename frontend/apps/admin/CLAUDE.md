@@ -43,9 +43,11 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
 - `src/components/request-state.tsx` — o único lugar que decide
   loading/vazio/erro/sem-permissão; toda tela com dado passa por ele em
   vez de reescrever o próprio `if (isLoading)`.
-- `src/components/store-period-picker.tsx` — seletor de loja+mês
-  compartilhado por vendas/abastecimento/estoque/financeiro: nenhum dos
-  quatro tem endpoint "rede inteira", todos são por loja e período.
+- `src/components/store-period-picker.tsx` — seletor de loja+range
+  compartilhado por vendas/abastecimento/estoque/financeiro; `allowNetwork`
+  liga a opção "Rede (todas as lojas)" (hoje só ligada em `/finance`).
+  Range vem de `src/components/month-range-picker.tsx` (presets Mês/
+  Trimestre/Semestre/Ano sobre `src/lib/period-range.ts`), não um único mês.
 - `src/components/app-sidebar.tsx` — navegação lateral (shadcn
   `sidebar.tsx`), item ativo destacado com `.brand-gradient`; rodapé tem
   identidade do operador (`GET /auth/me`) + logout.
@@ -80,14 +82,26 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
 
 ## Vendas, abastecimento, estoque e financeiro são por loja+mês
 
-Nenhum dos quatro tem endpoint "rede inteira" no backend — cada um é
-`GET /<dominio>/:storeId?period=`. `/sales` e `/supply` devolvem **404**
-(não lista vazia) para uma loja+mês nunca ingerido — tratado como estado
-vazio próprio (`RequestState`), distinto de um erro real. A visão geral
-(`/`) por isso só soma o que é de fato agregável na rede —
-`GET /overview` (lojas + produtos) — e não fabrica um "vendas hoje" ou
-"abastecimentos pendentes" de rede inteira que o backend não tem como
-responder honestamente.
+Nenhum dos quatro tem endpoint "rede inteira" nem "range de meses" no
+backend — cada um é `GET /<dominio>/:storeId?period=` (um mês). `/sales` e
+`/supply` devolvem **404** (não lista vazia) para uma loja+mês nunca
+ingerido — tratado como estado vazio próprio (`RequestState`), distinto de
+um erro real. A visão geral (`/`) por isso só soma o que é de fato
+agregável na rede — `GET /overview` (lojas + produtos) — e não fabrica um
+"vendas hoje" ou "abastecimentos pendentes" de rede inteira que o backend
+não tem como responder honestamente.
+
+**Range e rede são construídos no cliente, não no backend.** Os hooks
+`useGet*RangeQuery` (`src/lib/api/{sales,supply,inventory}.ts`) fazem
+fan-out de uma request por mês do range via `queryFn` e somam client-side
+(`src/lib/api/fan-out.ts`'s `fetchOr404`/`firstError` distingue "sem dado
+no mês" de erro real — nunca trata um 403/500 como mês vazio). `finance`
+é diferente: `GET /finance/:storeId` já devolve o histórico inteiro da
+loja sem filtro de período, então o range ali é só filtro+soma
+(`src/lib/reconciliation-aggregate.ts`), e a visão de rede
+(`useGetNetworkReconciliationRangeQuery`) busca essa série completa uma
+vez por loja (nunca uma vez por loja por mês) e soma no cliente — a única
+das quatro telas com uma opção "Rede (todas as lojas)" hoje.
 
 ## Scripts
 
