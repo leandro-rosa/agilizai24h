@@ -31,7 +31,17 @@ describe('inventory integration', () => {
     return id
   }
 
-  const given = (period: string, rows: { sku: string; restocked?: number; sold?: number; removed?: number }[]) => {
+  const given = (
+    period: string,
+    rows: {
+      sku: string
+      restocked?: number
+      sold?: number
+      removed?: number
+      adjustment?: number
+      recordedClosingBalance?: number | null
+    }[],
+  ) => {
     const map = new Map<string, PeriodMovements>()
     for (const row of rows) {
       map.set(row.sku, {
@@ -39,6 +49,8 @@ describe('inventory integration', () => {
         restocked: row.restocked ?? 0,
         sold: row.sold ?? 0,
         removed: row.removed ?? 0,
+        adjustment: row.adjustment ?? 0,
+        recordedClosingBalance: row.recordedClosingBalance ?? null,
       })
     }
     movementsByPeriod.set(period, map)
@@ -292,6 +304,73 @@ describe('inventory integration', () => {
       const { periods } = await inventory.recomputeStore(store, '2026-03')
 
       expect([...periods].sort()).toEqual(periods)
+    })
+  })
+
+  describe('the inventory adjustment', () => {
+    it('an inbound adjustment increases the derived closing stock', async () => {
+      const store = newStore()
+      given('2026-03', [{ sku: 'A', restocked: 100, sold: 40, adjustment: 12 }])
+
+      await inventory.recomputeStore(store, '2026-03')
+
+      expect((await inventory.stockForSku(store, 'A')).closing_stock).toBe(72)
+    })
+
+    it('an outbound adjustment decreases the derived closing stock', async () => {
+      const store = newStore()
+      given('2026-03', [{ sku: 'A', restocked: 100, sold: 40, adjustment: -10 }])
+
+      await inventory.recomputeStore(store, '2026-03')
+
+      expect((await inventory.stockForSku(store, 'A')).closing_stock).toBe(50)
+    })
+
+    it('is reported alongside restocked, sold and removed, not netted into any of them', async () => {
+      const store = newStore()
+      given('2026-03', [{ sku: 'A', restocked: 100, sold: 40, removed: 5, adjustment: -3 }])
+
+      await inventory.recomputeStore(store, '2026-03')
+
+      const item = await inventory.stockForSku(store, 'A')
+      expect(item).toMatchObject({ restocked: 100, sold: 40, removed: 5, adjustment: -3 })
+    })
+  })
+
+  describe('the recorded closing balance (design D5 — stored, not cross-checked)', () => {
+    it('is reported alongside the derived balance', async () => {
+      const store = newStore()
+      given('2026-03', [{ sku: 'A', restocked: 100, sold: 40, recordedClosingBalance: 60 }])
+
+      await inventory.recomputeStore(store, '2026-03')
+
+      const item = await inventory.stockForSku(store, 'A')
+      expect(item.closing_stock).toBe(60)
+      expect(item.recorded_closing_balance).toBe(60)
+    })
+
+    it('is reported even when it differs from the derived balance, with no disagreement flag', async () => {
+      // A visit-moment reading legitimately differs from the month-end derived
+      // total whenever anything sold after the last restocking visit.
+      const store = newStore()
+      given('2026-03', [{ sku: 'A', restocked: 100, sold: 40, recordedClosingBalance: 999 }])
+
+      await inventory.recomputeStore(store, '2026-03')
+
+      const item = await inventory.stockForSku(store, 'A')
+      expect(item.closing_stock).toBe(60)
+      expect(item.recorded_closing_balance).toBe(999)
+      expect(item).not.toHaveProperty('disputed')
+    })
+
+    it('is null when supply-service has no recorded balance for the period', async () => {
+      const store = newStore()
+      given('2026-03', [{ sku: 'A', restocked: 100, sold: 40 }])
+
+      await inventory.recomputeStore(store, '2026-03')
+
+      const item = await inventory.stockForSku(store, 'A')
+      expect(item.recorded_closing_balance).toBeNull()
     })
   })
 

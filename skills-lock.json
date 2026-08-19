@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "charlie": {
+      "source": "everyinc/charlie-cfo-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "68319ba005f21f7b88fe18b75d4e502e51df4c968560c887aa97b7c03611cd5a"
+    },
     "frontend-design": {
       "source": "anthropics/skills",
       "sourceType": "github",

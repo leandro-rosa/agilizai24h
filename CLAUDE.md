@@ -75,6 +75,39 @@ sobrescreva `REDIS_HOST_PORT` / `MINIO_HOST_PORT` / `MINIO_CONSOLE_HOST_PORT`.
 - Para sessões longas ou repetitivas, o modo `caveman` reduz tokens de
   saída sem perder precisão técnica.
 
+## Suporte à decisão financeira
+
+Para qualquer pergunta financeira — economia de loja, KPIs de varejo,
+estoque como capital, caixa, capital de giro, precificação, fornecedores,
+CAPEX, payback, ROI/ROIC ou alocação de capital — a skill autoritativa do
+projeto é `.claude/skills/autonomous-retail-cfo/`
+([SKILL.md](.claude/skills/autonomous-retail-cfo/SKILL.md)); conhecimento
+financeiro detalhado vive lá, não aqui. Arquitetura completa (plugins
+instalados, decisão sobre OpenFPA, estratégia de memória financeira) em
+[docs/financial-ai-architecture.md](docs/financial-ai-architecture.md).
+
+Regras que valem para qualquer recomendação financeira, sem exceção:
+
+- `backend/apps/finance-service` é a fonte de verdade para CMV, sobra e
+  perda real por loja/mês — a skill lê esses números, nunca os re-deriva.
+- Todo número é rotulado FATO, MÉTRICA DERIVADA, PREMISSA ou ESTIMATIVA;
+  nunca apresentar uma premissa como fato.
+- Evidência da empresa (via `finance-service`, documentos reais, ou
+  `.fpa/`) tem precedência sobre benchmarks genéricos — inclusive os da
+  skill `charlie`, que são de SaaS/startup e não se aplicam aqui sem
+  validação explícita.
+- Cálculos devem ser reprodutíveis — preferir
+  `.claude/skills/autonomous-retail-cfo/scripts/retail_finance.py` a fazer
+  a aritmética livre.
+- Nenhuma ação financeira consequente (transferência, pagamento a
+  fornecedor, lançamento contábil, abertura/fechamento de loja, mudança de
+  preço em produção) é executada sem aprovação humana explícita fora desta
+  skill.
+- Memória financeira durável da empresa vive em
+  [`.fpa/`](.fpa/MEMORY.md) — ler antes de responder algo que dependa de
+  contexto anterior, e gravar fatos/decisões novos lá em vez de
+  re-estabelecê-los a cada sessão.
+
 ## Criando um novo microserviço ou frontend
 
 1. Crie a pasta em `backend/apps/<nome>` ou `frontend/apps/<nome>`.

@@ -82,13 +82,13 @@ describe('chunk accumulation', () => {
     const id = await newIngestion('sales', 3)
 
     // Three chunks, as sheeter would produce for a file above its batch size.
-    await ingestions.stageRows(id, [{ sku: 'A', quantity: 1, amountCents: 100 }])
+    await ingestions.stageRows(id, [{ storeId: 12345, sku: 'A', quantity: 1, amountCents: 100 }])
     expect(await ingestions.completeChunk(id, 1, 0)).toBe(false)
 
-    await ingestions.stageRows(id, [{ sku: 'B', quantity: 2, amountCents: 200 }])
+    await ingestions.stageRows(id, [{ storeId: 12345, sku: 'B', quantity: 2, amountCents: 200 }])
     expect(await ingestions.completeChunk(id, 1, 0)).toBe(false)
 
-    await ingestions.stageRows(id, [{ sku: 'C', quantity: 3, amountCents: 300 }])
+    await ingestions.stageRows(id, [{ storeId: 12345, sku: 'C', quantity: 3, amountCents: 300 }])
     const isLast = await ingestions.completeChunk(id, 1, 0)
     expect(isLast).toBe(true)
 
@@ -118,7 +118,7 @@ describe('chunk accumulation', () => {
 
   it('clears the staging area once the rows are handed over', async () => {
     const id = await newIngestion('sales', 1)
-    await ingestions.stageRows(id, [{ sku: 'A', quantity: 1, amountCents: 100 }])
+    await ingestions.stageRows(id, [{ storeId: 12345, sku: 'A', quantity: 1, amountCents: 100 }])
     await ingestions.completeChunk(id, 1, 0)
 
     await ingestions.finalize(id)
@@ -130,9 +130,23 @@ describe('chunk accumulation', () => {
     const id = await newIngestion('supply', 1)
 
     await ingestions.stageRows(id, [
-      { sku: 'A', quantity: 100 },
-      { sku: 'A', reasonKey: 'return', quantity: 6, sourceText: '-6 Devolução, -3 Outro motivo' },
-      { sku: 'A', reasonKey: 'other_reason', quantity: 3, sourceText: '-6 Devolução, -3 Outro motivo' },
+      { storeId: 12345, sku: 'A', movementKind: 'restock', quantity: 100 },
+      {
+        storeId: 12345,
+        sku: 'A',
+        movementKind: 'removal',
+        reasonKey: 'return',
+        quantity: 6,
+        sourceText: '-6 Devolução, -3 Outro motivo',
+      },
+      {
+        storeId: 12345,
+        sku: 'A',
+        movementKind: 'removal',
+        reasonKey: 'other_reason',
+        quantity: 3,
+        sourceText: '-6 Devolução, -3 Outro motivo',
+      },
     ])
     await ingestions.completeChunk(id, 3, 0)
 
@@ -154,7 +168,7 @@ describe('chunk accumulation', () => {
 
   it('marks an import with rejections as partially completed, never completed', async () => {
     const id = await newIngestion('sales', 1)
-    await ingestions.stageRows(id, [{ sku: 'A', quantity: 1, amountCents: 100 }])
+    await ingestions.stageRows(id, [{ storeId: 12345, sku: 'A', quantity: 1, amountCents: 100 }])
     await ingestions.recordRejections(id, [
       { rowReference: 'sheet1!row 5', reason: 'unknown_name', detail: 'Could not resolve product "X"' },
     ])
@@ -170,7 +184,7 @@ describe('chunk accumulation', () => {
 
   it('marks a clean import as completed', async () => {
     const id = await newIngestion('sales', 1)
-    await ingestions.stageRows(id, [{ sku: 'A', quantity: 1, amountCents: 100 }])
+    await ingestions.stageRows(id, [{ storeId: 12345, sku: 'A', quantity: 1, amountCents: 100 }])
     await ingestions.completeChunk(id, 1, 0)
 
     await ingestions.finalize(id)
@@ -180,7 +194,7 @@ describe('chunk accumulation', () => {
 
   it('gives cost rows the uploaded period as their effective date', async () => {
     const id = await newIngestion('cost', 1)
-    await ingestions.stageRows(id, [{ sku: 'A', amountCents: 250 }])
+    await ingestions.stageRows(id, [{ storeId: 12345, sku: 'A', amountCents: 250 }])
     await ingestions.completeChunk(id, 1, 0)
 
     await ingestions.finalize(id)

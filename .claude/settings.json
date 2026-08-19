@@ -1,1 +1,6 @@
-{}
+{
+  "enabledPlugins": {
+    "financial-analysis@claude-for-financial-services": true,
+    "fund-admin@claude-for-financial-services": true
+  }
+}

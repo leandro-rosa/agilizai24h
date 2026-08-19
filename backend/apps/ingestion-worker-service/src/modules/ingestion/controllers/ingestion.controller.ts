@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator'
+import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, ValidateIf } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { INGESTION_FILE_TYPES, type IngestionFileType } from '../constants/file-types'
 import { IngestionService } from '../services/ingestion.service'
@@ -25,9 +25,15 @@ export class CreateIngestionDto {
   @IsNotEmpty()
   original_name: string
 
-  @ApiProperty({ description: 'Stated by the uploader — never inferred from the file.' })
+  @ApiPropertyOptional({
+    description:
+      'Stated by the uploader for sales and cost, which carry no store identity of their own. Absent for ' +
+      'supply (restocking) — that workbook covers every store in the month, and the store comes from the file ' +
+      "itself, per operation (design D2 of align-ingestion-with-real-reports).",
+  })
+  @ValidateIf(dto => dto.file_type !== 'supply')
   @IsInt()
-  store_id: number
+  store_id?: number
 
   @ApiProperty({ example: '2026-03' })
   @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'period must be YYYY-MM' })

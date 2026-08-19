@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common'
-import type { SupplyRemovalRow, SupplyRestockRow } from '@app/ingestion-contracts'
+import type {
+  SupplyAdjustmentRow,
+  SupplyRecordedClosingBalanceRow,
+  SupplyRemovalRow,
+  SupplyRestockRow,
+} from '@app/ingestion-contracts'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { deriveLoss, type ClassifiedRemoval, type DerivedLoss } from '../utils/derive-loss'
 
@@ -17,11 +22,24 @@ export interface RemovalView {
   quantity_removed: number
 }
 
+export interface AdjustmentView {
+  sku: string
+  /** Signed: positive is inbound, negative is outbound. */
+  quantity: number
+}
+
+export interface RecordedClosingBalanceView {
+  sku: string
+  quantity: number
+}
+
 export interface PeriodView {
   store_id: number
   period: string
   restocks: RestockView[]
   removals: RemovalView[]
+  adjustments: AdjustmentView[]
+  recorded_closing_balances: RecordedClosingBalanceView[]
   loss: DerivedLoss
 }
 
@@ -31,12 +49,15 @@ export interface IngestPeriodInput {
   ingestionId: string
   restocks: SupplyRestockRow[]
   removals: SupplyRemovalRow[]
+  adjustments: SupplyAdjustmentRow[]
+  recordedClosingBalances: SupplyRecordedClosingBalanceRow[]
 }
 
 export interface IngestResult {
   changed: boolean
   restockCount: number
   removalCount: number
+  adjustmentCount: number
 }
 
 @Injectable()
@@ -55,7 +76,15 @@ export class SupplyService {
    * normal operator action, and publishing unconditionally would trigger a
    * recomputation storm downstream for nothing.
    */
-  async ingestPeriod({ storeId, period, ingestionId, restocks, removals }: IngestPeriodInput): Promise<IngestResult> {
+  async ingestPeriod({
+    storeId,
+    period,
+    ingestionId,
+    restocks,
+    removals,
+    adjustments,
+    recordedClosingBalances,
+  }: IngestPeriodInput): Promise<IngestResult> {
     const reasons = await this.prisma.removalReason.findMany()
     const byKey = new Map(reasons.map(reason => [reason.key, reason]))
 
@@ -76,6 +105,8 @@ export class SupplyService {
     await this.prisma.$transaction(async tx => {
       await tx.restockRecord.deleteMany({ where: { store_id: storeId, period } })
       await tx.removalRecord.deleteMany({ where: { store_id: storeId, period } })
+      await tx.adjustmentRecord.deleteMany({ where: { store_id: storeId, period } })
+      await tx.recordedClosingBalance.deleteMany({ where: { store_id: storeId, period } })
 
       if (restocks.length > 0) {
         await tx.restockRecord.createMany({
@@ -103,6 +134,30 @@ export class SupplyService {
         })
       }
 
+      if (adjustments.length > 0) {
+        await tx.adjustmentRecord.createMany({
+          data: adjustments.map(row => ({
+            store_id: storeId,
+            period,
+            sku: row.sku,
+            quantity: row.quantity,
+            ingestion_id: ingestionId,
+          })),
+        })
+      }
+
+      if (recordedClosingBalances.length > 0) {
+        await tx.recordedClosingBalance.createMany({
+          data: recordedClosingBalances.map(row => ({
+            store_id: storeId,
+            period,
+            sku: row.sku,
+            quantity: row.quantity,
+            ingestion_id: ingestionId,
+          })),
+        })
+      }
+
       await tx.ingestedPeriod.upsert({
         where: { store_id_period: { store_id: storeId, period } },
         create: {
@@ -125,28 +180,31 @@ export class SupplyService {
     const changed = before !== after
 
     this.logger.log(
-      `Ingested ${restocks.length} restocks and ${removals.length} removals for store ${storeId} period ${period}` +
+      `Ingested ${restocks.length} restocks, ${removals.length} removals and ${adjustments.length} adjustments ` +
+        `for store ${storeId} period ${period}` +
         (changed ? '' : ' (no change — event suppressed)'),
     )
 
-    return { changed, restockCount: restocks.length, removalCount: removals.length }
+    return { changed, restockCount: restocks.length, removalCount: removals.length, adjustmentCount: adjustments.length }
   }
 
   async findPeriod(storeId: number, period: string): Promise<PeriodView> {
     await this.assertIngested(storeId, period)
 
-    const [restocks, removals] = await Promise.all([
+    const [restocks, removals, adjustments, closingBalances] = await Promise.all([
       this.prisma.restockRecord.findMany({ where: { store_id: storeId, period }, orderBy: { sku: 'asc' } }),
       this.prisma.removalRecord.findMany({
         where: { store_id: storeId, period },
         include: { reason: true },
         orderBy: [{ sku: 'asc' }, { reason_id: 'asc' }],
       }),
+      this.prisma.adjustmentRecord.findMany({ where: { store_id: storeId, period }, orderBy: { sku: 'asc' } }),
+      this.prisma.recordedClosingBalance.findMany({ where: { store_id: storeId, period }, orderBy: { sku: 'asc' } }),
     ])
 
-    // Restocks and removals are reported separately, never netted into each
-    // other: a caller valuing the period needs both, and netting would destroy
-    // the distinction.
+    // Restocks, removals and adjustments are reported separately, never netted
+    // into each other: a caller valuing the period needs all three, and
+    // netting would destroy the distinction (design D4/D6).
     return {
       store_id: storeId,
       period,
@@ -158,6 +216,8 @@ export class SupplyService {
         counts_as_loss: row.reason.counts_as_loss,
         quantity_removed: row.quantity_removed,
       })),
+      adjustments: adjustments.map(row => ({ sku: row.sku, quantity: row.quantity })),
+      recorded_closing_balances: closingBalances.map(row => ({ sku: row.sku, quantity: row.quantity })),
       loss: deriveLoss(removals.map(toClassified)),
     }
   }
@@ -171,6 +231,7 @@ export class SupplyService {
     })
 
     // Read from the reason table's flag, never from a local copy of the rule.
+    // Adjustments never reach this — they are neither a removal nor a loss.
     return deriveLoss(removals.map(toClassified))
   }
 
@@ -183,7 +244,7 @@ export class SupplyService {
    * ingestion actually changed anything.
    */
   private async snapshot(storeId: number, period: string): Promise<string> {
-    const [restocks, removals] = await Promise.all([
+    const [restocks, removals, adjustments, closingBalances] = await Promise.all([
       this.prisma.restockRecord.findMany({
         where: { store_id: storeId, period },
         select: { sku: true, quantity_restocked: true },
@@ -194,9 +255,19 @@ export class SupplyService {
         select: { sku: true, reason_id: true, quantity_removed: true },
         orderBy: [{ sku: 'asc' }, { reason_id: 'asc' }],
       }),
+      this.prisma.adjustmentRecord.findMany({
+        where: { store_id: storeId, period },
+        select: { sku: true, quantity: true },
+        orderBy: { sku: 'asc' },
+      }),
+      this.prisma.recordedClosingBalance.findMany({
+        where: { store_id: storeId, period },
+        select: { sku: true, quantity: true },
+        orderBy: { sku: 'asc' },
+      }),
     ])
 
-    return JSON.stringify({ restocks, removals })
+    return JSON.stringify({ restocks, removals, adjustments, closingBalances })
   }
 
   private async assertIngested(storeId: number, period: string): Promise<void> {

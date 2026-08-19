@@ -36,6 +36,20 @@ export class LossBySkuDto {
   value_cents: number
 }
 
+export class AdjustmentFlagDto {
+  @ApiProperty({ example: 'FIN-A' })
+  sku: string
+
+  @ApiProperty({ description: 'Signed: positive is inbound, negative is outbound', example: -3 })
+  quantity: number
+
+  @ApiProperty({
+    description: 'This SKU\'s contribution to unclassified_stock_adjustment_value_cents, in centavos',
+    example: -900,
+  })
+  value_cents: number
+}
+
 export class UnvaluedSkuDto {
   @ApiProperty({ example: 'FIN-A' })
   sku: string
@@ -93,6 +107,17 @@ export class ReconciliationResponseDto {
   loss_quantity: number
 
   @ApiProperty({
+    description:
+      'The unclassified stock adjustment, valued at CURRENT cost, in THIS period only — never traced to an origin ' +
+      'store or month. A fifth figure, separate from the four above: it is not restocked value (the units did not ' +
+      'come from a supplier) and not real loss (nothing was necessarily lost). Mixes deliberate transfers between ' +
+      'stores, self-checkout mismatches, and data-entry error, indistinguishable from the data alone — see ' +
+      'align-ingestion-with-real-reports design D6.',
+    example: -900,
+  })
+  unclassified_stock_adjustment_value_cents: number
+
+  @ApiProperty({
     description: 'The date costs were resolved at — the last day of the month, recorded so the valuation is reproducible',
     example: '2026-11-30',
   })
@@ -100,8 +125,8 @@ export class ReconciliationResponseDto {
 
   @ApiProperty({
     description:
-      'Whether these figures can be acted on. False when any SKU could not be priced or its stock was inconsistent — ' +
-      '`unvalued` and `inconsistent_stock` say which and why.',
+      'Whether these figures can be acted on. False when any SKU could not be priced or its stock was ' +
+      'inconsistent — `unvalued` and `inconsistent_stock` say which and why.',
     example: true,
   })
   complete: boolean
@@ -135,6 +160,14 @@ export class ReconciliationResponseDto {
     description: 'SKUs with movement that could not be valued. They contribute nothing to any total — never zero.',
   })
   unvalued: UnvaluedSkuDto[]
+
+  @ApiProperty({
+    type: [AdjustmentFlagDto],
+    description:
+      'Every SKU carrying a non-zero adjustment this period, largest magnitude first. Not a correction mechanism — ' +
+      'a growing pattern here is itself the finding worth a manual look (design D6).',
+  })
+  adjustment_flags: AdjustmentFlagDto[]
 }
 
 export class RollupResponseDto {
@@ -152,6 +185,11 @@ export class RollupResponseDto {
 
   @ApiProperty({ description: 'Real loss across the network, in centavos (integer minor units)' })
   loss_value_cents: number
+
+  @ApiProperty({
+    description: 'The unclassified stock adjustment across the network, in centavos (integer minor units)',
+  })
+  unclassified_stock_adjustment_value_cents: number
 
   @ApiProperty({ description: 'How many stores contributed' })
   store_count: number

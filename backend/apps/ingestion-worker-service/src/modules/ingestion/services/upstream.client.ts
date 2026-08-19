@@ -14,6 +14,11 @@ export interface NameResolution {
   unmatched: { source_name: string; reason: string }[]
 }
 
+export interface SkuResolution {
+  matched: { id: number; sku: string; name: string }[]
+  unmatched: { sku: string; reason: string }[]
+}
+
 /**
  * Reads from stores-service and products-service while parsing.
  *
@@ -51,6 +56,25 @@ export class UpstreamClient {
       if (status === 404) return null
       throw error
     }
+  }
+
+  /**
+   * Resolves product codes directly against the catalogue SKU — the primary
+   * path (design D3): a row with a code is resolved here first, and only a
+   * row with no code at all falls back to `resolveProductNames`.
+   */
+  async resolveSkus(skus: string[], correlationId?: string): Promise<SkuResolution> {
+    const base = this.config.getOrThrow<string>('PRODUCTS_SERVICE_URL')
+
+    const result = await this.http.send<SkuResolution>({
+      http_method: 'post',
+      url: `${base}/skus/resolve`,
+      payload: { skus },
+      headers: correlationId ? { 'x-correlation-id': correlationId } : undefined,
+      timeout: 10000,
+    })
+
+    return (result.response.data as SkuResolution) ?? { matched: [], unmatched: [] }
   }
 
   async resolveProductNames(names: string[], correlationId?: string): Promise<NameResolution> {

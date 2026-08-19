@@ -65,6 +65,14 @@ export class ResolveNamesDto {
   names: string[]
 }
 
+export class ResolveSkusDto {
+  @ApiProperty({ type: [String], example: ['1070', '5026'] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  skus: string[]
+}
+
 export class CreateOverrideDto {
   @ApiProperty({ example: 'Guaraná lata 350' })
   @IsString()

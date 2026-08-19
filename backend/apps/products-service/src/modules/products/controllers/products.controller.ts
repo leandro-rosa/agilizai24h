@@ -7,6 +7,7 @@ import {
   CreateProductDto,
   RecordCostDto,
   ResolveNamesDto,
+  ResolveSkusDto,
   UpdateProductDto,
 } from '../dto/product.dto'
 import { CostService } from '../services/cost.service'
@@ -91,6 +92,18 @@ export class ProductsController {
   })
   resolveNames(@Body() dto: ResolveNamesDto) {
     return this.products.resolveNames(dto.names)
+  }
+
+  @Post('skus/resolve')
+  @ApiOperation({
+    summary: 'Resolve product codes directly against the catalogue SKU',
+    description:
+      'The primary resolution path (design D3 of align-ingestion-with-real-reports): the code is the same identifier ' +
+      'across the sales report, the restocking report and the price list. No normalisation, no override — an exact ' +
+      'match or a reported unknown_sku, never a guess from the name.',
+  })
+  resolveSkus(@Body() dto: ResolveSkusDto) {
+    return this.products.resolveSkus(dto.skus)
   }
 
   @Get('names/overrides')

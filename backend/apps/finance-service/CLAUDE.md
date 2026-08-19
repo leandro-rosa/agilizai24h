@@ -1,12 +1,15 @@
 # backend/apps/finance-service
 
 A **reconciliação mensal** — as quatro cifras que o operador calcula hoje à
-mão, por loja, todo mês: valor abastecido, CMV, valor da sobra e perda real.
-É a mudança pela qual a plataforma existe. Ver
+mão, por loja, todo mês: valor abastecido, CMV, valor da sobra e perda real —
+mais uma quinta, o ajuste de inventário não classificado, que existe
+separada das quatro (design D6 de `align-ingestion-with-real-reports`). É a
+mudança pela qual a plataforma existe. Ver
 [../../CLAUDE.md](../../CLAUDE.md) para as convenções do workspace backend.
 
-**Lê**: `supply` (abastecimento e remoções classificadas), `sales`
-(quantidades), `inventory` (sobra) e `products` (custo as-of).
+**Lê**: `supply` (abastecimento, remoções classificadas e ajuste), `sales`
+(quantidades), `inventory` (sobra, ajuste e disputa de fechamento) e
+`products` (custo as-of).
 **Consome**: `inventory.period-derived.finance`, publicado pelo `inventory` —
 **não** o `period.data-updated`. A cadeia é
 `supply|sales → inventory → finance`, e o porquê está abaixo.
@@ -63,27 +66,74 @@ mão, por loja, todo mês: valor abastecido, CMV, valor da sobra e perda real.
   seriam pequenos, reais e dias de trabalho para explicar.
 - **Recompute manual existe** porque correção de custo muda as cifras sem
   nenhum dado de supply/sales mudar — e portanto sem evento nenhum.
+- **O ajuste de inventário nunca é abastecimento nem perda.** Guardado como
+  `unclassified_stock_adjustment_value_cents`, cifra própria, a **custo
+  atual** e **no período atual** apenas — nunca rastreado até a loja ou mês
+  de origem, porque o export não nomeia de onde veio, e a mesma regra de
+  "não reescrever o passado" que já vale para custo datado torna
+  desnecessário tentar. Contar como abastecido afirmaria dinheiro que a rede
+  não gastou de novo; contar como nada deixaria estoque em prateleira sem
+  origem nenhuma.
+- **Não há mais cross-check de saldo disputado.** Existiu `disputed_stock`
+  (plataforma vs. fechamento registrado pelos operadores) além de
+  `inconsistent_stock` (saldo negativo, dado de movimento impossível) — o
+  primeiro foi **removido** depois de testar contra dado real (design D5 de
+  `align-ingestion-with-real-reports`): `Qtd. final` é uma leitura no
+  momento da última visita de abastecimento, não o fechamento do mês, e
+  venda não tem data por linha para separar o que aconteceu antes ou depois
+  dela. Comparar contra o mês inteiro marcou a maioria dos SKUs de uma
+  loja-mês real como "disputados" sem erro nenhum por trás. `complete`
+  segue existindo, agora só por preço faltante ou saldo inconsistente.
 
 ## Barra de aceite
 
 O design registra, e vale repetir: **passar nos testes não é o critério**. O
-critério é uma reconciliação deste serviço bater com a planilha de um mês que
-os operadores já fecharam à mão. Isso ainda **não** foi feito — falta o dado
-real.
+critério é uma reconciliação deste serviço bater com a planilha que os
+operadores fecham à mão. Feito com dado real — `Ascenty - JDI01` (loja 46),
+março/2026, contra a aba `Venda x abastecimento` de
+`Relatórios/agiliz.ai - abastecimento.xlsx` (único mês que essa planilha
+cobre). Resultado honesto, não taxa de acerto:
 
-O que foi verificado: um mês inteiro pela cadeia real (upload → parse →
-supply/sales → inventory → finance → leitura pelo gateway), com as quatro
-cifras conferidas à mão contra planilha construída para o caso, incluindo uma
-linha de motivo misto (`-4 Vencido, -6 Devolução` ⇒ 4 de perda, não 10).
+- **A planilha manual só permite validar CMV.** Não tem coluna de valor
+  abastecido, valor de sobra ou perda em reais — `Abastecimento` é contagem
+  de unidades sem valor associado, e não há nada parecido com perda ou
+  estoque remanescente. Só `CUSTO ABASTECIMENTO` (`CUSTO × QTD VENDIDA
+  ABASTECIMENTO`) tem formato de CMV.
+- **CMV**: plataforma R$1.364,99 vs. `CUSTO ABASTECIMENTO` manual R$1.149,89
+  para JDI01/março — diferença de R$215,10 (18,7%). Causa rastreada: custo
+  unitário é idêntico (conferido via `products-service` `costs/bulk` em
+  2026-03-31 para 5 SKUs de amostra, batendo exatamente com a coluna `CUSTO`
+  da planilha — sem deriva de custo). A diferença é só de quantidade: a
+  própria `QTD VENDIDA ABASTECIMENTO` da planilha (257 un.) não bate com a
+  própria `Qtd. vendida` da mesma planilha (283 un.) para a mesma loja-mês —
+  uma diferença de 26 unidades que a planilha não explica. `cogs_cents` daqui
+  usa `vendido × custo` com a `Qtd. vendida` que a própria planilha declara;
+  a coluna manual usa um subconjunto menor e não explicado. A cifra daqui é a
+  internamente consistente; a coluna manual não é referência confiável de
+  CMV apesar do formato da fórmula.
+- **Um defeito de desenho real só apareceu fazendo esse exercício de
+  verdade**, não escrevendo mais teste antes: o cross-check de fechamento
+  mensal (design D5/D7, ver [inventory-service/CLAUDE.md](../inventory-service/CLAUDE.md))
+  marcou 51 de ~70 SKUs dessa loja-mês real como `disputed`, nenhum por erro
+  de dado de verdade — `Qtd. final` é uma leitura no momento da última visita
+  de abastecimento da JDI01 em março (dia 26), não o fechamento do mês, e o
+  relatório de venda não tem data por linha (confirmado em 106 arquivos
+  reais, e no CSV detalhado do PagSeguro, que tem data de transação mas
+  nenhuma coluna de produto/SKU) para separar o que vendeu antes ou depois
+  da visita. Revertido — ver design D5. `complete: false` para essa loja-mês
+  agora repousa só em 3 saldos genuinamente negativos (`inconsistent_stock`),
+  não em 51 disputas falsas.
 
 ## Testes
 
 - Unitários (`pnpm test`): a valoração pura, incluindo SKU sem preço, quebras
-  que somam ao total, aritmética exata em 1000 linhas e a data de valoração.
+  que somam ao total, aritmética exata em 1000 linhas, a data de valoração,
+  o ajuste de inventário (nunca abastecimento, nunca perda) e a disputa de
+  fechamento (distinta de saldo inconsistente).
 - Integração (`pnpm test:integration`): precisa do Postgres deste serviço.
   Os quatro upstreams são stubados de propósito — os casos interessantes (SKU
-  sem preço, custo gravado depois) são difíceis de encenar com quatro serviços
-  vivos e triviais aqui.
+  sem preço, custo gravado depois, ajuste, disputa) são difíceis de encenar
+  com quatro serviços vivos e triviais aqui.
 
 ## Gaps conhecidos
 

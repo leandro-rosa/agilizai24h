@@ -67,9 +67,35 @@ export interface SupplyRemovalRow {
   sourceText?: string
 }
 
+/**
+ * Units moved into or out of a store via an inventory adjustment — never a
+ * restock, never a removal. See align-ingestion-with-real-reports design
+ * D4/D6: the field mixes deliberate transfers, self-checkout mismatches and
+ * data-entry error, indistinguishable from the data alone, so it is carried
+ * as its own signed movement rather than assumed to be any one of them.
+ */
+export interface SupplyAdjustmentRow {
+  sku: string
+  /** Signed: positive is inbound, negative is outbound. */
+  quantity: number
+}
+
+/**
+ * The closing balance the operators themselves recorded for a SKU, at the end
+ * of the LATEST operation for this store and period that reported one — a
+ * cross-check for inventory-service's derived figure (design D5), never a
+ * second source of truth.
+ */
+export interface SupplyRecordedClosingBalanceRow {
+  sku: string
+  quantity: number
+}
+
 export type SupplyRowsJob = IngestionEnvelope<never> & {
   restocks: SupplyRestockRow[]
   removals: SupplyRemovalRow[]
+  adjustments: SupplyAdjustmentRow[]
+  recordedClosingBalances: SupplyRecordedClosingBalanceRow[]
 }
 
 export interface CostRow {

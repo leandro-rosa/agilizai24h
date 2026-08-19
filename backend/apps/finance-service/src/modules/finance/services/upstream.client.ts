@@ -22,6 +22,8 @@ export interface StockItem {
    * wrong". Dropping it would hide exactly what it was raised to show.
    */
   inconsistent?: boolean
+  /** Net inventory adjustment for the period — signed (design D4/D6). */
+  adjustment?: number
 }
 
 /**

@@ -39,6 +39,8 @@ describe('supply integration', () => {
     if (prisma) {
       await prisma.restockRecord.deleteMany({ where: { store_id: { in: storeIds } } })
       await prisma.removalRecord.deleteMany({ where: { store_id: { in: storeIds } } })
+      await prisma.adjustmentRecord.deleteMany({ where: { store_id: { in: storeIds } } })
+      await prisma.recordedClosingBalance.deleteMany({ where: { store_id: { in: storeIds } } })
       await prisma.ingestedPeriod.deleteMany({ where: { store_id: { in: storeIds } } })
     }
     await app?.close()
@@ -51,6 +53,8 @@ describe('supply integration', () => {
       ingestionId?: string
       restocks?: { sku: string; quantityRestocked: number }[]
       removals?: { sku: string; reason: string; quantityRemoved: number; sourceText?: string }[]
+      adjustments?: { sku: string; quantity: number }[]
+      recordedClosingBalances?: { sku: string; quantity: number }[]
     } = {},
   ) =>
     supply.ingestPeriod({
@@ -59,6 +63,8 @@ describe('supply integration', () => {
       ingestionId: opts.ingestionId ?? 'ing-1',
       restocks: opts.restocks ?? [],
       removals: opts.removals ?? [],
+      adjustments: opts.adjustments ?? [],
+      recordedClosingBalances: opts.recordedClosingBalances ?? [],
     })
 
   describe('the loss rule', () => {
@@ -309,6 +315,79 @@ describe('supply integration', () => {
       expect(row!.source_text).toBe('-6 Devolução, -3 Outro motivo')
       // Audit only: the 9 in that text is not a quantity anything computes from.
       expect(row!.quantity_removed).toBe(6)
+    })
+  })
+
+  describe('the inventory adjustment', () => {
+    // design D4/D6: a third movement kind, never a restock, never a removal.
+    it('stores an inbound adjustment separately, contributing no restocked value', async () => {
+      const store = newStore()
+      await ingest(store, { adjustments: [{ sku: 'A', quantity: 12 }] })
+
+      const period = await supply.findPeriod(store, '2026-03')
+
+      expect(period.adjustments).toEqual([{ sku: 'A', quantity: 12 }])
+      expect(period.restocks).toEqual([])
+    })
+
+    it('stores an outbound adjustment as a negative quantity, contributing no loss', async () => {
+      const store = newStore()
+      await ingest(store, { adjustments: [{ sku: 'A', quantity: -5 }] })
+
+      const period = await supply.findPeriod(store, '2026-03')
+      const loss = await supply.findLoss(store, '2026-03')
+
+      expect(period.adjustments).toEqual([{ sku: 'A', quantity: -5 }])
+      expect(loss.total).toBe(0)
+    })
+
+    it('never nets an adjustment into a restock or a removal for the same SKU', async () => {
+      const store = newStore()
+      await ingest(store, {
+        restocks: [{ sku: 'A', quantityRestocked: 100 }],
+        removals: [{ sku: 'A', reason: 'return', quantityRemoved: 6 }],
+        adjustments: [{ sku: 'A', quantity: -4 }],
+      })
+
+      const period = await supply.findPeriod(store, '2026-03')
+
+      expect(period.restocks).toEqual([{ sku: 'A', quantity_restocked: 100 }])
+      expect(period.adjustments).toEqual([{ sku: 'A', quantity: -4 }])
+    })
+
+    it('replaces the period wholesale, same as restocks and removals', async () => {
+      const store = newStore()
+      await ingest(store, { adjustments: [{ sku: 'A', quantity: 3 }] })
+      await ingest(store, { adjustments: [{ sku: 'B', quantity: 7 }] })
+
+      const period = await supply.findPeriod(store, '2026-03')
+
+      expect(period.adjustments).toEqual([{ sku: 'B', quantity: 7 }])
+    })
+  })
+
+  describe('the recorded closing balance', () => {
+    // design D5: a cross-check inventory-service consumes, never a second
+    // source of truth for this service's own reads.
+    it('stores the operators own recorded closing balance, separate from every movement', async () => {
+      const store = newStore()
+      await ingest(store, {
+        restocks: [{ sku: 'A', quantityRestocked: 10 }],
+        recordedClosingBalances: [{ sku: 'A', quantity: 10 }],
+      })
+
+      const period = await supply.findPeriod(store, '2026-03')
+
+      expect(period.recorded_closing_balances).toEqual([{ sku: 'A', quantity: 10 }])
+    })
+
+    it('is absent when the ingestion carried none, rather than defaulting to zero', async () => {
+      const store = newStore()
+      await ingest(store, { restocks: [{ sku: 'A', quantityRestocked: 10 }] })
+
+      const period = await supply.findPeriod(store, '2026-03')
+
+      expect(period.recorded_closing_balances).toEqual([])
     })
   })
 })

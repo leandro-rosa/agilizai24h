@@ -264,6 +264,51 @@ describe('finance integration', () => {
     })
   })
 
+  describe('the unclassified stock adjustment (design D6)', () => {
+    it('values it at current cost, in its own figure, never as restocked value', async () => {
+      const store = newStore()
+      upstream.supply = { restocks: [], removals: [] }
+      upstream.stock = [{ sku: 'A', closing_stock: 12, adjustment: 12 }]
+      upstream.costs = { as_of: '', resolved: [priced('A', 250)], unresolved: [], complete: true }
+
+      const result = await finance.recompute(store, '2026-07')
+
+      expect(result.restocked_value_cents).toBe(0)
+      expect(result.unclassified_stock_adjustment_value_cents).toBe(3000)
+      expect(result.remaining_value_cents).toBe(3000)
+    })
+
+    it('flags the SKU, sorted by magnitude, and survives the round trip through Postgres', async () => {
+      const store = newStore()
+      upstream.supply = { restocks: [], removals: [] }
+      upstream.stock = [
+        { sku: 'A', closing_stock: 0, adjustment: -2 },
+        { sku: 'B', closing_stock: 9, adjustment: 9 },
+      ]
+      upstream.costs = { as_of: '', resolved: [priced('A', 100), priced('B', 100)], unresolved: [], complete: true }
+
+      await finance.recompute(store, '2026-07')
+      const reread = await finance.findOne(store, '2026-07')
+
+      expect(reread.adjustment_flags.map(entry => entry.sku)).toEqual(['B', 'A'])
+    })
+  })
+
+  describe('the recorded closing balance (design D5 — no longer cross-checked)', () => {
+    it('does not affect completeness, even when inventory-service supplies one', async () => {
+      const store = newStore()
+      upstream.supply = { restocks: [{ sku: 'A', quantity_restocked: 10 }], removals: [] }
+      upstream.stock = [{ sku: 'A', closing_stock: 10 }]
+      upstream.costs = { as_of: '', resolved: [priced('A', 200)], unresolved: [], complete: true }
+
+      const result = await finance.recompute(store, '2026-07')
+
+      expect(result.complete).toBe(true)
+      expect(result.inconsistent_stock).toEqual([])
+      expect(result.remaining_value_cents).toBe(2000)
+    })
+  })
+
   describe('breakdowns', () => {
     it('stores loss by reason and by SKU, both summing to the total', async () => {
       const store = newStore()

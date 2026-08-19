@@ -170,6 +170,33 @@ describe('products integration', () => {
     })
   })
 
+  describe('code matching', () => {
+    // The primary resolution path (design D3): sku is the identifier shared
+    // across the sales report, the restocking report and the price list.
+    it('matches a product by its own sku, exactly', async () => {
+      const product = await createProduct(unique('Produto'))
+
+      const result = await products.resolveSkus([product.sku])
+
+      expect(result.matched).toEqual([expect.objectContaining({ id: product.id, sku: product.sku })])
+    })
+
+    it('reports an unknown sku with the original code, never a guess from a name', async () => {
+      const result = await products.resolveSkus(['NAO-EXISTE-999'])
+
+      expect(result.unmatched).toEqual([{ sku: 'NAO-EXISTE-999', reason: 'unknown_sku' }])
+    })
+
+    it('resolves several codes in one call, matched and unmatched together', async () => {
+      const product = await createProduct(unique('Produto'))
+
+      const result = await products.resolveSkus([product.sku, 'FANTASMA-1'])
+
+      expect(result.matched.map(p => p.sku)).toEqual([product.sku])
+      expect(result.unmatched).toEqual([{ sku: 'FANTASMA-1', reason: 'unknown_sku' }])
+    })
+  })
+
   describe('name matching', () => {
     it('matches a name differing only by case, accents and spacing', async () => {
       const name = `Refrigerante Guaraná ${unique('X')}`

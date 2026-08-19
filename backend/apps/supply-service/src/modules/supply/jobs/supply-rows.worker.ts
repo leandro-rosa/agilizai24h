@@ -22,7 +22,8 @@ export class SupplyRowsWorker extends HoldItWorkerHost<SupplyRowsJob> {
   }
 
   async process(job: Job<SupplyRowsJob>): Promise<unknown> {
-    const { schemaVersion, storeId, period, ingestionId, restocks, removals, correlationId } = job.data
+    const { schemaVersion, storeId, period, ingestionId, restocks, removals, adjustments, recordedClosingBalances, correlationId } =
+      job.data
 
     if (schemaVersion !== 1) {
       throw new Error(`Unsupported ingestion schemaVersion ${schemaVersion} on job ${job.id}`)
@@ -38,6 +39,8 @@ export class SupplyRowsWorker extends HoldItWorkerHost<SupplyRowsJob> {
       ingestionId,
       restocks: restocks ?? [],
       removals: removals ?? [],
+      adjustments: adjustments ?? [],
+      recordedClosingBalances: recordedClosingBalances ?? [],
     })
 
     // After the commit, and only on a real change — re-uploading an identical

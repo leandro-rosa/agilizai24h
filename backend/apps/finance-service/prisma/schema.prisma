@@ -28,11 +28,17 @@ model Reconciliation {
   loss_value_cents      Int
   loss_quantity         Int
 
+  /// A fifth figure, separate from the four: the unclassified stock
+  /// adjustment, valued at current cost, in this period only — never traced
+  /// to an origin store or month (design D6 of
+  /// align-ingestion-with-real-reports). Not a restock, not a loss.
+  unclassified_stock_adjustment_value_cents Int @default(0)
+
   /// The date costs were resolved at, so the valuation can be reproduced and
   /// the month-end approximation is visible rather than implicit.
   valuation_date String
 
-  /// False when any SKU could not be priced, or when a valued balance was
+  /// False when any SKU could not be priced or when a valued balance was
   /// inconsistent. Never inferred from the totals — a total that excludes an
   /// unpriced SKU looks perfectly plausible.
   complete Boolean
@@ -54,8 +60,9 @@ model Reconciliation {
   /// stale, and looks identical to a current one without this.
   inputs_changed_at DateTime?
 
-  by_reason ReconciliationLoss[]
-  unvalued  UnvaluedSku[]
+  by_reason   ReconciliationLoss[]
+  unvalued    UnvaluedSku[]
+  adjustments ReconciliationAdjustment[]
 
   @@unique([store_id, period])
   @@index([period])
@@ -81,6 +88,25 @@ model ReconciliationLoss {
 
   @@index([reconciliation_id])
   @@map("reconciliation_loss")
+}
+
+/// A SKU carrying a non-zero adjustment this period — the raw material for
+/// design D6's "flag for manual review", not a correction: a growing pattern
+/// here is itself the finding worth a look, so this is surfaced rather than
+/// silently netted away.
+model ReconciliationAdjustment {
+  id                Int    @id @default(autoincrement())
+  reconciliation_id Int
+
+  sku String
+  /// Signed: positive is inbound, negative is outbound.
+  quantity    Int
+  value_cents Int
+
+  reconciliation Reconciliation @relation(fields: [reconciliation_id], references: [id], onDelete: Cascade)
+
+  @@index([reconciliation_id])
+  @@map("reconciliation_adjustment")
 }
 
 /// A SKU that had movement but could not be valued.

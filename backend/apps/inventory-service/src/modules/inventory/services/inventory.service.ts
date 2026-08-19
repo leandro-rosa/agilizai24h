@@ -10,9 +10,17 @@ export interface StockView {
   restocked: number
   sold: number
   removed: number
+  /** Net inventory adjustment — signed (design D4/D6). */
+  adjustment: number
   closing_stock: number
   /** True when the derived balance is below zero — a data problem, not a level. */
   inconsistent: boolean
+  /**
+   * The operators' own reading for this period, when supply-service has one —
+   * stored for visibility, never compared against `closing_stock` (design D5,
+   * reversed: it is a visit-moment reading, not a month-end one).
+   */
+  recorded_closing_balance: number | null
   minimum?: number
   below_minimum?: boolean
 }
@@ -96,7 +104,9 @@ export class InventoryService {
             restocked: entry.restocked,
             sold: entry.sold,
             removed: entry.removed,
+            adjustment: entry.adjustment,
             closing_stock: entry.closingStock,
+            recorded_closing_balance: entry.recordedClosingBalance,
           })),
         })
 
@@ -169,9 +179,19 @@ export class InventoryService {
     // The latest snapshot at or before the requested period, per SKU: a SKU with
     // no movement in that month still has the balance it carried in.
     const rows = await this.prisma.$queryRaw<
-      { sku: string; period: string; restocked: number; sold: number; removed: number; closing_stock: number }[]
+      {
+        sku: string
+        period: string
+        restocked: number
+        sold: number
+        removed: number
+        adjustment: number
+        closing_stock: number
+        recorded_closing_balance: number | null
+      }[]
     >`
-      SELECT DISTINCT ON (sku) sku, period, restocked, sold, removed, closing_stock
+      SELECT DISTINCT ON (sku) sku, period, restocked, sold, removed, adjustment, closing_stock,
+        recorded_closing_balance
       FROM stock_snapshot
       WHERE store_id = ${storeId} AND period <= ${asOf}
       ORDER BY sku ASC, period DESC
@@ -246,7 +266,16 @@ export class InventoryService {
 
   private toView(
     storeId: number,
-    row: { sku: string; period: string; restocked: number; sold: number; removed: number; closing_stock: number },
+    row: {
+      sku: string
+      period: string
+      restocked: number
+      sold: number
+      removed: number
+      adjustment: number
+      closing_stock: number
+      recorded_closing_balance: number | null
+    },
     minimum?: number,
   ): StockView {
     const closing = Number(row.closing_stock)
@@ -258,8 +287,10 @@ export class InventoryService {
       restocked: Number(row.restocked),
       sold: Number(row.sold),
       removed: Number(row.removed),
+      adjustment: Number(row.adjustment),
       closing_stock: closing,
       inconsistent: closing < 0,
+      recorded_closing_balance: row.recorded_closing_balance === null ? null : Number(row.recorded_closing_balance),
       minimum,
       // Asserted only for SKUs that actually have a minimum: without one there
       // is no judgement to make, and defaulting would invent a threshold.

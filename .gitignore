@@ -11,3 +11,11 @@ build/
 
 # Turborepo
 .turbo/
+
+# Python (finance skill scripts)
+__pycache__/
+*.pyc
+
+# Real operator spreadsheets (sensitive company data) — never commit the full
+# exports, only the small redacted fixtures under test/fixtures/
+var/

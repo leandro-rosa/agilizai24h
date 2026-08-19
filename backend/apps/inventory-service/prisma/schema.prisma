@@ -25,11 +25,24 @@ model StockSnapshot {
   restocked Int
   sold      Int
   removed   Int
+  /// Net inventory adjustment — signed. Moves stock exactly like a restock or
+  /// a removal; kept as its own term because finance-service values it
+  /// separately (design D4/D6 of align-ingestion-with-real-reports).
+  adjustment Int @default(0)
 
   /// Cumulative through this period. May be negative — that means the movement
   /// data is inconsistent, and clamping it would hide the very problem that
   /// needs fixing.
   closing_stock Int
+
+  /// The operators' own reading for this period, when supply-service has one —
+  /// stored for visibility, never compared against `closing_stock`. It is a
+  /// reading taken at the moment of a specific restocking visit, not a
+  /// month-end figure, and the sales report carries no per-sale date to tell
+  /// what sold before or after that visit (design D5 of
+  /// align-ingestion-with-real-reports, reversed after testing the
+  /// comparison against real data).
+  recorded_closing_balance Int?
 
   computed_at DateTime @default(now())
 

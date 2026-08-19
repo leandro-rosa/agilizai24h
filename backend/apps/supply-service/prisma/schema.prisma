@@ -80,6 +80,54 @@ model RemovalRecord {
   @@map("removal_record")
 }
 
+/// Units moved into or out of a store via an inventory adjustment — never a
+/// restock, never a removal.
+///
+/// The field mixes deliberate transfers between stores, self-checkout
+/// mismatches, and data-entry error, indistinguishable from the export alone
+/// (align-ingestion-with-real-reports design D4/D6). Stored separately for
+/// the same reason removals are stored already split: netting it into
+/// restocked value or into loss would make either figure depend on a
+/// re-derivation this service never performs.
+model AdjustmentRecord {
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  period   String
+  sku      String
+
+  /// Signed: positive is inbound, negative is outbound.
+  quantity     Int
+  ingestion_id String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([store_id, period, sku])
+  @@index([store_id, period])
+  @@map("adjustment_record")
+}
+
+/// The closing balance the operators themselves recorded for a store, period
+/// and SKU — a cross-check for inventory-service's derived figure (design
+/// D5), never a second source of truth. Absent for a period ingested before
+/// this cross-check existed.
+model RecordedClosingBalance {
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  period   String
+  sku      String
+
+  quantity     Int
+  ingestion_id String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([store_id, period, sku])
+  @@index([store_id, period])
+  @@map("recorded_closing_balance")
+}
+
 /// Marks that a store's period was ingested, so "never ingested" stays
 /// distinguishable from "ingested with no restocks or removals".
 model IngestedPeriod {

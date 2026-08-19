@@ -4,7 +4,7 @@ const message = (rowData: Record<string, unknown>, rowId = 2) => ({
   rowData,
   requestId: 'ing-1',
   rowId,
-  additionalData: { ingestionId: 'ing-1', fileType: 'sales' as const, worksheetName: 'Vendas' },
+  additionalData: { ingestionId: 'ing-1', fileType: 'sales' as const, worksheetName: 'Relatório' },
 })
 
 const jobOf = (messages: unknown[]) => ({ id: '1', data: messages }) as never
@@ -12,9 +12,10 @@ const jobOf = (messages: unknown[]) => ({ id: '1', data: messages }) as never
 describe('StagedRowsWorker', () => {
   const build = (
     opts: {
-      matched?: { source_name: string; product: { id: number; sku: string; name: string } }[]
-      unmatched?: { source_name: string; reason: string }[]
-      store?: { id: number; name: string; external_code: string | null } | null
+      skuMatched?: { id: number; sku: string; name: string }[]
+      skuUnmatched?: { sku: string; reason: string }[]
+      nameMatched?: { source_name: string; product: { id: number; sku: string; name: string } }[]
+      nameUnmatched?: { source_name: string; reason: string }[]
       storeId?: number
     } = {},
   ) => {
@@ -23,6 +24,7 @@ describe('StagedRowsWorker', () => {
       recordRejections: jest.fn().mockResolvedValue(undefined),
       completeChunk: jest.fn().mockResolvedValue(false),
       finalize: jest.fn().mockResolvedValue(undefined),
+      operationsFor: jest.fn().mockResolvedValue([]),
     }
     const prisma = {
       ingestion: {
@@ -34,11 +36,14 @@ describe('StagedRowsWorker', () => {
       },
     }
     const upstream = {
-      resolveProductNames: jest.fn().mockResolvedValue({
-        matched: opts.matched ?? [],
-        unmatched: opts.unmatched ?? [],
+      resolveSkus: jest.fn().mockResolvedValue({
+        matched: opts.skuMatched ?? [],
+        unmatched: opts.skuUnmatched ?? [],
       }),
-      resolveStoreByExternalCode: jest.fn().mockResolvedValue(opts.store ?? null),
+      resolveProductNames: jest.fn().mockResolvedValue({
+        matched: opts.nameMatched ?? [],
+        unmatched: opts.nameUnmatched ?? [],
+      }),
     }
 
     return {
@@ -48,30 +53,55 @@ describe('StagedRowsWorker', () => {
     }
   }
 
-  const knownProduct = [{ source_name: 'Guaraná', product: { id: 1, sku: 'GUA-350', name: 'Guaraná' } }]
+  const knownProductByCode = [{ id: 1, sku: 'GUA-350', name: 'Guaraná' }]
+  const knownProductByName = [{ source_name: 'Guaraná', product: { id: 1, sku: 'GUA-350', name: 'Guaraná' } }]
 
-  describe('unresolvable products', () => {
-    it('rejects an unresolved product and reports the original name', async () => {
-      // Reported rather than dropped: a dropped row makes the period's total
-      // quietly too low, with nothing to indicate it.
-      const { worker, ingestions } = build({
-        unmatched: [{ source_name: 'Produto Fantasma', reason: 'unknown_name' }],
+  describe('product resolution — code first, name as fallback (design D3)', () => {
+    it('resolves by code without ever calling name resolution', async () => {
+      const { worker, ingestions, upstream } = build({ skuMatched: knownProductByCode })
+
+      await worker.process(jobOf([message({ Codigo: 'GUA-350', Qtd_vendida: 3 })]))
+
+      expect(ingestions.stageRows).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({ sku: 'GUA-350', quantity: 3 }),
+      ])
+      expect(upstream.resolveProductNames).not.toHaveBeenCalled()
+    })
+
+    it('falls back to name resolution only when the row carries no code', async () => {
+      const { worker, ingestions, upstream } = build({ nameMatched: knownProductByName })
+
+      await worker.process(jobOf([message({ Descricao: 'Guaraná', Qtd_vendida: 3 })]))
+
+      expect(ingestions.stageRows).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({ sku: 'GUA-350', quantity: 3 }),
+      ])
+      expect(upstream.resolveSkus).not.toHaveBeenCalled()
+    })
+
+    it('rejects an unresolved code rather than re-resolving the row by its name', async () => {
+      // A stated code that is wrong must not be silently overridden by
+      // whatever the name happens to match (design D3, task 4.5).
+      const { worker, ingestions, upstream } = build({
+        skuUnmatched: [{ sku: 'GHOST-1', reason: 'unknown_sku' }],
+        nameMatched: knownProductByName,
       })
 
-      await worker.process(jobOf([message({ Produto: 'Produto Fantasma', Quantidade: 5 })]))
+      await worker.process(jobOf([message({ Codigo: 'GHOST-1', Descricao: 'Guaraná', Qtd_vendida: 3 })]))
 
       expect(ingestions.stageRows).toHaveBeenCalledWith('ing-1', [])
       expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [
-        expect.objectContaining({ reason: 'unknown_name', detail: expect.stringContaining('Produto Fantasma') }),
+        expect.objectContaining({ reason: 'unknown_sku', detail: expect.stringContaining('GHOST-1') }),
       ])
+      expect(upstream.resolveProductNames).not.toHaveBeenCalled()
     })
 
     it('carries the ambiguity reason through rather than flattening it', async () => {
       const { worker, ingestions } = build({
-        unmatched: [{ source_name: 'Duplicado', reason: 'ambiguous_name' }],
+        nameUnmatched: [{ source_name: 'Duplicado', reason: 'ambiguous_name' }],
       })
 
-      await worker.process(jobOf([message({ Produto: 'Duplicado', Quantidade: 1 })]))
+      await worker.process(jobOf([message({ Descricao: 'Duplicado', Qtd_vendida: 1 })]))
 
       expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [
         expect.objectContaining({ reason: 'ambiguous_name' }),
@@ -79,19 +109,19 @@ describe('StagedRowsWorker', () => {
     })
 
     it('names the row so the operator can find it in the file', async () => {
-      const { worker, ingestions } = build({ unmatched: [{ source_name: 'X', reason: 'unknown_name' }] })
+      const { worker, ingestions } = build({ nameUnmatched: [{ source_name: 'X', reason: 'unknown_name' }] })
 
-      await worker.process(jobOf([message({ Produto: 'X', Quantidade: 1 }, 42)]))
+      await worker.process(jobOf([message({ Descricao: 'X', Qtd_vendida: 1 }, 42)]))
 
       expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [
-        expect.objectContaining({ rowReference: 'Vendas!row 42' }),
+        expect.objectContaining({ rowReference: 'Relatório!row 42' }),
       ])
     })
 
-    it('rejects a row that names no product at all', async () => {
+    it('rejects a row that names no product code or name at all', async () => {
       const { worker, ingestions } = build()
 
-      await worker.process(jobOf([message({ Quantidade: 5 })]))
+      await worker.process(jobOf([message({ Qtd_vendida: 5 })]))
 
       expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [
         expect.objectContaining({ reason: 'missing_product' }),
@@ -100,82 +130,40 @@ describe('StagedRowsWorker', () => {
 
     it('stages the resolvable rows even when others are rejected', async () => {
       const { worker, ingestions } = build({
-        matched: knownProduct,
-        unmatched: [{ source_name: 'Fantasma', reason: 'unknown_name' }],
+        skuMatched: knownProductByCode,
+        skuUnmatched: [{ sku: 'GHOST-1', reason: 'unknown_sku' }],
       })
 
       await worker.process(
-        jobOf([message({ Produto: 'Guaraná', Quantidade: 3 }), message({ Produto: 'Fantasma', Quantidade: 1 }, 3)]),
+        jobOf([
+          message({ Codigo: 'GUA-350', Qtd_vendida: 3 }),
+          message({ Codigo: 'GHOST-1', Qtd_vendida: 1 }, 3),
+        ]),
       )
 
       expect(ingestions.stageRows).toHaveBeenCalledWith('ing-1', [
         expect.objectContaining({ sku: 'GUA-350', quantity: 3 }),
       ])
-      expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [expect.objectContaining({ reason: 'unknown_name' })])
-    })
-  })
-
-  describe('store cross-check', () => {
-    it('does nothing when the file names no store', async () => {
-      const { worker, upstream } = build({ matched: knownProduct })
-
-      await worker.process(jobOf([message({ Produto: 'Guaraná', Quantidade: 1 })]))
-
-      expect(upstream.resolveStoreByExternalCode).not.toHaveBeenCalled()
-    })
-
-    it('accepts a file whose store code matches the store it was uploaded against', async () => {
-      const { worker } = build({
-        matched: knownProduct,
-        storeId: 7,
-        store: { id: 7, name: 'Loja', external_code: 'TP-001' },
-      })
-
-      await expect(
-        worker.process(jobOf([message({ Produto: 'Guaraná', Quantidade: 1, Loja: 'TP-001' })])),
-      ).resolves.toBeDefined()
-    })
-
-    it('fails the chunk when the file belongs to a different store', async () => {
-      // Nothing else catches a report filed against the wrong store, and every
-      // figure derived from it would be attributed elsewhere while looking
-      // entirely plausible.
-      const { worker, ingestions } = build({
-        matched: knownProduct,
-        storeId: 7,
-        store: { id: 99, name: 'Outra', external_code: 'TP-999' },
-      })
-
-      await expect(
-        worker.process(jobOf([message({ Produto: 'Guaraná', Quantidade: 1, Loja: 'TP-999' })])),
-      ).rejects.toThrow(/uploaded against store 7/)
-
-      expect(ingestions.stageRows).not.toHaveBeenCalled()
-    })
-
-    it('fails the chunk when the file names a store code nothing matches', async () => {
-      const { worker } = build({ matched: knownProduct, store: null })
-
-      await expect(
-        worker.process(jobOf([message({ Produto: 'Guaraná', Quantidade: 1, Loja: 'DESCONHECIDA' })])),
-      ).rejects.toThrow(/matches no registered store/)
+      expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({ reason: 'unknown_sku' }),
+      ])
     })
   })
 
   describe('finalisation', () => {
     it('does not finalise while chunks remain', async () => {
-      const { worker, ingestions } = build({ matched: knownProduct })
+      const { worker, ingestions } = build({ skuMatched: knownProductByCode })
 
-      await worker.process(jobOf([message({ Produto: 'Guaraná', Quantidade: 1 })]))
+      await worker.process(jobOf([message({ Codigo: 'GUA-350', Qtd_vendida: 1 })]))
 
       expect(ingestions.finalize).not.toHaveBeenCalled()
     })
 
     it('finalises exactly once, on the chunk that completes the file', async () => {
-      const { worker, ingestions } = build({ matched: knownProduct })
+      const { worker, ingestions } = build({ skuMatched: knownProductByCode })
       ingestions.completeChunk.mockResolvedValue(true)
 
-      await worker.process(jobOf([message({ Produto: 'Guaraná', Quantidade: 1 })]))
+      await worker.process(jobOf([message({ Codigo: 'GUA-350', Qtd_vendida: 1 })]))
 
       expect(ingestions.finalize).toHaveBeenCalledTimes(1)
     })

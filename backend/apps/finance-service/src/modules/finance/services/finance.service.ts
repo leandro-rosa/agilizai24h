@@ -13,6 +13,8 @@ export interface ReconciliationView {
   remaining_value_cents: number
   loss_value_cents: number
   loss_quantity: number
+  /** The unclassified stock adjustment, valued at current cost (design D6) — a fifth figure, never folded into the four. */
+  unclassified_stock_adjustment_value_cents: number
   valuation_date: string
   complete: boolean
   computed_at: Date
@@ -26,6 +28,8 @@ export interface ReconciliationView {
   unvalued: { sku: string; reason: string; restocked: number; sold: number; remaining: number; loss_quantity: number }[]
   /** SKUs whose remaining balance inventory-service flagged as inconsistent. */
   inconsistent_stock: string[]
+  /** Every SKU with a non-zero adjustment this period, largest magnitude first — for manual review, not correction. */
+  adjustment_flags: { sku: string; quantity: number; value_cents: number }[]
 }
 
 export interface RollupView {
@@ -34,6 +38,7 @@ export interface RollupView {
   cogs_cents: number
   remaining_value_cents: number
   loss_value_cents: number
+  unclassified_stock_adjustment_value_cents: number
   store_count: number
   /** False when ANY contributing store's month is incomplete. */
   complete: boolean
@@ -97,6 +102,7 @@ export class FinanceService {
           remaining_value_cents: result.remaining_value_cents,
           loss_value_cents: result.loss_value_cents,
           loss_quantity: result.loss_quantity,
+          unclassified_stock_adjustment_value_cents: result.unclassified_stock_adjustment_value_cents,
           valuation_date: valuationDate,
           complete: result.complete,
           inconsistent_stock: result.inconsistent_stock,
@@ -136,11 +142,22 @@ export class FinanceService {
           })),
         })
       }
+
+      if (result.adjustment_flags.length > 0) {
+        await tx.reconciliationAdjustment.createMany({
+          data: result.adjustment_flags.map(entry => ({
+            reconciliation_id: created.id,
+            sku: entry.sku,
+            quantity: entry.quantity,
+            value_cents: entry.value_cents,
+          })),
+        })
+      }
     })
 
     this.logger.log(
       `Reconciled store ${storeId} period ${period} as of ${valuationDate}: ` +
-        `loss ${result.loss_value_cents} cents, ` +
+        `loss ${result.loss_value_cents} cents, adjustment ${result.unclassified_stock_adjustment_value_cents} cents, ` +
         `${result.complete ? 'complete' : `INCOMPLETE (${result.unvalued.length} unvalued, ${result.inconsistent_stock.length} inconsistent)`}`,
     )
 
@@ -150,11 +167,12 @@ export class FinanceService {
   async findOne(storeId: number, period: string): Promise<ReconciliationView> {
     const found = (await this.reconciliations.findUnique({
       where: { store_id_period: { store_id: storeId, period } },
-      include: { by_reason: true, unvalued: true },
+      include: { by_reason: true, unvalued: true, adjustments: true },
     })) as
       | (Reconciliation & {
           by_reason: { reason: string | null; sku: string | null; quantity: number; value_cents: number }[]
           unvalued: { sku: string; reason: string; restocked: number; sold: number; remaining: number; loss_quantity: number }[]
+          adjustments: { sku: string; quantity: number; value_cents: number }[]
         })
       | null
 
@@ -172,6 +190,7 @@ export class FinanceService {
       remaining_value_cents: found.remaining_value_cents,
       loss_value_cents: found.loss_value_cents,
       loss_quantity: found.loss_quantity,
+      unclassified_stock_adjustment_value_cents: found.unclassified_stock_adjustment_value_cents,
       valuation_date: found.valuation_date,
       complete: found.complete,
       inconsistent_stock: found.inconsistent_stock,
@@ -191,6 +210,9 @@ export class FinanceService {
         remaining: row.remaining,
         loss_quantity: row.loss_quantity,
       })),
+      adjustment_flags: found.adjustments
+        .map(row => ({ sku: row.sku, quantity: row.quantity, value_cents: row.value_cents }))
+        .sort((a, b) => Math.abs(b.quantity) - Math.abs(a.quantity)),
     }
   }
 
@@ -227,6 +249,10 @@ export class FinanceService {
       cogs_cents: months.reduce((sum, month) => sum + month.cogs_cents, 0),
       remaining_value_cents: months.reduce((sum, month) => sum + month.remaining_value_cents, 0),
       loss_value_cents: months.reduce((sum, month) => sum + month.loss_value_cents, 0),
+      unclassified_stock_adjustment_value_cents: months.reduce(
+        (sum, month) => sum + month.unclassified_stock_adjustment_value_cents,
+        0,
+      ),
       store_count: months.length,
       complete: incomplete.length === 0,
       incomplete_stores: incomplete,
@@ -237,12 +263,20 @@ export class FinanceService {
   private mergeQuantities(
     supply: { restocks: { sku: string; quantity_restocked: number }[]; removals: { sku: string; reason: string; counts_as_loss: boolean; quantity_removed: number }[] },
     sales: { sku: string; quantity_sold: number }[],
-    stock: { sku: string; closing_stock: number; inconsistent?: boolean }[],
+    stock: { sku: string; closing_stock: number; inconsistent?: boolean; adjustment?: number }[],
   ): SkuQuantities[] {
     const bySku = new Map<string, SkuQuantities>()
     const ensure = (sku: string) => {
       if (!bySku.has(sku)) {
-        bySku.set(sku, { sku, restocked: 0, sold: 0, remaining: 0, stockInconsistent: false, lossByReason: [] })
+        bySku.set(sku, {
+          sku,
+          restocked: 0,
+          sold: 0,
+          remaining: 0,
+          stockInconsistent: false,
+          adjustment: 0,
+          lossByReason: [],
+        })
       }
       return bySku.get(sku)!
     }
@@ -253,6 +287,11 @@ export class FinanceService {
       const item = ensure(row.sku)
       item.remaining = row.closing_stock
       item.stockInconsistent = row.inconsistent === true
+      // Read from inventory-service's already-materialised figure, not
+      // re-summed from supply here: it is the same net adjustment
+      // inventory-service already folded into the closing balance it derived,
+      // and re-deriving it would risk the two disagreeing.
+      item.adjustment = row.adjustment ?? 0
     }
 
     // Only loss-counting removals reach the loss figure. The classification

@@ -12,6 +12,7 @@ const quantities = (overrides: Partial<SkuQuantities> & { sku: string }): SkuQua
   sold: 0,
   remaining: 0,
   stockInconsistent: false,
+  adjustment: 0,
   lossByReason: [],
   ...overrides,
 })
@@ -261,6 +262,74 @@ describe('reconcile', () => {
       const result = reconcile([], [], [])
 
       expect(result).toMatchObject({ restocked_value_cents: 0, cogs_cents: 0, complete: true })
+    })
+  })
+
+  describe('the unclassified stock adjustment (design D6)', () => {
+    it('values an inbound adjustment at current cost, never as restocked value', () => {
+      const result = reconcile([quantities({ sku: 'A', restocked: 0, adjustment: 12 })], [cost('A', 250)], [])
+
+      expect(result.restocked_value_cents).toBe(0)
+      expect(result.unclassified_stock_adjustment_value_cents).toBe(3000)
+    })
+
+    it('values an outbound adjustment as negative, never reducing real loss', () => {
+      const result = reconcile([quantities({ sku: 'A', adjustment: -4 })], [cost('A', 250)], [])
+
+      expect(result.unclassified_stock_adjustment_value_cents).toBe(-1000)
+      expect(result.loss_value_cents).toBe(0)
+    })
+
+    it('nets inbound and outbound across SKUs into one figure', () => {
+      const result = reconcile(
+        [quantities({ sku: 'A', adjustment: 10 }), quantities({ sku: 'B', adjustment: -4 })],
+        [cost('A', 100), cost('B', 200)],
+        [],
+      )
+
+      // 10×100 − 4×200 = 1000 − 800 = 200
+      expect(result.unclassified_stock_adjustment_value_cents).toBe(200)
+    })
+
+    it('still counts adjusted-in units toward remaining stock value', () => {
+      const result = reconcile(
+        [quantities({ sku: 'A', adjustment: 10, remaining: 10 })],
+        [cost('A', 250)],
+        [],
+      )
+
+      expect(result.remaining_value_cents).toBe(2500)
+    })
+
+    it('flags every SKU with a non-zero adjustment, sorted by magnitude', () => {
+      const result = reconcile(
+        [
+          quantities({ sku: 'A', adjustment: -2 }),
+          quantities({ sku: 'B', adjustment: 9 }),
+          quantities({ sku: 'C', adjustment: 0 }),
+        ],
+        [cost('A', 100), cost('B', 100), cost('C', 100)],
+        [],
+      )
+
+      expect(result.adjustment_flags.map(entry => entry.sku)).toEqual(['B', 'A'])
+      expect(result.adjustment_flags.every(entry => entry.quantity !== 0)).toBe(true)
+    })
+
+    it('is never traced to an origin SKU history — it is simply this period, this SKU', () => {
+      // There is no origin-store field anywhere in the shape; the adjustment
+      // is valued the same way regardless of what caused it.
+      const result = reconcile([quantities({ sku: 'A', adjustment: 5 })], [cost('A', 300)], [])
+
+      expect(result.lines[0]).toMatchObject({ adjustment_quantity: 5, adjustment_value_cents: 1500 })
+    })
+  })
+
+  describe('the recorded closing balance (design D5 — no longer cross-checked)', () => {
+    it('a SKU with an ordinary balance stays complete', () => {
+      const result = reconcile([quantities({ sku: 'A', restocked: 10 })], [cost('A', 100)], [])
+
+      expect(result.complete).toBe(true)
     })
   })
 })

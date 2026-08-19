@@ -29,6 +29,16 @@ export interface NameResolutionResult {
   unmatched: NameMismatch[]
 }
 
+export interface SkuMismatch {
+  sku: string
+  reason: UnresolvedReason
+}
+
+export interface SkuResolutionResult {
+  matched: ProductView[]
+  unmatched: SkuMismatch[]
+}
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -81,6 +91,31 @@ export class ProductsService {
     })
 
     return products.map(toView)
+  }
+
+  /**
+   * Resolves externally supplied product codes directly against the catalogue
+   * SKU — no normalisation, no override, no ambiguity to arbitrate. The code
+   * is the same identifier across the sales report, the restocking report and
+   * the price list (design D3 of align-ingestion-with-real-reports), so this
+   * is the primary resolution path; `resolveNames` is the fallback for a row
+   * that carries no code at all.
+   */
+  async resolveSkus(skus: string[]): Promise<SkuResolutionResult> {
+    const requested = [...new Set(skus)]
+    const found = await this.prisma.product.findMany({ where: { sku: { in: requested } } })
+    const foundBySku = new Map(found.map(product => [product.sku, product]))
+
+    const matched: ProductView[] = []
+    const unmatched: SkuMismatch[] = []
+
+    for (const sku of requested) {
+      const product = foundBySku.get(sku)
+      if (product) matched.push(toView(product))
+      else unmatched.push({ sku, reason: UNRESOLVED_REASONS.UNKNOWN_SKU })
+    }
+
+    return { matched, unmatched }
   }
 
   /**

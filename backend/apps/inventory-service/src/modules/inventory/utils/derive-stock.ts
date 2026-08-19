@@ -5,12 +5,23 @@
  * off the shelf whether or not it counted as a loss — a returned bottle and an
  * expired one are equally gone. Letting the loss classification leak into the
  * quantity would make stock disagree with reality for every non-loss removal.
+ *
+ * `adjustment` is the net inventory adjustment — signed, inbound units minus
+ * outbound. It moves stock exactly like a restock or a removal does; it is
+ * only kept as its own term, rather than folded into `restocked`, because
+ * `finance-service` needs to value it separately (design D4/D6).
+ *
+ * `recordedClosingBalance` is the operators' own reading for this period, when
+ * supply-service has one — a cross-check, never a second source of truth
+ * (design D5).
  */
 export interface PeriodMovements {
   period: string
   restocked: number
   sold: number
   removed: number
+  adjustment: number
+  recordedClosingBalance: number | null
 }
 
 export interface PeriodStock {
@@ -18,8 +29,19 @@ export interface PeriodStock {
   restocked: number
   sold: number
   removed: number
+  adjustment: number
   /** Cumulative through this period: what should be on the shelf at its end. */
   closingStock: number
+  /**
+   * The operators' own reading for this period, carried through unchanged —
+   * stored for visibility, never compared against `closingStock`. It is a
+   * reading taken at the moment of a specific restocking visit, not a
+   * month-end figure, and the sales report carries no per-sale date to tell
+   * what sold before or after that visit — comparing it to a whole month's
+   * derived total flagged most SKUs in a real store-month as disagreeing
+   * with nothing actually wrong behind any of them (design D5, reversed).
+   */
+  recordedClosingBalance: number | null
 }
 
 /**
@@ -39,18 +61,20 @@ export function deriveStockSeries(movements: PeriodMovements[], opening = 0): Pe
   let running = opening
 
   return ordered.map(movement => {
-    running += movement.restocked - movement.sold - movement.removed
+    running += movement.restocked - movement.sold - movement.removed + movement.adjustment
 
     return {
       period: movement.period,
       restocked: movement.restocked,
       sold: movement.sold,
       removed: movement.removed,
+      adjustment: movement.adjustment,
       // Deliberately NOT clamped at zero. A negative balance means the movement
       // data is wrong — sales or removals were recorded without the matching
       // restock — and clamping hides exactly the inconsistency that needs
       // fixing, while making the figure look plausible.
       closingStock: running,
+      recordedClosingBalance: movement.recordedClosingBalance,
     }
   })
 }

@@ -22,11 +22,17 @@ export const INTERNAL_QUEUES = {
  * structural mismatch fails once rather than once per row.
  *
  * Compared after the same folding used for names: case, accents, whitespace.
+ *
+ * `supply` (the restocking workbook) is unused here: its structure — a
+ * multi-sheet, two-table-per-sheet layout — is validated by
+ * `locateRestockingOperations`, per sheet, rather than by a single row-1
+ * header check. Kept as a key only so this stays a total map over
+ * `IngestionFileType`.
  */
 export const REQUIRED_HEADERS: Record<IngestionFileType, string[]> = {
-  sales: ['produto', 'quantidade', 'valor'],
-  supply: ['produto', 'abastecido'],
-  cost: ['produto', 'custo'],
+  sales: ['Descrição / Nome produto', 'Qtd. vendida', 'Valor Vendido'],
+  supply: [],
+  cost: ['Produto', 'Custo'],
 }
 
 /**

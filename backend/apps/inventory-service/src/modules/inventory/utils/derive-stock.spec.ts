@@ -1,10 +1,19 @@
 import { closingStockAsOf, deriveStockSeries, type PeriodMovements } from './derive-stock'
 
-const movement = (period: string, restocked: number, sold: number, removed: number): PeriodMovements => ({
+const movement = (
+  period: string,
+  restocked: number,
+  sold: number,
+  removed: number,
+  adjustment = 0,
+  recordedClosingBalance: number | null = null,
+): PeriodMovements => ({
   period,
   restocked,
   sold,
   removed,
+  adjustment,
+  recordedClosingBalance,
 })
 
 describe('deriveStockSeries', () => {
@@ -57,6 +66,51 @@ describe('deriveStockSeries', () => {
 
   it('returns nothing for no movements at all', () => {
     expect(deriveStockSeries([])).toEqual([])
+  })
+})
+
+describe('the inventory adjustment', () => {
+  it('an inbound adjustment increases stock', () => {
+    const [result] = deriveStockSeries([movement('2026-03', 0, 0, 0, 12)])
+
+    expect(result.closingStock).toBe(12)
+  })
+
+  it('an outbound adjustment decreases stock', () => {
+    const [result] = deriveStockSeries([movement('2026-03', 20, 0, 0, -5)])
+
+    expect(result.closingStock).toBe(15)
+  })
+
+  it('carries forward across periods same as any other movement', () => {
+    const series = deriveStockSeries([movement('2026-03', 0, 0, 0, 10), movement('2026-04', 0, 0, 0)])
+
+    expect(series.map(entry => entry.closingStock)).toEqual([10, 10])
+  })
+})
+
+describe('the recorded balance (design D5 — stored, not cross-checked)', () => {
+  it('is carried through alongside the derived balance', () => {
+    const [result] = deriveStockSeries([movement('2026-03', 100, 60, 5, 0, 35)])
+
+    expect(result.closingStock).toBe(35)
+    expect(result.recordedClosingBalance).toBe(35)
+  })
+
+  it('is carried through even when it differs from the derived balance', () => {
+    // A visit-moment reading legitimately differs from the month-end derived
+    // total whenever anything sold after the last restocking visit — the
+    // common case, not an error. No comparison is made between the two.
+    const [result] = deriveStockSeries([movement('2026-03', 100, 60, 5, 0, 999)])
+
+    expect(result.closingStock).toBe(35)
+    expect(result.recordedClosingBalance).toBe(999)
+  })
+
+  it('is null when no recorded balance exists for the period', () => {
+    const [result] = deriveStockSeries([movement('2026-03', 100, 60, 5)])
+
+    expect(result.recordedClosingBalance).toBeNull()
   })
 })
 

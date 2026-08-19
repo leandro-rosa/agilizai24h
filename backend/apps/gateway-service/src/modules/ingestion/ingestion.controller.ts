@@ -50,13 +50,22 @@ export class IngestionController {
     const storeId = fields.store_id?.value
     const period = fields.period?.value
 
-    // Store and period are required rather than guessed: the restocking
-    // workbook carries no reliable machine-readable period, and inferring one
-    // silently attributes March's data to April.
+    // Period is required rather than guessed: neither report carries a
+    // reliable machine-readable one, and inferring it would silently
+    // attribute March's data to April.
+    //
+    // Store is required for sales and cost, which carry no store identity of
+    // their own — but NOT for supply (restocking): that workbook covers every
+    // store in the month, one operation per sheet, each naming its own store
+    // via Cliente (design D2 of align-ingestion-with-real-reports). Requiring
+    // one here would attribute every other store's rows to whichever one was
+    // picked.
     if (!fileType || !FILE_TYPES.includes(fileType)) {
       throw new BadRequestException(`file_type must be one of: ${FILE_TYPES.join(', ')}`)
     }
-    if (!storeId || Number.isNaN(Number(storeId))) throw new BadRequestException('store_id is required')
+    if (fileType !== 'supply' && (!storeId || Number.isNaN(Number(storeId)))) {
+      throw new BadRequestException('store_id is required')
+    }
     if (!period || !PERIOD_PATTERN.test(period)) throw new BadRequestException('period is required, as YYYY-MM')
 
     const filename = uploaded.filename ?? 'upload.xlsx'
@@ -72,7 +81,7 @@ export class IngestionController {
 
     const body = await uploaded.toBuffer()
     const ingestionId = randomUUID()
-    const objectKey = `ingestions/${period}/${storeId}/${ingestionId}-${filename}`
+    const objectKey = `ingestions/${period}/${storeId ?? 'network'}/${ingestionId}-${filename}`
 
     // The raw file goes to object storage before anything is queued: it is the
     // evidence when a figure is later disputed, and it keeps the job payload a
@@ -89,7 +98,8 @@ export class IngestionController {
         file_type: fileType,
         object_key: objectKey,
         original_name: filename,
-        store_id: Number(storeId),
+        // Absent for supply — the store comes from the file itself (design D2).
+        store_id: storeId ? Number(storeId) : undefined,
         period,
         correlation_id: correlationId,
       },

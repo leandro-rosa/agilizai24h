@@ -13,6 +13,14 @@ export interface SkuQuantities {
    * visible — dropping the flag here would put it back out of sight.
    */
   stockInconsistent?: boolean
+  /**
+   * Net inventory adjustment for the period — signed, inbound minus outbound.
+   * Mixes deliberate transfers, self-checkout mismatches and data-entry
+   * error, indistinguishable from the data alone (design D4/D6). Valued at
+   * current cost, in this period only — never traced to an origin store or
+   * month, and never folded into restocked value or loss.
+   */
+  adjustment: number
   /** Removals that count as loss, per reason. Non-loss reasons are absent. */
   lossByReason: { reason: string; quantity: number }[]
 }
@@ -25,6 +33,10 @@ export interface ValuedLine {
   remaining_value_cents: number
   loss_value_cents: number
   loss_quantity: number
+  /** Net adjustment quantity — signed. */
+  adjustment_quantity: number
+  /** The adjustment valued at this line's cost — the unclassified stock adjustment figure's own contribution. */
+  adjustment_value_cents: number
 }
 
 export interface UnvaluedLine {
@@ -43,6 +55,15 @@ export interface Reconciliation {
   remaining_value_cents: number
   loss_value_cents: number
   loss_quantity: number
+  /**
+   * The unclassified stock adjustment, valued at current cost, in this period
+   * only — never an origin-store trace (design D6). Separate from the four
+   * core figures because two of the field's three real causes — a
+   * self-checkout mismatch, a data-entry error — are not economically
+   * neutral, and folding it into restocked value would restate money the
+   * network did not spend a second time.
+   */
+  unclassified_stock_adjustment_value_cents: number
   loss_by_reason: { reason: string; quantity: number; value_cents: number }[]
   loss_by_sku: { sku: string; quantity: number; value_cents: number }[]
   lines: ValuedLine[]
@@ -55,12 +76,20 @@ export interface Reconciliation {
    */
   inconsistent_stock: string[]
   /**
+   * Every SKU carrying a non-zero adjustment this period, sorted by the size
+   * of the adjustment — largest magnitude first. Not a correction mechanism:
+   * a growing pattern here is itself the finding worth a manual look (design
+   * D6), so this is surfaced rather than silently netted away.
+   */
+  adjustment_flags: { sku: string; quantity: number; value_cents: number }[]
+  /**
    * The one trust flag. False when anything could not be priced, or when a
    * valued balance was inconsistent.
    *
-   * Deliberately one flag and not two: a consumer asks a single question —
-   * "can I act on this?" — and a second flag is the one that gets forgotten.
-   * `unvalued` and `inconsistent_stock` say WHY; this says whether.
+   * Deliberately one flag and not several: a consumer asks a single
+   * question — "can I act on this?" — and a second flag is the one that gets
+   * forgotten. `unvalued` and `inconsistent_stock` say WHY; this says
+   * whether.
    */
   complete: boolean
 }
@@ -93,6 +122,7 @@ export function reconcile(
   const lines: ValuedLine[] = []
   const unvalued: UnvaluedLine[] = []
   const inconsistentStock: string[] = []
+  const adjustmentFlags: { sku: string; quantity: number; value_cents: number }[] = []
 
   const lossByReason = new Map<string, { quantity: number; value_cents: number }>()
   const lossBySku = new Map<string, { quantity: number; value_cents: number }>()
@@ -102,6 +132,7 @@ export function reconcile(
   let remainingValue = 0
   let lossValue = 0
   let lossQuantity = 0
+  let adjustmentValue = 0
 
   for (const item of quantities) {
     const lossUnits = item.lossByReason.reduce((sum, entry) => sum + entry.quantity, 0)
@@ -120,6 +151,7 @@ export function reconcile(
     }
 
     const lineLossValue = lossUnits * cost
+    const lineAdjustmentValue = item.adjustment * cost
 
     lines.push({
       sku: item.sku,
@@ -129,6 +161,8 @@ export function reconcile(
       remaining_value_cents: item.remaining * cost,
       loss_value_cents: lineLossValue,
       loss_quantity: lossUnits,
+      adjustment_quantity: item.adjustment,
+      adjustment_value_cents: lineAdjustmentValue,
     })
 
     // Flagged, not corrected: a negative balance means a movement is missing
@@ -136,11 +170,16 @@ export function reconcile(
     // would produce a plausible-looking figure built on a known-bad input.
     if (item.stockInconsistent) inconsistentStock.push(item.sku)
 
+    if (item.adjustment !== 0) {
+      adjustmentFlags.push({ sku: item.sku, quantity: item.adjustment, value_cents: lineAdjustmentValue })
+    }
+
     restockedValue += item.restocked * cost
     cogs += item.sold * cost
     remainingValue += item.remaining * cost
     lossValue += lineLossValue
     lossQuantity += lossUnits
+    adjustmentValue += lineAdjustmentValue
 
     if (lossUnits > 0) {
       lossBySku.set(item.sku, { quantity: lossUnits, value_cents: lineLossValue })
@@ -161,6 +200,7 @@ export function reconcile(
     remaining_value_cents: remainingValue,
     loss_value_cents: lossValue,
     loss_quantity: lossQuantity,
+    unclassified_stock_adjustment_value_cents: adjustmentValue,
     loss_by_reason: [...lossByReason.entries()]
       .map(([reason, totals]) => ({ reason, ...totals }))
       .sort((a, b) => a.reason.localeCompare(b.reason)),
@@ -170,6 +210,7 @@ export function reconcile(
     lines: lines.sort((a, b) => a.sku.localeCompare(b.sku)),
     unvalued: unvalued.sort((a, b) => a.sku.localeCompare(b.sku)),
     inconsistent_stock: inconsistentStock.sort(),
+    adjustment_flags: adjustmentFlags.sort((a, b) => Math.abs(b.quantity) - Math.abs(a.quantity)),
     complete: unvalued.length === 0 && inconsistentStock.length === 0,
   }
 }

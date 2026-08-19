@@ -4,8 +4,16 @@ Estoque em **unidades** por loja e SKU, derivado dos movimentos que a
 plataforma já registra. Ver [../../CLAUDE.md](../../CLAUDE.md) para as
 convenções do workspace backend.
 
-**Lê**: `sales-service` e `supply-service` (quantidades).
-**Consome**: `period.data-updated` publicado pelo `supply-service`.
+**Lê**: `sales-service` e `supply-service` (quantidades, ajuste e o
+fechamento registrado).
+**Consome**: `period.data-updated.inventory`, publicado por `supply-service`
+e `sales-service`.
+**Publica**: `inventory.period-derived.finance`, só depois que o rebuild
+comita — `finance-service` valora a sobra a partir do que este serviço
+deriva, então não pode rodar em paralelo com quem produz esse dado (medido
+ao vivo: rodando em paralelo, a sobra saiu errada e o mês ainda se disse
+completo). Um evento por período reconstruído, não só o que mudou —
+fechamento se propaga, então corrigir março teria que revalorar abril também.
 **Lido por**: `finance-service` (quantidades de sobra para valorar) e o painel
 pelo `gateway-service`.
 
@@ -36,6 +44,30 @@ Separado do `finance` de propósito: aqui a resposta é em **unidades**, lá é 
 3. **Fechamento passado não muda quando um período posterior ganha movimento** —
    mesma propriedade que a regra de custo datado protege no `products`.
 
+## O ajuste de inventário e o fechamento registrado
+
+`supply-service` reporta um quarto movimento — o ajuste, assinado — e
+opcionalmente o fechamento que os próprios operadores registraram para o
+período. Este serviço:
+
+- **Soma o ajuste ao saldo derivado** exatamente como abastecimento e
+  remoção: `fechamento = abertura + abastecido − vendido − removido + ajuste`.
+  Nunca netado com nenhum dos outros três — `finance-service` valora o
+  ajuste como cifra própria (design D6 de `align-ingestion-with-real-reports`).
+- **Guarda o fechamento registrado, mas não compara contra o derivado.**
+  Existiu uma versão anterior que comparava (`disputed`, por SKU e
+  `has_disputes` na listagem) — **revertida** depois de testar contra dado
+  real (design D5 de `align-ingestion-with-real-reports`). `Qtd. final` é uma
+  leitura no momento de uma visita de abastecimento específica, não o
+  fechamento do mês — a JDI01 teve 5 visitas em março, a última terminando
+  dia 26, e nada no relatório de venda carrega data por linha (confirmado em
+  106 arquivos reais) para separar o que foi vendido antes ou depois dela.
+  Comparando contra o total do mês, 51 de ~70 SKUs de uma única loja-mês real
+  vieram como "disputados" sem nenhum erro de dado por trás. A identidade de
+  saldo por LINHA (checada na ingestão, contra os próprios números daquela
+  linha) é diferente disso e continua valendo — ver
+  [ingestion-worker-service/CLAUDE.md](../ingestion-worker-service/CLAUDE.md).
+
 ## Decisões que não são óbvias no código
 
 - **Estoque é derivado, nunca digitado.** `DELETE` responde 405 apontando para
@@ -61,8 +93,8 @@ Separado do `finance` de propósito: aqui a resposta é em **unidades**, lá é 
 
 ## Testes
 
-- Unitários (`pnpm test`): derivação pura, saldo de abertura e a janela de
-  períodos.
+- Unitários (`pnpm test`): derivação pura, saldo de abertura, a janela de
+  períodos, o ajuste e a conferência de fechamento (`derive-stock.spec.ts`).
 - Integração (`pnpm test:integration`): precisa do Postgres deste serviço.
   Fontes de movimento são stubadas de propósito — o que está sob teste é a
   derivação e o read model, não HTTP.

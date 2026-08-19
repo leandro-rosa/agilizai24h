@@ -84,6 +84,18 @@ describe('stores integration', () => {
       expect(store.external_code).toBeNull()
     })
 
+    it('resolves a code that differs only by case, accents or surrounding whitespace', async () => {
+      // The real restocking export drifts exactly like this: 'Plena Saude -
+      // Mogi ' carries a trailing space against the registered code.
+      const suffix = unique('mogi')
+      const code = `Plena Saude - Município ${suffix}`
+      const created = await createStore({ external_code: code })
+
+      const drifted = ` PLENA SAUDE - MUNICIPIO ${suffix} `
+
+      await expect(stores.findByExternalCode(drifted)).resolves.toMatchObject({ id: created.id })
+    })
+
     it('lets a store exist before its code is known, then assigns one', async () => {
       const store = await createStore()
       expect(store.external_code).toBeNull()

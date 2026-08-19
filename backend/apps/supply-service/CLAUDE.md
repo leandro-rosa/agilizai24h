@@ -1,23 +1,26 @@
 # backend/apps/supply-service
 
-Abastecimento e remoções por loja e período — e a **regra que define o
-produto**: nem toda remoção é perda. Ver [../../CLAUDE.md](../../CLAUDE.md)
-para as convenções do workspace backend.
+Abastecimento, remoções e o **ajuste de inventário**, por loja e período — e
+a **regra que define o produto**: nem toda remoção é perda. Ver
+[../../CLAUDE.md](../../CLAUDE.md) para as convenções do workspace backend.
 
 **Escrito por**: `ingestion-worker-service` (fila BullMQ).
 **Lido por**: `finance-service` (quantidades para valorar) e
-`inventory-service` (derivação de estoque).
-**Publica**: `period.data-updated` (`@app/period-events-contracts`).
+`inventory-service` (derivação de estoque + a conferência de fechamento).
+**Publica**: `period.data-updated.inventory` (`@app/period-events-contracts`)
+— o único assinante hoje é `inventory-service`; `finance-service` reage ao
+evento QUE ELE publica depois de derivar (ver
+[inventory-service/CLAUDE.md](../inventory-service/CLAUDE.md)), não a este.
 
 ## Rotas e filas
 
 | Superfície | Uso |
 |---|---|
 | `GET /reasons` | Os seis motivos e sua classificação — a regra como dado |
-| `GET /supply/:storeId?period=` | Abastecimentos e remoções por motivo |
+| `GET /supply/:storeId?period=` | Abastecimento, remoções, ajuste e fechamento registrado |
 | `GET /supply/:storeId/loss?period=` | Perda real: total, por motivo, por SKU |
 | fila `ingestion.supply-rows` | Consome lote de um período |
-| fila `period.data-updated` | Publica quando o período muda |
+| fila `period.data-updated.inventory` | Publica quando o período muda |
 
 ## A regra
 
@@ -33,6 +36,29 @@ para as convenções do workspace backend.
 Uma linha pode **misturar motivos**: `-6 Devolução, -3 Outro motivo` são 9
 unidades removidas e **3 de perda**, não 9. Classificar a linha inteira — em
 qualquer direção — é a falha que este serviço existe para impedir.
+
+## O ajuste de inventário — nem abastecimento, nem remoção
+
+`AdjustmentRecord`: quantidade **assinada**, positiva é entrada, negativa é
+saída. Vem de `Diferença` no export real, e mistura pelo menos três causas
+indistinguíveis a partir do dado — transferência deliberada entre lojas, erro
+de digitação na confirmação de quantidade, e caixa de autoatendimento
+entregando um produto diferente do pago. Nenhuma classificação tenta separar
+as três: modelar como abastecimento afirmaria uma compra que não houve;
+modelar como remoção exigiria um motivo, e nenhum dos seis cobre metade dos
+casos (entrada não tem equivalente em motivo de remoção nenhum).
+
+**Nunca alcança a perda real.** `findLoss`/`deriveLoss` leem só
+`RemovalRecord` — um ajuste de saída não é perda, e contá-lo infla
+exatamente a métrica que a plataforma existe para reduzir.
+
+## O fechamento registrado — cross-check, não fonte
+
+`RecordedClosingBalance`: o que os próprios operadores registraram como saldo
+final da loja/SKU/período, vindo de `Qtd. final`. Guardado à parte,
+nunca misturado ao saldo que `inventory-service` deriva dos movimentos — é
+`inventory-service` quem compara os dois e sinaliza divergência (design D5 de
+`align-ingestion-with-real-reports`). Este serviço só guarda e expõe.
 
 ## Decisões que não são óbvias no código
 
@@ -77,12 +103,14 @@ flag precisa de vigência datada, espelhando as versões de custo em
 - Unitários (`pnpm test`): a derivação de perda pura, a tabela de motivos e a
   decisão publicar/suprimir do worker.
 - Integração (`pnpm test:integration`): precisa do **Redis do `infra`** e do
-  Postgres deste serviço. Além da classificação contra o banco, cobre o caminho
-  real da fila e o evento: publicado numa mudança real, **suprimido** num
-  reenvio idêntico, e carregando só identificadores. A supressão é verificada
-  contra a fila de eventos de verdade, não com um spy — o que se quer evitar é
-  tempestade de recomputação a jusante, que é propriedade do que chega no
-  Redis, não da intenção do código.
+  Postgres deste serviço. Cobre a classificação contra o banco, o ajuste e o
+  fechamento registrado — armazenados à parte de abastecimento/remoção, nunca
+  netados entre si, substituídos por inteiro igual ao resto do período — e o
+  caminho real da fila e o evento: publicado numa mudança real, **suprimido**
+  num reenvio idêntico, e carregando só identificadores. A supressão é
+  verificada contra a fila de eventos de verdade, não com um spy — o que se
+  quer evitar é tempestade de recomputação a jusante, que é propriedade do
+  que chega no Redis, não da intenção do código.
 
 ## Gaps conhecidos
 
@@ -90,3 +118,6 @@ flag precisa de vigência datada, espelhando as versões de custo em
 - `other_reason` conta como perda e é o rótulo menos informativo; dividi-lo em
   categorias mais finas é refinamento de relatório, precisa de volume real
   primeiro.
+- Sem rastreio de qual loja originou uma transferência: o export não nomeia a
+  loja de origem, e pareamento por horário não fecha de forma confiável (ver
+  design "Open Questions" de `align-ingestion-with-real-reports`).

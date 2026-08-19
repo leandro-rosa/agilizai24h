@@ -11,6 +11,8 @@ interface SalesRow {
 interface SupplyPeriod {
   restocks: { sku: string; quantity_restocked: number }[]
   removals: { sku: string; quantity_removed: number }[]
+  adjustments: { sku: string; quantity: number }[]
+  recorded_closing_balances: { sku: string; quantity: number }[]
 }
 
 /**
@@ -37,7 +39,9 @@ export class MovementsClient {
 
     const merged = new Map<string, PeriodMovements>()
     const ensure = (sku: string) => {
-      if (!merged.has(sku)) merged.set(sku, { period, restocked: 0, sold: 0, removed: 0 })
+      if (!merged.has(sku)) {
+        merged.set(sku, { period, restocked: 0, sold: 0, removed: 0, adjustment: 0, recordedClosingBalance: null })
+      }
       return merged.get(sku)!
     }
 
@@ -45,6 +49,8 @@ export class MovementsClient {
     for (const row of supply.restocks) ensure(row.sku).restocked += row.quantity_restocked
     // Every removal counts, regardless of its loss classification.
     for (const row of supply.removals) ensure(row.sku).removed += row.quantity_removed
+    for (const row of supply.adjustments) ensure(row.sku).adjustment += row.quantity
+    for (const row of supply.recorded_closing_balances) ensure(row.sku).recordedClosingBalance = row.quantity
 
     return merged
   }
@@ -69,6 +75,7 @@ export class MovementsClient {
 
   private async supplyFor(storeId: number, period: string, correlationId?: string): Promise<SupplyPeriod> {
     const base = this.config.getOrThrow<string>('SUPPLY_SERVICE_URL')
+    const empty: SupplyPeriod = { restocks: [], removals: [], adjustments: [], recorded_closing_balances: [] }
 
     try {
       const result = await this.http.send<SupplyPeriod>({
@@ -78,11 +85,9 @@ export class MovementsClient {
         timeout: 8000,
       })
 
-      return (result.response.data as SupplyPeriod) ?? { restocks: [], removals: [] }
+      return { ...empty, ...(result.response.data as SupplyPeriod) }
     } catch (error) {
-      if ((error as { response?: { status?: number } })?.response?.status === 404) {
-        return { restocks: [], removals: [] }
-      }
+      if ((error as { response?: { status?: number } })?.response?.status === 404) return empty
       throw error
     }
   }

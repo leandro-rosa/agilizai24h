@@ -17,10 +17,14 @@ model Ingestion {
   object_key    String
   original_name String
 
-  /// Stated by the uploader, not inferred from the file: the restocking
-  /// workbook has no reliable machine-readable period, and guessing it from a
-  /// filename or a cell silently attributes March's data to April.
-  store_id Int
+  /// Stated by the uploader for sales and cost, which carry no store identity
+  /// of their own. Null for supply (restocking): that workbook covers every
+  /// store in the month, one operation per sheet, each naming its OWN store
+  /// via `Cliente` — see IngestionOperation and design D2 of
+  /// align-ingestion-with-real-reports. Never inferred for sales/cost: that
+  /// workbook has no reliable machine-readable period either, and guessing
+  /// silently attributes March's data to April.
+  store_id Int?
   period   String
 
   /// 'accepted' | 'processing' | 'completed' | 'partially_completed' | 'failed'
@@ -43,10 +47,45 @@ model Ingestion {
 
   staged     StagedRow[]
   rejections IngestionRejection[]
+  operations IngestionOperation[]
 
   @@index([store_id, period])
   @@index([status])
   @@map("ingestion")
+}
+
+/// One operation — one sheet — within a restocking workbook.
+///
+/// Read once, up front, before any product row is touched (the pre-scan in
+/// `locate-restocking-operations.ts`). Every later row-processing job looks
+/// itself up here by sheet name instead of re-reading the workbook, and this
+/// is what lets one file resolve to many different stores (design D2).
+model IngestionOperation {
+  id           Int    @id @default(autoincrement())
+  ingestion_id String
+
+  sheet_name String
+  /// The raw "Cliente" text, kept even when resolution failed — the rejection
+  /// needs it to name what was tried.
+  client_raw String
+  /// Null until resolved; stays null when no registered store matches.
+  store_id Int?
+
+  /// 'restocking' | 'inventory' | 'combined' — see operation-kinds.ts.
+  operation_kind String
+
+  /// The export's own "Finalizado em" for this operation. The same store and
+  /// SKU can appear in several operations within one month — this is what
+  /// lets `finalize()` pick the LATEST reported closing balance as the
+  /// month's recorded figure rather than an arbitrary earlier one.
+  finished_at DateTime?
+
+  created_at DateTime @default(now())
+
+  ingestion Ingestion @relation(fields: [ingestion_id], references: [id], onDelete: Cascade)
+
+  @@unique([ingestion_id, sheet_name])
+  @@map("ingestion_operation")
 }
 
 /// A parsed, resolved row waiting for every chunk of its file to arrive.
@@ -57,8 +96,21 @@ model StagedRow {
   id           Int    @id @default(autoincrement())
   ingestion_id String
 
+  /// Resolved store for THIS row. For sales/cost, copied from the ingestion's
+  /// own store_id at staging time. For supply, resolved per-operation — one
+  /// restocking file spans many stores, so this can differ row to row within
+  /// the same ingestion.
+  store_id Int
+  /// Which operation (sheet) this row came from — supply rows only. Lets
+  /// `finalize()` join back to IngestionOperation to pick the recorded
+  /// closing balance from whichever operation finished last.
+  sheet_name String?
+
   sku String
-  /// Set for supply rows; null for sales and cost rows.
+  /// 'restock' | 'removal' | 'adjustment' for supply rows; null for sales and
+  /// cost rows, which have no movement kind to distinguish.
+  movement_kind String?
+  /// Set only for removal rows.
   reason_key String?
 
   quantity   Int?
@@ -66,10 +118,15 @@ model StagedRow {
   amount_cents Int?
   /// What the file said on the removal line — audit only.
   source_text String?
+  /// The operators' own "Qtd. final" for this row — a cross-check on derived
+  /// stock (design D5), carried through rather than resolved here, since only
+  /// `finalize()` sees every operation and can pick the latest one.
+  recorded_closing_balance Int?
 
   ingestion Ingestion @relation(fields: [ingestion_id], references: [id], onDelete: Cascade)
 
   @@index([ingestion_id])
+  @@index([ingestion_id, store_id])
   @@map("staged_row")
 }
 
