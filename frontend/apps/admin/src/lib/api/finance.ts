@@ -2,6 +2,8 @@ import { createApi } from "@reduxjs/toolkit/query/react";
 
 import { gatewayBaseQuery } from "./base-query";
 import type { Store } from "./stores";
+import type { PeriodRange } from "@/lib/period-range";
+import { sumReconciliations, type ReconciliationTotals } from "@/lib/reconciliation-aggregate";
 
 export interface UnvaluedSku {
   sku: string;
@@ -52,22 +54,10 @@ export interface Reconciliation {
   adjustment_flags: AdjustmentFlag[];
 }
 
-export interface Rollup {
-  period: string;
-  restocked_value_cents: number;
-  cogs_cents: number;
-  remaining_value_cents: number;
-  loss_value_cents: number;
-  unclassified_stock_adjustment_value_cents: number;
-  store_count: number;
-  complete: boolean;
-  incomplete_stores: number[];
-}
-
-/** One store's reconciliation for the network comparison — `null` when that store simply has no data for the period (a 404, not an error). */
-export interface NetworkReconciliationRow {
+/** One store's totals for the network comparison over a range — see `ReconciliationTotals`. */
+export interface NetworkReconciliationRangeRow {
   store: Store;
-  reconciliation: Reconciliation | null;
+  totals: ReconciliationTotals;
 }
 
 export const financeApi = createApi({
@@ -75,32 +65,25 @@ export const financeApi = createApi({
   baseQuery: gatewayBaseQuery,
   tagTypes: ["Reconciliation"],
   endpoints: (builder) => ({
-    getReconciliation: builder.query<Reconciliation, { storeId: number; period: string }>({
-      query: ({ storeId, period }) => `/finance/${storeId}/${period}`,
-      providesTags: ["Reconciliation"],
-    }),
-    /** Every reconciled month for one store, oldest first — the trend line's data source. */
+    /** Every reconciled month for one store, oldest first — the range views filter/sum this client-side rather than querying per period. */
     getReconciliationSeries: builder.query<Reconciliation[], { storeId: number }>({
       query: ({ storeId }) => `/finance/${storeId}`,
       providesTags: ["Reconciliation"],
     }),
-    getRollup: builder.query<Rollup, { period: string }>({
-      query: ({ period }) => `/finance/rollup?period=${encodeURIComponent(period)}`,
-      providesTags: ["Reconciliation"],
-    }),
     /**
-     * There is no network-wide "every store's reconciliation for a period"
-     * endpoint — `/finance/rollup` gives totals only, never a per-store
-     * breakdown. This fans out one request per store instead of adding a
-     * backend endpoint for what is, for ~24 stores, an acceptable number of
-     * parallel calls from an admin tool's own comparison view.
+     * The range version of `getNetworkReconciliations`: fetches each
+     * store's *entire* series once (finance-service's series endpoint has
+     * no period filter) and sums it down to the range client-side —
+     * one request per store regardless of how many months the range
+     * spans, rather than one request per store per month.
      */
-    getNetworkReconciliations: builder.query<NetworkReconciliationRow[], { stores: Store[]; period: string }>({
-      async queryFn({ stores, period }, _api, _extra, fetchWithBQ) {
+    getNetworkReconciliationRange: builder.query<NetworkReconciliationRangeRow[], { stores: Store[]; range: PeriodRange }>({
+      async queryFn({ stores, range }, _api, _extra, fetchWithBQ) {
         const rows = await Promise.all(
-          stores.map(async (store): Promise<NetworkReconciliationRow> => {
-            const result = await fetchWithBQ(`/finance/${store.id}/${period}`);
-            return { store, reconciliation: (result.data as Reconciliation | undefined) ?? null };
+          stores.map(async (store): Promise<NetworkReconciliationRangeRow> => {
+            const result = await fetchWithBQ(`/finance/${store.id}`);
+            const series = (result.data as Reconciliation[] | undefined) ?? [];
+            return { store, totals: sumReconciliations(series, range) };
           }),
         );
         return { data: rows };
@@ -115,9 +98,7 @@ export const financeApi = createApi({
 });
 
 export const {
-  useGetReconciliationQuery,
   useGetReconciliationSeriesQuery,
-  useGetRollupQuery,
-  useGetNetworkReconciliationsQuery,
+  useGetNetworkReconciliationRangeQuery,
   useRecomputeMutation,
 } = financeApi;

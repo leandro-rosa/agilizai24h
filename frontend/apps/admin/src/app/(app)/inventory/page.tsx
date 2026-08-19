@@ -5,16 +5,17 @@ import { AlertTriangle } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
-import { StorePeriodPicker, currentPeriod, type StoreSelection } from "@/components/store-period-picker";
+import { StorePeriodPicker, type StoreSelection } from "@/components/store-period-picker";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useGetProductsQuery } from "@/lib/api/products";
-import { useGetStockQuery } from "@/lib/api/inventory";
+import { useGetStockRangeQuery } from "@/lib/api/inventory";
+import { defaultRange, type PeriodRange } from "@/lib/period-range";
 
 export default function InventoryPage() {
   const [storeId, setStoreId] = useState<StoreSelection>(null);
-  const [period, setPeriod] = useState(currentPeriod());
+  const [range, setRange] = useState<PeriodRange>(defaultRange());
   const [search, setSearch] = useState("");
 
   const { data: products } = useGetProductsQuery();
@@ -24,10 +25,8 @@ export default function InventoryPage() {
     return map;
   }, [products]);
 
-  const query = typeof storeId === "number" ? { storeId, period } : undefined;
-  const { data: stock, isLoading, error, refetch } = useGetStockQuery(query ?? { storeId: 0 }, { skip: !query });
-
-  const notDerivedYet = error && "status" in error && error.status === 404;
+  const query = typeof storeId === "number" ? { storeId, range } : undefined;
+  const { data: stock, isLoading, error, refetch } = useGetStockRangeQuery(query ?? { storeId: 0, range }, { skip: !query });
 
   const filtered = useMemo(() => {
     if (!stock) return [];
@@ -39,9 +38,9 @@ export default function InventoryPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Estoque" description="Saldo derivado dos movimentos registrados, por loja e SKU." />
+      <PageHeader title="Estoque" description="Saldo derivado dos movimentos registrados, por loja e SKU — saldo ao final do período." />
 
-      <StorePeriodPicker storeId={storeId} onStoreIdChange={setStoreId} period={period} onPeriodChange={setPeriod} />
+      <StorePeriodPicker storeId={storeId} onStoreIdChange={setStoreId} range={range} onRangeChange={setRange} />
 
       {storeId === null ? (
         <p className="text-sm text-muted-foreground">Selecione uma loja para ver o estoque.</p>
@@ -64,9 +63,9 @@ export default function InventoryPage() {
           <div className="rounded-lg border">
             <RequestState
               isLoading={isLoading}
-              error={notDerivedYet ? undefined : error}
-              isEmpty={notDerivedYet || filtered.length === 0}
-              emptyMessage={notDerivedYet ? "Nenhum estoque foi derivado para esta loja ainda." : "Nenhum item encontrado."}
+              error={error}
+              isEmpty={filtered.length === 0}
+              emptyMessage="Nenhum item encontrado no período selecionado."
               onRetry={refetch}
             >
               <Table>

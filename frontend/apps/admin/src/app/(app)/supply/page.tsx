@@ -4,16 +4,17 @@ import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
-import { StorePeriodPicker, currentPeriod, type StoreSelection } from "@/components/store-period-picker";
+import { StorePeriodPicker, type StoreSelection } from "@/components/store-period-picker";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useGetProductsQuery } from "@/lib/api/products";
-import { useGetSupplyPeriodQuery } from "@/lib/api/supply";
+import { useGetSupplyRangeQuery } from "@/lib/api/supply";
+import { defaultRange, type PeriodRange } from "@/lib/period-range";
 
 export default function SupplyPage() {
   const [storeId, setStoreId] = useState<StoreSelection>(null);
-  const [period, setPeriod] = useState(currentPeriod());
+  const [range, setRange] = useState<PeriodRange>(defaultRange());
 
   const { data: products } = useGetProductsQuery();
   const nameBySku = useMemo(() => {
@@ -22,30 +23,34 @@ export default function SupplyPage() {
     return map;
   }, [products]);
 
-  const query = typeof storeId === "number" ? { storeId, period } : undefined;
-  const { data, isLoading, error, refetch } = useGetSupplyPeriodQuery(query ?? { storeId: 0, period }, {
+  const query = typeof storeId === "number" ? { storeId, range } : undefined;
+  const { data, isLoading, error, refetch } = useGetSupplyRangeQuery(query ?? { storeId: 0, range }, {
     skip: !query,
   });
 
-  const notIngested = error && "status" in error && error.status === 404;
   const isEmpty = !data || (data.restocks.length === 0 && data.removals.length === 0 && data.adjustments.length === 0);
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Abastecimento" description="Reposição, remoções e ajustes de estoque, por loja e mês." />
+      <PageHeader title="Abastecimento" description="Reposição, remoções e ajustes de estoque, por loja e período." />
 
-      <StorePeriodPicker storeId={storeId} onStoreIdChange={setStoreId} period={period} onPeriodChange={setPeriod} />
+      <StorePeriodPicker storeId={storeId} onStoreIdChange={setStoreId} range={range} onRangeChange={setRange} />
 
       {storeId === null ? (
         <p className="text-sm text-muted-foreground">Selecione uma loja para ver o abastecimento do período.</p>
       ) : (
         <RequestState
           isLoading={isLoading}
-          error={notIngested ? undefined : error}
-          isEmpty={notIngested || isEmpty}
-          emptyMessage={notIngested ? "Nenhum abastecimento foi importado para esta loja neste período." : "Sem movimentos neste período."}
+          error={error}
+          isEmpty={isEmpty}
+          emptyMessage="Sem movimentos de abastecimento no período selecionado."
           onRetry={refetch}
         >
+          {data && data.monthsWithNoData.length > 0 && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              Sem abastecimento importado para: {data.monthsWithNoData.join(", ")}.
+            </p>
+          )}
           <Tabs defaultValue="restocks">
             <TabsList>
               <TabsTrigger value="restocks">Abastecido ({data?.restocks.length ?? 0})</TabsTrigger>
