@@ -65,4 +65,34 @@ export class ProductsController {
 
     return result.data
   }
+
+  @Get(':id/costs')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'A product cost history' })
+  async listCosts(@Param('id') id: string, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({
+      method: 'get',
+      path: `/products/${encodeURIComponent(id)}/costs`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Post('costs/bulk')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({
+    summary: 'Costs for a set of SKUs as of a date',
+    description: 'There is deliberately no lookup that returns a "current" cost without a date.',
+  })
+  async bulkCosts(@Body() body: unknown, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({
+      method: 'post',
+      path: '/costs/bulk',
+      payload: body,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
 }

@@ -21,8 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useGetProductsQuery } from "@/lib/api/products";
-import type { Product } from "@/mocks/products";
+import { useGetCostsAsOfQuery, useGetProductsQuery, type Product } from "@/lib/api/products";
 
 const categoryLabel: Record<Product["category"], string> = {
   meal: "Refeição",
@@ -33,8 +32,26 @@ const categoryLabel: Record<Product["category"], string> = {
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function ProductsPage() {
   const { data: products, isLoading } = useGetProductsQuery();
+  const skus = useMemo(() => (products ?? []).map((product) => product.sku), [products]);
+  const { data: costs } = useGetCostsAsOfQuery(
+    { skus, asOf: todayIso() },
+    { skip: skus.length === 0 },
+  );
+
+  const costBySku = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const entry of costs?.resolved ?? []) {
+      map.set(entry.sku, entry.cost_cents);
+    }
+    return map;
+  }, [costs]);
+
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
 
@@ -80,7 +97,7 @@ export default function ProductsPage() {
               <TableHead>SKU</TableHead>
               <TableHead>Nome</TableHead>
               <TableHead>Categoria</TableHead>
-              <TableHead className="text-right">Preço</TableHead>
+              <TableHead className="text-right">Custo (hoje)</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -101,16 +118,26 @@ export default function ProductsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((product) => (
-                <TableRow key={product.id}>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{product.sku}</TableCell>
-                  <TableCell className="font-medium">{product.name}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{categoryLabel[product.category]}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right">{currency.format(product.price)}</TableCell>
-                </TableRow>
-              ))
+              filtered.map((product) => {
+                const cost = costBySku.get(product.sku);
+                return (
+                  <TableRow key={product.id}>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{product.sku}</TableCell>
+                    <TableCell className="font-medium">{product.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{categoryLabel[product.category]}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {/* Never shown as R$ 0,00: a SKU with no cost recorded is not the same as a SKU that costs nothing. */}
+                      {cost === undefined ? (
+                        <span className="text-muted-foreground">Sem custo</span>
+                      ) : (
+                        currency.format(cost / 100)
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>

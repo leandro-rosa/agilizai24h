@@ -38,6 +38,16 @@ describe('gateway integration', () => {
     process.env.IAM_SERVICE_URL = base
     process.env.STORES_SERVICE_URL = base
     process.env.PRODUCTS_SERVICE_URL = base
+    process.env.FINANCE_SERVICE_URL = base
+    process.env.SALES_SERVICE_URL = base
+    process.env.SUPPLY_SERVICE_URL = base
+    process.env.INVENTORY_SERVICE_URL = base
+    process.env.INGESTION_SERVICE_URL = base
+    process.env.ADMIN_ORIGIN = 'http://localhost:3000'
+    process.env.AWS_REGION = 'us-east-1'
+    process.env.AWS_ACCESS_KEY_ID = 'test'
+    process.env.AWS_SECRET_ACCESS_KEY = 'test'
+    process.env.AWS_S3_BUCKET = 'test-bucket'
     // Short, so the unreachable and slow cases resolve quickly.
     process.env.UPSTREAM_TIMEOUT_MS = '800'
     process.env.UPSTREAM_DEADLINE_MS = '1200'

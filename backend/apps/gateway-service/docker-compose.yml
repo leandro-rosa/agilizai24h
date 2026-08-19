@@ -18,7 +18,14 @@ services:
       PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
       INGESTION_SERVICE_URL: http://agiliz-ingestion-prod:3000
       FINANCE_SERVICE_URL: http://agiliz-finance-prod:3000
+      SALES_SERVICE_URL: http://agiliz-sales-prod:3000
+      SUPPLY_SERVICE_URL: http://agiliz-supply-prod:3000
+      INVENTORY_SERVICE_URL: http://agiliz-inventory-prod:3000
       PORT: 3000
+      # The panel's origin as the browser sees it — admin-dev's default host
+      # port. Override if admin-prod (8080) or a different host is what's
+      # actually running; CORS rejects any origin that doesn't match exactly.
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-http://localhost:3000}
       # The gateway writes the uploaded bytes to object storage itself, since
       # it already holds them — re-streaming to another service would double
       # the transfer for no boundary benefit.

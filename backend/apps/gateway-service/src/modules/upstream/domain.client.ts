@@ -34,6 +34,18 @@ export class DomainClient {
     return this.call<T>('finance', this.config.getOrThrow<string>('FINANCE_SERVICE_URL'), call)
   }
 
+  sales<T>(call: Omit<UpstreamCall, 'service' | 'url'> & { path: string }) {
+    return this.call<T>('sales', this.config.getOrThrow<string>('SALES_SERVICE_URL'), call)
+  }
+
+  supply<T>(call: Omit<UpstreamCall, 'service' | 'url'> & { path: string }) {
+    return this.call<T>('supply', this.config.getOrThrow<string>('SUPPLY_SERVICE_URL'), call)
+  }
+
+  inventory<T>(call: Omit<UpstreamCall, 'service' | 'url'> & { path: string }) {
+    return this.call<T>('inventory', this.config.getOrThrow<string>('INVENTORY_SERVICE_URL'), call)
+  }
+
   ingestion<T>(call: Omit<UpstreamCall, 'service' | 'url'> & { path: string }) {
     return this.call<T>('ingestion', this.config.getOrThrow<string>('INGESTION_SERVICE_URL'), call)
   }

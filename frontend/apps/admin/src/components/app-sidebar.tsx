@@ -3,6 +3,7 @@
 import {
   Boxes,
   LayoutDashboard,
+  LogOut,
   Package,
   ShoppingCart,
   Store as StoreIcon,
@@ -10,8 +11,14 @@ import {
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -24,6 +31,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { useGetMeQuery, useLogoutMutation } from "@/lib/api/auth";
 
 const nav = [
   { title: "Visão geral", href: "/", icon: LayoutDashboard },
@@ -37,6 +45,20 @@ const nav = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { data: caller } = useGetMeQuery();
+  const [logout] = useLogoutMutation();
+
+  async function handleLogout() {
+    // Clears the cookie through the gateway first — a local-only "logout"
+    // would leave the session still valid server-side.
+    await logout().catch(() => {
+      // Best-effort: if the gateway is unreachable the cookie may still be
+      // valid, but there is nothing more the panel can do from here except
+      // still send the operator to login.
+    });
+    router.push("/login");
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -78,9 +100,24 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <p className="px-2 py-1.5 text-xs text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden">
-          Dados de demonstração
-        </p>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton tooltip={caller?.name ?? "Conta"}>
+                  <LogOut />
+                  <span className="truncate">{caller?.name ?? "Conta"}</span>
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" className="min-w-56">
+                <DropdownMenuItem onSelect={handleLogout}>
+                  <LogOut />
+                  Sair
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );

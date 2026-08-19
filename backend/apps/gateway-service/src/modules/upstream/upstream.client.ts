@@ -3,7 +3,7 @@ import { AxiosHttpClient } from '@app/http-client'
 
 export interface UpstreamCall {
   service: string
-  method: 'get' | 'post' | 'patch' | 'delete'
+  method: 'get' | 'post' | 'put' | 'patch' | 'delete'
   url: string
   payload?: unknown
   correlationId?: string

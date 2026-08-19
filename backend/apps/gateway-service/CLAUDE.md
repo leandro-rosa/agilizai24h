@@ -18,7 +18,14 @@ request), `stores-service`, `products-service`, `ingestion-worker-service` e
 | `GET /stores`, `GET /stores/:id` | `stores:read` | |
 | `POST /stores`, `PATCH /stores/:id` | `stores:write` | |
 | `GET /products`, `GET /products/:id` | `products:read` | |
+| `GET /products/:id/costs` | `products:read` | Histórico de custo |
+| `POST /products/costs/bulk` | `products:read` | Custo de vários SKUs numa data — nunca "custo atual" sem data |
 | `POST /products`, `POST /products/:sku/costs` | `products:write` | |
+| `GET /sales/:storeId`, `GET /sales/:storeId/totals` | `sales:read` | Exige `?period=` |
+| `GET /supply/reasons` | `supply:read` | O vocabulário de motivo de remoção |
+| `GET /supply/:storeId`, `GET /supply/:storeId/loss` | `supply:read` | Exige `?period=` |
+| `GET /inventory/:storeId`, `.../below-minimum`, `.../minimums` | `inventory:read` | `period` opcional (padrão: mais recente) |
+| `PUT /inventory/:storeId/:sku/minimum` | `inventory:write` | |
 | `GET /finance/:storeId/:period`, `GET /finance/:storeId`, `GET /finance/rollup` | `finance:read` | A reconciliação mensal |
 | `POST /finance/:storeId/:period/recompute` | `finance:read` | Não cria nada que o leitor já não pudesse ver — só re-deriva |
 | `GET /overview` | `stores:read` | Agrega, com falha parcial explícita |
@@ -85,12 +92,18 @@ Nenhuma é óbvia pela assinatura, e as duas afetam a semântica acima:
   Cobre 401/403/503/502, ausência de cache de sessão, cookie HTTP-only, falha
   parcial no `/overview` e as rotas públicas.
 
+## CORS
+
+O painel e o gateway são origens diferentes mesmo em dev (portas diferentes
+em localhost) — `ADMIN_ORIGIN` (env, obrigatória) é a origem exata liberada
+via `app.enableCors({ origin, credentials: true })` em `main.ts`. Não dá para
+usar `*`: CORS proíbe wildcard junto com `Access-Control-Allow-Credentials`,
+e o cookie de sessão precisa ir com credenciais. Resolve a decisão "same-site
+vs CORS-com-credenciais" que ficava em aberto aqui (design de
+`add-web-real-data`).
+
 ## Gaps conhecidos
 
-- **`sales`, `supply` e `inventory` ainda não são roteados.** `finance` foi
-  roteado agora porque `add-finance-service` exige o e2e pelo gateway; os
-  outros três ficam para `add-web-real-data`, que é quando o painel passa a
-  precisar deles.
 - Sem rate limiting além do throttle de auth do próprio `iam`.
 - Sem cache de resposta: o tráfego é de um punhado de operadores, e cache só
   acrescentaria bugs de invalidação.

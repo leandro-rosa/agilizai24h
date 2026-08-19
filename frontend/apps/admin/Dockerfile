@@ -21,6 +21,11 @@ CMD ["pnpm", "dev", "-H", "0.0.0.0"]
 FROM base AS build
 WORKDIR /repo
 COPY . .
+# NEXT_PUBLIC_* vars have no client-side runtime in Next — `next build` inlines
+# them into the client bundle, so this has to be an ARG/ENV pair reaching the
+# build step, not a docker-compose `environment:` entry (see that file).
+ARG NEXT_PUBLIC_GATEWAY_URL
+ENV NEXT_PUBLIC_GATEWAY_URL=$NEXT_PUBLIC_GATEWAY_URL
 RUN pnpm --filter @agiliz/admin build
 
 FROM node:24-alpine AS prod

@@ -22,6 +22,10 @@ services:
       - /repo/node_modules
     environment:
       - WATCHPACK_POLLING=true
+      # `next dev` re-reads process.env on every compile, so this can stay a
+      # normal runtime var here — unlike admin-prod, which bakes it into the
+      # standalone bundle at build time (see that service's build.args).
+      - NEXT_PUBLIC_GATEWAY_URL=${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:3080}
     networks:
       - agiliz_network
     restart: unless-stopped
@@ -31,6 +35,12 @@ services:
       context: ../../..
       dockerfile: frontend/apps/admin/Dockerfile
       target: prod
+      # NEXT_PUBLIC_* vars are inlined into the client bundle by `next build`
+      # (Next has no client-side runtime env) — setting this as `environment:`
+      # instead would have no effect on prod; the container would keep
+      # whatever URL was baked in at image build time.
+      args:
+        NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:3080}
     container_name: agiliz-admin-prod
     ports:
       - "8080:3000"

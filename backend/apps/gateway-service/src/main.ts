@@ -10,6 +10,17 @@ import { AppModule } from './app.module'
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter())
 
+  // The panel and the gateway are different origins even in dev (different
+  // ports on localhost), so a credentialed fetch needs this explicit opt-in —
+  // `Access-Control-Allow-Origin: *` is rejected by browsers together with
+  // `Access-Control-Allow-Credentials: true`, so the origin must be named
+  // exactly (env.validation.ts fails boot if ADMIN_ORIGIN is unset, rather
+  // than silently falling back to permissive CORS or none at all).
+  app.enableCors({
+    origin: app.get(ConfigService).get<string>('ADMIN_ORIGIN'),
+    credentials: true,
+  })
+
   // The gateway owns the browser relationship: the session is an HTTP-only
   // cookie, so the frontend never reads or stores a token.
   //

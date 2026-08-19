@@ -28,6 +28,34 @@ class EnvironmentVariables {
   @IsNotEmpty()
   FINANCE_SERVICE_URL: string
 
+  @IsString()
+  @IsNotEmpty()
+  SALES_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  SUPPLY_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  INVENTORY_SERVICE_URL: string
+
+  /**
+   * The admin panel's exact origin (scheme + host + port), for CORS.
+   *
+   * The panel and the gateway are separate origins even in dev (different
+   * ports on localhost), so the session cookie — `sameSite: 'lax'` — is only
+   * sent because both share the same registrable domain, not because they
+   * share an origin. A credentialed cross-origin `fetch` still needs the
+   * server's explicit opt-in: `Access-Control-Allow-Origin` cannot be `*`
+   * when `Access-Control-Allow-Credentials` is `true` (CORS forbids
+   * wildcard-with-credentials outright), so this must name the panel's
+   * origin exactly rather than falling back to a permissive default.
+   */
+  @IsString()
+  @IsNotEmpty()
+  ADMIN_ORIGIN: string
+
   // Object storage: the gateway holds the uploaded bytes already, so it writes
   // them once rather than re-streaming them to another service.
   @IsString()

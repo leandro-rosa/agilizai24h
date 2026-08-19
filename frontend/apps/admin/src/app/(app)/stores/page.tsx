@@ -21,8 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useGetStoresQuery } from "@/lib/api/stores";
-import type { Store } from "@/mocks/stores";
+import { useGetStoresQuery, type Store } from "@/lib/api/stores";
 
 const statusVariant: Record<Store["status"], { label: string; className: string }> = {
   active: { label: "Ativa", className: "bg-secondary text-secondary-foreground" },
