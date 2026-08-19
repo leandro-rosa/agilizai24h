@@ -1,6 +1,7 @@
 import { createApi } from "@reduxjs/toolkit/query/react";
 
 import { gatewayBaseQuery } from "./base-query";
+import type { Store } from "./stores";
 
 export interface UnvaluedSku {
   sku: string;
@@ -63,6 +64,12 @@ export interface Rollup {
   incomplete_stores: number[];
 }
 
+/** One store's reconciliation for the network comparison — `null` when that store simply has no data for the period (a 404, not an error). */
+export interface NetworkReconciliationRow {
+  store: Store;
+  reconciliation: Reconciliation | null;
+}
+
 export const financeApi = createApi({
   reducerPath: "financeApi",
   baseQuery: gatewayBaseQuery,
@@ -72,6 +79,34 @@ export const financeApi = createApi({
       query: ({ storeId, period }) => `/finance/${storeId}/${period}`,
       providesTags: ["Reconciliation"],
     }),
+    /** Every reconciled month for one store, oldest first — the trend line's data source. */
+    getReconciliationSeries: builder.query<Reconciliation[], { storeId: number }>({
+      query: ({ storeId }) => `/finance/${storeId}`,
+      providesTags: ["Reconciliation"],
+    }),
+    getRollup: builder.query<Rollup, { period: string }>({
+      query: ({ period }) => `/finance/rollup?period=${encodeURIComponent(period)}`,
+      providesTags: ["Reconciliation"],
+    }),
+    /**
+     * There is no network-wide "every store's reconciliation for a period"
+     * endpoint — `/finance/rollup` gives totals only, never a per-store
+     * breakdown. This fans out one request per store instead of adding a
+     * backend endpoint for what is, for ~24 stores, an acceptable number of
+     * parallel calls from an admin tool's own comparison view.
+     */
+    getNetworkReconciliations: builder.query<NetworkReconciliationRow[], { stores: Store[]; period: string }>({
+      async queryFn({ stores, period }, _api, _extra, fetchWithBQ) {
+        const rows = await Promise.all(
+          stores.map(async (store): Promise<NetworkReconciliationRow> => {
+            const result = await fetchWithBQ(`/finance/${store.id}/${period}`);
+            return { store, reconciliation: (result.data as Reconciliation | undefined) ?? null };
+          }),
+        );
+        return { data: rows };
+      },
+      providesTags: ["Reconciliation"],
+    }),
     recompute: builder.mutation<Reconciliation, { storeId: number; period: string }>({
       query: ({ storeId, period }) => ({ url: `/finance/${storeId}/${period}/recompute`, method: "POST" }),
       invalidatesTags: ["Reconciliation"],
@@ -79,4 +114,10 @@ export const financeApi = createApi({
   }),
 });
 
-export const { useGetReconciliationQuery, useRecomputeMutation } = financeApi;
+export const {
+  useGetReconciliationQuery,
+  useGetReconciliationSeriesQuery,
+  useGetRollupQuery,
+  useGetNetworkReconciliationsQuery,
+  useRecomputeMutation,
+} = financeApi;

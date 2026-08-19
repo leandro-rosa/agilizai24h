@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
-import { StorePeriodPicker, currentPeriod } from "@/components/store-period-picker";
+import { StorePeriodPicker, currentPeriod, type StoreSelection } from "@/components/store-period-picker";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,7 +12,7 @@ import { useGetProductsQuery } from "@/lib/api/products";
 import { useGetSupplyPeriodQuery } from "@/lib/api/supply";
 
 export default function SupplyPage() {
-  const [storeId, setStoreId] = useState<number | null>(null);
+  const [storeId, setStoreId] = useState<StoreSelection>(null);
   const [period, setPeriod] = useState(currentPeriod());
 
   const { data: products } = useGetProductsQuery();
@@ -22,7 +22,7 @@ export default function SupplyPage() {
     return map;
   }, [products]);
 
-  const query = storeId === null ? undefined : { storeId, period };
+  const query = typeof storeId === "number" ? { storeId, period } : undefined;
   const { data, isLoading, error, refetch } = useGetSupplyPeriodQuery(query ?? { storeId: 0, period }, {
     skip: !query,
   });

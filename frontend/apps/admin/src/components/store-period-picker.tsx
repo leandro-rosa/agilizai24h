@@ -1,29 +1,47 @@
 "use client";
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MonthPicker } from "@/components/month-picker";
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useGetStoresQuery } from "@/lib/api/stores";
 
-/** The current month as YYYY-MM — every real backend period grain. */
+/**
+ * The default period a screen opens to — the last **complete** calendar
+ * month, as YYYY-MM.
+ *
+ * Deliberately not the current month: it is still in progress, so it never
+ * has a real restocking/sales file behind it yet. Landing there by default
+ * made every screen's first impression a scary "reconciliation incomplete"
+ * or "no data" state for a month nobody could have reconciled yet — not a
+ * bug, just the wrong month to default to.
+ */
 export function currentPeriod(): string {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const lastComplete = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${lastComplete.getFullYear()}-${String(lastComplete.getMonth() + 1).padStart(2, "0")}`;
 }
+
+export const NETWORK = "network" as const;
+export type StoreSelection = number | typeof NETWORK | null;
 
 /**
  * Every real per-store screen (sales, supply, inventory, finance) reads one
  * store's one period at a time — there is no "every store at once" endpoint
- * for any of them. This is the one control all four share.
+ * for any of them except finance's `/finance/rollup`. `allowNetwork` opts a
+ * screen into that one exception, surfacing a "Rede (todas as lojas)" choice
+ * that resolves to `NETWORK` rather than a store id.
  */
 export function StorePeriodPicker({
   storeId,
   onStoreIdChange,
   period,
   onPeriodChange,
+  allowNetwork = false,
 }: {
-  storeId: number | null;
-  onStoreIdChange: (id: number) => void;
+  storeId: StoreSelection;
+  onStoreIdChange: (id: StoreSelection) => void;
   period: string;
   onPeriodChange: (period: string) => void;
+  allowNetwork?: boolean;
 }) {
   const { data: stores, isLoading } = useGetStoresQuery();
 
@@ -31,13 +49,19 @@ export function StorePeriodPicker({
     <div className="flex flex-col gap-3 sm:flex-row">
       <Select
         value={storeId === null ? undefined : String(storeId)}
-        onValueChange={(value) => onStoreIdChange(Number(value))}
+        onValueChange={(value) => onStoreIdChange(value === NETWORK ? NETWORK : Number(value))}
         disabled={isLoading}
       >
         <SelectTrigger className="sm:w-64">
           <SelectValue placeholder={isLoading ? "Carregando lojas..." : "Selecione a loja"} />
         </SelectTrigger>
         <SelectContent>
+          {allowNetwork && (
+            <>
+              <SelectItem value={NETWORK}>Rede (todas as lojas)</SelectItem>
+              <SelectSeparator />
+            </>
+          )}
           {(stores ?? []).map((store) => (
             <SelectItem key={store.id} value={String(store.id)}>
               {store.name}
@@ -45,13 +69,7 @@ export function StorePeriodPicker({
           ))}
         </SelectContent>
       </Select>
-      <input
-        type="month"
-        value={period}
-        onChange={(event) => onPeriodChange(event.target.value)}
-        className="h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:w-40"
-        aria-label="Período (mês)"
-      />
+      <MonthPicker value={period} onChange={onPeriodChange} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
-import { StorePeriodPicker, currentPeriod } from "@/components/store-period-picker";
+import { StorePeriodPicker, currentPeriod, type StoreSelection } from "@/components/store-period-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -14,7 +14,7 @@ import { useGetSalesPeriodQuery, useGetSalesTotalsQuery } from "@/lib/api/sales"
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 export default function SalesPage() {
-  const [storeId, setStoreId] = useState<number | null>(null);
+  const [storeId, setStoreId] = useState<StoreSelection>(null);
   const [period, setPeriod] = useState(currentPeriod());
   const [search, setSearch] = useState("");
 
@@ -25,7 +25,7 @@ export default function SalesPage() {
     return map;
   }, [products]);
 
-  const query = storeId === null ? undefined : { storeId, period };
+  const query = typeof storeId === "number" ? { storeId, period } : undefined;
   const {
     data: sales,
     isLoading,

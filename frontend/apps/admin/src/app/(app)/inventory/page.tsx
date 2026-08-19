@@ -5,7 +5,7 @@ import { AlertTriangle } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
-import { StorePeriodPicker, currentPeriod } from "@/components/store-period-picker";
+import { StorePeriodPicker, currentPeriod, type StoreSelection } from "@/components/store-period-picker";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -13,7 +13,7 @@ import { useGetProductsQuery } from "@/lib/api/products";
 import { useGetStockQuery } from "@/lib/api/inventory";
 
 export default function InventoryPage() {
-  const [storeId, setStoreId] = useState<number | null>(null);
+  const [storeId, setStoreId] = useState<StoreSelection>(null);
   const [period, setPeriod] = useState(currentPeriod());
   const [search, setSearch] = useState("");
 
@@ -24,7 +24,7 @@ export default function InventoryPage() {
     return map;
   }, [products]);
 
-  const query = storeId === null ? undefined : { storeId, period };
+  const query = typeof storeId === "number" ? { storeId, period } : undefined;
   const { data: stock, isLoading, error, refetch } = useGetStockQuery(query ?? { storeId: 0 }, { skip: !query });
 
   const notDerivedYet = error && "status" in error && error.status === 404;
