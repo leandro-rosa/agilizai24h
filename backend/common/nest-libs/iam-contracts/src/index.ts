@@ -18,6 +18,19 @@ export const PERMISSIONS = {
   INVENTORY_READ: 'inventory:read',
   INVENTORY_WRITE: 'inventory:write',
   FINANCE_READ: 'finance:read',
+  // Back-office: os cinco domínios que saíram da planilha de relatórios.
+  // Escrita existe aqui, diferente de sales/supply/finance, porque não há
+  // ingestão automática — o dado só entra pelo painel.
+  SUPPLIERS_READ: 'suppliers:read',
+  SUPPLIERS_WRITE: 'suppliers:write',
+  TREASURY_READ: 'treasury:read',
+  TREASURY_WRITE: 'treasury:write',
+  ACCOUNTING_READ: 'accounting:read',
+  ACCOUNTING_WRITE: 'accounting:write',
+  BILLING_READ: 'billing:read',
+  BILLING_WRITE: 'billing:write',
+  CAPEX_READ: 'capex:read',
+  CAPEX_WRITE: 'capex:write',
   INGESTION_UPLOAD: 'ingestion:upload',
   INGESTION_READ: 'ingestion:read',
   USERS_READ: 'users:read',
@@ -39,7 +52,7 @@ export const ROLES = {
 
 export type RoleName = (typeof ROLES)[keyof typeof ROLES]
 
-/** Read-only across the six domains; deliberately no write or upload rights. */
+/** Read-only across every domain; deliberately no write or upload rights. */
 export const OPERATOR_PERMISSIONS: PermissionName[] = [
   PERMISSIONS.STORES_READ,
   PERMISSIONS.PRODUCTS_READ,
@@ -47,6 +60,11 @@ export const OPERATOR_PERMISSIONS: PermissionName[] = [
   PERMISSIONS.SUPPLY_READ,
   PERMISSIONS.INVENTORY_READ,
   PERMISSIONS.FINANCE_READ,
+  PERMISSIONS.SUPPLIERS_READ,
+  PERMISSIONS.TREASURY_READ,
+  PERMISSIONS.ACCOUNTING_READ,
+  PERMISSIONS.BILLING_READ,
+  PERMISSIONS.CAPEX_READ,
   PERMISSIONS.INGESTION_READ,
 ]
 
