@@ -34,7 +34,7 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
   (`react-hook-form` + `zod`).
 - `src/app/(app)/` — route group que concentra toda rota autenticada
   (`/`, `/sales`, `/finance`, `/supply`, `/inventory`, `/products`,
-  `/stores`). `(app)/layout.tsx` é quem monta `AuthGate` +
+  `/stores`, `/ingestion`). `(app)/layout.tsx` é quem monta `AuthGate` +
   `SidebarProvider`/`AppSidebar`/`SidebarInset` — um group novo nasce
   protegido só por estar dentro dessa pasta.
 - `src/components/auth-gate.tsx` — chama `GET /auth/me`; segura a
@@ -45,7 +45,7 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
   vez de reescrever o próprio `if (isLoading)`.
 - `src/components/store-period-picker.tsx` — seletor de loja+range
   compartilhado por vendas/abastecimento/estoque/financeiro; `allowNetwork`
-  liga a opção "Rede (todas as lojas)" (hoje só ligada em `/finance`).
+  liga a opção "Rede (todas as lojas)", hoje ligada nas quatro telas.
   Range vem de `src/components/month-range-picker.tsx` (presets Mês/
   Trimestre/Semestre/Ano sobre `src/lib/period-range.ts`), não um único mês.
 - `src/components/app-sidebar.tsx` — navegação lateral (shadcn
@@ -65,8 +65,9 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
   sobreviver). 403 passa intocado (nunca desloga). 503 é o único status
   que tenta de novo, via `retry.fail` em todo o resto.
 - `src/lib/api/` — um `createApi` por domínio (`auth`, `stores`,
-  `products`, `sales`, `supply`, `inventory`, `finance`, `overview`),
-  todos sobre `gatewayBaseQuery`, cada um contra a rota real do gateway.
+  `products`, `sales`, `supply`, `inventory`, `finance`, `overview`,
+  `ingestion`), todos sobre `gatewayBaseQuery`, cada um contra a rota
+  real do gateway.
 - `src/lib/auth/use-permission.ts` — `useHasPermission(permission)`,
   reaproveita o cache de `getMe`; é cortesia de UX, nunca a fronteira de
   segurança (o gateway continua validando e pode devolver 403 mesmo para
@@ -74,7 +75,7 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
 - `src/lib/removal-reasons.ts` — rótulos PT dos 6 motivos de remoção,
   espelhando (não substituindo) a tabela autoritativa em
   `supply-service`.
-- `src/lib/store.ts` / `src/lib/hooks.ts` — `configureStore` com os 8
+- `src/lib/store.ts` / `src/lib/hooks.ts` — `configureStore` com os 9
   reducers de API e hooks tipados `useAppDispatch`/`useAppSelector`.
 - `src/styles` — tokens de marca vivem direto em `src/app/globals.css`
   (bloco `:root, .dark`), não em um arquivo `theme.css` separado — assim

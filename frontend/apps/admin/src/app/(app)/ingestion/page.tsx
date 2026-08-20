@@ -95,8 +95,11 @@ function UploadCard() {
       }).unwrap();
       toast.success("Arquivo enviado. Acompanhe o status na lista abaixo.");
       form.reset({ file_type: values.file_type, store_id: "", period: "", file: undefined });
-    } catch {
-      toast.error("Não foi possível enviar o arquivo. Tente novamente.");
+    } catch (err) {
+      const status = (err as { status?: unknown })?.status;
+      const message = (err as { data?: { message?: string } })?.data?.message;
+      const isClientError = typeof status === "number" && status >= 400 && status < 500;
+      toast.error(isClientError && message ? message : "Não foi possível enviar o arquivo. Tente novamente.");
     }
   }
 
@@ -216,7 +219,7 @@ function IngestionHistory() {
   const { data: ingestions, isLoading, error, refetch } = useListIngestionsQuery({ limit: 50 }, { skip: !canRead });
   const { data: stores } = useGetStoresQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const { data: detail, isLoading: detailLoading } = useGetIngestionQuery(selectedId ?? "", { skip: !selectedId });
+  const { data: detail, isLoading: detailLoading, error: detailError } = useGetIngestionQuery(selectedId ?? "", { skip: !selectedId });
 
   const nameByStoreId = new Map((stores ?? []).map((store) => [store.id, store.name]));
 
@@ -274,6 +277,8 @@ function IngestionHistory() {
 
           {detailLoading ? (
             <p className="text-sm text-muted-foreground">Carregando...</p>
+          ) : detailError ? (
+            <p className="text-sm text-destructive">Não foi possível carregar o detalhe desta ingestão.</p>
           ) : detail && detail.rejections.length > 0 ? (
             <>
               {detail.rejected_rows > 100 && <p className="text-xs text-muted-foreground">Mostrando as 100 primeiras rejeições.</p>}

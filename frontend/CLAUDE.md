@@ -11,8 +11,8 @@ a visão geral do monorepo.
 - `apps/admin/` — painel de gestão interno (vendas, financeiro,
   abastecimento, estoque, produtos, lojas), Next.js — primeiro app Next.js
   do monorepo. Autenticado (sessão via cookie HTTP-only), dado real via
-  `gateway-service` — sem mock desde `add-web-real-data`. Falta a tela de
-  upload das planilhas. Ver [CLAUDE.md](apps/admin/CLAUDE.md) (técnico) e
+  `gateway-service` — sem mock desde `add-web-real-data`. Ver
+  [CLAUDE.md](apps/admin/CLAUDE.md) (técnico) e
   [DESIGN.md](apps/admin/DESIGN.md) (marca/visual).
 - `common/` — **vazio**. Vai concentrar componentes/hooks/slices RTK
   compartilhados entre os frontends futuros.
