@@ -36,7 +36,7 @@ function Figure({ label, cents, incomplete }: { label: string; cents: number; in
       <CardHeader>
         <CardTitle className="text-sm font-normal text-muted-foreground">{label}</CardTitle>
       </CardHeader>
-      <CardContent className="flex items-baseline gap-2 text-2xl font-semibold">
+      <CardContent className="tabular flex items-baseline gap-2 text-2xl font-semibold">
         {currency.format(cents / 100)}
         {incomplete && (
           <span title="Calculado a partir de uma reconciliação incompleta — não é uma cifra final.">
