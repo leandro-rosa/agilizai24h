@@ -16,6 +16,9 @@ a visão geral do monorepo.
   [DESIGN.md](apps/admin/DESIGN.md) (marca/visual).
 - `common/` — **vazio**. Vai concentrar componentes/hooks/slices RTK
   compartilhados entre os frontends futuros.
+- `docs/BRAND.md` — tokens canônicos de cor e tipografia, extraídos do
+  manual da marca em `docs/manual-da-marca/`. Todo `DESIGN.md` de app
+  referencia daqui em vez de redeclarar paleta.
 
 ## Workspace e build
 
