@@ -12,6 +12,8 @@
   --font-heading: var(--font-sans);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -51,47 +53,100 @@
 }
 
 /*
- * Paleta de marca Agiliz.AI — dark-first, ver ../../DESIGN.md e
- * ../../../site/DESIGN.md. Sem tokens de light mode: v1 do admin é
- * dark-only (sem toggle), então :root e .dark carregam os mesmos valores.
+ * Paleta Agiliz.AI — ver ../../../../docs/BRAND.md (extraída do manual da
+ * marca) e ../../DESIGN.md.
+ *
+ * Hex, não OKLCH: estes valores são conferidos a olho contra as pranchas do
+ * manual, e um `#8e1d4d` grepável vale mais aqui que a precisão de gamut do
+ * OKLCH. Tailwind v4 resolve `bg-primary/10` sobre hex via color-mix.
+ *
+ * `--primary` muda de valor entre os temas de propósito: as duas são cores
+ * do manual, e a framboesa reprovaria em contraste sobre o carvão (~2,1:1).
  */
-:root,
+:root {
+  --background: #fff4e6; /* Creme Quente */
+  --foreground: #1f1f1f; /* Carvão */
+  --card: #ffffff;
+  --card-foreground: #1f1f1f;
+  --popover: #ffffff;
+  --popover-foreground: #1f1f1f;
+  --primary: #8e1d4d; /* Magenta Framboesa */
+  --primary-foreground: #fff4e6;
+  --secondary: #f7e7d6;
+  --secondary-foreground: #1f1f1f;
+  --muted: #f2e2d0;
+  --muted-foreground: #6b5b52;
+  --accent: #fbe6f0;
+  --accent-foreground: #8e1d4d;
+  --destructive: #e10600; /* Vermelho Tomate */
+  --destructive-foreground: #fff4e6;
+  --warning: #b5600a;
+  --warning-foreground: #fff4e6;
+  --success: #1f7a4d;
+  --success-foreground: #fff4e6;
+  --border: #e6d5c2;
+  --input: #b08f6b; /* 3:1 sobre o card — WCAG 1.4.11, ver DESIGN.md */
+  --ring: #8e1d4d;
+  --chart-1: #e91e8c;
+  --chart-2: #5b2d8e;
+  --chart-3: #8e1d4d;
+  --chart-4: #0f7b8a; /* extensão de dataviz — nunca em chrome de UI */
+  --chart-5: #b8620a; /* extensão de dataviz — nunca em chrome de UI */
+  --radius: 0.875rem; /* ~14px, alvo do DESIGN.md 12-16px */
+  --sidebar: #ffffff; /* rail branco sobre canvas creme */
+  --sidebar-foreground: #1f1f1f;
+  --sidebar-primary: #8e1d4d;
+  --sidebar-primary-foreground: #fff4e6;
+  --sidebar-accent: #fbe6f0;
+  --sidebar-accent-foreground: #8e1d4d;
+  --sidebar-border: #e6d5c2;
+  --sidebar-ring: #8e1d4d;
+  --brand-magenta: #e91e8c;
+  --brand-purple: #5b2d8e;
+}
+
 .dark {
-  --background: oklch(0.145 0 0); /* zinc-950 */
-  --foreground: oklch(0.985 0 0); /* branco */
-  --card: oklch(0.19 0 0); /* zinc-900, levemente acima do fundo */
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.19 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.656 0.241 354.3); /* pink-500 */
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.269 0 0); /* zinc-800 */
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0); /* cinza claro para texto secundário */
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.577 0.245 27.325); /* red-600 */
-  --destructive-foreground: oklch(0.985 0 0);
-  --warning: oklch(0.705 0.213 47.6); /* orange-500 — alertas de estoque/abastecimento */
-  --warning-foreground: oklch(0.145 0 0);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.656 0.241 354.3);
-  --chart-1: oklch(0.656 0.241 354.3);
-  --chart-2: oklch(0.558 0.246 302.3);
-  --chart-3: oklch(0.705 0.213 47.6);
-  --chart-4: oklch(0.556 0 0);
-  --chart-5: oklch(0.371 0 0);
-  --radius: 0.875rem; /* ~14px, alvo DESIGN.md 12-16px */
-  --sidebar: oklch(0.12 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.656 0.241 354.3);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.656 0.241 354.3);
+  --background: #1f1f1f; /* Carvão */
+  --foreground: #fff4e6; /* Creme Quente */
+  --card: #2a2a2a;
+  --card-foreground: #fff4e6;
+  --popover: #2a2a2a;
+  --popover-foreground: #fff4e6;
+  --primary: #e91e8c; /* magenta de destaque digital, prancha 07 — intocado */
+  /* Preto, não carvão: #1f1f1f sobre o magenta dá 3,95:1 e reprova para
+     texto. Escurecer o rótulo passa a 4,55:1 sem mexer na cor do manual. */
+  --primary-foreground: #0d0d0d;
+  --secondary: #333333;
+  --secondary-foreground: #fff4e6;
+  --muted: #333333;
+  --muted-foreground: #a89e97;
+  --accent: #3a2430;
+  --accent-foreground: #f7c9e0;
+  --destructive: #ff5449; /* tomate clareado p/ contraste sobre carvão */
+  --destructive-foreground: #1f1f1f;
+  --warning: #e89b3c;
+  --warning-foreground: #1f1f1f;
+  --success: #3fbf83;
+  --success-foreground: #1f1f1f;
+  --border: #3a3a3a;
+  --input: #737373; /* 3:1 sobre o card — WCAG 1.4.11, ver DESIGN.md */
+  --ring: #e91e8c;
+  --chart-1: #e91e8c;
+  --chart-2: #a67bd6;
+  --chart-3: #d6588f;
+  --chart-4: #35b3c4;
+  --chart-5: #e89b3c;
+  --radius: 0.875rem;
+  --sidebar: #171717;
+  --sidebar-foreground: #fff4e6;
+  --sidebar-primary: #e91e8c;
+  --sidebar-primary-foreground: #0d0d0d;
+  --sidebar-accent: #2e2e2e;
+  --sidebar-accent-foreground: #fff4e6;
+  --sidebar-border: #3a3a3a;
+  --sidebar-ring: #e91e8c;
+  --brand-magenta: #e91e8c;
+  --brand-purple: #5b2d8e;
 }
 
 @layer base {
@@ -108,9 +163,23 @@
 
 @layer utilities {
   .brand-gradient {
-    @apply bg-gradient-to-r from-pink-500 to-purple-600;
+    background-image: linear-gradient(
+      to right,
+      var(--brand-magenta),
+      var(--brand-purple)
+    );
   }
   .brand-gradient-text {
-    @apply bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent;
+    background-image: linear-gradient(
+      to right,
+      var(--brand-magenta),
+      var(--brand-purple)
+    );
+    background-clip: text;
+    color: transparent;
+  }
+  /* O painel é quase todo número em coluna — dígitos precisam alinhar. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }
