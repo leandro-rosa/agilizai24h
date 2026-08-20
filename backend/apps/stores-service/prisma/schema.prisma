@@ -30,6 +30,23 @@ model Store {
   /// looked up once per ingested file.
   external_code String? @unique
 
+  /// Atributos vindos das abas `Clientes` e `INVESTIMENTO` da planilha de
+  /// relatórios. Todos opcionais: nenhuma das 24 lojas existentes tem esses
+  /// dados hoje, e uma migration com NOT NULL falharia em base com dado real.
+  ///
+  /// CNPJ da unidade que hospeda a loja.
+  tax_id      String?
+  /// "HTL05", "SPO01" — o código do site do cliente. Casa com
+  /// `ClientSite.code` no billing-service. Diferente de `external_code`, que
+  /// é o código do PDV (touchpay).
+  client_code String?
+  opened_on   DateTime? @db.Date
+  /// "quantidade de pessoas" — o denominador do ticket médio por loja.
+  headcount   Int?
+  /// "110v", "220v", "1-110v 1-220v" — a instalação elétrica disponível.
+  /// Texto livre porque a planilha registra combinação, não um valor único.
+  voltage     String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 

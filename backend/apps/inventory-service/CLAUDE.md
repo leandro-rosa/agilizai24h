@@ -107,6 +107,26 @@ até um período, por SKU — que a base genérica não expressa, e o rebuild é
 substituição em transação, não CRUD por linha. Um repositório aqui seria uma
 camada contornada justamente nos dois caminhos que importam.
 
+## `central-stock` — o único dado não derivado deste serviço
+
+`CentralStockLot` (aba `Estoque Central` da planilha) é o estoque do CD, e é
+tabela própria em vez de mais colunas em `StockSnapshot` por dois motivos:
+é **lançado à mão** (não derivado de venda × abastecimento) e tem
+**validade**, que o sistema hoje perde inteira.
+
+Guardado **por lote, não por SKU**: duas entregas do mesmo produto vencem em
+datas diferentes, e um saldo único por SKU não consegue dizer quanto vence
+quando.
+
+`GET /inventory/central?expiring_within_days=30` inclui o já vencido de
+propósito — quem pergunta o que vence em 30 dias precisa ver primeiro o que
+já venceu e continua na prateleira. A ordenação põe vencimento mais próximo
+primeiro e lote sem validade por último.
+
+`GET /inventory/central/summary` traz `valued_amount_cents` junto de
+`valued_lot_count`: a cifra só conta lote com custo informado, e o contador
+existe para ela nunca passar por completa quando não é.
+
 ## Gaps conhecidos
 
 - Sem autorização própria — enforcement é do gateway.

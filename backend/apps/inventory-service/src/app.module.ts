@@ -7,6 +7,7 @@ import { validateEnv } from './config/env.validation'
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware'
 import { DbClientModule } from './modules/db-client/db-client.module'
 import { InventoryModule } from './modules/inventory/inventory.module'
+import { CentralStockModule } from './modules/central-stock/central-stock.module'
 import { PeriodUpdatedWorker } from './modules/inventory/jobs/period-updated.worker'
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
 
@@ -16,6 +17,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     HealthModule,
     DbClientModule,
     InventoryModule,
+    CentralStockModule,
     // Consumes the period event supply and sales publish, and publishes the
     // derived event finance waits on. withKafkaBrokers is
     // explicit for the same reason as everywhere else: the default is true and

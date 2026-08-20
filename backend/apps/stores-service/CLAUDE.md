@@ -45,6 +45,24 @@ Não é exposto fora da `agiliz_network`.
   Prisma: `PrismaRepository` relança `Error` genérico e descarta o código do
   Prisma. A constraint única segue como backstop da corrida.
 
+## Atributos da unidade que hospeda a loja
+
+`tax_id`, `client_code`, `opened_on`, `headcount` e `voltage` vieram das abas
+`Clientes` e `INVESTIMENTO` da planilha de relatórios. Todos **nullable**: as
+24 lojas existentes não têm nenhum deles, e um NOT NULL faria a migration
+falhar em base com dado real.
+
+- `client_code` ("HTL05", "SPO01") é o código do **site do cliente** e casa
+  com `ClientSite.code` no `billing-service`. Não confundir com
+  `external_code`, que é o código do **PDV** (touchpay) — são identificadores
+  de sistemas diferentes e divergem.
+- `headcount` é o denominador do ticket médio por loja.
+- `voltage` é texto livre porque a planilha registra combinação
+  ("1-110v 1-220v"), não um valor único.
+- `opened_on`, `headcount` e `voltage` aparecem na aba `INVESTIMENTO`, mas
+  moram aqui e **não** no `capex-service`: são atributo físico da loja, e
+  duplicar criaria duas respostas para "quando a loja abriu".
+
 ## Gaps conhecidos
 
 - Sem autorização própria: quem faz enforcement é o gateway, que ainda não

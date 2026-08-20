@@ -61,6 +61,33 @@ e multiplicados por quantidades — exatamente o padrão que acumula erro de pon
 flutuante binário. A diferença resultante contra a planilha do operador seria
 pequena, real e caríssima de diagnosticar.
 
+## Catálogo estendido e preço de venda
+
+`subcategory`, `ean`, `supplier_id`, `net_weight`, `ncm`, `cest`,
+`shelf_life_days` e `status` vieram das abas de produto da planilha. Todos
+nullable pelo mesmo motivo de sempre: os 232 produtos existentes não têm
+nenhum deles.
+
+`ean` é **unique**: dois produtos com o mesmo código de barras é erro de
+cadastro, e o PDV resolve a venda por ele — um EAN duplicado atribuiria a
+venda ao produto errado.
+
+`PriceVersion` espelha `CostVersion` deliberadamente, incluindo o contrato
+temporal: **não existe "preço atual" sem data**, pelo mesmo motivo de não
+existir "custo atual". As duas pontas do cálculo de margem precisam do mesmo
+contrato, senão o preço de hoje acaba comparado com o custo de seis meses
+atrás.
+
+**Markup e margem não são colunas em lugar nenhum** — são derivados de custo
+× preço na mesma data. Persistir os três garante que um dia discordem, e a
+planilha já mostra isso: "Markup", "Valor venda s/ tx" e "Venda venda"
+convivem e nem sempre fecham.
+
+`POST /prices/bulk` é particionado (`resolved`/`unresolved`/`complete`), não
+mapa — mesma decisão do `BulkCostResult`: um mapa convida a tratar preço
+ausente como zero, o que aqui **infla** a margem em vez de deixar o buraco
+visível.
+
 ## Gaps conhecidos
 
 - Sem autorização própria — enforcement é do gateway, que ainda não existe.

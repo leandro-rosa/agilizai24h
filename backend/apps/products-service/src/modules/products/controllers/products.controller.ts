@@ -3,14 +3,17 @@ import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { PRODUCT_CATEGORY_VALUES, type ProductCategory } from '../constants/product-vocabulary'
 import {
   BulkCostDto,
+  BulkPriceDto,
   CreateOverrideDto,
   CreateProductDto,
   RecordCostDto,
+  RecordPriceDto,
   ResolveNamesDto,
   ResolveSkusDto,
   UpdateProductDto,
 } from '../dto/product.dto'
 import { CostService } from '../services/cost.service'
+import { PriceService } from '../services/price.service'
 import { ProductsService } from '../services/products.service'
 
 @ApiTags('products')
@@ -19,6 +22,7 @@ export class ProductsController {
   constructor(
     private readonly products: ProductsService,
     private readonly costs: CostService,
+    private readonly prices: PriceService,
   ) {}
 
   @Get('products')
@@ -61,6 +65,32 @@ export class ProductsController {
   @ApiOperation({ summary: 'List a product cost history' })
   listCosts(@Param('id', ParseIntPipe) id: number) {
     return this.costs.listVersions(id)
+  }
+
+  @Post('products/:sku/prices')
+  @ApiOperation({
+    summary: 'Record a sale price effective from a date',
+    description:
+      'Mirrors the cost endpoint: re-recording for a date that already has a version replaces it and never creates a second one.',
+  })
+  recordPrice(@Param('sku') sku: string, @Body() dto: RecordPriceDto) {
+    return this.prices.recordPrice(sku, new Date(dto.effective_from), dto.price_cents)
+  }
+
+  @Get('products/:id/prices')
+  @ApiOperation({ summary: 'List a product sale-price history' })
+  listPrices(@Param('id', ParseIntPipe) id: number) {
+    return this.prices.listVersions(id)
+  }
+
+  @Post('prices/bulk')
+  @ApiOperation({
+    summary: 'Sale prices for a set of SKUs as of a date',
+    description:
+      'Partitioned like the cost equivalent — a map would invite treating a missing price as zero, which here inflates margin instead of leaving the hole visible.',
+  })
+  bulkPrice(@Body() dto: BulkPriceDto) {
+    return this.prices.bulkPriceAsOf(dto.skus, new Date(dto.as_of))
   }
 
   @Get('costs')

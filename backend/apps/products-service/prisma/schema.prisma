@@ -21,10 +21,32 @@ model Product {
   /// same string, and that ambiguity must be reported, not silently resolved.
   normalized_name String
 
+  /// Campos das abas `produtos`, `lista de produtos mercado`,
+  /// `lista congelados` e `produtos agiliz.ai` da planilha de relatórios.
+  /// Todos opcionais: os 232 produtos existentes não têm nenhum deles, e um
+  /// NOT NULL faria a migration falhar em base com dado real.
+  ///
+  /// "Marmitas", "Crepes", "Vinhos" — o segundo nível de `category`.
+  subcategory     String?
+  /// Código de barras. Unique porque dois produtos com o mesmo EAN é erro de
+  /// cadastro, e o PDV resolve venda por ele.
+  ean             String? @unique
+  /// suppliers-service. Int cru — database-per-service.
+  supplier_id     Int?
+  /// "400g", "280g" — texto, é como vem da planilha e do rótulo.
+  net_weight      String?
+  ncm             String?
+  cest            String?
+  /// Coluna "Validade (dias)".
+  shelf_life_days Int?
+  /// active | discontinued
+  status          String  @default("active")
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  cost_versions CostVersion[]
+  cost_versions  CostVersion[]
+  price_versions PriceVersion[]
   name_overrides ProductNameOverride[]
 
   @@index([normalized_name])
@@ -70,6 +92,27 @@ model CostVersion {
 /// rather than a constant in code — a mismatch must be fixable without a
 /// deploy. An override always beats a normalised match: it exists because a
 /// human looked at a real mismatch and decided the answer.
+/// Preço de venda datado, espelhando CostVersion.
+///
+/// Markup e margem NÃO são colunas: são derivadas de custo × preço na data, e
+/// persistir os três garante que um dia discordem entre si. A planilha tem
+/// exatamente esse problema — "Markup", "Valor venda s/ tx" e "Venda venda"
+/// convivem e nem sempre fecham.
+model PriceVersion {
+  id             Int      @id @default(autoincrement())
+  product_id     Int
+  effective_from DateTime @db.Date
+  price_cents    Int
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([product_id, effective_from])
+  @@index([product_id, effective_from])
+  @@map("price_version")
+}
+
 model ProductNameOverride {
   id         Int    @id @default(autoincrement())
   /// The normalised form of the external name this override matches.

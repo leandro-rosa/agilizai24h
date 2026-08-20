@@ -57,6 +57,32 @@ export class BulkCostDto {
   as_of: string
 }
 
+export class RecordPriceDto {
+  @ApiProperty({ example: '2026-01-01', description: 'The date this sale price takes effect.' })
+  @IsISO8601()
+  effective_from: string
+
+  @ApiProperty({ example: 2699, description: 'Integer minor units (centavos). Never a decimal.' })
+  @IsInt()
+  @Min(0)
+  price_cents: number
+}
+
+export class BulkPriceDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  skus: string[]
+
+  @ApiProperty({
+    example: '2026-03-31',
+    description: 'Prices are always resolved as of a date — there is no "current price" lookup, for the same reason there is no "current cost" one.',
+  })
+  @IsISO8601()
+  as_of: string
+}
+
 export class ResolveNamesDto {
   @ApiProperty({ type: [String], example: ['REFRIGERANTE GUARANA  350ML'] })
   @IsArray()

@@ -81,3 +81,33 @@ model DerivedStore {
 
   @@map("derived_store")
 }
+
+/// Estoque do CD, por lote.
+///
+/// Diferente de `StockSnapshot` em dois eixos, e por isso é tabela separada em
+/// vez de mais colunas nele: é lançado à mão (não derivado de venda ×
+/// abastecimento) e tem **validade** — o dado que a aba `Estoque Central` da
+/// planilha rastreia e que o sistema hoje perde inteiro.
+///
+/// Por lote, não por SKU: duas entregas do mesmo produto vencem em datas
+/// diferentes, e um saldo único por SKU não consegue dizer quanto vence
+/// quando.
+model CentralStockLot {
+  id          Int      @id @default(autoincrement())
+  sku         String
+  ean         String?
+  quantity    Int
+  expires_on  DateTime? @db.Date
+  received_on DateTime  @db.Date
+  /// suppliers-service. Int cru — database-per-service.
+  supplier_id Int?
+  unit_cost_cents Int?
+  note        String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([sku])
+  @@index([expires_on])
+  @@map("central_stock_lot")
+}

@@ -3,6 +3,12 @@ import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { StoreRepository } from '../../db-client/repositories/store.repository'
 import { DEFAULT_LISTED_STATUSES, type StoreStatus, type StoreType } from '../constants/store-vocabulary'
 
+/** Aceita o ISO do DTO e o Date do repositório sem o chamador se importar. */
+function toDate(value: string | Date | null | undefined): Date | null | undefined {
+  if (value === undefined || value === null) return value
+  return value instanceof Date ? value : new Date(value)
+}
+
 export interface StoreView {
   id: number
   name: string
@@ -11,9 +17,22 @@ export interface StoreView {
   type: string
   status: string
   external_code: string | null
+  tax_id: string | null
+  client_code: string | null
+  opened_on: Date | null
+  headcount: number | null
+  voltage: string | null
 }
 
-export interface CreateStoreInput {
+export interface StoreAttributes {
+  tax_id?: string | null
+  client_code?: string | null
+  opened_on?: string | Date | null
+  headcount?: number | null
+  voltage?: string | null
+}
+
+export interface CreateStoreInput extends StoreAttributes {
   name: string
   address: string
   city: string
@@ -21,7 +40,7 @@ export interface CreateStoreInput {
   external_code?: string
 }
 
-export interface UpdateStoreInput {
+export interface UpdateStoreInput extends StoreAttributes {
   name?: string
   address?: string
   city?: string
@@ -48,7 +67,9 @@ export class StoresService {
       await this.assertExternalCodeAvailable(input.external_code)
     }
 
-    const created = await this.prisma.store.create({ data: { ...input, status: 'active' } })
+    const created = await this.prisma.store.create({
+      data: { ...input, opened_on: toDate(input.opened_on), status: 'active' },
+    })
 
     return this.toView(created)
   }
@@ -63,7 +84,10 @@ export class StoresService {
 
     // `id` is never part of UpdateStoreInput, so the identifier is immutable by
     // construction rather than by a runtime guard that could be forgotten.
-    const updated = await this.prisma.store.update({ where: { id }, data: input })
+    const updated = await this.prisma.store.update({
+      where: { id },
+      data: { ...input, ...(input.opened_on !== undefined ? { opened_on: toDate(input.opened_on) } : {}) },
+    })
 
     return this.toView(updated)
   }
@@ -136,6 +160,11 @@ export class StoresService {
       type: store.type,
       status: store.status,
       external_code: store.external_code,
+      tax_id: store.tax_id,
+      client_code: store.client_code,
+      opened_on: store.opened_on,
+      headcount: store.headcount,
+      voltage: store.voltage,
     }
   }
 }
