@@ -1,0 +1,110 @@
+// Investimento por loja, aporte de investidor e payback.
+//
+// Origem na planilha de relatórios: abas `INVESTIMENTO` (25 categorias de
+// item × 21 lojas), `Investimentos`, `Investimento Amil` e `Investidor`.
+//
+// FRONTEIRA: atributo físico da loja (inauguração, headcount, voltagem) NÃO
+// mora aqui — é do `stores-service`. Este serviço só guarda dinheiro.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model StoreInvestment {
+  id       Int @id @default(autoincrement())
+  store_id Int @unique
+
+  /// Soma dos itens. Materializado porque a tela de payback lista as 24 lojas
+  /// de uma vez e re-somar os itens de cada uma por request é caro sem ganho.
+  total_invested_cents  Int @default(0)
+  /// "Faturamento loja" e "Lucro loja" de referência. São PREMISSA — vêm do
+  /// painel, não de sales/finance — e o payback herda esse rótulo.
+  monthly_revenue_cents Int @default(0)
+  monthly_profit_cents  Int @default(0)
+  /// MÉTRICA DERIVADA: total_invested / monthly_profit. Nulo quando o lucro
+  /// não é positivo — nenhum número de meses paga um investimento com lucro
+  /// zero ou negativo, e devolver 0 ali afirmaria o contrário.
+  payback_months Decimal? @db.Decimal(8, 2)
+
+  computed_at DateTime @default(now())
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  items InvestmentItem[]
+
+  @@map("store_investment")
+}
+
+model InvestmentItem {
+  id                  Int  @id @default(autoincrement())
+  /// Nulo = investimento não atribuível a uma loja (carro, ferramenta).
+  store_investment_id Int?
+
+  /// fridge | freezer | wrap | baskets | freight | barcode_reader |
+  /// card_terminal | decor | wobbler | shelf_strip | display | furniture |
+  /// led | sign | phrase | initial_stock | shelf_plate | camera | tv |
+  /// system_activation | other — as 25 linhas da aba INVESTIMENTO.
+  category    String
+  description String
+  supplier_id Int?
+  quantity    Int @default(1)
+
+  /// "Valor a vista" e "Vl parcelado total". Os dois existem porque a
+  /// planilha registra a diferença entre eles como custo do parcelamento, e
+  /// colapsar num só apagaria esse custo.
+  cash_amount_cents        Int
+  financed_amount_cents    Int @default(0)
+  installments             Int @default(1)
+  installment_amount_cents Int @default(0)
+
+  purchased_on DateTime @db.Date
+  /// "Josias", "Bárbara", "Cartão C6" — de onde o dinheiro saiu.
+  funding_source String
+  /// fixed | initial | operating_expense — a coluna "tipo de investimento".
+  investment_kind String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  store_investment StoreInvestment? @relation(fields: [store_investment_id], references: [id], onDelete: SetNull)
+
+  @@index([category])
+  @@index([purchased_on])
+  @@index([store_investment_id])
+  @@map("investment_item")
+}
+
+model Investor {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+  /// "VALOR INVESTIMENTO" — o comprometido. A diferença para o aportado é a
+  /// coluna "DIF. INVESTIMENTO" da planilha.
+  committed_amount_cents Int @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  contributions InvestorContribution[]
+
+  @@map("investor")
+}
+
+model InvestorContribution {
+  id             Int      @id @default(autoincrement())
+  investor_id    Int
+  contributed_on DateTime @db.Date
+  amount_cents   Int
+  /// equipment | furniture | store_comms | stock | system | loan | other
+  kind           String
+  note           String?
+  created_at     DateTime @default(now())
+
+  investor Investor @relation(fields: [investor_id], references: [id], onDelete: Cascade)
+
+  @@index([investor_id, contributed_on])
+  @@map("investor_contribution")
+}
