@@ -1,0 +1,146 @@
+// Movimento de caixa: extrato bancário, fatura de cartão, o DE-PARA de
+// favorecido e as taxas de adquirente.
+//
+// Origem na planilha de relatórios: abas `extrato bancário`,
+// `cartão de crédito`, `DE-PARA`, `Página64` e `taxas pagseguro`, mais as
+// linhas "Vendas recebidas PIX/crédito/débito/Vouchers" do `Fluxo de caixa`.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model BankAccount {
+  id          Int     @id @default(autoincrement())
+  /// "Pagbank", "Itaú", "C6 bank", "Nubank", "Bradesco"
+  name        String  @unique
+  /// checking | credit_card
+  kind        String
+  institution String
+  last_digits String?
+  /// active | inactive
+  status      String  @default("active")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  transactions BankTransaction[]
+
+  @@map("bank_account")
+}
+
+model BankTransaction {
+  id          Int      @id @default(autoincrement())
+  account_id  Int
+  occurred_on DateTime @db.Date
+  /// "YYYY-MM" — a coluna "mês" da planilha. Mesmo formato de período usado
+  /// por sales/supply/inventory/finance, para as telas cruzarem sem tradução.
+  period      String
+
+  /// inflow | outflow. O valor é sempre positivo e o sinal mora aqui: um
+  /// campo que pode ser negativo convida a somar entrada com saída por
+  /// engano, e foi assim que a planilha errou o fluxo de caixa de março.
+  direction    String
+  amount_cents Int
+
+  /// Como veio da origem, antes do DE-PARA. Preservado mesmo depois de
+  /// resolvido: é o que permite reconferir uma classificação suspeita.
+  counterparty_raw String
+  /// Resolvido via suppliers-service. Int cru, não FK — database-per-service.
+  supplier_id      Int?
+
+  /// Coluna "Tipo": estoque | investimento | mensalidade sistema | Contador...
+  entry_type String
+  /// Coluna "Categoria": congelados | cartão | sistema | estoque geral...
+  category   String
+  /// Coluna "Natureza" (aba Página64), o eixo que alimenta o DRE:
+  /// cogs | operating | administrative | investment
+  nature     String
+
+  /// Quando o lançamento é atribuível a uma loja. Nulo é o caso comum:
+  /// despesa administrativa não pertence a loja nenhuma.
+  store_id Int?
+
+  /// Coluna "parcela" da fatura de cartão.
+  installment_index Int?
+  installment_total Int?
+
+  /// Id/linha do extrato de origem, para rastrear de volta.
+  source_ref   String?
+  /// Nulo enquanto não houver ingestão automática.
+  ingestion_id String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  account BankAccount @relation(fields: [account_id], references: [id])
+
+  @@index([period])
+  @@index([account_id, period])
+  @@index([supplier_id])
+  @@index([nature, period])
+  @@index([store_id, period])
+  @@map("bank_transaction")
+}
+
+/// A aba DE-PARA: favorecido → como classificar. É regra de negócio editável
+/// pela operação, não constante de código — o conjunto de fornecedores muda
+/// toda semana e não pode exigir deploy.
+model CounterpartyMapping {
+  id           Int    @id @default(autoincrement())
+  /// Normalizado com o mesmo algoritmo do suppliers-service.
+  match_text   String @unique
+  display_name String
+  supplier_id  Int?
+  entry_type   String
+  category     String
+  nature       String
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@map("counterparty_mapping")
+}
+
+/// Aba "taxas pagseguro". Datado pelo mesmo motivo do CostVersion no
+/// products-service: a taxa muda e o histórico precisa continuar
+/// reproduzível. Recalcular julho com a taxa de dezembro é como a planilha
+/// perde o rastro da margem real.
+model AcquirerFee {
+  id             Int      @id @default(autoincrement())
+  acquirer       String
+  /// debit | credit | pix | voucher
+  payment_method String
+  /// Basis points: 139 = 1,39%. Inteiro, porque taxa em float acumula erro
+  /// ao multiplicar por milhares de transações.
+  rate_bps       Int
+  effective_from DateTime @db.Date
+  created_at     DateTime @default(now())
+
+  @@unique([acquirer, payment_method, effective_from])
+  @@map("acquirer_fee")
+}
+
+/// Recebimento por meio de pagamento — as linhas "Vendas recebidas ..." do
+/// fluxo de caixa. Bruto ≠ líquido por causa da taxa do adquirente, e os
+/// três campos ficam explícitos para a diferença ser auditável em vez de
+/// recalculada a cada leitura.
+model SettlementReceipt {
+  id             Int    @id @default(autoincrement())
+  /// Nulo = consolidado da rede.
+  store_id       Int?
+  period         String
+  payment_method String
+  gross_cents    Int
+  fee_cents      Int
+  net_cents      Int
+  settled_on     DateTime? @db.Date
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  @@unique([store_id, period, payment_method])
+  @@index([period])
+  @@map("settlement_receipt")
+}
