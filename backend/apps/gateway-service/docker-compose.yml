@@ -21,6 +21,11 @@ services:
       SALES_SERVICE_URL: http://agiliz-sales-prod:3000
       SUPPLY_SERVICE_URL: http://agiliz-supply-prod:3000
       INVENTORY_SERVICE_URL: http://agiliz-inventory-prod:3000
+      SUPPLIERS_SERVICE_URL: http://agiliz-suppliers-prod:3000
+      TREASURY_SERVICE_URL: http://agiliz-treasury-prod:3000
+      ACCOUNTING_SERVICE_URL: http://agiliz-accounting-prod:3000
+      BILLING_SERVICE_URL: http://agiliz-billing-prod:3000
+      CAPEX_SERVICE_URL: http://agiliz-capex-prod:3000
       PORT: 3000
       # The panel's origin as the browser sees it — admin-dev's default host
       # port. Override if admin-prod (8080) or a different host is what's

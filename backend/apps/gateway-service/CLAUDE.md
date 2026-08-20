@@ -5,8 +5,9 @@ Tudo atrás dele assume que o chamador já foi autenticado e autorizado. Ver
 [../../CLAUDE.md](../../CLAUDE.md) para as convenções do workspace backend.
 
 **Consumidor**: `frontend/apps/admin`. **Depende de**: `iam-service` (todo
-request), `stores-service`, `products-service`, `ingestion-worker-service` e
-`finance-service` (por rota).
+request) e, por rota, dos 12 serviços de domínio — `stores`, `products`,
+`sales`, `supply`, `inventory`, `finance`, `ingestion-worker`, `suppliers`,
+`treasury`, `accounting`, `billing` e `capex`.
 
 ## Rotas
 
@@ -28,6 +29,17 @@ request), `stores-service`, `products-service`, `ingestion-worker-service` e
 | `PUT /inventory/:storeId/:sku/minimum` | `inventory:write` | |
 | `GET /finance/:storeId/:period`, `GET /finance/:storeId`, `GET /finance/rollup` | `finance:read` | A reconciliação mensal |
 | `POST /finance/:storeId/:period/recompute` | `finance:read` | Não cria nada que o leitor já não pudesse ver — só re-deriva |
+| `GET/POST /suppliers`, `GET/PATCH /suppliers/:id` | `suppliers:read` / `:write` | |
+| `POST /suppliers/resolve` | `suppliers:read` | Lote de grafias → `{ matched, unmatched }`; é leitura apesar do POST |
+| `POST /suppliers/:id/aliases`, `DELETE /:id/aliases/:aliasId` | `suppliers:write` | |
+| `/treasury/accounts`, `/treasury/transactions`, `/treasury/mappings`, `/treasury/fees`, `/treasury/settlements` | `treasury:read` / `:write` | 17 rotas; `GET /treasury/transactions/summary` traz `unresolved_count` |
+| `/accounting/accounts`, `/accounting/entries`, `/accounting/pnl/*`, `/accounting/cash-flow` | `accounting:read` / `:write` | 11 rotas; `POST /accounting/pnl/:period/compute` congela o mês |
+| `/billing/clients`, `/billing/contracts`, `/billing/invoices`, `/billing/revenue-shares` | `billing:read` / `:write` | 17 rotas; `GET /billing/invoices/aging` deriva o vencido |
+| `/capex/investments`, `/capex/items`, `/capex/investors` | `capex:read` / `:write` | 16 rotas; `GET /capex/investments/payback` é MÉTRICA DERIVADA |
+| `GET /products/:id/prices`, `POST /products/:sku/prices` | `products:read` / `:write` | Preço de venda datado, espelhando custo |
+| `POST /products/prices/bulk` | `products:read` | Particionado, nunca mapa |
+| `GET/POST /inventory/central`, `PATCH`/`DELETE /inventory/central/:id` | `inventory:read` / `:write` | Estoque do CD, por lote, com validade |
+| `GET /inventory/central/summary` | `inventory:read` | |
 | `GET /overview` | `stores:read` | Agrega, com falha parcial explícita |
 | `GET /health`, `GET /docs` | pública | |
 

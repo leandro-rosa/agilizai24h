@@ -9,6 +9,11 @@ const valid = {
   SUPPLY_SERVICE_URL: 'http://supply:3000',
   INVENTORY_SERVICE_URL: 'http://inventory:3000',
   INGESTION_SERVICE_URL: 'http://ingestion:3000',
+  SUPPLIERS_SERVICE_URL: 'http://suppliers:3000',
+  TREASURY_SERVICE_URL: 'http://treasury:3000',
+  ACCOUNTING_SERVICE_URL: 'http://accounting:3000',
+  BILLING_SERVICE_URL: 'http://billing:3000',
+  CAPEX_SERVICE_URL: 'http://capex:3000',
   AWS_REGION: 'us-east-1',
   AWS_ACCESS_KEY_ID: 'key',
   AWS_SECRET_ACCESS_KEY: 'secret',
@@ -33,6 +38,13 @@ describe('validateEnv', () => {
   it('throws when the finance upstream is missing, like any other', () => {
     const { FINANCE_SERVICE_URL: _omitted, ...withoutFinance } = valid
     expect(() => validateEnv(withoutFinance)).toThrow(/Invalid environment configuration/)
+  })
+
+  it('throws when a back-office upstream is missing, like any other', () => {
+    // Um gateway que sobe sem saber onde esta um upstream so descobre isso no
+    // primeiro request do operador — falhar no boot e estritamente melhor.
+    const { ACCOUNTING_SERVICE_URL: _omitted, ...withoutAccounting } = valid
+    expect(() => validateEnv(withoutAccounting)).toThrow(/Invalid environment configuration/)
   })
 
   it('rejects a malformed deadline rather than coercing it', () => {

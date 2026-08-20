@@ -40,6 +40,28 @@ class EnvironmentVariables {
   @IsNotEmpty()
   INVENTORY_SERVICE_URL: string
 
+  // Back-office. Obrigatórias como as demais: um gateway que sobe sem saber
+  // onde está um upstream só descobre isso no primeiro request do operador.
+  @IsString()
+  @IsNotEmpty()
+  SUPPLIERS_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  TREASURY_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  ACCOUNTING_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  BILLING_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  CAPEX_SERVICE_URL: string
+
   /**
    * The admin panel's exact origin (scheme + host + port), for CORS.
    *
