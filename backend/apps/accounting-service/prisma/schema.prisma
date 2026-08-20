@@ -1,0 +1,132 @@
+// Plano de contas, lançamentos, DRE e fluxo de caixa.
+//
+// Origem na planilha de relatórios: aba `DRE` (165 linhas) e aba
+// `Fluxo de caixa`.
+//
+// FRONTEIRA: este serviço NÃO recalcula CMV, sobra nem perda. Isso é do
+// `finance-service`, que é a fonte de verdade desses números por loja/mês.
+// Eles chegam aqui como LedgerEntry de `origin = "finance"`.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// As linhas do DRE e do fluxo de caixa. Árvore, porque a planilha já é
+/// hierárquica: "RECEITA OPERACIONAL BRUTA" > "Vendas lojas" > por loja.
+model Account {
+  id    Int    @id @default(autoincrement())
+  /// "3.1.01" — código estável, é por ele que a ingestão futura amarra.
+  code  String @unique
+  label String
+  /// pnl | cashflow
+  statement String
+  /// gross_revenue | deductions | cogs | variable_expenses | fixed_expenses |
+  /// financial_expenses | receipts | opex | loans | capex
+  section   String
+  /// +1 entra, -1 sai. Guardado em vez de derivado da seção porque
+  /// "Descontos" é dedução dentro de uma seção de receita.
+  sign      Int
+  parent_id Int?
+  sort_order Int
+  /// A linha é aberta por loja? "Vendas lojas" sim, "Contador" não.
+  per_store  Boolean @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  parent   Account?  @relation("AccountTree", fields: [parent_id], references: [id])
+  children Account[] @relation("AccountTree")
+  entries  LedgerEntry[]
+
+  @@index([statement, sort_order])
+  @@index([parent_id])
+  @@map("account")
+}
+
+/// Um valor por conta × período × loja. `store_id` nulo = consolidado da
+/// rede — é como a planilha faz, e evita duas tabelas que precisariam somar
+/// para o mesmo lugar.
+model LedgerEntry {
+  id           Int    @id @default(autoincrement())
+  account_id   Int
+  /// "YYYY-MM"
+  period       String
+  store_id     Int?
+  amount_cents Int
+  /// manual | treasury | sales | finance | billing — de onde o número veio.
+  /// Rotular a origem é o que permite dizer se uma linha é FATO (veio de um
+  /// serviço) ou PREMISSA (alguém digitou), regra da raiz do repo.
+  origin       String  @default("manual")
+  source_ref   String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  account Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+
+  /// Cobre só o caso com loja. A linha consolidada da rede (store_id NULL)
+  /// é protegida por índice único PARCIAL, criado à mão na migration: em
+  /// Postgres, NULL não é igual a NULL, então um UNIQUE comum deixaria
+  /// duplicar o consolidado sem reclamar. Ver CLAUDE.md.
+  @@unique([account_id, period, store_id])
+  @@index([period])
+  @@index([store_id, period])
+  @@map("ledger_entry")
+}
+
+/// DRE apurado de um mês. Os totais ficam materializados porque a tela mostra
+/// série de 12 meses e re-somar a árvore inteira por mês a cada request é
+/// caro sem ganho — e porque um mês fechado não pode mudar de valor quando
+/// alguém corrige um lançamento antigo.
+model PnlSnapshot {
+  id       Int    @id @default(autoincrement())
+  period   String
+  /// Nulo = rede.
+  store_id Int?
+  /// open | closed
+  status   String @default("open")
+
+  /// Linha "# lojas" da planilha.
+  store_count               Int @default(0)
+  gross_revenue_cents       Int
+  deductions_cents          Int
+  net_revenue_cents         Int
+  cogs_cents                Int
+  gross_profit_cents        Int
+  variable_expenses_cents   Int
+  contribution_margin_cents Int
+  fixed_expenses_cents      Int
+  ebitda_cents              Int
+  financial_expenses_cents  Int
+  operating_profit_cents    Int
+  break_even_cents          Int
+  /// Basis points: 1234 = 12,34%.
+  safety_margin_bps         Int
+
+  computed_at DateTime @default(now())
+
+  /// Mesmo caso do LedgerEntry: o snapshot da rede tem store_id NULL e
+  /// depende do índice parcial da migration, não deste unique.
+  @@unique([period, store_id])
+  @@index([period])
+  @@map("pnl_snapshot")
+}
+
+model CashFlowSnapshot {
+  id     Int    @id @default(autoincrement())
+  period String @unique
+
+  opening_balance_cents Int
+  receipts_cents        Int
+  opex_cents            Int
+  loan_payments_cents   Int
+  capex_cents           Int
+  closing_balance_cents Int
+
+  computed_at DateTime @default(now())
+
+  @@map("cash_flow_snapshot")
+}

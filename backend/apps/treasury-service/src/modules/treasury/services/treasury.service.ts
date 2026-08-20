@@ -305,16 +305,17 @@ export class TreasuryService {
       settled_on: settledOn,
     }
 
-    return this.prisma.settlementReceipt.upsert({
-      where: {
-        store_id_period_payment_method: {
-          store_id: data.store_id as number,
-          period: data.period,
-          payment_method: data.payment_method,
-        },
-      },
-      create: data,
-      update: data,
+    // `upsert` não endereça chave composta com coluna nula, e o consolidado
+    // da rede tem `store_id` nulo. Find-then-write numa transação; a corrida
+    // é barrada pelo índice único parcial da migration, não por este código.
+    return this.prisma.$transaction(async tx => {
+      const existing = await tx.settlementReceipt.findFirst({
+        where: { store_id: data.store_id, period: data.period, payment_method: data.payment_method },
+      })
+
+      return existing
+        ? tx.settlementReceipt.update({ where: { id: existing.id }, data })
+        : tx.settlementReceipt.create({ data })
     })
   }
 

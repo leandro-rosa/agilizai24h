@@ -1,0 +1,85 @@
+networks:
+  agiliz_network:
+    external: true
+    name: agiliz_network
+
+volumes:
+  agiliz_accounting_postgres_data:
+    name: agiliz_accounting_postgres_data
+
+services:
+  # Database-per-service: this Postgres belongs to accounting-service alone. No other
+  # service reads these tables.
+  accounting-postgres:
+    image: postgres:16-alpine
+    container_name: agiliz-accounting-postgres
+    environment:
+      POSTGRES_USER: ${ACCOUNTING_POSTGRES_USER:-agiliz}
+      POSTGRES_PASSWORD: ${ACCOUNTING_POSTGRES_PASSWORD:-agiliz-dev-secret}
+      POSTGRES_DB: ${ACCOUNTING_POSTGRES_DB:-accounting}
+    ports:
+      - "${ACCOUNTING_POSTGRES_HOST_PORT:-5443}:5432"
+    volumes:
+      - agiliz_accounting_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ACCOUNTING_POSTGRES_USER:-agiliz} -d ${ACCOUNTING_POSTGRES_DB:-accounting}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - agiliz_network
+
+  accounting-dev:
+    build:
+      # Repo root: the pnpm workspace keeps one lockfile there.
+      context: ../../..
+      dockerfile: backend/apps/accounting-service/Dockerfile
+      target: dev
+    container_name: agiliz-accounting-dev
+    depends_on:
+      accounting-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${ACCOUNTING_POSTGRES_USER:-agiliz}:${ACCOUNTING_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-accounting-postgres:5432/${ACCOUNTING_POSTGRES_DB:-accounting}
+      PORT: 3000
+    # No published host port: domain services stay internal to agiliz_network,
+    # reachable only through gateway-service.
+    expose:
+      - "3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      # 127.0.0.1 explicitly — Alpine resolves localhost to ::1 first.
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  accounting-prod:
+    build:
+      context: ../../..
+      dockerfile: backend/apps/accounting-service/Dockerfile
+      target: runtime
+    container_name: agiliz-accounting-prod
+    depends_on:
+      accounting-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${ACCOUNTING_POSTGRES_USER:-agiliz}:${ACCOUNTING_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-accounting-postgres:5432/${ACCOUNTING_POSTGRES_DB:-accounting}
+      PORT: 3000
+    expose:
+      - "3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

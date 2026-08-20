@@ -140,6 +140,9 @@ model SettlementReceipt {
   created_at     DateTime  @default(now())
   updated_at     DateTime  @updatedAt
 
+  /// Cobre só o caso com loja. O consolidado da rede (store_id NULL) depende
+  /// do índice único PARCIAL criado na migration: em Postgres NULL <> NULL,
+  /// então este unique não impediria duplicar o consolidado.
   @@unique([store_id, period, payment_method])
   @@index([period])
   @@map("settlement_receipt")

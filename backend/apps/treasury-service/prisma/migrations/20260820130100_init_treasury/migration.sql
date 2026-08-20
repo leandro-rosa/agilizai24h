@@ -114,3 +114,11 @@ CREATE UNIQUE INDEX "settlement_receipt_store_id_period_payment_method_key" ON "
 
 -- AddForeignKey
 ALTER TABLE "bank_transaction" ADD CONSTRAINT "bank_transaction_account_id_fkey" FOREIGN KEY ("account_id") REFERENCES "bank_account"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- Índice único PARCIAL para o consolidado da rede.
+--
+-- Em Postgres, NULL <> NULL, então `UNIQUE (store_id, period, payment_method)`
+-- não impede duas liquidações consolidadas do mesmo mês e meio de pagamento.
+-- Prisma não expressa índice parcial no schema, então ele é criado aqui.
+CREATE UNIQUE INDEX "settlement_receipt_network_key"
+  ON "settlement_receipt" ("period", "payment_method") WHERE "store_id" IS NULL;
