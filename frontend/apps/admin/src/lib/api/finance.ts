@@ -2,7 +2,7 @@ import { createApi } from "@reduxjs/toolkit/query/react";
 
 import { gatewayBaseQuery } from "./base-query";
 import type { Store } from "./stores";
-import type { PeriodRange } from "@/lib/period-range";
+import { monthsInRange, type PeriodRange } from "@/lib/period-range";
 import { sumReconciliations, type ReconciliationTotals } from "@/lib/reconciliation-aggregate";
 
 export interface UnvaluedSku {
@@ -21,6 +21,13 @@ export interface LossByReason {
 }
 
 export interface LossBySku {
+  sku: string;
+  quantity: number;
+  value_cents: number;
+}
+
+export interface LossByReasonSku {
+  reason: string;
   sku: string;
   quantity: number;
   value_cents: number;
@@ -50,6 +57,7 @@ export interface Reconciliation {
   inputs_changed_at: string | null;
   loss_by_reason: LossByReason[];
   loss_by_sku: LossBySku[];
+  loss_by_reason_sku: LossByReasonSku[];
   unvalued: UnvaluedSku[];
   adjustment_flags: AdjustmentFlag[];
 }
@@ -58,6 +66,14 @@ export interface Reconciliation {
 export interface NetworkReconciliationRangeRow {
   store: Store;
   totals: ReconciliationTotals;
+}
+
+/** One month's network-wide totals — from `getNetworkReconciliationRange`'s already-fetched per-store series, no extra request. */
+export interface NetworkMonthlyTotal {
+  period: string;
+  restocked_value_cents: number;
+  cogs_cents: number;
+  loss_value_cents: number;
 }
 
 export const financeApi = createApi({
@@ -75,18 +91,44 @@ export const financeApi = createApi({
      * store's *entire* series once (finance-service's series endpoint has
      * no period filter) and sums it down to the range client-side —
      * one request per store regardless of how many months the range
-     * spans, rather than one request per store per month.
+     * spans, rather than one request per store per month. `monthlyTotals`
+     * is a second reduction over the same already-fetched data — no extra
+     * network calls — for the network-wide monthly trend chart.
      */
-    getNetworkReconciliationRange: builder.query<NetworkReconciliationRangeRow[], { stores: Store[]; range: PeriodRange }>({
+    getNetworkReconciliationRange: builder.query<
+      { rows: NetworkReconciliationRangeRow[]; monthlyTotals: NetworkMonthlyTotal[] },
+      { stores: Store[]; range: PeriodRange }
+    >({
       async queryFn({ stores, range }, _api, _extra, fetchWithBQ) {
-        const rows = await Promise.all(
-          stores.map(async (store): Promise<NetworkReconciliationRangeRow> => {
+        const seriesByStore = await Promise.all(
+          stores.map(async (store) => {
             const result = await fetchWithBQ(`/finance/${store.id}`);
             const series = (result.data as Reconciliation[] | undefined) ?? [];
-            return { store, totals: sumReconciliations(series, range) };
+            return { store, series };
           }),
         );
-        return { data: rows };
+
+        const rows: NetworkReconciliationRangeRow[] = seriesByStore.map(({ store, series }) => ({
+          store,
+          totals: sumReconciliations(series, range),
+        }));
+
+        const months = monthsInRange(range);
+        const monthlyTotals: NetworkMonthlyTotal[] = months.map((period) => {
+          let restocked = 0;
+          let cogs = 0;
+          let loss = 0;
+          for (const { series } of seriesByStore) {
+            const match = series.find((r) => r.period === period);
+            if (!match) continue;
+            restocked += match.restocked_value_cents;
+            cogs += match.cogs_cents;
+            loss += match.loss_value_cents;
+          }
+          return { period, restocked_value_cents: restocked, cogs_cents: cogs, loss_value_cents: loss };
+        });
+
+        return { data: { rows, monthlyTotals } };
       },
       providesTags: ["Reconciliation"],
     }),

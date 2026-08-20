@@ -1,4 +1,4 @@
-import type { AdjustmentFlag, LossByReason, LossBySku, Reconciliation, UnvaluedSku } from "@/lib/api/finance";
+import type { AdjustmentFlag, LossByReason, LossByReasonSku, LossBySku, Reconciliation, UnvaluedSku } from "@/lib/api/finance";
 import { monthsInRange, type PeriodRange } from "@/lib/period-range";
 
 /**
@@ -20,6 +20,7 @@ export interface ReconciliationTotals {
   unvalued: UnvaluedSku[];
   loss_by_reason: LossByReason[];
   loss_by_sku: LossBySku[];
+  loss_by_reason_sku: LossByReasonSku[];
   adjustment_flags: AdjustmentFlag[];
   monthsWithData: number;
   monthsMissing: string[];
@@ -39,6 +40,7 @@ export function sumReconciliations(series: Reconciliation[], range: PeriodRange)
 
   const lossByReason = new Map<string, LossByReason>();
   const lossBySku = new Map<string, LossBySku>();
+  const lossByReasonSku = new Map<string, LossByReasonSku>();
   const adjustmentBySku = new Map<string, AdjustmentFlag>();
   const inconsistentStock = new Set<string>();
   const unvalued: UnvaluedSku[] = [];
@@ -81,6 +83,16 @@ export function sumReconciliations(series: Reconciliation[], range: PeriodRange)
         lossBySku.set(entry.sku, { ...entry });
       }
     }
+    for (const entry of r.loss_by_reason_sku) {
+      const key = `${entry.reason}|${entry.sku}`;
+      const existing = lossByReasonSku.get(key);
+      if (existing) {
+        existing.quantity += entry.quantity;
+        existing.value_cents += entry.value_cents;
+      } else {
+        lossByReasonSku.set(key, { ...entry });
+      }
+    }
     for (const entry of r.adjustment_flags) {
       const existing = adjustmentBySku.get(entry.sku);
       if (existing) {
@@ -104,6 +116,7 @@ export function sumReconciliations(series: Reconciliation[], range: PeriodRange)
     unvalued,
     loss_by_reason: [...lossByReason.values()].sort((a, b) => a.reason.localeCompare(b.reason)),
     loss_by_sku: [...lossBySku.values()].sort((a, b) => b.value_cents - a.value_cents),
+    loss_by_reason_sku: [...lossByReasonSku.values()].sort((a, b) => b.value_cents - a.value_cents),
     adjustment_flags: [...adjustmentBySku.values()].sort((a, b) => Math.abs(b.quantity) - Math.abs(a.quantity)),
     monthsWithData: inRange.length,
     monthsMissing,
