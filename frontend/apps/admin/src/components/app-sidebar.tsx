@@ -8,6 +8,7 @@ import {
   ShoppingCart,
   Store as StoreIcon,
   Truck,
+  Upload,
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
@@ -41,6 +42,7 @@ const nav = [
   { title: "Estoque", href: "/inventory", icon: Boxes },
   { title: "Produtos", href: "/products", icon: Package },
   { title: "Lojas", href: "/stores", icon: StoreIcon },
+  { title: "Ingestão", href: "/ingestion", icon: Upload },
 ];
 
 export function AppSidebar() {

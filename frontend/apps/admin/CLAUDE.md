@@ -100,8 +100,9 @@ no mês" de erro real — nunca trata um 403/500 como mês vazio). `finance`
 loja sem filtro de período, então o range ali é só filtro+soma
 (`src/lib/reconciliation-aggregate.ts`), e a visão de rede
 (`useGetNetworkReconciliationRangeQuery`) busca essa série completa uma
-vez por loja (nunca uma vez por loja por mês) e soma no cliente — a única
-das quatro telas com uma opção "Rede (todas as lojas)" hoje.
+vez por loja (nunca uma vez por loja por mês) e soma no cliente —
+`sales`/`supply`/`inventory` seguem o mesmo padrão de fan-out client-side
+descrito acima, cada um com sua própria opção "Rede (todas as lojas)".
 
 ## Scripts
 
@@ -160,14 +161,31 @@ que faz a sessão funcionar.
   vendorizados (import unificado `radix-ui`, `cn`, mesma estrutura de
   props) — se um dia o registry ganhar o conteúdo real, comparar antes
   de sobrescrever.
-- **`useHasPermission` existe mas nada o usa ainda.** Nenhuma tela tem
-  ação de escrita na UI (o `PUT /inventory/:sku/minimum` tem mutation
-  pronta, `useSetMinimumMutation`, mas nenhum botão a chama). O
-  mecanismo de esconder ação por permissão está pronto, mas sem ação
-  real para testar contra.
-- **Upload das três planilhas ainda não tem tela.** `POST /ingestions`
-  do gateway já existe (`ingestion-worker-service`); falta a UI de
-  upload, lista de ingestões e detalhe com linhas rejeitadas.
+- **`useHasPermission` agora tem um uso real**: `/ingestion` gate o
+  formulário de upload por `ingestion:upload`. `PUT
+  /inventory/:sku/minimum` (`useSetMinimumMutation`) continua sem botão
+  que o chame.
+- **Upload das três planilhas tem tela própria em `/ingestion`**
+  (`src/app/(app)/ingestion/page.tsx`): formulário de envio +
+  histórico de ingestões com detalhe de linhas rejeitadas. Dois
+  follow-ups documentados, não construídos — cada um pede sua própria
+  proposta OpenSpec:
+  - **Reversão real de upload** (delete-by-ingestion_id em
+    `sales-service`/`supply-service` + recompute a jusante). Não existe
+    endpoint de cancelamento/rollback hoje — a correção é reenviar e
+    sobrescrever o período.
+  - **Perda por dia de visita de abastecimento.** A data da visita
+    (`IngestionOperation.finished_at`, parseada da célula "Finalizado
+    em" de cada aba) é real e precisa no momento do parse, mas é
+    descartada antes mesmo das linhas de remoção chegarem ao
+    `supply-service` (`publishSupplyByStore` do
+    `ingestion-worker-service` agrega remoções só por `${sku} ${reason}`,
+    perdendo o vínculo com a aba/data; a tabela de staging que
+    brevemente guardava isso é apagada no `finalize()`). `supply-service`
+    não guarda nada mais fino que o mês. Não é "adicionar um endpoint" —
+    precisa de mudança de schema/contrato (um campo de data em
+    `SupplyRemovalRow`/`RemovalRecord`) mais uma decisão sobre
+    reprocessar meses já ingeridos.
 - **Sem suíte de testes automatizados no app** — a verificação até agora
   foi manual, ao vivo, contra o stack real via browser automation (login,
   dashboard, vendas, financeiro, estoque, todos com dado real de
