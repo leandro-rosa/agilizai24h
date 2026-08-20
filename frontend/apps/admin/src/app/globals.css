@@ -78,11 +78,15 @@
   --muted-foreground: #6b5b52;
   --accent: #fbe6f0;
   --accent-foreground: #8e1d4d;
-  --destructive: #e10600; /* Vermelho Tomate */
+  /* Tokens semânticos são afinados para contraste, e precisam passar sobre
+     as DUAS superfícies do tema (--card branco e --background creme). O
+     Vermelho Tomate puro (#E10600) dá 3,7:1 sobre creme em texto de 12px;
+     a swatch da marca segue intacta no BRAND.md e no ponto do logotipo. */
+  --destructive: #c70500;
   --destructive-foreground: #fff4e6;
-  --warning: #b5600a;
+  --warning: #9b5209;
   --warning-foreground: #fff4e6;
-  --success: #1f7a4d;
+  --success: #1d7349;
   --success-foreground: #fff4e6;
   --border: #e6d5c2;
   --input: #b08f6b; /* 3:1 sobre o card — WCAG 1.4.11, ver DESIGN.md */
@@ -122,7 +126,7 @@
   --muted-foreground: #a89e97;
   --accent: #3a2430;
   --accent-foreground: #f7c9e0;
-  --destructive: #ff5449; /* tomate clareado p/ contraste sobre carvão */
+  --destructive: #ff736a; /* tomate clareado p/ contraste sobre card e fundo */
   --destructive-foreground: #1f1f1f;
   --warning: #e89b3c;
   --warning-foreground: #1f1f1f;

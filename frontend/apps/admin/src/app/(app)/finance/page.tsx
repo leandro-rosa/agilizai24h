@@ -7,7 +7,7 @@ import { CartesianGrid, ComposedChart, Line, LineChart, Bar, XAxis, YAxis } from
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { NETWORK, StorePeriodPicker, type StoreSelection } from "@/components/store-period-picker";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -215,7 +215,7 @@ function LossTables({ totals, nameBySku }: { totals: ReconciliationTotals; nameB
                       <div className="flex items-center gap-2">
                         {reasonLabel(entry.reason)}
                         {LOSS_COUNTING_REASONS.has(entry.reason) && (
-                          <Badge className="border border-destructive/30 bg-destructive/10 text-destructive">Perda</Badge>
+                          <StatusBadge tone="critical">Perda</StatusBadge>
                         )}
                       </div>
                     </TableCell>
@@ -714,9 +714,9 @@ function NetworkFinanceView({ range }: { range: PeriodRange }) {
                         </TableCell>
                         <TableCell>
                           {totals.complete ? (
-                            <Badge variant="secondary">Completo</Badge>
+                            <StatusBadge tone="positive">Completo</StatusBadge>
                           ) : (
-                            <Badge className="border border-warning/30 bg-warning/15 text-warning">Pendente</Badge>
+                            <StatusBadge tone="attention">Pendente</StatusBadge>
                           )}
                         </TableCell>
                       </TableRow>
