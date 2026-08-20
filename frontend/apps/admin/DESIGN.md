@@ -1,57 +1,121 @@
 # DESIGN.md — frontend/apps/admin
 
-Identidade visual compartilhada com o site institucional — ver
-[`../site/DESIGN.md`](../site/DESIGN.md) para a fonte da paleta,
-tipografia e tom de marca (gradiente magenta/pink → roxo, fundo dark
-zinc-950, acento vermelho/laranja com moderação, Inter/SF Pro). Este
-documento cobre só o que é específico do painel administrativo.
+Cor e tipografia vêm de [`../../docs/BRAND.md`](../../docs/BRAND.md),
+extraído do manual da marca — este documento não redeclara paleta, cobre só
+o que é específico do painel. Ver [CLAUDE.md](CLAUDE.md) para o estado
+técnico.
 
 ## Diferença de propósito
 
-O `site` é institucional/marketing, voltado a clientes em potencial
-(empresas e condomínios). O `admin` é uma ferramenta interna de operação
-— tom mais funcional/denso que o site, mas sem perder a identidade de
-marca (gradiente como acento, nunca decorativo em excesso).
+O `site` é institucional/marketing, voltado a clientes em potencial. O
+`admin` é ferramenta interna de operação — tom mais funcional e denso, sem
+perder a identidade. A marca aqui aparece na cor, na tipografia e no
+símbolo; não em ornamento.
 
-## Tokens de marca (aplicados, não só documentados)
+## Dois temas, padrão do sistema operacional
 
-Diferente do `site` (onde os tokens de `theme.css` ainda são o padrão
-genérico do shadcn — gap documentado), o `admin` já nasce com os tokens
-de marca aplicados em `src/app/globals.css`:
+`next-themes` com `attribute="class"`, `defaultTheme="system"`. O operador
+escolhe Claro/Escuro/Sistema pelo `ThemeToggle` no rodapé da sidebar, e a
+escolha explícita sobrevive em `localStorage`. `:root` carrega o tema claro
+e `.dark` o escuro, em `src/app/globals.css`.
 
-- `--primary`: pink-500 sólido (gradiente não cabe em custom property
-  CSS — usar utilitário `.brand-gradient`/`.brand-gradient-text` para o
-  gradiente completo pink→purple).
-- `--radius`: `0.875rem` (~14px), dentro do alvo 12-16px do DESIGN.md do
-  site (vs. os 10px atuais do `site`).
-- `--warning`: laranja, token novo (não existe no `site`) para alertas de
-  estoque abaixo do mínimo e solicitações de abastecimento pendentes.
-- Dark-only nesta v1 — `:root` e `.dark` carregam os mesmos valores, sem
-  toggle de tema.
+Três tokens mudam de valor entre os temas, e cada um tem motivo:
+
+| Token | Claro | Escuro | Por quê |
+|---|---|---|---|
+| `--primary` | `#8E1D4D` Magenta Framboesa | `#E91E8C` magenta | Ambas são cores do manual. A framboesa sobre carvão dá ~2,1:1 e reprovaria; o magenta é justamente a cor que o manual designa para destaque digital (prancha 07). |
+| `--primary-foreground` | `#FFF4E6` | `#0D0D0D` | Sobre o magenta, carvão `#1F1F1F` dá 3,95:1 e reprova para texto. Escurecer o rótulo chega a 4,65:1 **sem tocar na cor do manual** — a correção é sempre no derivado. |
+| `--destructive` | `#E10600` Vermelho Tomate | `#FF5449` | O tomate puro sobre o card escuro dá 4,19:1. |
+
+## Acessibilidade é verificada, não presumida
+
+`pnpm contrast` (`scripts/contrast.mjs`) roda 20 pares e sai != 0 se algum
+reprovar. Ele separa os dois limiares da WCAG, que não são intercambiáveis:
+
+- **4,5:1** para texto (1.4.3);
+- **3:1** para o que identifica um controle — anel de foco, borda de campo
+  (1.4.11). Borda decorativa e divisória **não** caem nessa regra e podem
+  ser sutis; por isso `--input` é mais forte que `--border`.
+
+Ao mexer em token, rodar antes de commitar. Se reprovar, ajustar o token
+derivado — nunca as quatro cores do manual.
+
+## Tipografia
+
+Montserrat via `next/font/google`, pesos 400/600/700 (o manual usa
+exatamente três). Fallback é Inter, declarado pelo próprio manual.
+
+`.tabular` (`font-variant-numeric: tabular-nums`) é **obrigatório** em
+número em coluna — KPI e célula de tabela. O painel é quase todo cifra
+alinhada à direita, e sem isso os dígitos dançam entre linhas.
+
+## Logotipo
+
+`BrandMark` é o único lugar que conhece os arquivos, em `public/brand/`:
+
+| variante | arquivo | onde |
+|---|---|---|
+| `symbol` | símbolo em gradiente | chrome, nos dois temas |
+| `lockup` | símbolo + wordmark branco | só `/login`, sobre painel escuro |
+| `ink` | símbolo monocromático carvão | onde o gradiente não couber |
+
+**O kit não tem wordmark para fundo claro** — só a versão branca (ver a
+tabela de arquivos no `BRAND.md`). Por isso o chrome usa o símbolo isolado
+nos dois temas, que é o que a prancha 09 prescreve para espaço pequeno, e o
+lockup completo aparece só no `/login`, onde um painel escuro fixo dá a ele
+o fundo para o qual foi desenhado. Esse painel é a **única** superfície do
+app com cor de marca literal (`bg-[#1f1f1f]`) em vez de token, e o
+comentário no código diz por quê.
+
+### `.brand-surface`
+
+Gradiente profundo (roxo → framboesa), o que a prancha 07 designa para
+fundo e destaque. É a superfície do painel do `/login` e **é idêntica nos
+dois temas** — carvão chapado ali fundia com `--background` no escuro e
+fazia o split sumir. Por ser fixa, ela carrega a própria cor de texto
+(`#FFF4E6`): `text-primary-foreground` viraria `#0D0D0D` no escuro e
+desapareceria.
+
+Não confundir com `.brand-gradient`, que é o acento claro (magenta →
+roxo) e não sustenta texto em cima.
+
+Proibido pela prancha 05: recolorir, distorcer, rotacionar, aplicar sombra
+ou efeito, alterar proporções. `className` no `BrandMark` serve para
+posição, nunca para cor ou transform.
 
 ## Layout
 
-Shell com sidebar fixa à esquerda (componente `sidebar.tsx` do shadcn,
-colapsável para ícones) + header com breadcrumb/trigger, em vez do
-header sticky horizontal do site. Item de navegação ativo destacado com
-borda + fundo sutil em `.brand-gradient`, não preenchimento sólido —
-mesmo princípio do site de "gradiente como acento, não em tudo".
+Shell com sidebar fixa à esquerda (shadcn `sidebar.tsx`, colapsável para
+ícones) + header com breadcrumb derivado do `nav`. Item ativo marcado com
+borda à esquerda em `--primary` e fundo `--sidebar-accent` — destaque, não
+preenchimento sólido.
 
 ## Padrões de tela
 
-- **Listagem**: `PageHeader` (título + descrição) → linha de filtros
-  (busca em `Input` + `Select`) → `Table` shadcn. Enquanto carrega,
-  `Skeleton` no lugar das linhas (RTK Query mock simula latência).
-- **Status/badges**: cores semânticas via os tokens do tema — `secondary`
-  para estados neutros/positivos (ativa, concluído), `--warning` para
-  atenção (manutenção, pendente, estoque próximo do mínimo),
-  `destructive` para crítico (inativa, abaixo do mínimo). Nunca cor
-  Tailwind solta (`orange-500` etc.) — sempre os tokens do tema.
+- **Listagem**: `PageHeader` → linha de filtros → `Table`. Enquanto carrega,
+  `Skeleton` no lugar das linhas. Estado de vazio/erro/sem-permissão passa
+  sempre por `RequestState`, nunca por um `if (isLoading)` reescrito.
+- **Status**: `StatusBadge` com `tone` de intenção (`neutral`, `positive`,
+  `attention`, `critical`) — nunca cor Tailwind solta, nunca editando
+  `ui/badge.tsx`, que a CLI do shadcn reescreve.
 - **KPIs**: `Card` com `CardTitle` pequeno em `text-muted-foreground` +
-  valor grande em `text-2xl font-semibold` — usado no dashboard e na
-  página Financeiro.
+  valor grande em `tabular text-2xl font-semibold`.
+- **Gráficos**: série sempre em `var(--chart-N)` via `ChartConfig`, nunca
+  hex. Trocam de paleta com o tema sozinhos. `--chart-4`/`--chart-5` (teal,
+  âmbar) são **extensão declarada de dataviz**, não cor de marca: existem
+  porque as três cores da marca são todas magenta/vermelho e não se
+  distinguem como séries categóricas. Proibidas em chrome de UI, e sem
+  carga semântica — perda usa `--destructive`, não um slot do ramp.
 
-## Fora de escopo nesta v1
+## Gaps conhecidos
 
-Sem tela de login, sem formulários de criação/edição (só listagem),
-sem toggle de tema claro/escuro.
+- **Sem wordmark para fundo claro** no kit da marca (ver acima). Pedir à
+  autora, junto com os vetores.
+- **`dialog.tsx`/`sheet.tsx` usam `bg-black/10` no overlay.** No tema
+  escuro esse scrim quase não aparece; o que segura a separação é o
+  `backdrop-blur` e o card sólido. Não corrigido de propósito: são arquivos
+  reescritos pela CLI do shadcn.
+- **O `.prettierrc` da raiz (aspas simples, sem `;`) não bate com o estilo
+  deste app** (aspas duplas, com `;`). O admin nunca passou por
+  `pnpm format`. Rodar hoje produziria um diff do app inteiro — decisão à
+  parte, não dentro de uma mudança de marca.

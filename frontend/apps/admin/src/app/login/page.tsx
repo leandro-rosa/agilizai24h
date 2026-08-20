@@ -52,17 +52,18 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-svh flex-col md:grid md:grid-cols-2">
       {/*
-        Único lugar do app onde cor de marca entra literal em vez de token, e
-        de propósito: o lockup horizontal do kit só existe com wordmark
-        branco, então precisa de superfície escura nos DOIS temas. Trocar por
-        `bg-background` o tornaria invisível no tema claro.
+        O lockup do kit só existe com wordmark branco, então este painel
+        precisa da mesma superfície escura nos DOIS temas — `bg-background`
+        o apagaria no claro, e carvão chapado o funde com o fundo no escuro,
+        fazendo o split sumir. `.brand-surface` é o gradiente que a prancha
+        07 designa para fundo, e se distingue de creme e de carvão.
       */}
-      <aside className="flex flex-col justify-between gap-8 bg-[#1f1f1f] p-8 md:p-12">
-        <BrandMark variant="lockup" height={40} />
-        <p className="max-w-sm text-lg font-semibold text-[#fff4e6] md:text-2xl">
+      <aside className="brand-surface flex flex-col justify-between gap-8 p-8 md:p-12">
+        <BrandMark variant="lockup" height={52} />
+        <p className="max-w-sm text-lg font-semibold md:text-2xl">
           Feito para quem não tem tempo a perder.
         </p>
-        <p className="hidden text-sm text-[#fff4e6]/60 md:block">Painel de gestão do Agiliz.AI</p>
+        <p className="hidden text-sm opacity-75 md:block">Painel de gestão do Agiliz.AI</p>
       </aside>
 
       <main className="flex flex-1 items-center justify-center bg-background p-6 md:p-12">

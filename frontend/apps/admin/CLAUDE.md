@@ -27,9 +27,24 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
 
 ## Estrutura
 
-- `src/app/layout.tsx` — só chrome global (`Providers`/Redux, tooltip,
-  toaster). Não monta sidebar nenhuma — `/login` e as rotas de gestão
-  precisam de shells diferentes.
+- `src/app/layout.tsx` — só chrome global (`Providers`, tooltip, toaster).
+  Não monta sidebar nenhuma — `/login` e as rotas de gestão precisam de
+  shells diferentes. **Não grava classe de tema no `<html>`**: quem escreve
+  `.dark` é o `next-themes`, no cliente.
+- `src/app/providers.tsx` — Redux **e** `ThemeProvider` (`next-themes`,
+  `defaultTheme="system"`). O padrão é o tema do SO; a escolha explícita do
+  operador sobrevive em `localStorage`.
+- `src/components/theme-toggle.tsx` — Claro/Escuro/Sistema no rodapé da
+  sidebar. Sem flag `mounted`: `useTheme()` devolve `theme=undefined` antes
+  de montar, e cair em "Sistema" nesse intervalo já faz servidor e cliente
+  concordarem.
+- `src/components/brand-mark.tsx` — único lugar que conhece os arquivos de
+  logotipo (`public/brand/`). Ver [DESIGN.md](DESIGN.md) para qual variante
+  vai onde e por quê.
+- `src/components/status-badge.tsx` — badge semântico por `tone`; existe
+  para não editar `ui/badge.tsx`, que a CLI reescreve.
+- `src/components/app-breadcrumb.tsx` — rótulo do header derivado do `nav`
+  exportado por `app-sidebar.tsx`, não de uma segunda tabela de títulos.
 - `src/app/login/page.tsx` — rota pública, formulário de e-mail/senha
   (`react-hook-form` + `zod`).
 - `src/app/(app)/` — route group que concentra toda rota autenticada
@@ -77,9 +92,11 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
   `supply-service`.
 - `src/lib/store.ts` / `src/lib/hooks.ts` — `configureStore` com os 9
   reducers de API e hooks tipados `useAppDispatch`/`useAppSelector`.
-- `src/styles` — tokens de marca vivem direto em `src/app/globals.css`
-  (bloco `:root, .dark`), não em um arquivo `theme.css` separado — assim
-  que a CLI do shadcn v4 estrutura o CSS hoje.
+- `src/app/globals.css` — tokens de marca, `:root` (tema claro) e `.dark`
+  (escuro) com valores **diferentes**, em hex do manual. Não há `theme.css`
+  separado: é assim que a CLI do shadcn v4 estrutura o CSS.
+- `scripts/contrast.mjs` (`pnpm contrast`) — verifica 20 pares de contraste
+  WCAG e sai != 0 se algum reprovar. Rodar ao mexer em token.
 
 ## Vendas, abastecimento, estoque e financeiro são por loja+mês
 
@@ -187,6 +204,10 @@ que faz a sessão funcionar.
     precisa de mudança de schema/contrato (um campo de data em
     `SupplyRemovalRow`/`RemovalRecord`) mais uma decisão sobre
     reprocessar meses já ingeridos.
+- **O `.prettierrc` da raiz não bate com o estilo deste app.** A raiz pede
+  aspas simples e sem `;`; o admin inteiro foi escrito com aspas duplas e
+  `;`, e nunca passou por `pnpm format`. Rodar hoje reformata o app todo —
+  decisão à parte.
 - **Sem suíte de testes automatizados no app** — a verificação até agora
   foi manual, ao vivo, contra o stack real via browser automation (login,
   dashboard, vendas, financeiro, estoque, todos com dado real de

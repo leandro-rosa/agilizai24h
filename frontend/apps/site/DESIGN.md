@@ -23,32 +23,28 @@ brief, repetir pela UI):
 
 ## Cor
 
-Primário: gradiente magenta/pink → roxo. Confirmado tanto pelo logo
-(gradiente roxo→vermelho com um ponto vermelho sólido de destaque) quanto
-pelas fotos reais das lojas (geladeiras e totens com wrap em gradiente
-magenta-pink sobre fundo de madeira escura). Já em uso ad hoc no código
-como `pink-500` → `purple-600` (Tailwind) nos CTAs e destaques de
-navegação.
+**Fonte canônica: [`../../docs/BRAND.md`](../../docs/BRAND.md)**, extraído do
+manual da marca. Este documento não redeclara a paleta.
 
-- **Fundo**: escuro, modo dark preferencial (`zinc-950`/`zinc-800` já em
-  uso).
-- **Acento secundário**: vermelho/laranja (do ponto do logo) — usar com
-  moderação, não compete com o gradiente pink→purple como cor de ação
-  primária.
-- **Texto sobre fundo escuro**: branco + cinza claro para texto
-  secundário.
+O manual substitui a dedução anterior desta página, que inferia
+"gradiente pink→purple" do logo e das fotos das lojas antes de o manual
+existir. Os valores reais são Magenta Framboesa `#8E1D4D`, Vermelho Tomate
+`#E10600`, Carvão `#1F1F1F` e Creme Quente `#FFF4E6`, com o gradiente
+`#E91E8C` → `#5B2D8E`.
 
 **Gap conhecido**: os tokens em `theme.css` (`--primary: #030213`, OKLCH
 neutros padrão do shadcn) não refletem essa paleta — a cor de marca está
-hardcoded em classes soltas no `Header`/`Footer`, não centralizada. Este
-documento define o alvo; migrar os tokens de `theme.css` para a paleta de
-marca é trabalho futuro, fora deste documento.
+hardcoded em classes soltas no `Header`/`Footer`, não centralizada. Migrar
+os tokens do `site` continua sendo trabalho futuro; quem já fez essa
+migração é o `admin` (ver
+[../admin/DESIGN.md](../admin/DESIGN.md)), que serve de referência.
 
 ## Tipografia
 
-Sans-serif moderna, estilo Inter/SF Pro. `src/styles/fonts.css` está
-vazio hoje — nenhuma fonte customizada carregada (gap conhecido, ver
-[CLAUDE.md](CLAUDE.md)).
+Montserrat, com Inter como alternativa — ver `BRAND.md`.
+`src/styles/fonts.css` está vazio hoje: nenhuma fonte customizada é
+carregada (gap conhecido, ver [CLAUDE.md](CLAUDE.md)). O `admin` já carrega
+Montserrat via `next/font/google`.
 
 ## Forma e espaçamento
 
