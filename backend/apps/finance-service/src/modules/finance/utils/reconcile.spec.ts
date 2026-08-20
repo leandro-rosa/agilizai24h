@@ -232,6 +232,59 @@ describe('reconcile', () => {
       // But the fact is not lost — it is reported as unvalued.
       expect(result.unvalued[0].loss_quantity).toBe(99)
     })
+
+    it('breaks loss down by reason and SKU together', () => {
+      const result = reconcile(
+        [
+          quantities({
+            sku: 'A',
+            lossByReason: [
+              { reason: 'expired', quantity: 3 },
+              { reason: 'damaged_product', quantity: 2 },
+            ],
+          }),
+          quantities({ sku: 'B', lossByReason: [{ reason: 'expired', quantity: 1 }] }),
+        ],
+        [cost('A', 250), cost('B', 300)],
+        [],
+      )
+
+      expect(result.loss_by_reason_sku).toEqual([
+        { reason: 'damaged_product', sku: 'A', quantity: 2, value_cents: 500 },
+        { reason: 'expired', sku: 'A', quantity: 3, value_cents: 750 },
+        { reason: 'expired', sku: 'B', quantity: 1, value_cents: 300 },
+      ])
+    })
+
+    it('makes the reason×SKU breakdown sum to the total too', () => {
+      const result = reconcile(
+        [
+          quantities({
+            sku: 'A',
+            lossByReason: [
+              { reason: 'expired', quantity: 3 },
+              { reason: 'other_reason', quantity: 1 },
+            ],
+          }),
+          quantities({ sku: 'B', lossByReason: [{ reason: 'damaged_product', quantity: 2 }] }),
+        ],
+        [cost('A', 250), cost('B', 700)],
+        [],
+      )
+
+      const byReasonSku = result.loss_by_reason_sku.reduce((sum, entry) => sum + entry.value_cents, 0)
+      expect(byReasonSku).toBe(result.loss_value_cents)
+    })
+
+    it('leaves an unpriced SKU out of the reason×SKU breakdown too', () => {
+      const result = reconcile(
+        [quantities({ sku: 'GHOST', lossByReason: [{ reason: 'expired', quantity: 99 }] })],
+        [],
+        [{ sku: 'GHOST', reason: 'unknown_sku' }],
+      )
+
+      expect(result.loss_by_reason_sku).toEqual([])
+    })
   })
 
   describe('exact arithmetic', () => {

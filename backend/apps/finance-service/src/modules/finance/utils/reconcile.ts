@@ -66,6 +66,7 @@ export interface Reconciliation {
   unclassified_stock_adjustment_value_cents: number
   loss_by_reason: { reason: string; quantity: number; value_cents: number }[]
   loss_by_sku: { sku: string; quantity: number; value_cents: number }[]
+  loss_by_reason_sku: { reason: string; sku: string; quantity: number; value_cents: number }[]
   lines: ValuedLine[]
   unvalued: UnvaluedLine[]
   /**
@@ -126,6 +127,7 @@ export function reconcile(
 
   const lossByReason = new Map<string, { quantity: number; value_cents: number }>()
   const lossBySku = new Map<string, { quantity: number; value_cents: number }>()
+  const lossByReasonSku = new Map<string, { reason: string; sku: string; quantity: number; value_cents: number }>()
 
   let restockedValue = 0
   let cogs = 0
@@ -191,6 +193,17 @@ export function reconcile(
         quantity: current.quantity + entry.quantity,
         value_cents: current.value_cents + entry.quantity * cost,
       })
+
+      // Unlike lossByReason (a reason can span many SKUs) or lossBySku (each
+      // SKU appears once per reconcile() call), the (reason, sku) pair is
+      // unique within one call — mergeQuantities already dedupes by reason
+      // within a SKU — so a plain set, not an accumulate, is correct here.
+      lossByReasonSku.set(`${entry.reason}|${item.sku}`, {
+        reason: entry.reason,
+        sku: item.sku,
+        quantity: entry.quantity,
+        value_cents: entry.quantity * cost,
+      })
     }
   }
 
@@ -207,6 +220,8 @@ export function reconcile(
     loss_by_sku: [...lossBySku.entries()]
       .map(([sku, totals]) => ({ sku, ...totals }))
       .sort((a, b) => a.sku.localeCompare(b.sku)),
+    loss_by_reason_sku: [...lossByReasonSku.values()]
+      .sort((a, b) => a.reason.localeCompare(b.reason) || a.sku.localeCompare(b.sku)),
     lines: lines.sort((a, b) => a.sku.localeCompare(b.sku)),
     unvalued: unvalued.sort((a, b) => a.sku.localeCompare(b.sku)),
     inconsistent_stock: inconsistentStock.sort(),

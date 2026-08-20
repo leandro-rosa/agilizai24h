@@ -25,6 +25,7 @@ export interface ReconciliationView {
   inputs_changed_at: Date | null
   loss_by_reason: { reason: string; quantity: number; value_cents: number }[]
   loss_by_sku: { sku: string; quantity: number; value_cents: number }[]
+  loss_by_reason_sku: { reason: string; sku: string; quantity: number; value_cents: number }[]
   unvalued: { sku: string; reason: string; restocked: number; sold: number; remaining: number; loss_quantity: number }[]
   /** SKUs whose remaining balance inventory-service flagged as inconsistent. */
   inconsistent_stock: string[]
@@ -125,6 +126,13 @@ export class FinanceService {
           quantity: entry.quantity,
           value_cents: entry.value_cents,
         })),
+        ...result.loss_by_reason_sku.map(entry => ({
+          reconciliation_id: created.id,
+          reason: entry.reason,
+          sku: entry.sku,
+          quantity: entry.quantity,
+          value_cents: entry.value_cents,
+        })),
       ]
 
       if (lossRows.length > 0) await tx.reconciliationLoss.createMany({ data: lossRows })
@@ -197,11 +205,14 @@ export class FinanceService {
       computed_at: found.computed_at,
       inputs_changed_at: found.inputs_changed_at,
       loss_by_reason: found.by_reason
-        .filter(row => row.reason !== null)
+        .filter(row => row.reason !== null && row.sku === null)
         .map(row => ({ reason: row.reason!, quantity: row.quantity, value_cents: row.value_cents })),
       loss_by_sku: found.by_reason
-        .filter(row => row.sku !== null)
+        .filter(row => row.sku !== null && row.reason === null)
         .map(row => ({ sku: row.sku!, quantity: row.quantity, value_cents: row.value_cents })),
+      loss_by_reason_sku: found.by_reason
+        .filter(row => row.reason !== null && row.sku !== null)
+        .map(row => ({ reason: row.reason!, sku: row.sku!, quantity: row.quantity, value_cents: row.value_cents })),
       unvalued: found.unvalued.map(row => ({
         sku: row.sku,
         reason: row.reason,

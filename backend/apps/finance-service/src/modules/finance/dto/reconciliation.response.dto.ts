@@ -36,6 +36,20 @@ export class LossBySkuDto {
   value_cents: number
 }
 
+export class LossByReasonSkuDto {
+  @ApiProperty({ description: 'Reason key, as classified by supply-service', example: 'expired' })
+  reason: string
+
+  @ApiProperty({ example: 'FIN-A' })
+  sku: string
+
+  @ApiProperty({ description: 'Units removed for this reason and SKU', example: 2 })
+  quantity: number
+
+  @ApiProperty({ description: 'Real loss for this reason and SKU, in centavos (integer minor units)', example: 500 })
+  value_cents: number
+}
+
 export class AdjustmentFlagDto {
   @ApiProperty({ example: 'FIN-A' })
   sku: string
@@ -154,6 +168,14 @@ export class ReconciliationResponseDto {
 
   @ApiProperty({ type: [LossBySkuDto], description: 'Real loss broken down by product; sums to loss_value_cents' })
   loss_by_sku: LossBySkuDto[]
+
+  @ApiProperty({
+    type: [LossByReasonSkuDto],
+    description:
+      'Real loss broken down by reason and product together; sums to loss_value_cents the same way ' +
+      'loss_by_reason and loss_by_sku do',
+  })
+  loss_by_reason_sku: LossByReasonSkuDto[]
 
   @ApiProperty({
     type: [UnvaluedSkuDto],
