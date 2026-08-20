@@ -53,13 +53,13 @@ function StoreSalesView({ storeId, range }: { storeId: number; range: PeriodRang
             <CardHeader>
               <CardTitle className="text-sm font-normal text-muted-foreground">Unidades vendidas</CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold">{result.totalQuantitySold}</CardContent>
+            <CardContent className="tabular text-2xl font-semibold">{result.totalQuantitySold}</CardContent>
           </Card>
           <Card size="sm">
             <CardHeader>
               <CardTitle className="text-sm font-normal text-muted-foreground">Receita</CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold">{currency.format(result.totalRevenueCents / 100)}</CardContent>
+            <CardContent className="tabular text-2xl font-semibold">{currency.format(result.totalRevenueCents / 100)}</CardContent>
           </Card>
         </div>
       )}
@@ -84,8 +84,8 @@ function StoreSalesView({ storeId, range }: { storeId: number; range: PeriodRang
               <TableRow>
                 <TableHead>SKU</TableHead>
                 <TableHead>Produto</TableHead>
-                <TableHead className="text-right">Qtd. vendida</TableHead>
-                <TableHead className="text-right">Receita</TableHead>
+                <TableHead className="tabular text-right">Qtd. vendida</TableHead>
+                <TableHead className="tabular text-right">Receita</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -93,8 +93,8 @@ function StoreSalesView({ storeId, range }: { storeId: number; range: PeriodRang
                 <TableRow key={row.sku}>
                   <TableCell className="font-mono text-xs text-muted-foreground">{row.sku}</TableCell>
                   <TableCell className="font-medium">{nameBySku.get(row.sku) ?? row.sku}</TableCell>
-                  <TableCell className="text-right">{row.quantity_sold}</TableCell>
-                  <TableCell className="text-right">{currency.format(row.revenue_cents / 100)}</TableCell>
+                  <TableCell className="tabular text-right">{row.quantity_sold}</TableCell>
+                  <TableCell className="tabular text-right">{currency.format(row.revenue_cents / 100)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -172,13 +172,13 @@ function NetworkSalesView({ range }: { range: PeriodRange }) {
             <CardHeader>
               <CardTitle className="text-sm font-normal text-muted-foreground">Unidades vendidas</CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold">{totals.totalQuantitySold}</CardContent>
+            <CardContent className="tabular text-2xl font-semibold">{totals.totalQuantitySold}</CardContent>
           </Card>
           <Card size="sm">
             <CardHeader>
               <CardTitle className="text-sm font-normal text-muted-foreground">Receita</CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold">{currency.format(totals.totalRevenueCents / 100)}</CardContent>
+            <CardContent className="tabular text-2xl font-semibold">{currency.format(totals.totalRevenueCents / 100)}</CardContent>
           </Card>
         </div>
 
@@ -203,8 +203,8 @@ function NetworkSalesView({ range }: { range: PeriodRange }) {
                 <TableRow>
                   <TableHead>SKU</TableHead>
                   <TableHead>Produto</TableHead>
-                  <TableHead className="text-right">Qtd. vendida</TableHead>
-                  <TableHead className="text-right">Receita</TableHead>
+                  <TableHead className="tabular text-right">Qtd. vendida</TableHead>
+                  <TableHead className="tabular text-right">Receita</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -212,8 +212,8 @@ function NetworkSalesView({ range }: { range: PeriodRange }) {
                   <TableRow key={row.sku}>
                     <TableCell className="font-mono text-xs text-muted-foreground">{row.sku}</TableCell>
                     <TableCell className="font-medium">{nameBySku.get(row.sku) ?? row.sku}</TableCell>
-                    <TableCell className="text-right">{row.quantity_sold}</TableCell>
-                    <TableCell className="text-right">{currency.format(row.revenue_cents / 100)}</TableCell>
+                    <TableCell className="tabular text-right">{row.quantity_sold}</TableCell>
+                    <TableCell className="tabular text-right">{currency.format(row.revenue_cents / 100)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

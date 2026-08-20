@@ -45,7 +45,7 @@ export default function DashboardPage() {
                   <AlertTriangle className="size-4" /> Indisponível
                 </p>
               ) : (
-                <p className="text-2xl font-semibold tracking-tight">{storeCounts?.active}</p>
+                <p className="tabular text-2xl font-semibold tracking-tight">{storeCounts?.active}</p>
               )}
             </CardContent>
           </Card>
@@ -59,7 +59,7 @@ export default function DashboardPage() {
                   <AlertTriangle className="size-4" /> Indisponível
                 </p>
               ) : (
-                <p className="text-2xl font-semibold tracking-tight">{storeCounts?.maintenance}</p>
+                <p className="tabular text-2xl font-semibold tracking-tight">{storeCounts?.maintenance}</p>
               )}
             </CardContent>
           </Card>
@@ -73,7 +73,7 @@ export default function DashboardPage() {
                   <AlertTriangle className="size-4" /> Indisponível
                 </p>
               ) : (
-                <p className="text-2xl font-semibold tracking-tight">{storeCounts?.inactive}</p>
+                <p className="tabular text-2xl font-semibold tracking-tight">{storeCounts?.inactive}</p>
               )}
             </CardContent>
           </Card>
@@ -87,7 +87,7 @@ export default function DashboardPage() {
                   <AlertTriangle className="size-4" /> Indisponível
                 </p>
               ) : (
-                <p className="text-2xl font-semibold tracking-tight">{productCount}</p>
+                <p className="tabular text-2xl font-semibold tracking-tight">{productCount}</p>
               )}
             </CardContent>
           </Card>

@@ -241,8 +241,8 @@ function IngestionHistory() {
                 <TableHead>Loja</TableHead>
                 <TableHead>Período</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Aceitas</TableHead>
-                <TableHead className="text-right">Rejeitadas</TableHead>
+                <TableHead className="tabular text-right">Aceitas</TableHead>
+                <TableHead className="tabular text-right">Rejeitadas</TableHead>
                 <TableHead>Enviado em</TableHead>
               </TableRow>
             </TableHeader>
@@ -258,8 +258,8 @@ function IngestionHistory() {
                   <TableCell>
                     <StatusBadge status={ingestion.status} />
                   </TableCell>
-                  <TableCell className="text-right">{ingestion.accepted_rows}</TableCell>
-                  <TableCell className="text-right">{ingestion.rejected_rows}</TableCell>
+                  <TableCell className="tabular text-right">{ingestion.accepted_rows}</TableCell>
+                  <TableCell className="tabular text-right">{ingestion.rejected_rows}</TableCell>
                   <TableCell>{dateTimeFormatter.format(new Date(ingestion.uploaded_at))}</TableCell>
                 </TableRow>
               ))}

@@ -62,9 +62,10 @@ function KpiCard({ label, value, hint }: { label: string; value: string; hint?: 
   );
 }
 
-// chart-4/chart-5 are near-zero-chroma greys in this theme (meant for
-// de-emphasized series) — loss gets `--destructive` instead so the one
-// figure that should read as "bad" doesn't blend into the background.
+// Loss gets `--destructive` rather than a chart slot: it is the one figure
+// that has to read as "bad" on sight, and the chart ramp carries no such
+// meaning. chart-4/chart-5 exist for categorical separation only (see
+// DESIGN.md) — they are not semantic and must not be used for loss.
 const trendConfig: ChartConfig = {
   restocked_value_cents: { label: "Abastecido", color: "var(--chart-1)" },
   cogs_cents: { label: "CMV", color: "var(--chart-2)" },
@@ -196,8 +197,8 @@ function LossTables({ totals, nameBySku }: { totals: ReconciliationTotals; nameB
             <TableHeader>
               <TableRow>
                 <TableHead>Motivo</TableHead>
-                <TableHead className="text-right">Qtd.</TableHead>
-                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="tabular text-right">Qtd.</TableHead>
+                <TableHead className="tabular text-right">Valor</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -218,8 +219,8 @@ function LossTables({ totals, nameBySku }: { totals: ReconciliationTotals; nameB
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">{entry.quantity}</TableCell>
-                    <TableCell className="text-right">{currency.format(entry.value_cents / 100)}</TableCell>
+                    <TableCell className="tabular text-right">{entry.quantity}</TableCell>
+                    <TableCell className="tabular text-right">{currency.format(entry.value_cents / 100)}</TableCell>
                   </TableRow>
                 ))
               )}
@@ -235,8 +236,8 @@ function LossTables({ totals, nameBySku }: { totals: ReconciliationTotals; nameB
             <TableHeader>
               <TableRow>
                 <TableHead>Produto</TableHead>
-                <TableHead className="text-right">Qtd.</TableHead>
-                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="tabular text-right">Qtd.</TableHead>
+                <TableHead className="tabular text-right">Valor</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -250,8 +251,8 @@ function LossTables({ totals, nameBySku }: { totals: ReconciliationTotals; nameB
                 totals.loss_by_sku.map((entry) => (
                   <TableRow key={entry.sku}>
                     <TableCell>{nameBySku.get(entry.sku) ?? entry.sku}</TableCell>
-                    <TableCell className="text-right">{entry.quantity}</TableCell>
-                    <TableCell className="text-right">{currency.format(entry.value_cents / 100)}</TableCell>
+                    <TableCell className="tabular text-right">{entry.quantity}</TableCell>
+                    <TableCell className="tabular text-right">{currency.format(entry.value_cents / 100)}</TableCell>
                   </TableRow>
                 ))
               )}
@@ -674,12 +675,12 @@ function NetworkFinanceView({ range }: { range: PeriodRange }) {
                 <TableHeader>
                   <TableRow>
                     <SortableHead label="Loja" sortKey="store" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
-                    <SortableHead label="Receita" sortKey="revenue" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="text-right" />
-                    <SortableHead label="Abastecido" sortKey="restocked" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="text-right" />
-                    <SortableHead label="CMV" sortKey="cogs" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="text-right" />
-                    <SortableHead label="Sobra" sortKey="remaining" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="text-right" />
-                    <SortableHead label="Perda" sortKey="loss" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="text-right" />
-                    <SortableHead label="Perda %" sortKey="lossPct" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="text-right" />
+                    <SortableHead label="Receita" sortKey="revenue" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="tabular text-right" />
+                    <SortableHead label="Abastecido" sortKey="restocked" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="tabular text-right" />
+                    <SortableHead label="CMV" sortKey="cogs" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="tabular text-right" />
+                    <SortableHead label="Sobra" sortKey="remaining" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="tabular text-right" />
+                    <SortableHead label="Perda" sortKey="loss" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="tabular text-right" />
+                    <SortableHead label="Perda %" sortKey="lossPct" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="tabular text-right" />
                     <TableHead>Situação</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -695,12 +696,12 @@ function NetworkFinanceView({ range }: { range: PeriodRange }) {
                         onClick={() => setSelectedStoreId(store.id)}
                       >
                         <TableCell className="font-medium">{store.name}</TableCell>
-                        <TableCell className="text-right">{currency.format((revenueByStore.get(store.id) ?? 0) / 100)}</TableCell>
-                        <TableCell className="text-right">{currency.format(totals.restocked_value_cents / 100)}</TableCell>
-                        <TableCell className="text-right">{currency.format(totals.cogs_cents / 100)}</TableCell>
-                        <TableCell className="text-right">{currency.format(totals.remaining_value_cents / 100)}</TableCell>
-                        <TableCell className="text-right">{currency.format(totals.loss_value_cents / 100)}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="tabular text-right">{currency.format((revenueByStore.get(store.id) ?? 0) / 100)}</TableCell>
+                        <TableCell className="tabular text-right">{currency.format(totals.restocked_value_cents / 100)}</TableCell>
+                        <TableCell className="tabular text-right">{currency.format(totals.cogs_cents / 100)}</TableCell>
+                        <TableCell className="tabular text-right">{currency.format(totals.remaining_value_cents / 100)}</TableCell>
+                        <TableCell className="tabular text-right">{currency.format(totals.loss_value_cents / 100)}</TableCell>
+                        <TableCell className="tabular text-right">
                           <div className="flex items-center justify-end gap-2">
                             <div className="h-1.5 w-14 overflow-hidden rounded-full bg-muted">
                               <div

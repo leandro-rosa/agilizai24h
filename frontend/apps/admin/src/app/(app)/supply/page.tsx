@@ -54,7 +54,7 @@ function StoreSupplyView({ storeId, range }: { storeId: number; range: PeriodRan
                 <TableRow>
                   <TableHead>SKU</TableHead>
                   <TableHead>Produto</TableHead>
-                  <TableHead className="text-right">Qtd. abastecida</TableHead>
+                  <TableHead className="tabular text-right">Qtd. abastecida</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -62,7 +62,7 @@ function StoreSupplyView({ storeId, range }: { storeId: number; range: PeriodRan
                   <TableRow key={row.sku}>
                     <TableCell className="font-mono text-xs text-muted-foreground">{row.sku}</TableCell>
                     <TableCell className="font-medium">{nameBySku.get(row.sku) ?? row.sku}</TableCell>
-                    <TableCell className="text-right">{row.quantity_restocked}</TableCell>
+                    <TableCell className="tabular text-right">{row.quantity_restocked}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -79,7 +79,7 @@ function StoreSupplyView({ storeId, range }: { storeId: number; range: PeriodRan
                   <TableHead>Produto</TableHead>
                   <TableHead>Motivo</TableHead>
                   <TableHead>Conta como perda?</TableHead>
-                  <TableHead className="text-right">Qtd. removida</TableHead>
+                  <TableHead className="tabular text-right">Qtd. removida</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -95,7 +95,7 @@ function StoreSupplyView({ storeId, range }: { storeId: number; range: PeriodRan
                         <Badge variant="secondary">Não</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">{row.quantity_removed}</TableCell>
+                    <TableCell className="tabular text-right">{row.quantity_removed}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -110,7 +110,7 @@ function StoreSupplyView({ storeId, range }: { storeId: number; range: PeriodRan
                 <TableRow>
                   <TableHead>SKU</TableHead>
                   <TableHead>Produto</TableHead>
-                  <TableHead className="text-right">Ajuste</TableHead>
+                  <TableHead className="tabular text-right">Ajuste</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -197,13 +197,13 @@ function NetworkSupplyView({ range }: { range: PeriodRange }) {
             <CardHeader>
               <CardTitle className="text-sm font-normal text-muted-foreground">Total abastecido (rede)</CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold">{totals.restocked} un.</CardContent>
+            <CardContent className="tabular text-2xl font-semibold">{totals.restocked} un.</CardContent>
           </Card>
           <Card size="sm">
             <CardHeader>
               <CardTitle className="text-sm font-normal text-muted-foreground">Total removido por perda (rede)</CardTitle>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold">{totals.removedLoss} un.</CardContent>
+            <CardContent className="tabular text-2xl font-semibold">{totals.removedLoss} un.</CardContent>
           </Card>
         </div>
 
@@ -227,7 +227,7 @@ function NetworkSupplyView({ range }: { range: PeriodRange }) {
               <TableHeader>
                 <TableRow>
                   <TableHead>Motivo</TableHead>
-                  <TableHead className="text-right">Qtd. removida</TableHead>
+                  <TableHead className="tabular text-right">Qtd. removida</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -241,7 +241,7 @@ function NetworkSupplyView({ range }: { range: PeriodRange }) {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">{entry.quantity}</TableCell>
+                    <TableCell className="tabular text-right">{entry.quantity}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

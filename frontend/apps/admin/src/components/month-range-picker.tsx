@@ -72,7 +72,7 @@ function MonthGrid({
               variant={isSelected ? "default" : "ghost"}
               size="sm"
               disabled={disabled}
-              className={cn("h-7 text-xs", isSelected && "brand-gradient text-white")}
+              className={cn("h-7 text-xs", isSelected && "bg-primary text-primary-foreground hover:bg-primary/90")}
               onClick={() => onChange(candidate)}
             >
               {monthLabel}

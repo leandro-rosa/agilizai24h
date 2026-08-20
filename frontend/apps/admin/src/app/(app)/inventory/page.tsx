@@ -62,11 +62,11 @@ function StoreInventoryView({ storeId, range }: { storeId: number; range: Period
               <TableRow>
                 <TableHead>SKU</TableHead>
                 <TableHead>Produto</TableHead>
-                <TableHead className="text-right">Abastecido</TableHead>
-                <TableHead className="text-right">Vendido</TableHead>
-                <TableHead className="text-right">Removido</TableHead>
-                <TableHead className="text-right">Ajuste</TableHead>
-                <TableHead className="text-right">Saldo</TableHead>
+                <TableHead className="tabular text-right">Abastecido</TableHead>
+                <TableHead className="tabular text-right">Vendido</TableHead>
+                <TableHead className="tabular text-right">Removido</TableHead>
+                <TableHead className="tabular text-right">Ajuste</TableHead>
+                <TableHead className="tabular text-right">Saldo</TableHead>
                 <TableHead>Situação</TableHead>
               </TableRow>
             </TableHeader>
@@ -75,10 +75,10 @@ function StoreInventoryView({ storeId, range }: { storeId: number; range: Period
                 <TableRow key={item.sku}>
                   <TableCell className="font-mono text-xs text-muted-foreground">{item.sku}</TableCell>
                   <TableCell className="font-medium">{nameBySku.get(item.sku) ?? item.sku}</TableCell>
-                  <TableCell className="text-right">{item.restocked}</TableCell>
-                  <TableCell className="text-right">{item.sold}</TableCell>
-                  <TableCell className="text-right">{item.removed}</TableCell>
-                  <TableCell className="text-right">{item.adjustment}</TableCell>
+                  <TableCell className="tabular text-right">{item.restocked}</TableCell>
+                  <TableCell className="tabular text-right">{item.sold}</TableCell>
+                  <TableCell className="tabular text-right">{item.removed}</TableCell>
+                  <TableCell className="tabular text-right">{item.adjustment}</TableCell>
                   <TableCell className={`text-right font-medium ${item.inconsistent ? "text-destructive" : ""}`}>
                     {item.closing_stock}
                   </TableCell>
@@ -142,24 +142,24 @@ function NetworkInventoryView({ range }: { range: PeriodRange }) {
           <TableHeader>
             <TableRow>
               <TableHead>Loja</TableHead>
-              <TableHead className="text-right">SKUs</TableHead>
-              <TableHead className="text-right">Inconsistentes</TableHead>
-              <TableHead className="text-right">Abaixo do mínimo</TableHead>
+              <TableHead className="tabular text-right">SKUs</TableHead>
+              <TableHead className="tabular text-right">Inconsistentes</TableHead>
+              <TableHead className="tabular text-right">Abaixo do mínimo</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {tableRows.map((row) => (
               <TableRow key={row.storeId}>
                 <TableCell className="font-medium">{row.storeName}</TableCell>
-                <TableCell className="text-right">{row.itemCount}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="tabular text-right">{row.itemCount}</TableCell>
+                <TableCell className="tabular text-right">
                   {row.inconsistentCount > 0 ? (
                     <Badge className="border border-destructive/30 bg-destructive/10 text-destructive">{row.inconsistentCount}</Badge>
                   ) : (
                     row.inconsistentCount
                   )}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="tabular text-right">
                   {row.belowMinimumCount > 0 ? (
                     <Badge className="border border-warning/30 bg-warning/15 text-warning">{row.belowMinimumCount}</Badge>
                   ) : (

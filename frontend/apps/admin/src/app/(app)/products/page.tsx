@@ -97,7 +97,7 @@ export default function ProductsPage() {
               <TableHead>SKU</TableHead>
               <TableHead>Nome</TableHead>
               <TableHead>Categoria</TableHead>
-              <TableHead className="text-right">Custo (hoje)</TableHead>
+              <TableHead className="tabular text-right">Custo (hoje)</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -127,7 +127,7 @@ export default function ProductsPage() {
                     <TableCell>
                       <Badge variant="secondary">{categoryLabel[product.category]}</Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="tabular text-right">
                       {/* Never shown as R$ 0,00: a SKU with no cost recorded is not the same as a SKU that costs nothing. */}
                       {cost === undefined ? (
                         <span className="text-muted-foreground">Sem custo</span>
