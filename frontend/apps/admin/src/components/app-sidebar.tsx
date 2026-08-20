@@ -32,9 +32,11 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { BrandMark } from "@/components/brand-mark";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useGetMeQuery, useLogoutMutation } from "@/lib/api/auth";
 
-const nav = [
+export const nav = [
   { title: "Visão geral", href: "/", icon: LayoutDashboard },
   { title: "Vendas", href: "/sales", icon: ShoppingCart },
   { title: "Financeiro", href: "/finance", icon: Wallet },
@@ -66,10 +68,14 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1.5">
-          <span className="brand-gradient flex size-7 shrink-0 items-center justify-center rounded-md text-sm font-bold text-white">
-            A
-          </span>
-          <span className="brand-gradient-text truncate text-base font-semibold group-data-[collapsible=icon]:hidden">
+          <BrandMark variant="symbol" height={26} className="shrink-0" />
+          {/*
+            "Agiliz Admin" é o nome da ferramenta, não o logotipo — por isso
+            vai em --foreground chapado, sem gradiente. O logotipo é o
+            símbolo à esquerda, e a prancha 05 proíbe substituí-lo por
+            lettering solto (era o que a letra "A" em caixa fazia aqui).
+          */}
+          <span className="truncate text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
             Agiliz Admin
           </span>
         </div>
@@ -103,6 +109,9 @@ export function AppSidebar() {
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <ThemeToggle />
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

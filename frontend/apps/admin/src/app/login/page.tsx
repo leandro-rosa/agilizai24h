@@ -6,8 +6,8 @@ import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 
+import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useLoginMutation } from "@/lib/api/auth";
@@ -50,16 +50,25 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="items-center text-center">
-          <span className="brand-gradient mb-2 flex size-10 shrink-0 items-center justify-center rounded-lg text-lg font-bold text-white">
-            A
-          </span>
-          <CardTitle className="text-xl">Entrar no Agiliz Admin</CardTitle>
-          <CardDescription>Painel de gestão do Agiliz.AI</CardDescription>
-        </CardHeader>
-        <CardContent>
+    <div className="flex min-h-svh flex-col md:grid md:grid-cols-2">
+      {/*
+        Único lugar do app onde cor de marca entra literal em vez de token, e
+        de propósito: o lockup horizontal do kit só existe com wordmark
+        branco, então precisa de superfície escura nos DOIS temas. Trocar por
+        `bg-background` o tornaria invisível no tema claro.
+      */}
+      <aside className="flex flex-col justify-between gap-8 bg-[#1f1f1f] p-8 md:p-12">
+        <BrandMark variant="lockup" height={40} />
+        <p className="max-w-sm text-lg font-semibold text-[#fff4e6] md:text-2xl">
+          Feito para quem não tem tempo a perder.
+        </p>
+        <p className="hidden text-sm text-[#fff4e6]/60 md:block">Painel de gestão do Agiliz.AI</p>
+      </aside>
+
+      <main className="flex flex-1 items-center justify-center bg-background p-6 md:p-12">
+        <div className="w-full max-w-sm">
+          <h1 className="text-2xl font-bold tracking-tight">Entrar no Agiliz Admin</h1>
+          <p className="mb-6 mt-1 text-sm text-muted-foreground">Use a conta de operador do Agiliz.AI.</p>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
               <FormField
@@ -98,8 +107,8 @@ export default function LoginPage() {
               </Button>
             </form>
           </Form>
-        </CardContent>
-      </Card>
+        </div>
+      </main>
     </div>
   );
 }
