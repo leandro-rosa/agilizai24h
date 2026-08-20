@@ -4,6 +4,7 @@ import { gatewayBaseQuery } from "./base-query";
 import { fetchOr404, firstError } from "./fan-out";
 import type { PeriodRange } from "@/lib/period-range";
 import { monthsInRange } from "@/lib/period-range";
+import type { Store } from "./stores";
 
 export interface StockItem {
   store_id: number;
@@ -41,6 +42,38 @@ export interface StockRangeResult {
   has_inconsistencies: boolean;
 }
 
+function sumStock(storeId: number, range: PeriodRange, perMonth: (StoreStock | undefined)[]): StockRangeResult {
+  const movementBySku = new Map<string, { restocked: number; sold: number; removed: number; adjustment: number }>();
+  for (const month of perMonth) {
+    if (!month) continue;
+    for (const item of month.items) {
+      const existing = movementBySku.get(item.sku) ?? { restocked: 0, sold: 0, removed: 0, adjustment: 0 };
+      existing.restocked += item.restocked;
+      existing.sold += item.sold;
+      existing.removed += item.removed;
+      existing.adjustment += item.adjustment;
+      movementBySku.set(item.sku, existing);
+    }
+  }
+
+  // The snapshot (closing balance, inconsistency, minimums) as of the end
+  // of the range — the last month that actually returned data, since a
+  // trailing month with nothing ingested yet is undefined here.
+  const lastKnown = [...perMonth].reverse().find((month) => month !== undefined);
+  const items: StockItem[] = (lastKnown?.items ?? []).map((item) => {
+    const movement = movementBySku.get(item.sku);
+    return {
+      ...item,
+      restocked: movement?.restocked ?? 0,
+      sold: movement?.sold ?? 0,
+      removed: movement?.removed ?? 0,
+      adjustment: movement?.adjustment ?? 0,
+    };
+  });
+
+  return { storeId, range, items, has_inconsistencies: items.some((item) => item.inconsistent) };
+}
+
 export const inventoryApi = createApi({
   reducerPath: "inventoryApi",
   baseQuery: gatewayBaseQuery,
@@ -64,43 +97,23 @@ export const inventoryApi = createApi({
         );
         const error = firstError(perMonth);
         if (error) return { error };
-
-        const movementBySku = new Map<string, { restocked: number; sold: number; removed: number; adjustment: number }>();
-        for (const { data: month } of perMonth) {
-          if (!month) continue;
-          for (const item of month.items) {
-            const existing = movementBySku.get(item.sku) ?? { restocked: 0, sold: 0, removed: 0, adjustment: 0 };
-            existing.restocked += item.restocked;
-            existing.sold += item.sold;
-            existing.removed += item.removed;
-            existing.adjustment += item.adjustment;
-            movementBySku.set(item.sku, existing);
-          }
-        }
-
-        // The snapshot (closing balance, inconsistency, minimums) as of the
-        // end of the range — the last month that actually returned data,
-        // since a trailing month with nothing ingested yet 404s.
-        const lastKnown = [...perMonth].reverse().find((r) => r.data !== undefined)?.data;
-        const items: StockItem[] = (lastKnown?.items ?? []).map((item) => {
-          const movement = movementBySku.get(item.sku);
-          return {
-            ...item,
-            restocked: movement?.restocked ?? 0,
-            sold: movement?.sold ?? 0,
-            removed: movement?.removed ?? 0,
-            adjustment: movement?.adjustment ?? 0,
-          };
-        });
-
-        return {
-          data: {
-            storeId,
-            range,
-            items,
-            has_inconsistencies: items.some((item) => item.inconsistent),
-          },
-        };
+        return { data: sumStock(storeId, range, perMonth.map((r) => r.data)) };
+      },
+      providesTags: ["Minimum"],
+    }),
+    /** No network-wide inventory endpoint exists — sums+snapshots each store's range client-side, same shape as sales/supply/finance. */
+    getNetworkStockRange: builder.query<StockRangeResult[], { stores: Store[]; range: PeriodRange }>({
+      async queryFn({ stores, range }, _api, _extra, fetchWithBQ) {
+        const months = monthsInRange(range);
+        const perStorePerMonth = await Promise.all(
+          stores.map((store) =>
+            Promise.all(months.map((period) => fetchOr404<StoreStock>(fetchWithBQ, `/inventory/${store.id}?period=${encodeURIComponent(period)}`))),
+          ),
+        );
+        const error = firstError(perStorePerMonth.flat());
+        if (error) return { error };
+        const rows = stores.map((store, index) => sumStock(store.id, range, perStorePerMonth[index].map((r) => r.data)));
+        return { data: rows };
       },
       providesTags: ["Minimum"],
     }),
@@ -115,4 +128,4 @@ export const inventoryApi = createApi({
   }),
 });
 
-export const { useGetStockRangeQuery, useSetMinimumMutation } = inventoryApi;
+export const { useGetStockRangeQuery, useGetNetworkStockRangeQuery, useSetMinimumMutation } = inventoryApi;

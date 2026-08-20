@@ -3,6 +3,7 @@ import { createApi } from "@reduxjs/toolkit/query/react";
 import { gatewayBaseQuery } from "./base-query";
 import { fetchOr404, firstError } from "./fan-out";
 import type { PeriodRange } from "@/lib/period-range";
+import type { Store } from "./stores";
 import { monthsInRange } from "@/lib/period-range";
 
 export interface RestockRow {
@@ -43,6 +44,45 @@ export interface SupplyRangeResult {
   monthsWithNoData: string[];
 }
 
+function sumSupply(storeId: number, range: PeriodRange, perMonth: (SupplyPeriod | undefined)[], months: string[]): SupplyRangeResult {
+  const restocksBySku = new Map<string, RestockRow>();
+  const removalsByKey = new Map<string, RemovalRow>();
+  const adjustmentsBySku = new Map<string, AdjustmentRow>();
+  const monthsWithNoData: string[] = [];
+
+  perMonth.forEach((period, index) => {
+    if (!period) {
+      monthsWithNoData.push(months[index]);
+      return;
+    }
+    for (const row of period.restocks) {
+      const existing = restocksBySku.get(row.sku);
+      if (existing) existing.quantity_restocked += row.quantity_restocked;
+      else restocksBySku.set(row.sku, { ...row });
+    }
+    for (const row of period.removals) {
+      const key = `${row.sku}:${row.reason}`;
+      const existing = removalsByKey.get(key);
+      if (existing) existing.quantity_removed += row.quantity_removed;
+      else removalsByKey.set(key, { ...row });
+    }
+    for (const row of period.adjustments) {
+      const existing = adjustmentsBySku.get(row.sku);
+      if (existing) existing.quantity += row.quantity;
+      else adjustmentsBySku.set(row.sku, { ...row });
+    }
+  });
+
+  return {
+    storeId,
+    range,
+    restocks: [...restocksBySku.values()].sort((a, b) => a.sku.localeCompare(b.sku)),
+    removals: [...removalsByKey.values()].sort((a, b) => a.sku.localeCompare(b.sku)),
+    adjustments: [...adjustmentsBySku.values()].filter((row) => row.quantity !== 0).sort((a, b) => a.sku.localeCompare(b.sku)),
+    monthsWithNoData,
+  };
+}
+
 export const supplyApi = createApi({
   reducerPath: "supplyApi",
   baseQuery: gatewayBaseQuery,
@@ -62,50 +102,25 @@ export const supplyApi = createApi({
         );
         const error = firstError(perMonth);
         if (error) return { error };
-
-        const restocksBySku = new Map<string, RestockRow>();
-        const removalsByKey = new Map<string, RemovalRow>();
-        const adjustmentsBySku = new Map<string, AdjustmentRow>();
-        const monthsWithNoData: string[] = [];
-
-        perMonth.forEach(({ data: period }, index) => {
-          if (!period) {
-            monthsWithNoData.push(months[index]);
-            return;
-          }
-          for (const row of period.restocks) {
-            const existing = restocksBySku.get(row.sku);
-            if (existing) existing.quantity_restocked += row.quantity_restocked;
-            else restocksBySku.set(row.sku, { ...row });
-          }
-          for (const row of period.removals) {
-            const key = `${row.sku}:${row.reason}`;
-            const existing = removalsByKey.get(key);
-            if (existing) existing.quantity_removed += row.quantity_removed;
-            else removalsByKey.set(key, { ...row });
-          }
-          for (const row of period.adjustments) {
-            const existing = adjustmentsBySku.get(row.sku);
-            if (existing) existing.quantity += row.quantity;
-            else adjustmentsBySku.set(row.sku, { ...row });
-          }
-        });
-
-        return {
-          data: {
-            storeId,
-            range,
-            restocks: [...restocksBySku.values()].sort((a, b) => a.sku.localeCompare(b.sku)),
-            removals: [...removalsByKey.values()].sort((a, b) => a.sku.localeCompare(b.sku)),
-            adjustments: [...adjustmentsBySku.values()]
-              .filter((row) => row.quantity !== 0)
-              .sort((a, b) => a.sku.localeCompare(b.sku)),
-            monthsWithNoData,
-          },
-        };
+        return { data: sumSupply(storeId, range, perMonth.map((r) => r.data), months) };
+      },
+    }),
+    /** No network-wide supply endpoint exists — sums each store's range client-side, same fan-out shape as sales/finance. */
+    getNetworkSupplyRange: builder.query<SupplyRangeResult[], { stores: Store[]; range: PeriodRange }>({
+      async queryFn({ stores, range }, _api, _extra, fetchWithBQ) {
+        const months = monthsInRange(range);
+        const perStorePerMonth = await Promise.all(
+          stores.map((store) =>
+            Promise.all(months.map((period) => fetchOr404<SupplyPeriod>(fetchWithBQ, `/supply/${store.id}?period=${encodeURIComponent(period)}`))),
+          ),
+        );
+        const error = firstError(perStorePerMonth.flat());
+        if (error) return { error };
+        const rows = stores.map((store, index) => sumSupply(store.id, range, perStorePerMonth[index].map((r) => r.data), months));
+        return { data: rows };
       },
     }),
   }),
 });
 
-export const { useGetSupplyRangeQuery } = supplyApi;
+export const { useGetSupplyRangeQuery, useGetNetworkSupplyRangeQuery } = supplyApi;

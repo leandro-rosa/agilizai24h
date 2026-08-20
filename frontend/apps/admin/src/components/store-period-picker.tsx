@@ -10,11 +10,16 @@ export type StoreSelection = number | typeof NETWORK | null;
 
 /**
  * Every real per-store screen (sales, supply, inventory, finance) reads one
- * store's data for a *range* of months — there is no "every store at once"
- * endpoint for any of them except finance's `/finance/rollup`, and no
- * finer-than-monthly grain anywhere. `allowNetwork` opts a screen into that
- * one exception, surfacing a "Rede (todas as lojas)" choice that resolves
- * to `NETWORK` rather than a store id.
+ * store's data for a *range* of months — none of the four has a real
+ * "every store at once, over a range" endpoint. finance-service's
+ * `GET /finance/rollup?period=` totals the network for a single month, not
+ * a range, so it isn't used here either: every `allowNetwork` screen fans
+ * out one request per store (finance: one call per store, its full series;
+ * sales/supply/inventory: one call per store per month) and sums
+ * client-side (`getNetworkReconciliationRange`, `getNetworkSalesRange`,
+ * `getNetworkSupplyRange`, `getNetworkStockRange`). `allowNetwork` surfaces
+ * the "Rede (todas as lojas)" choice that resolves to `NETWORK` rather than
+ * a store id.
  */
 export function StorePeriodPicker({
   storeId,
