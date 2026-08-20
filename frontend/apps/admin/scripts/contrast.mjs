@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- CLI: relatorio no stdout e o proposito. */
 // WCAG tem dois limiares e eles nao sao intercambiaveis:
 //   1.4.3  texto normal        -> 4.5:1
 //   1.4.11 componente/nao-texto -> 3.0:1  (preenchimento de botao, borda, icone)

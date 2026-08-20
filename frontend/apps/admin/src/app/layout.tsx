@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist_Mono, Inter } from "next/font/google";
+import { Geist_Mono, Montserrat } from "next/font/google";
 
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,9 +7,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Providers } from "./providers";
 import "./globals.css";
 
-const inter = Inter({
+// Fonte oficial da marca (manual, prancha 03): Bold títulos, SemiBold
+// subtítulos, Regular corpo. O manual declara Inter como alternativa para
+// sistemas sem Montserrat — é exatamente o fallback do next/font.
+const montserrat = Montserrat({
   variable: "--font-sans",
   subsets: ["latin"],
+  weight: ["400", "600", "700"],
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
@@ -29,7 +34,7 @@ export const metadata: Metadata = {
  */
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR" className={`dark ${inter.variable} ${geistMono.variable}`} suppressHydrationWarning>
+    <html lang="pt-BR" className={`${montserrat.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <body className="antialiased" suppressHydrationWarning>
         <Providers>
           <TooltipProvider>
