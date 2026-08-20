@@ -1,0 +1,85 @@
+networks:
+  agiliz_network:
+    external: true
+    name: agiliz_network
+
+volumes:
+  agiliz_suppliers_postgres_data:
+    name: agiliz_suppliers_postgres_data
+
+services:
+  # Database-per-service: this Postgres belongs to suppliers-service alone. No other
+  # service reads these tables.
+  suppliers-postgres:
+    image: postgres:16-alpine
+    container_name: agiliz-suppliers-postgres
+    environment:
+      POSTGRES_USER: ${SUPPLIERS_POSTGRES_USER:-agiliz}
+      POSTGRES_PASSWORD: ${SUPPLIERS_POSTGRES_PASSWORD:-agiliz-dev-secret}
+      POSTGRES_DB: ${SUPPLIERS_POSTGRES_DB:-suppliers}
+    ports:
+      - "${SUPPLIERS_POSTGRES_HOST_PORT:-5441}:5432"
+    volumes:
+      - agiliz_suppliers_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SUPPLIERS_POSTGRES_USER:-agiliz} -d ${SUPPLIERS_POSTGRES_DB:-suppliers}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - agiliz_network
+
+  suppliers-dev:
+    build:
+      # Repo root: the pnpm workspace keeps one lockfile there.
+      context: ../../..
+      dockerfile: backend/apps/suppliers-service/Dockerfile
+      target: dev
+    container_name: agiliz-suppliers-dev
+    depends_on:
+      suppliers-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${SUPPLIERS_POSTGRES_USER:-agiliz}:${SUPPLIERS_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-suppliers-postgres:5432/${SUPPLIERS_POSTGRES_DB:-suppliers}
+      PORT: 3000
+    # No published host port: domain services stay internal to agiliz_network,
+    # reachable only through gateway-service.
+    expose:
+      - "3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      # 127.0.0.1 explicitly — Alpine resolves localhost to ::1 first.
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  suppliers-prod:
+    build:
+      context: ../../..
+      dockerfile: backend/apps/suppliers-service/Dockerfile
+      target: runtime
+    container_name: agiliz-suppliers-prod
+    depends_on:
+      suppliers-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${SUPPLIERS_POSTGRES_USER:-agiliz}:${SUPPLIERS_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-suppliers-postgres:5432/${SUPPLIERS_POSTGRES_DB:-suppliers}
+      PORT: 3000
+    expose:
+      - "3000"
+    networks:
+      - agiliz_network
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

@@ -1,0 +1,60 @@
+// Fornecedor e as grafias sob as quais ele aparece.
+//
+// Origem na planilha de relatórios: as abas `DE-PARA`, `Página64`, `Página1`
+// (fornecedores de congelados) e a coluna `Fornecedor` de `produtos` /
+// `lista de produtos mercado`.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Supplier {
+  id         Int     @id @default(autoincrement())
+  name       String
+  legal_name String?
+  /// CNPJ. Opcional: parte dos fornecedores do extrato são pessoa física ou
+  /// só aparecem pelo nome de fantasia no lançamento do cartão.
+  tax_id     String? @unique
+  /// frozen | beverages | grocery | wholesale | equipment | services | system
+  category   String
+  contact_name String?
+  phone        String?
+  email        String?
+  notes        String?
+  /// active | inactive
+  status     String  @default("active")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  aliases SupplierAlias[]
+
+  @@index([status])
+  @@index([category])
+  @@map("supplier")
+}
+
+/// Um mesmo fornecedor aparece com grafia diferente em cada extrato
+/// ("ASSAÍ ATACADISTA LJ49", "ASSAI ATACADISTA LJ144", "Assaí"). Sem esta
+/// tabela a conciliação do extrato não tem como convergir para um cadastro,
+/// e cada mês vira um fornecedor novo.
+model SupplierAlias {
+  id          Int    @id @default(autoincrement())
+  supplier_id Int
+  /// Como apareceu na origem, preservado para auditoria.
+  alias       String
+  /// `alias` dobrado: maiúsculas, sem acento, sem pontuação, espaço colapsado.
+  /// É por aqui que a resolução casa, e o unique impede que duas grafias
+  /// equivalentes apontem para fornecedores diferentes.
+  normalized_alias String @unique
+  created_at  DateTime @default(now())
+
+  supplier Supplier @relation(fields: [supplier_id], references: [id], onDelete: Cascade)
+
+  @@index([supplier_id])
+  @@map("supplier_alias")
+}
