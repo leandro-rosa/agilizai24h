@@ -10,7 +10,7 @@ observability.
 
 | Pasta | Estado hoje | Conteúdo |
 |---|---|---|
-| `backend/apps/` | vazio | futuros microserviços NestJS |
+| `backend/apps/` | 14 serviços | ver [backend/CLAUDE.md](backend/CLAUDE.md) |
 | `backend/common/nest-libs/` | 8 libs reais | ver [backend/CLAUDE.md](backend/CLAUDE.md) |
 | `frontend/apps/site/` | app real | site institucional — ver [CLAUDE.md](frontend/apps/site/CLAUDE.md) / [DESIGN.md](frontend/apps/site/DESIGN.md) |
 | `frontend/apps/admin/` | app real | painel de gestão (vendas, financeiro, abastecimento, estoque, produtos, lojas), Next.js — ver [CLAUDE.md](frontend/apps/admin/CLAUDE.md) / [DESIGN.md](frontend/apps/admin/DESIGN.md) |
@@ -90,6 +90,14 @@ Regras que valem para qualquer recomendação financeira, sem exceção:
 
 - `backend/apps/finance-service` é a fonte de verdade para CMV, sobra e
   perda real por loja/mês — a skill lê esses números, nunca os re-deriva.
+  `accounting-service` é a fonte de DRE e fluxo de caixa, `treasury-service`
+  a de lançamento bancário e de cartão, `billing-service` a de mensalidade e
+  a-receber, e `capex-service` a de investimento por loja. **Nenhum deles
+  re-deriva o que é do `finance-service`**: CMV, sobra e perda chegam ao
+  `accounting-service` como lançamento de `origin = "finance"`.
+- Payback (`capex-service`) e repasse (`billing-service`) são MÉTRICA
+  DERIVADA sobre PREMISSA enquanto o lucro mensal e a receita base forem
+  digitados no painel em vez de lidos de `finance`/`sales`. Rotular assim.
 - Todo número é rotulado FATO, MÉTRICA DERIVADA, PREMISSA ou ESTIMATIVA;
   nunca apresentar uma premissa como fato.
 - Evidência da empresa (via `finance-service`, documentos reais, ou

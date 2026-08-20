@@ -5,7 +5,7 @@ visão geral do monorepo.
 
 ## Estado atual
 
-- `apps/` — 9 microserviços:
+- `apps/` — 14 microserviços:
   [iam-service](apps/iam-service/CLAUDE.md) (contas, sessões, permissões),
   [stores-service](apps/stores-service/CLAUDE.md) (registro de lojas) e
   [products-service](apps/products-service/CLAUDE.md) (catálogo + custo datado)
@@ -19,6 +19,18 @@ visão geral do monorepo.
   [inventory-service](apps/inventory-service/CLAUDE.md) (estoque derivado) e
   [finance-service](apps/finance-service/CLAUDE.md) (a reconciliação mensal).
   `iam-service` foi o primeiro e serve de molde para os próximos.
+- **Back-office** — 5 serviços que saíram da planilha de relatórios, cada um
+  com seu Postgres (portas 5441-5445), sem ingestão por enquanto:
+  [suppliers-service](apps/suppliers-service/CLAUDE.md) (fornecedores e as
+  grafias sob as quais aparecem),
+  [treasury-service](apps/treasury-service/CLAUDE.md) (extrato, cartão,
+  DE-PARA, taxas de adquirente),
+  [accounting-service](apps/accounting-service/CLAUDE.md) (plano de contas,
+  DRE, fluxo de caixa),
+  [billing-service](apps/billing-service/CLAUDE.md) (clientes, contratos,
+  notas fiscais, repasse) e
+  [capex-service](apps/capex-service/CLAUDE.md) (investimento por loja,
+  aportes, payback).
 - `common/nest-libs/` — 10 libs: 8 abstratas mais dois pacotes de contrato sem
   lógica, [iam-contracts](common/nest-libs/iam-contracts/CLAUDE.md) (iam ↔
   gateway) e [products-contracts](common/nest-libs/products-contracts/CLAUDE.md)

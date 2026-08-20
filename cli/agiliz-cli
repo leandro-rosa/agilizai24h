@@ -11,9 +11,9 @@ readonly PROJECT_ROOT="${AGILIZ_ROOT:-$(cd -- "${SCRIPT_DIR}/.." && pwd -P)}"
 readonly SHARED_NETWORK_NAME='agiliz_network'
 # 'infra' (Redis + MinIO) sobe primeiro e desce por ultimo: os servicos de
 # backend dependem dele para BullMQ e storage S3.
-readonly -a UP_ORDER=(infra iam stores products sales supply inventory finance ingestion gateway site admin)
-readonly -a DOWN_ORDER=(admin site gateway ingestion finance inventory supply sales products stores iam infra)
-readonly -a VALID_PROJECTS=(infra iam stores products sales supply inventory finance ingestion gateway site admin)
+readonly -a UP_ORDER=(infra iam stores products sales supply inventory finance suppliers treasury accounting billing capex ingestion gateway site admin)
+readonly -a DOWN_ORDER=(admin site gateway ingestion capex billing accounting treasury suppliers finance inventory supply sales products stores iam infra)
+readonly -a VALID_PROJECTS=(infra iam stores products sales supply inventory finance suppliers treasury accounting billing capex ingestion gateway site admin)
 readonly -A PROJECT_DIRECTORIES=(
   [infra]='docker/composes'
   [iam]='backend/apps/iam-service'
@@ -23,6 +23,11 @@ readonly -A PROJECT_DIRECTORIES=(
   [supply]='backend/apps/supply-service'
   [inventory]='backend/apps/inventory-service'
   [finance]='backend/apps/finance-service'
+  [suppliers]='backend/apps/suppliers-service'
+  [treasury]='backend/apps/treasury-service'
+  [accounting]='backend/apps/accounting-service'
+  [billing]='backend/apps/billing-service'
+  [capex]='backend/apps/capex-service'
   [ingestion]='backend/apps/ingestion-worker-service'
   [gateway]='backend/apps/gateway-service'
   [site]='frontend/apps/site'
@@ -37,6 +42,11 @@ readonly -A PROJECT_FILES=(
   [supply]='docker-compose.yml'
   [inventory]='docker-compose.yml'
   [finance]='docker-compose.yml'
+  [suppliers]='docker-compose.yml'
+  [treasury]='docker-compose.yml'
+  [accounting]='docker-compose.yml'
+  [billing]='docker-compose.yml'
+  [capex]='docker-compose.yml'
   [ingestion]='docker-compose.yml'
   [gateway]='docker-compose.yml'
   [site]='docker-compose.yml'
@@ -53,6 +63,11 @@ readonly -A PROJECT_DEV_SERVICE=(
   [supply]='supply-dev'
   [inventory]='inventory-dev'
   [finance]='finance-dev'
+  [suppliers]='suppliers-dev'
+  [treasury]='treasury-dev'
+  [accounting]='accounting-dev'
+  [billing]='billing-dev'
+  [capex]='capex-dev'
   [ingestion]='ingestion-dev'
   [gateway]='gateway-dev'
   [site]='site-dev'
@@ -66,6 +81,11 @@ readonly -A PROJECT_PROD_SERVICE=(
   [supply]='supply-prod'
   [inventory]='inventory-prod'
   [finance]='finance-prod'
+  [suppliers]='suppliers-prod'
+  [treasury]='treasury-prod'
+  [accounting]='accounting-prod'
+  [billing]='billing-prod'
+  [capex]='capex-prod'
   [ingestion]='ingestion-prod'
   [gateway]='gateway-prod'
   [site]='site-prod'
@@ -124,6 +144,11 @@ PROJECTS:
   supply backend/apps/supply-service/docker-compose.yml (servicos: supply-dev, supply-prod)
   inventory backend/apps/inventory-service/docker-compose.yml (servicos: inventory-dev, inventory-prod)
   finance backend/apps/finance-service/docker-compose.yml (servicos: finance-dev, finance-prod)
+  suppliers backend/apps/suppliers-service/docker-compose.yml (servicos: suppliers-dev, suppliers-prod)
+  treasury backend/apps/treasury-service/docker-compose.yml (servicos: treasury-dev, treasury-prod)
+  accounting backend/apps/accounting-service/docker-compose.yml (servicos: accounting-dev, accounting-prod)
+  billing backend/apps/billing-service/docker-compose.yml (servicos: billing-dev, billing-prod)
+  capex backend/apps/capex-service/docker-compose.yml (servicos: capex-dev, capex-prod)
   ingestion backend/apps/ingestion-worker-service/docker-compose.yml (servicos: ingestion-dev, ingestion-prod)
   gateway backend/apps/gateway-service/docker-compose.yml (servicos: gateway-dev, gateway-prod)
   site   frontend/apps/site/docker-compose.yml (servicos: site-dev, site-prod)
