@@ -1,0 +1,177 @@
+// Receita contratada e faturamento: clientes, unidades, contratos, notas
+// fiscais e repasse de vendas.
+//
+// Origem na planilha de relatórios: abas `Clientes` e `Notas fiscais`, as
+// linhas `Mensalidades` e `Repasse de vendas` da aba `DRE`, e os contratos
+// em `Contratos/*.pdf`.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Client {
+  id         Int    @id @default(autoincrement())
+  /// "Ascenty", "Plena Saúde", "Rolls-Royce"
+  name       String
+  legal_name String
+  /// CNPJ da matriz.
+  tax_id     String @unique
+  /// company | condominium
+  segment    String
+  contact_name String?
+  email        String?
+  phone        String?
+  /// active | inactive
+  status     String @default("active")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  sites     ClientSite[]
+  contracts Contract[]
+  invoices  Invoice[]
+
+  @@index([status])
+  @@map("client")
+}
+
+/// Uma unidade do cliente. Cada uma tem CNPJ próprio — a aba `Clientes` lista
+/// 20 CNPJs distintos só da Ascenty — e é onde a loja é instalada.
+model ClientSite {
+  id        Int    @id @default(autoincrement())
+  client_id Int
+  /// "CPS01", "HTL05", "SPO01" — casa com `Store.client_code`.
+  code      String
+  tax_id    String?
+  address   String
+  city      String
+
+  employees             Int?
+  employees_and_clients Int?
+  service_providers     Int?
+  visitors              Int?
+  /// Coluna "Total Ponderado - Dia": o denominador do ticket médio. Visitante
+  /// entra com peso menor que funcionário, e é isso que a coluna já resolve.
+  weighted_daily_traffic Int?
+
+  /// Loja Agiliz instalada aqui. Int cru — database-per-service.
+  store_id  Int?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  client Client @relation(fields: [client_id], references: [id], onDelete: Cascade)
+
+  @@unique([client_id, code])
+  @@index([store_id])
+  @@map("client_site")
+}
+
+model Contract {
+  id        Int    @id @default(autoincrement())
+  client_id Int
+  /// Número ou nome do contrato/aditivo.
+  reference String
+  /// partnership | monthly_fee | revenue_share | coffee_break
+  kind      String
+
+  /// "Custo por site" / mensalidade.
+  monthly_fee_cents   Int @default(0)
+  /// "% Repasse", em basis points.
+  revenue_share_bps   Int @default(0)
+  /// "Taxa de conveniência", em basis points.
+  convenience_fee_bps Int @default(0)
+  /// Coluna "Dias pagamento".
+  payment_term_days   Int @default(30)
+
+  starts_on DateTime  @db.Date
+  ends_on   DateTime? @db.Date
+  /// draft | active | ended
+  status    String @default("active")
+  document_url String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  client   Client @relation(fields: [client_id], references: [id])
+  stores   ContractStore[]
+  invoices Invoice[]
+
+  @@unique([client_id, reference])
+  @@index([client_id, status])
+  @@map("contract")
+}
+
+/// Um contrato cobre N lojas — o aditivo "Plena Saúde - Itaqua e Mogi" cobre
+/// duas. Tabela de junção porque a cardinalidade é real, não hipotética.
+model ContractStore {
+  contract_id Int
+  store_id    Int
+
+  contract Contract @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+
+  @@id([contract_id, store_id])
+  @@map("contract_store")
+}
+
+model Invoice {
+  id          Int    @id @default(autoincrement())
+  client_id   Int
+  contract_id Int?
+  /// Número da NF.
+  number      String @unique
+  /// Coluna "PO".
+  purchase_order String?
+  /// Coluna "Folha Serviço".
+  service_sheet  String?
+  /// monthly_fee | coffee_break | revenue_share | other
+  kind        String
+  /// "YYYY-MM" de competência.
+  period      String
+  amount_cents Int
+
+  issued_on         DateTime  @db.Date
+  payment_term_days Int
+  /// Derivado de issued_on + payment_term_days na gravação. Materializado
+  /// para o aging poder filtrar e ordenar no banco em vez de em memória.
+  due_on            DateTime  @db.Date
+  paid_on           DateTime? @db.Date
+  /// issued | paid | cancelled. "Vencido" NÃO é status: é derivado de
+  /// due_on < hoje com paid_on nulo, senão precisaria de um job diário
+  /// mudando linha e o histórico ficaria dependendo de ele ter rodado.
+  status      String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  client   Client    @relation(fields: [client_id], references: [id])
+  contract Contract? @relation(fields: [contract_id], references: [id])
+
+  @@index([client_id, period])
+  @@index([status, due_on])
+  @@map("invoice")
+}
+
+/// "Repasse de vendas" do DRE: o percentual da venda que volta para o cliente.
+model RevenueShare {
+  id          Int    @id @default(autoincrement())
+  contract_id Int
+  store_id    Int
+  period      String
+
+  base_revenue_cents Int
+  rate_bps           Int
+  amount_cents       Int
+  /// pending | settled
+  status             String @default("pending")
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([store_id, period])
+  @@index([period])
+  @@map("revenue_share")
+}
