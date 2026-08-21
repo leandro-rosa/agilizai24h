@@ -98,6 +98,55 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
 - `scripts/contrast.mjs` (`pnpm contrast`) — verifica 20 pares de contraste
   WCAG e sai != 0 se algum reprovar. Rodar ao mexer em token.
 
+## Rotas e navegação
+
+Vinte rotas em sete grupos (`navGroups` em `src/components/app-sidebar.tsx`).
+Lista plana com vinte itens é inutilizável, e o agrupamento é o que separa
+"o que a loja fez" de "o que a empresa deve":
+
+| Grupo | Rotas |
+|---|---|
+| Operação | `/` · `/sales` · `/supply` · `/inventory` · `/inventory/central` |
+| Financeiro | `/finance` (reconciliação) · `/finance/pnl` (DRE) · `/finance/cash-flow` |
+| Tesouraria | `/treasury` · `/treasury/mappings` |
+| Comercial | `/billing/clients` · `/billing/contracts` · `/billing/invoices` |
+| Investimento | `/capex` · `/capex/investors` |
+| Cadastros | `/products` · `/stores` · `/suppliers` |
+| Sistema | `/ingestion` |
+
+Cada item some para quem não tem a permissão de leitura
+(`useHasPermission`, que agora aceita `undefined` como "não exige nenhuma").
+Continua sendo cortesia de UX — o gateway é a fronteira e pode devolver 403
+para uma ação que o menu deixou visível.
+
+## Componentes que a Fase C trouxe
+
+- `src/components/resource-form-dialog.tsx` — o formulário de CRUD de todo
+  domínio novo. Sem ele, cada uma das doze telas reescreveria a mesma
+  combinação de Dialog + `react-hook-form` + zod + mutation, e cada cópia
+  trataria 403 e erro de validação de um jeito ligeiramente diferente.
+  `toCents`/`fromCents` moram aqui: o formulário fala R$, a API fala inteiro.
+- `src/lib/format.ts` — moeda, data, período e basis points. Estava
+  duplicado como um `Intl.NumberFormat` solto em cada página.
+- `src/lib/api/{suppliers,treasury,accounting,billing,capex}.ts` — um
+  `createApi` por domínio, como os nove anteriores. São 14 reducers em
+  `src/lib/store.ts`.
+
+## O que as telas novas recusam mostrar como zero
+
+Repetido aqui porque é a decisão que mais aparece no código:
+
+- **DRE**: `break_even_cents === -1` vira "—" com explicação. O serviço usa
+  -1 para indefinido; "R$ 0,00" diria que já está no equilíbrio.
+- **CAPEX**: `payback_months === null` vira badge "Indefinido". Nenhum
+  número de meses paga uma loja sem lucro.
+- **Produtos**: margem só aparece com custo E preço na mesma data. Faltando
+  um, "—" — 0% se leria como margem nula real.
+- **Visão geral**: KPI sem resposta do backend mostra "Indisponível". Um
+  zero fabricado numa visão geral parece um número.
+- **Estoque central**: o valor parado vem com "sobre N de M lotes", porque
+  só conta lote com custo informado.
+
 ## Vendas, abastecimento, estoque e financeiro são por loja+mês
 
 Nenhum dos quatro tem endpoint "rede inteira" nem "range de meses" no
@@ -208,9 +257,13 @@ que faz a sessão funcionar.
   aspas simples e sem `;`; o admin inteiro foi escrito com aspas duplas e
   `;`, e nunca passou por `pnpm format`. Rodar hoje reformata o app todo —
   decisão à parte.
-- **Sem suíte de testes automatizados no app** — a verificação até agora
-  foi manual, ao vivo, contra o stack real via browser automation (login,
-  dashboard, vendas, financeiro, estoque, todos com dado real de
-  produção). Nenhum teste unitário/integração do painel existe ainda.
+- **Sem suíte de testes automatizados no app** — a verificação é manual,
+  ao vivo, contra o stack real. Com 20 rotas isso ficou grande demais para
+  seguir assim; levar o painel a ter testes é proposta OpenSpec própria.
+- **As 12 telas novas nunca renderizaram com dado real.** Os cinco serviços
+  de back-office ainda não subiram (as migrations foram geradas com
+  `prisma migrate diff` e estão pendentes de `prisma:deploy`), então tudo
+  que foi verificado é typecheck, lint e build. Login, visão geral e
+  financeiro foram vistos no browser; o resto, não.
 - `frontend/common/` continua vazio; este app não compartilha nada com o
   `site` ainda (nenhum ganho óbvio de baixo risco identificado).

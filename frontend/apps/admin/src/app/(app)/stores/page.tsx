@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { count, date } from "@/lib/format";
 import { useGetStoresQuery, type Store } from "@/lib/api/stores";
 
 const statusVariant: Record<Store["status"], { label: string; className: string }> = {
@@ -76,8 +77,12 @@ export default function StoresPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
-              <TableHead>Endereço</TableHead>
+              <TableHead>Código do site</TableHead>
+              <TableHead>CNPJ</TableHead>
               <TableHead>Cidade</TableHead>
+              <TableHead className="tabular text-right">Pessoas</TableHead>
+              <TableHead>Inauguração</TableHead>
+              <TableHead>Voltagem</TableHead>
               <TableHead>Tipo</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
@@ -95,16 +100,25 @@ export default function StoresPage() {
               ))
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell colSpan={9} className="text-center text-muted-foreground">
                   Nenhuma loja encontrada.
                 </TableCell>
               </TableRow>
             ) : (
               filtered.map((store) => (
                 <TableRow key={store.id}>
-                  <TableCell className="font-medium">{store.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{store.address}</TableCell>
+                  <TableCell className="font-medium">
+                    {store.name}
+                    <span className="block text-xs text-muted-foreground">{store.address}</span>
+                  </TableCell>
+                  {/* Código do SITE do cliente, não o do PDV — são
+                      identificadores de sistemas diferentes e divergem. */}
+                  <TableCell className="tabular text-xs">{store.client_code ?? "—"}</TableCell>
+                  <TableCell className="tabular text-xs">{store.tax_id ?? "—"}</TableCell>
                   <TableCell>{store.city}</TableCell>
+                  <TableCell className="tabular text-right">{count(store.headcount)}</TableCell>
+                  <TableCell className="tabular">{date(store.opened_on)}</TableCell>
+                  <TableCell className="text-xs">{store.voltage ?? "—"}</TableCell>
                   <TableCell>{typeLabel[store.type]}</TableCell>
                   <TableCell>
                     <Badge className={statusVariant[store.status].className}>

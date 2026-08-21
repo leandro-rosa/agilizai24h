@@ -21,7 +21,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useGetCostsAsOfQuery, useGetProductsQuery, type Product } from "@/lib/api/products";
+import {
+  useGetCostsAsOfQuery,
+  useGetPricesAsOfQuery,
+  useGetProductsQuery,
+  type Product,
+} from "@/lib/api/products";
+import { money } from "@/lib/format";
 
 const categoryLabel: Record<Product["category"], string> = {
   meal: "Refeição",
@@ -43,6 +49,21 @@ export default function ProductsPage() {
     { skus, asOf: todayIso() },
     { skip: skus.length === 0 },
   );
+
+  // Preço na MESMA data do custo. Pedir "preço de hoje" contra "custo do
+  // último abastecimento" produziria uma margem que nunca existiu.
+  const { data: prices } = useGetPricesAsOfQuery(
+    { skus, asOf: todayIso() },
+    { skip: skus.length === 0 },
+  );
+
+  const priceBySku = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const entry of prices?.resolved ?? []) {
+      map.set(entry.sku, entry.price_cents);
+    }
+    return map;
+  }, [prices]);
 
   const costBySku = useMemo(() => {
     const map = new Map<string, number>();
@@ -96,15 +117,18 @@ export default function ProductsPage() {
             <TableRow>
               <TableHead>SKU</TableHead>
               <TableHead>Nome</TableHead>
+              <TableHead>EAN</TableHead>
               <TableHead>Categoria</TableHead>
               <TableHead className="tabular text-right">Custo (hoje)</TableHead>
+              <TableHead className="tabular text-right">Preço (hoje)</TableHead>
+              <TableHead className="tabular text-right">Margem</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 4 }).map((__, j) => (
+                  {Array.from({ length: 7 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -113,17 +137,29 @@ export default function ProductsPage() {
               ))
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                <TableCell colSpan={7} className="text-center text-muted-foreground">
                   Nenhum produto encontrado.
                 </TableCell>
               </TableRow>
             ) : (
               filtered.map((product) => {
                 const cost = costBySku.get(product.sku);
+                const price = priceBySku.get(product.sku);
+                // Margem só existe com os DOIS lados na mesma data. Faltando
+                // um, é "—" e nunca 0% — que se leria como margem nula real.
+                const margin =
+                  cost !== undefined && price !== undefined && price > 0 ? (price - cost) / price : null;
+
                 return (
                   <TableRow key={product.id}>
                     <TableCell className="font-mono text-xs text-muted-foreground">{product.sku}</TableCell>
-                    <TableCell className="font-medium">{product.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {product.name}
+                      {product.subcategory && (
+                        <span className="block text-xs text-muted-foreground">{product.subcategory}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="tabular text-xs text-muted-foreground">{product.ean ?? "—"}</TableCell>
                     <TableCell>
                       <Badge variant="secondary">{categoryLabel[product.category]}</Badge>
                     </TableCell>
@@ -133,6 +169,16 @@ export default function ProductsPage() {
                         <span className="text-muted-foreground">Sem custo</span>
                       ) : (
                         currency.format(cost / 100)
+                      )}
+                    </TableCell>
+                    <TableCell className="tabular text-right">
+                      {price === undefined ? <span className="text-muted-foreground">Sem preço</span> : money(price)}
+                    </TableCell>
+                    <TableCell className="tabular text-right">
+                      {margin === null ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <span className={margin < 0 ? "text-destructive" : ""}>{(margin * 100).toFixed(1)}%</span>
                       )}
                     </TableCell>
                   </TableRow>

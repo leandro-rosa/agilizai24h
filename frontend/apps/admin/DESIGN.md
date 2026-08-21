@@ -107,6 +107,23 @@ preenchimento sólido.
   distinguem como séries categóricas. Proibidas em chrome de UI, e sem
   carga semântica — perda usa `--destructive`, não um slot do ramp.
 
+### Vazio honesto
+
+Um número que o sistema não sabe **nunca** é renderizado como `0`. Zero é
+uma afirmação — "não houve" — e quase sempre a verdade é "não dá para
+saber". O painel usa três formas, nesta ordem de força:
+
+| Situação | Como aparece |
+|---|---|
+| Métrica indefinida por natureza (payback sem lucro, break-even sem margem) | `StatusBadge tone="critical"` "Indefinido", ou "—" com explicação abaixo |
+| Dado que o backend não conseguiu responder | "Indisponível" em `--warning`, com ícone |
+| Célula sem valor numa tabela | "—" em `--muted-foreground` |
+| Cifra parcial (soma sobre um subconjunto) | O valor **mais** "sobre N de M", com ícone de atenção |
+
+`RequestState` cobre os quatro estados de request (carregando, vazio, erro,
+sem permissão); esta tabela é sobre a célula individual, que `RequestState`
+não alcança.
+
 ## Gaps conhecidos
 
 - **Sem wordmark para fundo claro** no kit da marca (ver acima). Pedir à
