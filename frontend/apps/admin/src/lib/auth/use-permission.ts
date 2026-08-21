@@ -14,7 +14,13 @@ import { useGetMeQuery } from "@/lib/api/auth";
  * request: RTK Query dedupes identical in-flight/cached queries by key, so
  * this is the same cached result, not a new network call.
  */
-export function useHasPermission(permission: string): boolean {
+export function useHasPermission(permission: string | undefined): boolean {
   const { data } = useGetMeQuery();
+
+  // `undefined` significa "não exige permissão nenhuma" — é o caso da visão
+  // geral no menu. Tratar como `false` esconderia justamente o item que todo
+  // operador pode ver.
+  if (permission === undefined) return true;
+
   return data?.permissions.includes(permission) ?? false;
 }
