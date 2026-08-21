@@ -9,6 +9,10 @@ import { productsApi } from "@/lib/api/products";
 import { salesApi } from "@/lib/api/sales";
 import { storesApi } from "@/lib/api/stores";
 import { suppliersApi } from "@/lib/api/suppliers";
+import { treasuryApi } from "@/lib/api/treasury";
+import { accountingApi } from "@/lib/api/accounting";
+import { billingApi } from "@/lib/api/billing";
+import { capexApi } from "@/lib/api/capex";
 import { supplyApi } from "@/lib/api/supply";
 
 export function makeStore() {
@@ -24,6 +28,10 @@ export function makeStore() {
       [overviewApi.reducerPath]: overviewApi.reducer,
       [ingestionApi.reducerPath]: ingestionApi.reducer,
       [suppliersApi.reducerPath]: suppliersApi.reducer,
+      [treasuryApi.reducerPath]: treasuryApi.reducer,
+      [accountingApi.reducerPath]: accountingApi.reducer,
+      [billingApi.reducerPath]: billingApi.reducer,
+      [capexApi.reducerPath]: capexApi.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware().concat(
@@ -37,6 +45,10 @@ export function makeStore() {
         overviewApi.middleware,
         ingestionApi.middleware,
         suppliersApi.middleware,
+        treasuryApi.middleware,
+        accountingApi.middleware,
+        billingApi.middleware,
+        capexApi.middleware,
       ),
   });
 }

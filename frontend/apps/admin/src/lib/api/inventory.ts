@@ -74,10 +74,32 @@ function sumStock(storeId: number, range: PeriodRange, perMonth: (StoreStock | u
   return { storeId, range, items, has_inconsistencies: items.some((item) => item.inconsistent) };
 }
 
+export interface CentralStockLot {
+  id: number;
+  sku: string;
+  ean: string | null;
+  quantity: number;
+  expires_on: string | null;
+  received_on: string;
+  supplier_id: number | null;
+  unit_cost_cents: number | null;
+  note: string | null;
+}
+
+export interface CentralStockSummary {
+  lot_count: number;
+  total_quantity: number;
+  expired_quantity: number;
+  expiring_30d_quantity: number;
+  valued_amount_cents: number;
+  /** Sobre quantos lotes a cifra acima foi somada — nunca passa por completa. */
+  valued_lot_count: number;
+}
+
 export const inventoryApi = createApi({
   reducerPath: "inventoryApi",
   baseQuery: gatewayBaseQuery,
-  tagTypes: ["Minimum"],
+  tagTypes: ["Minimum", "CentralStock"],
   endpoints: (builder) => ({
     /**
      * `/inventory/:storeId?period=` already collapses to "the latest
@@ -125,7 +147,44 @@ export const inventoryApi = createApi({
       }),
       invalidatesTags: ["Minimum"],
     }),
+    getCentralStock: builder.query<CentralStockLot[], { sku?: string; expiring_within_days?: number } | void>({
+      query: (filter) => {
+        const params = new URLSearchParams();
+        if (filter?.sku) params.set("sku", filter.sku);
+        if (filter?.expiring_within_days !== undefined) {
+          params.set("expiring_within_days", String(filter.expiring_within_days));
+        }
+        const search = params.toString();
+        return `/inventory/central${search ? `?${search}` : ""}`;
+      },
+      providesTags: ["CentralStock"],
+    }),
+    getCentralStockSummary: builder.query<CentralStockSummary, void>({
+      query: () => "/inventory/central/summary",
+      providesTags: ["CentralStock"],
+    }),
+    createLot: builder.mutation<CentralStockLot, Partial<CentralStockLot>>({
+      query: (body) => ({ url: "/inventory/central", method: "POST", body }),
+      invalidatesTags: ["CentralStock"],
+    }),
+    updateLot: builder.mutation<CentralStockLot, { id: number } & Partial<CentralStockLot>>({
+      query: ({ id, ...body }) => ({ url: `/inventory/central/${id}`, method: "PATCH", body }),
+      invalidatesTags: ["CentralStock"],
+    }),
+    deleteLot: builder.mutation<void, number>({
+      query: (id) => ({ url: `/inventory/central/${id}`, method: "DELETE" }),
+      invalidatesTags: ["CentralStock"],
+    }),
   }),
 });
 
-export const { useGetStockRangeQuery, useGetNetworkStockRangeQuery, useSetMinimumMutation } = inventoryApi;
+export const {
+  useGetStockRangeQuery,
+  useGetNetworkStockRangeQuery,
+  useSetMinimumMutation,
+  useGetCentralStockQuery,
+  useGetCentralStockSummaryQuery,
+  useCreateLotMutation,
+  useUpdateLotMutation,
+  useDeleteLotMutation,
+} = inventoryApi;
