@@ -22,6 +22,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import Link from "next/link";
+import { useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import {
@@ -45,7 +46,7 @@ import {
 import { BrandMark } from "@/components/brand-mark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useGetMeQuery, useLogoutMutation } from "@/lib/api/auth";
-import { useHasPermission } from "@/lib/auth/use-permission";
+
 
 /**
  * Navegação agrupada. Vinte itens numa lista plana é inutilizável, e o
@@ -124,38 +125,25 @@ export const navGroups: NavGroup[] = [
 /** Lista plana, para o breadcrumb resolver o rótulo do caminho atual. */
 export const nav: NavItem[] = navGroups.flatMap((group) => group.items);
 
-/**
- * Um componente por item porque `useHasPermission` é um hook: chamá-lo dentro
- * do `.map()` do pai violaria as regras dos hooks quando um grupo mudar de
- * tamanho.
- */
-function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
-  const allowed = useHasPermission(item.permission);
-  if (!allowed) return null;
-
-  const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-
-  return (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        asChild
-        isActive={isActive}
-        tooltip={item.title}
-        className="data-[active=true]:border-l-2 data-[active=true]:border-l-primary data-[active=true]:bg-sidebar-accent"
-      >
-        <Link href={item.href}>
-          <item.icon />
-          <span>{item.title}</span>
-        </Link>
-      </SidebarMenuButton>
-    </SidebarMenuItem>
-  );
-}
-
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { data: caller } = useGetMeQuery();
+
+  /*
+   * Permissão resolvida em lote, não por um hook dentro do `.map()`: assim
+   * o grupo inteiro some quando nenhum item dele é visível. Um cabeçalho
+   * "Tesouraria" sem nada embaixo é ruído — e é o que aparecia para quem
+   * não tinha as permissões de back-office.
+   */
+  const granted = caller?.permissions;
+  const visibleGroups = useMemo(() => {
+    const allows = (permission?: string) => permission === undefined || (granted?.includes(permission) ?? false);
+
+    return navGroups
+      .map((group) => ({ ...group, items: group.items.filter((item) => allows(item.permission)) }))
+      .filter((group) => group.items.length > 0);
+  }, [granted]);
   const [logout] = useLogoutMutation();
 
   async function handleLogout() {
@@ -186,14 +174,29 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        {navGroups.map((group) => (
+        {visibleGroups.map((group) => (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {group.items.map((item) => (
-                  <NavLink key={item.href} item={item} pathname={pathname} />
-                ))}
+                {group.items.map((item) => {
+                  const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                  return (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        tooltip={item.title}
+                        className="data-[active=true]:border-l-2 data-[active=true]:border-l-primary data-[active=true]:bg-sidebar-accent"
+                      >
+                        <Link href={item.href}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
