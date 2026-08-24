@@ -61,5 +61,3 @@ Origem na planilha: abas `Clientes` e `Notas fiscais`, as linhas
   tela que só oferece lojas reais.
 - **Sem numeração automática de NF.** `number` vem do chamador, porque a
   numeração é do emissor fiscal, não deste serviço.
-- **A migration inicial foi gerada com `prisma migrate diff`** — o banco deste
-  serviço ainda não subiu. Aplicar com `pnpm prisma:deploy` na primeira subida.

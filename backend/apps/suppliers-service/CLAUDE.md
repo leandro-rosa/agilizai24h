@@ -60,6 +60,3 @@ valor não deve exigir migration.
   `unmatched`, sem "você quis dizer". Casamento por distância de edição foi
   considerado e deixado de fora: um palpite errado aqui atribui dinheiro ao
   fornecedor errado, e o custo de cadastrar o alias à mão é baixo.
-- **A migration inicial foi gerada com `prisma migrate diff`**, não com
-  `migrate dev` — o banco deste serviço ainda não subiu. Aplicar com
-  `pnpm prisma:deploy` na primeira subida.

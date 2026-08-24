@@ -68,5 +68,3 @@ sem fornecedor resolvido é trabalho pendente, não detalhe.
   `suppliers-service`.** Os dois precisam concordar, e hoje isso é garantido
   por teste em cada lado, não por código compartilhado. Extrair para um
   pacote de contrato quando um terceiro serviço precisar do mesmo dobramento.
-- **A migration inicial foi gerada com `prisma migrate diff`** — o banco deste
-  serviço ainda não subiu. Aplicar com `pnpm prisma:deploy` na primeira subida.

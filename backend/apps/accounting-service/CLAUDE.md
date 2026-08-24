@@ -84,5 +84,3 @@ sairia dobrada.
   linha `per_store` lançada só na rede, ou só por loja, passa sem alerta.
 - **Sem DRE por loja materializado em lote.** `computeSnapshot` é um mês/uma
   loja por chamada; fechar 24 lojas são 24 chamadas.
-- **A migration inicial foi gerada com `prisma migrate diff`** — o banco deste
-  serviço ainda não subiu. Aplicar com `pnpm prisma:deploy` na primeira subida.

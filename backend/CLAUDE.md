@@ -103,3 +103,9 @@ configurado via env vars.
   do app, então o Node resolve pelo `node_modules` do app. Toda dependência de
   runtime de uma lib precisa ser declarada também no app que a consome — já
   mordeu com `@nestjs/terminus`, `fastify` e `@bull-board/fastify`.
+- **Migration roda sozinha na subida.** Todo serviço com Prisma tem o `CMD`
+  do Dockerfile (`dev` e `runtime`) prefixado com `pnpm run prisma:deploy &&`
+  — `migrate deploy` só aplica migration pendente, então reexecutar num
+  schema já em dia é no-op e seguro a cada restart. Isso exige `prisma` em
+  `dependencies` (não `devDependencies`, senão some do install `--prod`) e
+  `prisma.config.ts` copiado no estágio `runtime` junto com `prisma/`.

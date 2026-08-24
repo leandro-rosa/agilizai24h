@@ -71,5 +71,3 @@ colocaria em primeiro, no lugar da loja que realmente se paga mais rápido.
   virar milhares.
 - **Nada valida `store_id` contra o `stores-service`.** Database-per-service
   não permite FK; a validação certa é uma tela que só oferece lojas reais.
-- **A migration inicial foi gerada com `prisma migrate diff`** — o banco deste
-  serviço ainda não subiu. Aplicar com `pnpm prisma:deploy` na primeira subida.
