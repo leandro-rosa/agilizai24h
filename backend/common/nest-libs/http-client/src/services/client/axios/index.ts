@@ -103,11 +103,20 @@ export class AxiosHttpClient {
     maxBodyLength,
     maxContentLength,
   }: RequestDTO): AxiosRequestConfig {
+    // `Content-Type: application/json` only belongs on a request that actually
+    // has a JSON body. Sent on every request regardless, a bodyless call
+    // (any DELETE, or a GET/POST/PATCH with no payload) still carries it with
+    // no body — a Fastify server's body-parser rejects that combination
+    // outright ("Body cannot be empty when content-type is set to
+    // 'application/json'"), which silently broke every bodyless call routed
+    // through this client (found via gateway-service's treasury DELETE proxy).
+    const contentTypeHeaders = payload !== undefined ? { 'Content-Type': this.defaultHeaders['Content-Type'] } : {}
     return {
       url,
       method: http_method,
       headers: {
-        ...this.defaultHeaders,
+        'User-Agent': this.defaultHeaders['User-Agent'],
+        ...contentTypeHeaders,
         ...(requestHeaders ?? {}),
       },
       data: payload,

@@ -66,7 +66,13 @@ export class UpstreamClient {
   constructor(private readonly http: AxiosHttpClient) {}
 
   async send<T>(call: UpstreamCall, timeoutMs: number, deadlineMs: number): Promise<UpstreamResponse<T>> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    // Only set a JSON content-type when there is a body to describe. Sent
+    // unconditionally, a bodyless call (every DELETE, plus any GET/PATCH/POST
+    // with no payload) still carries `Content-Type: application/json` with an
+    // empty body — Fastify's body-parser rejects that combination outright
+    // ("Body cannot be empty when content-type is set to 'application/json'"),
+    // which is why deleting a treasury transaction from the browser 400s.
+    const headers: Record<string, string> = call.payload !== undefined ? { 'Content-Type': 'application/json' } : {}
     if (call.correlationId) headers['x-correlation-id'] = call.correlationId
 
     try {

@@ -19,6 +19,13 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: app.get(ConfigService).get<string>('ADMIN_ORIGIN'),
     credentials: true,
+    // @fastify/cors defaults `methods` to GET,HEAD,POST — the CORS-safe
+    // "simple request" verbs — not the full REST verb set. Left implicit,
+    // every PATCH/PUT/DELETE from the browser fails preflight with no
+    // route-level error, which is why no update/delete action anywhere in
+    // the panel had ever been exercised from a real browser (discovered
+    // verifying add-treasury-classification-model's mapping edit).
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
   })
 
   // The gateway owns the browser relationship: the session is an HTTP-only
