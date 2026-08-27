@@ -108,7 +108,7 @@ Lista plana com vinte itens é inutilizável, e o agrupamento é o que separa
 |---|---|
 | Operação | `/` · `/sales` · `/supply` · `/inventory` · `/inventory/central` |
 | Financeiro | `/finance` (reconciliação) · `/finance/pnl` (DRE) · `/finance/cash-flow` |
-| Tesouraria | `/treasury` · `/treasury/mappings` |
+| Tesouraria | `/treasury` · `/treasury/imports` · `/treasury/mappings` |
 | Comercial | `/billing/clients` · `/billing/contracts` · `/billing/invoices` |
 | Investimento | `/capex` · `/capex/investors` |
 | Cadastros | `/products` · `/stores` · `/suppliers` |
@@ -131,6 +131,79 @@ para uma ação que o menu deixou visível.
 - `src/lib/api/{suppliers,treasury,accounting,billing,capex}.ts` — um
   `createApi` por domínio, como os nove anteriores. São 14 reducers em
   `src/lib/store.ts`.
+
+## Tesouraria: upload/conferência (`add-treasury-review-ui`) e dashboard (`add-treasury-dashboard`)
+
+- **Três telas, uma fila de estado**: `/treasury/imports/upload` (envia até 6
+  arquivos, um por fonte, todos opcionais) → `/treasury/imports/:period`
+  (conferência — aparece com `?sources=<lista>` vindo do upload) →
+  `/treasury` (dashboard + tabela, já confirmado). `/treasury/imports` (sem
+  período) é só a listagem histórica de todo `PendingImport`, entrada pelo
+  item "Importar extratos" da sidebar.
+- **Polling da tela de conferência não usa `pollingInterval` alimentado por
+  ref/estado derivado do próprio resultado da query.** A config de ESLint
+  deste app aplica as regras de pureza do React Compiler
+  (`react-hooks/refs`, `react-hooks/set-state-in-effect`,
+  `react-hooks/purity`) — leitura/escrita de ref durante o render, `setState`
+  síncrono no corpo de um efeito, e `Date.now()` durante o render são todos
+  erro de lint, não só de estilo. As três tentativas óbvias para "poll até a
+  condição bater" caem numa dessas. O que passa: um `useEffect` cujo
+  dependency array é o booleano `stillWaiting` (derivado puro do resultado
+  da query, sem ref nem estado), que cria um `setInterval` chamando
+  `refetch()` — quando `stillWaiting` vira `false`, o efeito roda de novo,
+  limpa o `setInterval` anterior e não cria um novo. `refetch()` dentro do
+  callback do timer (não síncrono no corpo do efeito) é o que evita o aviso
+  de "setState síncrono".
+- **`suggested_supplier_id`/`supplier_id` nunca são preenchidos por nenhum
+  fluxo hoje** — nem a classificação automática (`CounterpartyMapping` do
+  seed não seta `supplier_id`), nem os formulários "Novo lançamento"/
+  "Corrigir classificação" fazem disso um campo obrigatório (é opcional, só
+  para o caso raro de vincular a um fornecedor de estoque real já
+  cadastrado). Por isso `GET /treasury/transactions/by-supplier`
+  (`useGetTransactionsBySupplierQuery`) sempre volta vazio contra dado
+  real, e "despesa por fornecedor" (tela de conferência e dashboard) é
+  calculada no cliente agrupando por `normalizeCounterpartyForGrouping`
+  (`src/lib/api/treasury.ts` — mesmo dobramento de
+  `normalizeCounterparty` do `treasury-service`), não por `supplier_id`.
+  Ligar os ~30 fornecedores confirmados do Anexo A a registros reais de
+  `suppliers-service` resolveria isto — não feito aqui porque precisa de
+  dado de fornecedor real para linkar, não de mudança de tela.
+- **Edição de lançamento confirmado agora existe** (`/treasury`, ícone de
+  lápis por linha) — reusa exatamente o mesmo `fields`/`transactionSchema`
+  de "Novo lançamento" via `submitValues()`, e `useUpdateTransactionMutation`
+  (já existia, sem chamador até esta mudança).
+- **`/treasury`'s resumo (4 cards + despesa por categoria) e a tabela
+  principal usam `RequestState` em fronteiras separadas** — o resumo depende
+  só de `getTransactionSummaryQuery({period})` (sem o filtro de natureza
+  da tabela: o resumo do mês não deve mudar quando o operador filtra a
+  tabela abaixo por natureza), despesa-por-fornecedor/pendentes dependem de
+  uma segunda `getTransactionsQuery({period})`, e a tabela em si tem sua
+  própria terceira fronteira com o filtro de natureza aplicado. Uma falha
+  numa query não apaga as seções que não dependem dela.
+- **Dois gráficos de barra ("Classificação por tipo", por `kind`, e
+  "Despesa por natureza") vêm da mesma `periodTransactions` (mês inteiro,
+  nunca do filtro de natureza/range de dias da tabela)** — cores via
+  `ChartConfig`/`<Cell fill="var(--color-<key>)">`: `kind` reaproveita os
+  tons semânticos dos `SummaryCard` (`--success`/`--destructive`/
+  `--warning`/`--muted-foreground`); `nature` (só existe para
+  `kind: expense`) não tem precedente de cor em nenhuma tela (nem o DRE
+  colore por natureza), então usa a paleta de dataviz dedicada
+  `--chart-1..5` — o 5º bucket (`sem_natureza`) é o catch-all para uma
+  despesa ainda sem `nature` resolvida, mesma filosofia de nunca esconder
+  dado incompleto. Tooltip de proveniência (ícone `Info` ao lado do badge
+  "Sem fornecedor") resolve `pending_import_id`/`mapping_rule_id` via
+  `useGetMappingsQuery()`/`useGetPendingImportsQuery({period})`, join
+  client-side em `Map` (`mappingById`/`importById`) — mesmo raciocínio de
+  volume pequeno que já vale para `normalizeCounterpartyForGrouping`.
+- **`src/components/date-range-picker.tsx`** — range de DIAS reais
+  (`occurred_on`), só afeta a tabela principal (nunca `periodTransactions`,
+  os dois gráficos, o resumo ou os imports), resetado ao trocar de período.
+  Não confundir com `month-range-picker.tsx` (range de MESES inteiros,
+  usado por `store-period-picker.tsx` em vendas/abastecimento/estoque/
+  financeiro) — `treasury` é o único domínio do painel com granularidade
+  diária real por lançamento, os outros só têm mês. `Calendar`/`Popover`
+  (shadcn, `react-day-picker@10`) já estavam vendorizados mas sem nenhum
+  consumidor antes deste componente.
 
 ## O que as telas novas recusam mostrar como zero
 
@@ -260,10 +333,13 @@ que faz a sessão funcionar.
 - **Sem suíte de testes automatizados no app** — a verificação é manual,
   ao vivo, contra o stack real. Com 20 rotas isso ficou grande demais para
   seguir assim; levar o painel a ter testes é proposta OpenSpec própria.
-- **As 12 telas novas nunca renderizaram com dado real.** Os cinco serviços
-  de back-office ainda não subiram (as migrations foram geradas com
-  `prisma migrate diff` e estão pendentes de `prisma:deploy`), então tudo
-  que foi verificado é typecheck, lint e build. Login, visão geral e
-  financeiro foram vistos no browser; o resto, não.
+- **Das 12 telas novas, nem todas renderizaram com dado real ainda.** Login,
+  visão geral, financeiro e agora tesouraria (`/treasury`,
+  `/treasury/imports*`, `/treasury/mappings` — `add-treasury-classification-
+  model`, `add-treasury-statement-ingestion`, `add-treasury-review-ui`,
+  `add-treasury-dashboard`) foram vistas no browser contra o stack real,
+  com upload → conferência → confirmação → dashboard passando de ponta a
+  ponta. As demais telas de back-office (billing, capex, accounting) ainda
+  só têm typecheck/lint/build verificados.
 - `frontend/common/` continua vazio; este app não compartilha nada com o
   `site` ainda (nenhum ganho óbvio de baixo risco identificado).

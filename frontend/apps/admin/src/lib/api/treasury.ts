@@ -13,6 +13,29 @@ export const NATURE_LABELS: Record<Nature, string> = {
   investment: "Investimento",
 };
 
+export const KINDS = ["revenue", "expense", "movement", "pending"] as const;
+export type Kind = (typeof KINDS)[number];
+
+/** O eixo novo, independente de `nature` — o que liga tesouraria ao dashboard reorganizado. */
+export const KIND_LABELS: Record<Kind, string> = {
+  revenue: "Receita",
+  expense: "Despesa",
+  movement: "Movimentação",
+  pending: "Pendente",
+};
+
+/** Toda `CounterpartyMapping` resolve para um desses três — nunca "pending". */
+export const MAPPING_KINDS = ["revenue", "expense", "movement"] as const;
+export type MappingKind = (typeof MAPPING_KINDS)[number];
+
+export const MATCH_TYPES = ["exact", "contains"] as const;
+export type MatchType = (typeof MATCH_TYPES)[number];
+
+export const MATCH_TYPE_LABELS: Record<MatchType, string> = {
+  exact: "Exato",
+  contains: "Contém",
+};
+
 export const PAYMENT_METHODS = ["debit", "credit", "pix", "voucher"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
@@ -27,6 +50,52 @@ export const ACCOUNT_KINDS = ["checking", "credit_card"] as const;
 export const ACCOUNT_KIND_LABELS: Record<string, string> = {
   checking: "Conta corrente",
   credit_card: "Cartão de crédito",
+};
+
+export const TREASURY_SOURCES = [
+  "pagbank_statement",
+  "c6_statement",
+  "c6_invoice",
+  "pagseguro_invoice",
+  "nubank_statement",
+  "bradesco_statement",
+  "itau_statement",
+] as const;
+export type TreasurySource = (typeof TREASURY_SOURCES)[number];
+
+export const TREASURY_SOURCE_LABELS: Record<TreasurySource, string> = {
+  pagbank_statement: "Extrato PagBank",
+  c6_statement: "Extrato C6",
+  c6_invoice: "Fatura do cartão C6",
+  pagseguro_invoice: "Fatura PagSeguro",
+  nubank_statement: "Extrato Nubank",
+  bradesco_statement: "Extrato Bradesco",
+  itau_statement: "Extrato Itaú",
+};
+
+/**
+ * Palpite de institution/kind por fonte, só para pré-selecionar a conta
+ * certa no formulário de upload (`bank_account.institution`/`kind`, seeds
+ * `20260826020000_seed_bank_accounts` e `20260826030000_seed_pagseguro_
+ * invoice_account`) — o operador sempre pode trocar.
+ */
+export const TREASURY_SOURCE_ACCOUNT_HINT: Record<TreasurySource, { institution: string; kind: "checking" | "credit_card" }> = {
+  pagbank_statement: { institution: "pagbank", kind: "checking" },
+  c6_statement: { institution: "c6", kind: "checking" },
+  c6_invoice: { institution: "c6", kind: "credit_card" },
+  pagseguro_invoice: { institution: "pagbank", kind: "credit_card" },
+  nubank_statement: { institution: "nubank", kind: "checking" },
+  bradesco_statement: { institution: "bradesco", kind: "checking" },
+  itau_statement: { institution: "itau", kind: "checking" },
+};
+
+export const IMPORT_STATUSES = ["staged", "confirmed", "rejected"] as const;
+export type ImportStatus = (typeof IMPORT_STATUSES)[number];
+
+export const IMPORT_STATUS_LABELS: Record<ImportStatus, string> = {
+  staged: "Em conferência",
+  confirmed: "Confirmado",
+  rejected: "Rejeitado",
 };
 
 export interface BankAccount {
@@ -49,10 +118,18 @@ export interface BankTransaction {
   supplier_id: number | null;
   entry_type: string;
   category: string;
-  nature: Nature;
+  /** revenue | expense | movement | pending — só `expense` carrega `nature`. */
+  kind: Kind;
+  nature: Nature | null;
   store_id: number | null;
   installment_index: number | null;
   installment_total: number | null;
+  /** Lançamento que este neutraliza (mesmo período) — nulo se não houver par confirmado. */
+  neutralized_with_id: number | null;
+  /** De qual PendingImport (extrato/fatura) este lançamento veio — nulo se criado manualmente. */
+  pending_import_id: number | null;
+  /** Qual regra de de-para classificou no momento do confirm — nulo se veio do formato do arquivo, ainda pendente, ou manual. */
+  mapping_rule_id: number | null;
 }
 
 export interface TransactionSummary {
@@ -65,6 +142,23 @@ export interface TransactionSummary {
   by_nature: { nature: string; inflow_cents: number; outflow_cents: number; net_cents: number }[];
   by_category: { category: string; outflow_cents: number }[];
   unresolved_count: number;
+  /** Total `kind: movement` do período — informativo, nunca soma ao resultado. */
+  movement_cents: number;
+  pending_count: number;
+  pending_cents: number;
+}
+
+export interface SupplierTotal {
+  supplier_id: number;
+  outflow_cents: number;
+  transaction_count: number;
+}
+
+export interface NeutralizationCandidate {
+  a_id: number;
+  b_id: number;
+  reason: "recusado_estornado" | "devolucao_saida";
+  amount_cents: number;
 }
 
 export interface CounterpartyMapping {
@@ -74,7 +168,9 @@ export interface CounterpartyMapping {
   supplier_id: number | null;
   entry_type: string;
   category: string;
-  nature: Nature;
+  nature: Nature | null;
+  kind: MappingKind;
+  match_type: MatchType;
 }
 
 export interface AcquirerFee {
@@ -85,14 +181,107 @@ export interface AcquirerFee {
   effective_from: string;
 }
 
+export interface PendingImport {
+  id: number;
+  account_id: number;
+  period: string;
+  source: TreasurySource;
+  status: ImportStatus;
+  object_key: string;
+  line_count: number;
+  rejected_line_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PendingRejection {
+  id: number;
+  pending_import_id: number;
+  row_reference: string;
+  reason: string;
+  detail: string;
+}
+
+export interface PendingTransaction {
+  id: number;
+  pending_import_id: number;
+  occurred_on: string;
+  amount_cents: number;
+  direction: "inflow" | "outflow";
+  counterparty_raw: string;
+  source_ref: string;
+  installment_index: number | null;
+  installment_total: number | null;
+  /** Sugestão do parser/de-para — nunca "revenue" aqui: extrato bancário não distingue receita de movimentação sozinho. */
+  suggested_kind: Kind | null;
+  suggested_entry_type: string | null;
+  suggested_category: string | null;
+  suggested_nature: Nature | null;
+  suggested_supplier_id: number | null;
+  proof_object_key: string | null;
+  /** Aponta para um `BankTransaction` já confirmado com a mesma data+valor+favorecido — reenvio após confirmar. */
+  likely_duplicate_of_id: number | null;
+  /** Qual regra de de-para resolveu esta linha — nulo se veio do formato do arquivo (`structuralHint`) ou ainda não resolvida. */
+  mapping_rule_id: number | null;
+}
+
+export interface PendingImportDetail extends PendingImport {
+  transactions: PendingTransaction[];
+  rejections: PendingRejection[];
+}
+
+export interface UploadStatementsArgs {
+  period: string;
+  files: { source: TreasurySource; account_id: number; file: File }[];
+}
+
+export interface UpdatePendingTransactionArgs {
+  import_id: number;
+  transaction_id: number;
+  suggested_kind?: MappingKind;
+  suggested_category?: string;
+  suggested_nature?: Nature;
+  suggested_supplier_id?: number;
+}
+
+export interface AttachProofArgs {
+  import_id: number;
+  transaction_id: number;
+  image: File;
+  counterparty_raw?: string;
+}
+
 export interface TransactionFilter {
   period?: string;
   from?: string;
   to?: string;
+  occurred_from?: string;
+  occurred_to?: string;
   account_id?: number;
   nature?: Nature;
+  kind?: Kind;
   direction?: "inflow" | "outflow";
   unresolved?: boolean;
+}
+
+/**
+ * Mesmo dobramento de `normalizeCounterparty` do treasury-service — usado
+ * aqui para agrupar "despesa por fornecedor" no cliente. `supplier_id`
+ * nunca é preenchido hoje (nem a classificação automática, nem o
+ * formulário manual de lançamento setam), então o agrupamento real
+ * (`GET /treasury/transactions/by-supplier`) sempre devolve vazio na prática
+ * — gap documentado em frontend/apps/admin/CLAUDE.md. Agrupar por
+ * `counterparty_raw` normalizado é o proxy correto para "mesmo favorecido"
+ * enquanto isso não for ligado a `suppliers-service`.
+ */
+export function normalizeCounterpartyForGrouping(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function toQuery(filter: TransactionFilter = {}): string {
@@ -107,8 +296,28 @@ function toQuery(filter: TransactionFilter = {}): string {
 export const treasuryApi = createApi({
   reducerPath: "treasuryApi",
   baseQuery: gatewayBaseQuery,
-  tagTypes: ["Transaction", "Account", "Mapping", "Fee"],
+  tagTypes: ["Transaction", "Account", "Mapping", "Fee", "PendingImport"],
   endpoints: (builder) => ({
+    getCategories: builder.query<string[], void>({
+      query: () => "/treasury/categories",
+      providesTags: ["Mapping"],
+    }),
+    getTransactionsBySupplier: builder.query<SupplierTotal[], string>({
+      query: (period) => `/treasury/transactions/by-supplier?period=${period}`,
+      providesTags: ["Transaction"],
+    }),
+    getNeutralizationCandidates: builder.query<NeutralizationCandidate[], string>({
+      query: (period) => `/treasury/transactions/neutralization-candidates?period=${period}`,
+      providesTags: ["Transaction"],
+    }),
+    neutralizeTransactions: builder.mutation<void, { a_id: number; b_id: number }>({
+      query: (body) => ({ url: "/treasury/transactions/neutralize", method: "POST", body }),
+      invalidatesTags: ["Transaction"],
+    }),
+    unneutralizeTransaction: builder.mutation<void, number>({
+      query: (id) => ({ url: `/treasury/transactions/${id}/unneutralize`, method: "POST" }),
+      invalidatesTags: ["Transaction"],
+    }),
     getAccounts: builder.query<BankAccount[], void>({
       query: () => "/treasury/accounts",
       providesTags: ["Account"],
@@ -165,14 +374,68 @@ export const treasuryApi = createApi({
       query: (body) => ({ url: "/treasury/fees", method: "POST", body }),
       invalidatesTags: ["Fee"],
     }),
+    uploadStatements: builder.mutation<{ queued: { source: TreasurySource }[] }, UploadStatementsArgs>({
+      query: ({ period, files }) => {
+        const body = new FormData();
+        body.append("period", period);
+        for (const entry of files) {
+          body.append(`${entry.source}_account_id`, String(entry.account_id));
+          body.append(entry.source, entry.file);
+        }
+        return { url: "/treasury/imports/upload", method: "POST", body };
+      },
+      invalidatesTags: ["PendingImport"],
+    }),
+    getPendingImports: builder.query<PendingImport[], { period?: string } | void>({
+      query: (filter) => `/treasury/imports${filter?.period ? `?period=${filter.period}` : ""}`,
+      providesTags: ["PendingImport"],
+    }),
+    getPendingImport: builder.query<PendingImportDetail, number>({
+      query: (id) => `/treasury/imports/${id}`,
+      providesTags: (_result, _error, id) => [{ type: "PendingImport", id }],
+    }),
+    updatePendingTransaction: builder.mutation<PendingTransaction, UpdatePendingTransactionArgs>({
+      query: ({ import_id, transaction_id, ...body }) => ({
+        url: `/treasury/imports/${import_id}/transactions/${transaction_id}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (_result, _error, { import_id }) => [{ type: "PendingImport", id: import_id }],
+    }),
+    attachProof: builder.mutation<PendingTransaction, AttachProofArgs>({
+      query: ({ import_id, transaction_id, image, counterparty_raw }) => {
+        // Mesma ordem do upload de comprovante em /ingestion: o gateway lê
+        // request.file() de forma síncrona antes de consumir o stream do
+        // arquivo, então campos de valor precisam vir antes da parte do
+        // arquivo no multipart.
+        const body = new FormData();
+        if (counterparty_raw) body.append("counterparty_raw", counterparty_raw);
+        body.append("image", image);
+        return { url: `/treasury/imports/${import_id}/transactions/${transaction_id}/proof`, method: "POST", body };
+      },
+      invalidatesTags: (_result, _error, { import_id }) => [{ type: "PendingImport", id: import_id }],
+    }),
+    confirmImport: builder.mutation<{ confirmed: number }, number>({
+      query: (id) => ({ url: `/treasury/imports/${id}/confirm`, method: "POST" }),
+      invalidatesTags: (_result, _error, id) => [{ type: "PendingImport", id }, "PendingImport", "Transaction"],
+    }),
+    rejectImport: builder.mutation<void, number>({
+      query: (id) => ({ url: `/treasury/imports/${id}/reject`, method: "POST" }),
+      invalidatesTags: (_result, _error, id) => [{ type: "PendingImport", id }, "PendingImport"],
+    }),
   }),
 });
 
 export const {
   useGetAccountsQuery,
   useCreateAccountMutation,
+  useGetCategoriesQuery,
   useGetTransactionsQuery,
   useGetTransactionSummaryQuery,
+  useGetTransactionsBySupplierQuery,
+  useGetNeutralizationCandidatesQuery,
+  useNeutralizeTransactionsMutation,
+  useUnneutralizeTransactionMutation,
   useCreateTransactionMutation,
   useUpdateTransactionMutation,
   useDeleteTransactionMutation,
@@ -183,4 +446,11 @@ export const {
   useApplyMappingsMutation,
   useGetFeesQuery,
   useCreateFeeMutation,
+  useUploadStatementsMutation,
+  useGetPendingImportsQuery,
+  useGetPendingImportQuery,
+  useUpdatePendingTransactionMutation,
+  useAttachProofMutation,
+  useConfirmImportMutation,
+  useRejectImportMutation,
 } = treasuryApi;

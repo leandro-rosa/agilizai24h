@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import type { CounterpartyMapping } from '../../../../generated/prisma/client'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import {
   feeCents,
@@ -29,12 +30,32 @@ export interface TransactionSummary {
   period_from: string
   period_to: string
   transaction_count: number
+  /** Só `kind: revenue`. */
   inflow_cents: number
+  /** Só `kind: expense`. */
   outflow_cents: number
   net_cents: number
   by_nature: NatureTotal[]
   by_category: { category: string; outflow_cents: number }[]
   unresolved_count: number
+  /** Total de `kind: movement` no período — informativo, nunca somado ao resultado. */
+  movement_cents: number
+  /** Quantidade e soma de `kind: pending` no período. */
+  pending_count: number
+  pending_cents: number
+}
+
+export interface SupplierTotal {
+  supplier_id: number
+  outflow_cents: number
+  transaction_count: number
+}
+
+export interface NeutralizationCandidate {
+  a_id: number
+  b_id: number
+  reason: 'recusado_estornado' | 'devolucao_saida'
+  amount_cents: number
 }
 
 @Injectable()
@@ -61,9 +82,12 @@ export class TreasuryService {
   async createTransaction(dto: CreateTransactionDto) {
     await this.getAccount(dto.account_id)
     this.assertInstallmentPair(dto.installment_index, dto.installment_total)
+    if (dto.neutralized_with_id !== undefined) {
+      await this.assertNeutralizationTarget(dto.neutralized_with_id, dto.period)
+    }
 
     return this.prisma.bankTransaction.create({
-      data: { ...dto, occurred_on: new Date(dto.occurred_on) },
+      data: { ...dto, nature: this.natureFor(dto.kind, dto.nature), occurred_on: new Date(dto.occurred_on) },
     })
   }
 
@@ -75,10 +99,21 @@ export class TreasuryService {
       dto.installment_index ?? existing.installment_index ?? undefined,
       dto.installment_total ?? existing.installment_total ?? undefined,
     )
+    if (dto.neutralized_with_id !== undefined) {
+      await this.assertNeutralizationTarget(dto.neutralized_with_id, dto.period ?? existing.period)
+    }
 
+    const kind = dto.kind ?? existing.kind
     return this.prisma.bankTransaction.update({
       where: { id },
-      data: { ...dto, ...(dto.occurred_on ? { occurred_on: new Date(dto.occurred_on) } : {}) },
+      data: {
+        ...dto,
+        // `nature` só faz sentido para `kind: expense` (add-treasury-classification-model D1) —
+        // uma correção que muda o kind sem mexer em `nature` não pode deixar um `nature` órfão
+        // de uma classificação anterior.
+        ...('kind' in dto || 'nature' in dto ? { nature: this.natureFor(kind, dto.nature ?? existing.nature ?? undefined) } : {}),
+        ...(dto.occurred_on ? { occurred_on: new Date(dto.occurred_on) } : {}),
+      },
     })
   }
 
@@ -107,12 +142,15 @@ export class TreasuryService {
    * fornecedor resolvido é trabalho pendente, não detalhe.
    */
   async summary(filter: ListTransactionsDto): Promise<TransactionSummary> {
-    const where = this.transactionWhere(filter)
+    // Um par neutralizado nunca entra em total nenhum (nem receita/despesa,
+    // nem movimentação, nem pendente) — continua visível em listTransactions
+    // para auditoria, só não neste resumo (add-treasury-classification-model).
+    const where = { ...this.transactionWhere(filter), neutralized_with_id: null }
 
     const [rows, unresolved] = await Promise.all([
       this.prisma.bankTransaction.findMany({
         where,
-        select: { direction: true, amount_cents: true, nature: true, category: true, period: true },
+        select: { direction: true, amount_cents: true, nature: true, category: true, period: true, kind: true },
       }),
       this.prisma.bankTransaction.count({ where: { ...where, supplier_id: null } }),
     ])
@@ -121,29 +159,46 @@ export class TreasuryService {
     const categories = new Map<string, number>()
     let inflow = 0
     let outflow = 0
+    let movement = 0
+    let pendingCount = 0
+    let pendingCents = 0
     let periodFrom = ''
     let periodTo = ''
 
     for (const row of rows) {
+      if (!periodFrom || row.period < periodFrom) periodFrom = row.period
+      if (!periodTo || row.period > periodTo) periodTo = row.period
+
+      // `movement`/`pending` nunca entram em receita, despesa, natureza ou
+      // categoria — só nos próprios contadores informativos.
+      if (row.kind === 'movement') {
+        movement += row.amount_cents
+        continue
+      }
+      if (row.kind === 'pending') {
+        pendingCount += 1
+        pendingCents += row.amount_cents
+        continue
+      }
+
       const isInflow = row.direction === 'inflow'
       if (isInflow) inflow += row.amount_cents
       else outflow += row.amount_cents
 
-      const nature = natures.get(row.nature) ?? {
-        nature: row.nature,
-        inflow_cents: 0,
-        outflow_cents: 0,
-        net_cents: 0,
+      if (row.nature) {
+        const nature = natures.get(row.nature) ?? {
+          nature: row.nature,
+          inflow_cents: 0,
+          outflow_cents: 0,
+          net_cents: 0,
+        }
+        if (isInflow) nature.inflow_cents += row.amount_cents
+        else nature.outflow_cents += row.amount_cents
+        nature.net_cents = nature.inflow_cents - nature.outflow_cents
+        natures.set(row.nature, nature)
       }
-      if (isInflow) nature.inflow_cents += row.amount_cents
-      else nature.outflow_cents += row.amount_cents
-      nature.net_cents = nature.inflow_cents - nature.outflow_cents
-      natures.set(row.nature, nature)
 
       if (!isInflow) categories.set(row.category, (categories.get(row.category) ?? 0) + row.amount_cents)
-
-      if (!periodFrom || row.period < periodFrom) periodFrom = row.period
-      if (!periodTo || row.period > periodTo) periodTo = row.period
     }
 
     return {
@@ -158,7 +213,145 @@ export class TreasuryService {
         .map(([category, outflow_cents]) => ({ category, outflow_cents }))
         .sort((a, b) => b.outflow_cents - a.outflow_cents),
       unresolved_count: unresolved,
+      movement_cents: movement,
+      pending_count: pendingCount,
+      pending_cents: pendingCents,
     }
+  }
+
+  /**
+   * Soma de despesa por fornecedor, cruzando todas as contas do período —
+   * nunca uma linha por conta (add-treasury-classification-model).
+   */
+  async transactionsBySupplier(period: string): Promise<SupplierTotal[]> {
+    const rows = await this.prisma.bankTransaction.groupBy({
+      by: ['supplier_id'],
+      where: { period, kind: 'expense', supplier_id: { not: null }, neutralized_with_id: null },
+      _sum: { amount_cents: true },
+      _count: { _all: true },
+    })
+
+    return rows
+      .filter((row): row is typeof row & { supplier_id: number } => row.supplier_id !== null)
+      .map(row => ({
+        supplier_id: row.supplier_id,
+        outflow_cents: row._sum.amount_cents ?? 0,
+        transaction_count: row._count._all,
+      }))
+      .sort((a, b) => b.outflow_cents - a.outflow_cents)
+  }
+
+  /**
+   * Categorias em uso — a lista seedada mais qualquer categoria que uma
+   * regra de de-para já tenha introduzido, para a UI oferecer como sugestão
+   * sem precisar de migration a cada categoria nova.
+   */
+  async listCategories(): Promise<string[]> {
+    const [fromTransactions, fromMappings] = await Promise.all([
+      this.prisma.bankTransaction.findMany({ distinct: ['category'], select: { category: true } }),
+      this.prisma.counterpartyMapping.findMany({ distinct: ['category'], select: { category: true } }),
+    ])
+
+    return [...new Set([...fromTransactions, ...fromMappings].map(row => row.category))].sort()
+  }
+
+  /**
+   * Sugestões de par a neutralizar — nunca vincula sozinho (add-treasury-
+   * classification-model D6). Duas formas: (a) saída e entrada de mesmo
+   * valor, mesmo dia, mesma conta (Pix recusado/estornado); (b) uma entrada
+   * batendo com uma saída recente ao mesmo fornecedor resolvido, mesmo valor
+   * (devolução). Sempre dentro do mesmo período.
+   */
+  async neutralizationCandidates(period: string): Promise<NeutralizationCandidate[]> {
+    const rows = await this.prisma.bankTransaction.findMany({
+      where: { period, neutralized_with_id: null },
+      select: {
+        id: true,
+        account_id: true,
+        occurred_on: true,
+        direction: true,
+        amount_cents: true,
+        supplier_id: true,
+      },
+    })
+
+    const candidates: NeutralizationCandidate[] = []
+    const used = new Set<number>()
+
+    const outflows = rows.filter(row => row.direction === 'outflow')
+    const inflows = rows.filter(row => row.direction === 'inflow')
+
+    // (a) mesmo valor, mesmo dia, mesma conta, sentidos opostos.
+    for (const outflow of outflows) {
+      if (used.has(outflow.id)) continue
+      const match = inflows.find(
+        inflow =>
+          !used.has(inflow.id) &&
+          inflow.account_id === outflow.account_id &&
+          inflow.amount_cents === outflow.amount_cents &&
+          inflow.occurred_on.getTime() === outflow.occurred_on.getTime(),
+      )
+      if (match) {
+        candidates.push({ a_id: outflow.id, b_id: match.id, reason: 'recusado_estornado', amount_cents: outflow.amount_cents })
+        used.add(outflow.id)
+        used.add(match.id)
+      }
+    }
+
+    // (b) entrada batendo com saída recente ao mesmo fornecedor resolvido.
+    for (const inflow of inflows) {
+      if (used.has(inflow.id) || inflow.supplier_id === null) continue
+      const match = outflows.find(
+        outflow =>
+          !used.has(outflow.id) &&
+          outflow.supplier_id === inflow.supplier_id &&
+          outflow.amount_cents === inflow.amount_cents &&
+          outflow.occurred_on.getTime() <= inflow.occurred_on.getTime(),
+      )
+      if (match) {
+        candidates.push({ a_id: match.id, b_id: inflow.id, reason: 'devolucao_saida', amount_cents: inflow.amount_cents })
+        used.add(match.id)
+        used.add(inflow.id)
+      }
+    }
+
+    return candidates
+  }
+
+  /** Vincula um par como neutralizado — precisa de confirmação humana explícita, nunca automático. */
+  async neutralize(aId: number, bId: number): Promise<void> {
+    if (aId === bId) throw new BadRequestException('Um lançamento não neutraliza a si mesmo')
+
+    const [a, b] = await Promise.all([
+      this.prisma.bankTransaction.findUnique({ where: { id: aId } }),
+      this.prisma.bankTransaction.findUnique({ where: { id: bId } }),
+    ])
+    if (!a) throw new NotFoundException(`Transaction ${aId} not found`)
+    if (!b) throw new NotFoundException(`Transaction ${bId} not found`)
+    if (a.neutralized_with_id !== null || b.neutralized_with_id !== null) {
+      throw new ConflictException('Um dos dois lançamentos já está neutralizado por outro')
+    }
+    if (a.period !== b.period) {
+      throw new BadRequestException('Neutralização só entre lançamentos do mesmo período')
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.bankTransaction.update({ where: { id: aId }, data: { neutralized_with_id: bId } }),
+      this.prisma.bankTransaction.update({ where: { id: bId }, data: { neutralized_with_id: aId } }),
+    ])
+  }
+
+  /** Desfaz um par neutralizado — a confirmação anterior não é permanente se se mostrar errada. */
+  async unneutralize(id: number): Promise<void> {
+    const transaction = await this.prisma.bankTransaction.findUnique({ where: { id } })
+    if (!transaction) throw new NotFoundException(`Transaction ${id} not found`)
+    if (transaction.neutralized_with_id === null) return
+
+    const otherId = transaction.neutralized_with_id
+    await this.prisma.$transaction([
+      this.prisma.bankTransaction.update({ where: { id }, data: { neutralized_with_id: null } }),
+      this.prisma.bankTransaction.update({ where: { id: otherId }, data: { neutralized_with_id: null } }),
+    ])
   }
 
   // ----- DE-PARA ------------------------------------------------------------
@@ -168,6 +361,9 @@ export class TreasuryService {
   }
 
   async createMapping(dto: CreateMappingDto) {
+    // `contains` também é normalizado: a palavra-chave precisa bater com o
+    // mesmo dobramento (caixa/acento) que `resolveMapping` aplica ao texto
+    // do lançamento, senão "posto" nunca bateria com "POSTO IPIRANGA".
     const matchText = normalizeCounterparty(dto.match_text)
     if (!matchText) throw new BadRequestException('match_text vazio depois de normalizado')
 
@@ -176,7 +372,10 @@ export class TreasuryService {
       throw new ConflictException(`"${dto.match_text}" já é mapeado pela regra ${owner.id}`)
     }
 
-    return this.prisma.counterpartyMapping.create({ data: { ...dto, match_text: matchText } })
+    const kind = dto.kind ?? 'expense'
+    return this.prisma.counterpartyMapping.create({
+      data: { ...dto, match_text: matchText, kind, nature: this.natureFor(kind, dto.nature) },
+    })
   }
 
   async updateMapping(id: number, dto: UpdateMappingDto) {
@@ -191,9 +390,16 @@ export class TreasuryService {
       }
     }
 
+    const kind = dto.kind ?? existing.kind
     return this.prisma.counterpartyMapping.update({
       where: { id },
-      data: { ...dto, ...(matchText ? { match_text: matchText } : {}) },
+      data: {
+        ...dto,
+        ...(matchText ? { match_text: matchText } : {}),
+        ...('kind' in dto || 'nature' in dto
+          ? { kind, nature: this.natureFor(kind, dto.nature ?? existing.nature ?? undefined) }
+          : {}),
+      },
     })
   }
 
@@ -207,40 +413,74 @@ export class TreasuryService {
   /**
    * Classifica lançamentos ainda não classificados aplicando o DE-PARA.
    *
-   * Só toca o que está sem `supplier_id`: reaplicar sobre lançamento já
-   * conferido à mão desfaria a correção de quem conciliou.
+   * Só toca `kind: pending` — o sinal real de "ainda não classificado" desde
+   * add-treasury-classification-model. Antes disso o critério era
+   * `supplier_id: null`, mas isso também é verdade para todo lançamento
+   * `movement` já classificado corretamente (uma transferência entre contas
+   * próprias nunca tem fornecedor) — reaplicar em cima dele reprocessaria
+   * (inofensivo) ou, pior, desfaria uma correção manual que trocasse o kind
+   * sem mexer no fornecedor. `kind: pending` é o único estado que
+   * genuinamente significa "ninguém classificou isto ainda".
    */
   async applyMappings(period: string): Promise<{ examined: number; classified: number }> {
     const pending = await this.prisma.bankTransaction.findMany({
-      where: { period, supplier_id: null },
+      where: { period, kind: 'pending' },
       select: { id: true, counterparty_raw: true },
     })
     if (pending.length === 0) return { examined: 0, classified: 0 }
 
-    const keys = [...new Set(pending.map(t => normalizeCounterparty(t.counterparty_raw)))]
-    const mappings = await this.prisma.counterpartyMapping.findMany({
-      where: { match_text: { in: keys } },
-    })
-    const byKey = new Map(mappings.map(m => [m.match_text, m]))
+    const resolved = await this.resolveMany(pending.map(t => t.counterparty_raw))
 
     let classified = 0
     for (const transaction of pending) {
-      const rule = byKey.get(normalizeCounterparty(transaction.counterparty_raw))
+      const rule = resolved.get(normalizeCounterparty(transaction.counterparty_raw))
       if (!rule) continue
 
       await this.prisma.bankTransaction.update({
         where: { id: transaction.id },
         data: {
+          kind: rule.kind,
           supplier_id: rule.supplier_id,
           entry_type: rule.entry_type,
           category: rule.category,
-          nature: rule.nature,
+          nature: this.natureFor(rule.kind, rule.nature ?? undefined),
         },
       })
       classified += 1
     }
 
     return { examined: pending.length, classified }
+  }
+
+  /**
+   * Batch resolution: exact match first, then the longest matching
+   * `contains` rule (design "Risks" — a more specific keyword must beat a
+   * more general one). Shared by `applyMappings` and, from
+   * add-treasury-statement-ingestion, `PendingImportService` — one
+   * resolution algorithm, never re-implemented per caller.
+   *
+   * Keyed by NORMALIZED text: callers with a raw, unnormalized string should
+   * key their own lookups through `normalizeCounterparty` too.
+   */
+  async resolveMany(counterpartyRawTexts: string[]): Promise<Map<string, CounterpartyMapping>> {
+    const normalizedKeys = [...new Set(counterpartyRawTexts.map(normalizeCounterparty).filter(Boolean))]
+    const result = new Map<string, CounterpartyMapping>()
+    if (normalizedKeys.length === 0) return result
+
+    const [exactRules, containsRules] = await Promise.all([
+      this.prisma.counterpartyMapping.findMany({
+        where: { match_type: 'exact', match_text: { in: normalizedKeys } },
+      }),
+      this.prisma.counterpartyMapping.findMany({ where: { match_type: 'contains' } }),
+    ])
+    const exactByKey = new Map(exactRules.map(rule => [rule.match_text, rule]))
+
+    for (const key of normalizedKeys) {
+      const rule = exactByKey.get(key) ?? this.longestContainsMatch(key, containsRules)
+      if (rule) result.set(key, rule)
+    }
+
+    return result
   }
 
   // ----- taxas de adquirente ------------------------------------------------
@@ -349,12 +589,54 @@ export class TreasuryService {
 
     return {
       ...period,
+      ...(filter.occurred_from || filter.occurred_to
+        ? {
+            occurred_on: {
+              ...(filter.occurred_from ? { gte: new Date(filter.occurred_from) } : {}),
+              ...(filter.occurred_to ? { lte: new Date(filter.occurred_to) } : {}),
+            },
+          }
+        : {}),
       ...(filter.account_id !== undefined ? { account_id: filter.account_id } : {}),
       ...(filter.nature !== undefined ? { nature: filter.nature as Nature } : {}),
+      ...(filter.kind !== undefined ? { kind: filter.kind } : {}),
       ...(filter.direction !== undefined ? { direction: filter.direction } : {}),
       ...(filter.store_id !== undefined ? { store_id: filter.store_id } : {}),
       ...(filter.supplier_id !== undefined ? { supplier_id: filter.supplier_id } : {}),
       ...(filter.unresolved ? { supplier_id: null } : {}),
+    }
+  }
+
+  /** `nature` só existe para `kind: expense` — todo outro kind grava `null` (design D1). */
+  natureFor(kind: string, nature?: string | null): string | null {
+    return kind === 'expense' ? (nature ?? null) : null
+  }
+
+  /**
+   * Entre as regras `contains` cujo texto aparece no favorecido normalizado,
+   * a de `match_text` mais longo vence — uma palavra-chave mais específica
+   * deve bater antes de uma mais genérica (design "Risks").
+   */
+  private longestContainsMatch(
+    normalized: string,
+    rules: CounterpartyMapping[],
+  ): CounterpartyMapping | undefined {
+    return rules
+      .filter(rule => normalized.includes(rule.match_text))
+      .reduce<CounterpartyMapping | undefined>(
+        (longest, rule) => (!longest || rule.match_text.length > longest.match_text.length ? rule : longest),
+        undefined,
+      )
+  }
+
+  /** Neutralização é sempre dentro do mesmo período — nunca olha meses anteriores (design D6/D7 escopo). */
+  private async assertNeutralizationTarget(targetId: number, period: string): Promise<void> {
+    const target = await this.prisma.bankTransaction.findUnique({ where: { id: targetId } })
+    if (!target) throw new NotFoundException(`Transaction ${targetId} not found`)
+    if (target.period !== period) {
+      throw new BadRequestException(
+        `neutralized_with_id ${targetId} está no período ${target.period}, não ${period} — neutralização é só dentro do mesmo mês`,
+      )
     }
   }
 }

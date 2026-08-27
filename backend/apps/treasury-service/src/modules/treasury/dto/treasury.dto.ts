@@ -12,15 +12,22 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator'
 import {
   ACCOUNT_KINDS,
   DIRECTIONS,
+  KINDS,
+  MAPPING_KINDS,
+  MATCH_TYPES,
   NATURES,
   PAYMENT_METHODS,
   PERIOD_PATTERN,
   type AccountKind,
   type Direction,
+  type Kind,
+  type MappingKind,
+  type MatchType,
   type Nature,
   type PaymentMethod,
 } from '../constants/treasury-vocabulary'
@@ -105,9 +112,20 @@ export class CreateTransactionDto {
   @MaxLength(80)
   category: string
 
-  @ApiProperty({ enum: NATURES })
+  @ApiProperty({
+    enum: KINDS,
+    description: 'revenue | expense | movement | pending. Só `expense` carrega `nature`.',
+  })
+  @IsIn(KINDS)
+  kind: Kind
+
+  @ApiPropertyOptional({
+    enum: NATURES,
+    description: 'Obrigatório quando `kind: expense`; ausente para os demais kinds.',
+  })
+  @ValidateIf(o => o.kind === 'expense')
   @IsIn(NATURES)
-  nature: Nature
+  nature?: Nature
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -132,6 +150,14 @@ export class CreateTransactionDto {
   @IsString()
   @MaxLength(200)
   source_ref?: string
+
+  @ApiPropertyOptional({
+    description: 'Id do lançamento que este neutraliza (mesmo período). Ver POST /transactions/neutralize.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  neutralized_with_id?: number
 }
 
 export class UpdateTransactionDto extends PartialType(CreateTransactionDto) {}
@@ -152,6 +178,18 @@ export class ListTransactionsDto {
   @Matches(PERIOD_PATTERN, { message: PERIOD_MESSAGE })
   to?: string
 
+  @ApiPropertyOptional({
+    description: 'Início de um intervalo de dias sobre `occurred_on` (data real do lançamento), com `occurred_to`. Independente de `period`/`from`/`to`.',
+  })
+  @IsOptional()
+  @IsDateString()
+  occurred_from?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  occurred_to?: string
+
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Number)
@@ -162,6 +200,11 @@ export class ListTransactionsDto {
   @IsOptional()
   @IsIn(NATURES)
   nature?: Nature
+
+  @ApiPropertyOptional({ enum: KINDS })
+  @IsOptional()
+  @IsIn(KINDS)
+  kind?: Kind
 
   @ApiPropertyOptional({ enum: DIRECTIONS })
   @IsOptional()
@@ -218,9 +261,31 @@ export class CreateMappingDto {
   @MaxLength(80)
   category: string
 
-  @ApiProperty({ enum: NATURES })
+  @ApiPropertyOptional({
+    enum: MAPPING_KINDS,
+    default: 'expense',
+    description: 'revenue | expense | movement — nunca pending (uma regra sempre resolve para algo).',
+  })
+  @IsOptional()
+  @IsIn(MAPPING_KINDS)
+  kind?: MappingKind
+
+  @ApiPropertyOptional({
+    enum: NATURES,
+    description: 'Obrigatório quando `kind: expense` (o default); ausente para os demais kinds.',
+  })
+  @ValidateIf(o => (o.kind ?? 'expense') === 'expense')
   @IsIn(NATURES)
-  nature: Nature
+  nature?: Nature
+
+  @ApiPropertyOptional({
+    enum: MATCH_TYPES,
+    default: 'exact',
+    description: '`exact`: favorecido igual a match_text. `contains`: favorecido contém match_text.',
+  })
+  @IsOptional()
+  @IsIn(MATCH_TYPES)
+  match_type?: MatchType
 }
 
 export class UpdateMappingDto extends PartialType(CreateMappingDto) {}
@@ -245,6 +310,18 @@ export class CreateFeeDto {
   @ApiProperty({ example: '2026-01-01' })
   @IsDateString()
   effective_from: string
+}
+
+export class NeutralizeDto {
+  @ApiProperty()
+  @IsInt()
+  @Min(1)
+  a_id: number
+
+  @ApiProperty()
+  @IsInt()
+  @Min(1)
+  b_id: number
 }
 
 export class UpsertSettlementDto {
