@@ -90,6 +90,7 @@ export const navGroups: NavGroup[] = [
     label: "Tesouraria",
     items: [
       { title: "Lançamentos", href: "/treasury", icon: Landmark, permission: "treasury:read" },
+      { title: "Importar extratos", href: "/treasury/imports", icon: Upload, permission: "treasury:read" },
       { title: "De-para", href: "/treasury/mappings", icon: Handshake, permission: "treasury:read" },
     ],
   },

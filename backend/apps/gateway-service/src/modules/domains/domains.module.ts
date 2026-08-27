@@ -13,6 +13,7 @@ import { BillingController } from './controllers/billing.controller'
 import { CapexController } from './controllers/capex.controller'
 import { SuppliersController } from './controllers/suppliers.controller'
 import { TreasuryController } from './controllers/treasury.controller'
+import { TreasuryImportsController } from './controllers/treasury-imports.controller'
 
 @Module({
   imports: [AwsModule],
@@ -25,6 +26,7 @@ import { TreasuryController } from './controllers/treasury.controller'
     FinanceController,
     SuppliersController,
     TreasuryController,
+    TreasuryImportsController,
     AccountingController,
     BillingController,
     CapexController,

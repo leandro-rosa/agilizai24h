@@ -43,6 +43,14 @@ services:
     environment:
       DATABASE_URL: postgresql://${TREASURY_POSTGRES_USER:-agiliz}:${TREASURY_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-treasury-postgres:5432/${TREASURY_POSTGRES_DB:-treasury}
       PORT: 3000
+      # First queue consumer this service has (add-treasury-statement-
+      # ingestion) — shared Redis from docker-compose.infra.yaml, same as
+      # every other queue-registering service. WITH_KAFKA_BROKERS must be
+      # false, or @app/hold-it's default pulls in a Kafka broker this stack
+      # does not run.
+      REDIS_QUEUE_HOST: agiliz-redis
+      REDIS_QUEUE_PORT: 6379
+      WITH_KAFKA_BROKERS: "false"
     # No published host port: domain services stay internal to agiliz_network,
     # reachable only through gateway-service.
     expose:
@@ -71,6 +79,9 @@ services:
     environment:
       DATABASE_URL: postgresql://${TREASURY_POSTGRES_USER:-agiliz}:${TREASURY_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-treasury-postgres:5432/${TREASURY_POSTGRES_DB:-treasury}
       PORT: 3000
+      REDIS_QUEUE_HOST: agiliz-redis
+      REDIS_QUEUE_PORT: 6379
+      WITH_KAFKA_BROKERS: "false"
     expose:
       - "3000"
     networks:
