@@ -1,6 +1,6 @@
 /** Unit tier: colocated *.spec.ts, no I/O, no Nest DI. */
 const libs = ['aws', 'elasticsearch', 'health', 'hold-it', 'http-client', 'prisma-db-client']
-const contracts = ['iam-contracts', 'products-contracts', 'ingestion-contracts']
+const contracts = ['iam-contracts', 'products-contracts', 'ingestion-contracts', 'treasury-ingestion-contracts']
 
 // Two patterns per lib, mirroring backend/tsconfig.json: hold-it imports its
 // siblings by subpath (e.g. @app/elasticsearch/services/client), so a bare

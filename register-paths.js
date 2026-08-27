@@ -56,5 +56,7 @@ register({
     '@app/quote-search-match/*': ['common/nest-libs/quote-search-match/src/*'],
     '@app/sheeter': ['common/nest-libs/sheeter/src'],
     '@app/sheeter/*': ['common/nest-libs/sheeter/src/*'],
+    '@app/treasury-ingestion-contracts': ['common/nest-libs/treasury-ingestion-contracts/src'],
+    '@app/treasury-ingestion-contracts/*': ['common/nest-libs/treasury-ingestion-contracts/src/*'],
   },
 })

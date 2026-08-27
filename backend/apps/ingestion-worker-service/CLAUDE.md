@@ -6,8 +6,114 @@ mudança que substitui o processo manual mensal. Ver
 
 **Chamado por**: `gateway-service` (HTTP interno, ao aceitar um upload).
 **Lê**: `stores-service` e `products-service`.
-**Escreve**: filas de `sales`, `supply` e `products`.
+**Escreve**: filas de `sales`, `supply`, `products` e (quarta família,
+`add-treasury-statement-ingestion`) `treasury`.
 Sem superfície pública — não publica porta.
+
+## A quarta família: extrato bancário e fatura de cartão
+
+Diferente das três primeiras (workbook → `sheeter.smartChunk` → staging →
+finalize), os 7 parsers de tesouraria não passam por staging nenhum: um
+arquivo mensal é centenas de linhas, não milhares, então não existe o risco
+de "chunk pisa no chunk anterior" que staging existe pra resolver. Cada
+parser lê o arquivo inteiro, produz TODAS as linhas de uma vez, e publica
+UM job só em `TREASURY_QUEUES.RAW_ROWS` (`@app/treasury-ingestion-contracts`)
+— `treasury-service` é o único consumidor, então (diferente de
+sales/supply/cost, que divergem em três filas de saída) as 7 fontes
+convergem numa fila de saída só.
+
+```
+gateway: recebe até 6 arquivos → S3 (um por vez) → POST /treasury-imports aqui (uma vez por arquivo)
+  ↓ uma fila POR FONTE (treasury-ingestion.pagbank-statement, .c6-statement, ...)
+<Fonte>Worker: baixa do S3 → extrai texto (pdf-parse) ou lê CSV (Bradesco) → parser da fonte
+  ↓ fila treasury.raw-rows (UM job por arquivo, nunca chunkado)
+treasury-service: RawRowsWorker classifica e grava em PendingImport/PendingTransaction
+```
+
+`POST /treasury-imports` (`TreasuryIngestionController`) não grava nada
+localmente — diferente de `POST /ingestions`, que cria um `Ingestion` aqui.
+`treasury-service` é dono de todo o estado da importação
+(`add-treasury-statement-ingestion` design D4); esta rota só decide qual
+fila enfileirar.
+
+**PDF é extração de texto (`pdf-parse`), nunca OCR** — os 6 extratos/fatura
+em PDF são gerados pelo banco, têm camada de texto real (confirmado direto:
+nenhum é escaneado). `utils/pdf-text.ts` é o wrapper fino; `utils/money.ts`
+e `utils/date.ts` são compartilhados por vários parsers (o "-R$" colado ao
+sinal, sem espaço, é um bug real do histórico da área financeira — testado
+nominalmente por causa disso; `findBareMoneyInText` é a variante sem `R$`
+obrigatório, precisa pra Itaú/C6-fatura/Nubank/PagSeguro-fatura, que não
+têm `R$` em lançamento nenhum). `utils/normalize.ts` dobra acento pro
+casamento de padrão estrutural — um `matchText` escrito com acento
+("Cartão") só bate com o texto extraído se os dois passarem pela mesma
+normalização; comparar com `.toUpperCase()` sozinho não dobra acento.
+
+**O layout de linha foi medido contra arquivo real** (2026-08-26, Barbara
+forneceu os 12 arquivos — ver `add-treasury-statement-ingestion/design.md`
+D9-D11 para o levantamento completo, `tasks.md` §10 para o histórico
+linha-a-linha por fonte). A suposição original ("data no início, descrição
+no meio, `R$` em algum lugar depois") só bateu pra PagBank — as outras 5
+fontes precisaram de reescrita real:
+
+- **PagBank**: bate com a suposição original.
+- **C6 extrato**: linha tab-separated, data `DD/MM` **sem ano** (ano vem de
+  um cabeçalho de seção "Mês AAAA" visto antes) — fora de
+  `parseStatementLines` de propósito, tem seu próprio loop.
+- **C6 fatura**: data `DD mmm` (abreviação de mês PT, sem barra, sem ano —
+  resolvido via `period` do upload + regra de rollover), valor sem `R$`.
+- **PagSeguro fatura**: 7ª fonte, descoberta só ao medir os arquivos reais
+  — arquivo genuinamente distinto do extrato PagBank, formato invertido
+  (descrição, valor nu, **data no fim** da linha).
+- **Itaú**: valor sem `R$` (2 ocorrências no documento inteiro, nenhuma em
+  lançamento); registro pode se espalhar por até 3 linhas de continuação
+  sem data própria (razão social longa empurra CNPJ+valor) — join de
+  lookahead até achar valor ou a próxima linha datada.
+- **Nubank**: a mais divergente — sem `R$`, sem data por lançamento (só no
+  cabeçalho do dia), registro de 3-5 linhas físicas. `nubank.parser.ts` tem
+  seu próprio assembler de blocos (estado dia+direção, nunca reseta por
+  página — um bloco pode atravessar borda de página de verdade, medido
+  direto). Tem um artefato de extração conhecido e documentado no próprio
+  arquivo: `pdf-parse` duplica o rabo do último registro visível bem na
+  borda de página — nunca perde valor (a soma bate exata contra o total que
+  o próprio arquivo declara), só ocasionalmente deixa um fragmento órfão
+  como rejeição.
+- **Bradesco**: arquivo real é `.xlsx`, nunca foi CSV — reescrito sobre
+  `readWorkbookRows` (mesmo leitor que sales/supply/cost já usa), cabeçalho
+  localizado por busca de conteúdo (linha 9, não linha 1), duas colunas de
+  valor (Crédito/Débito), uma segunda tabela empilhada abaixo de um rodapé
+  "Total" (mesmo padrão de "múltiplas tabelas numa aba" que
+  `locate-restocking-operations.ts` já resolve pra abastecimento).
+
+Cada fonte corrigida foi validada rodando o parser de verdade contra o
+arquivo real correspondente (script ad-hoc, não commitado) — Bradesco,
+Nubank e a fatura PagSeguro bateram a soma EXATA contra o total que o
+próprio arquivo declara (linha "Total"/resumo).
+
+**`counterpartyRaw` tem o rótulo do tipo de lançamento removido, quando a
+fonte souber quais são** (`stripKnownPrefix`, `parsers/statement-line.ts`,
+parâmetro `verbPrefixes`). Achado ao rodar o pipeline real de ponta a ponta:
+uma linha de extrato começa com o rótulo do BANCO ("Pix enviado AMBEV"), mas
+o de-para semeado em `add-treasury-classification-model` guarda o nome NU do
+favorecido ("AMBEV", `match_type: exact`) — sem o strip, nenhuma linha
+comum batia com regra nenhuma, e tudo além dos `StructuralPattern`s virava
+`kind: pending`. PagBank e C6 (com vocabulário de rótulo confirmado contra
+arquivo real) têm `VERB_PREFIXES` próprio; Nubank/Itaú resolvem o
+equivalente dentro do próprio assembler/join (não usam `stripKnownPrefix`,
+que é específico de `parseStatementLines`); Bradesco/PagSeguro fatura não
+têm rótulo nenhum colado na descrição (medido — a coluna/campo já é o nome
+nu). Casamento por CONTAGEM DE TOKEN contra `normalizeForMatch`, não por
+índice de caractere na string normalizada — colapso de espaço/pontuação na
+normalização quebraria um slice por índice (bug real, achado e corrigido
+contra o texto real do PagBank: um token de pontuação pura, tipo um `-`
+sozinho, some da contagem normalizada mas não some do array bruto).
+
+**`pdf-parse@2.4.5`/`pdfjs-dist` fazem `import()` dinâmico ao montar o
+"fake worker" do Node — o Jest padrão rejeita isso** com "A dynamic import
+callback was invoked without --experimental-vm-modules". Confirmado que é
+uma limitação SÓ do Jest: o mesmo código, rodando via `node` puro (o caminho
+real de produção/dev, `ts-node-dev` ou `tsc` compilado), extrai o PDF sem
+flag nenhuma. Por isso `pnpm test` deste serviço roda com
+`NODE_OPTIONS=--experimental-vm-modules` (só o script de teste, não o app).
 
 ## O fluxo
 
@@ -208,6 +314,26 @@ Interpretação de texto mora aqui, e não no `supply`, de propósito: o formato
   `minio-provision` que cria o bucket e sai.
 
 ## Gaps conhecidos
+- **Os 7 parsers de tesouraria já foram validados contra arquivo real**
+  (2026-08-26 — ver "A quarta família" acima, `add-treasury-statement-
+  ingestion/design.md` D9-D11). O que ainda falta: só `pagbank-sample.pdf`
+  virou fixture binária sintética commitada com teste de ponta a ponta
+  (`.fixture.spec.ts`); as outras 6 fontes têm cobertura de regressão via
+  `.spec.ts` com texto real medido (não fixture binária) — construir uma
+  fixture binária por fonte é um follow-up de menor prioridade, não
+  bloqueante (a validação interativa contra o arquivo real já provou a
+  extração PDF/xlsx em si funciona). **Atualização (backfill de 2026-08-26,
+  7-8 meses reais por fonte, não mais 1):** achado um segundo caso real de
+  linha-fantasma no Itaú — `SALDO ANTERIOR` (saldo de abertura, mesmo
+  rótulo do Bradesco) não estava em `BALANCE_LINE_PATTERNS`, virava
+  transação de R$0,00 (corrigido). As duas faturas (C6, PagSeguro) mostraram
+  que a data de cada linha é a de compra/ciclo, não a de referência do
+  período — uma fatura "junho" pode ter zero linha datada em junho; o
+  período de fatura nunca deve ser inferido de `occurredOn`, só do upload.
+  Os 5 extratos (não-fatura) continuam com `occurredOn` = data real de
+  liquidação, confirmado através de vários meses reais batendo exato contra
+  o subtotal que o próprio arquivo imprime (C6: `Entradas:`/`Saídas:` por
+  mês, todos os 7 meses testados — ver `treasury-service/CLAUDE.md`).
 - **Um "Distribution Center" existe no export desde maio/2026, sem `Cliente`.**
   A partir do backfill real de 7 meses: operações com `Estoque: Distribution
   Center` e `Tipo de operação: Inventário` carregam `Cliente` em branco — não
