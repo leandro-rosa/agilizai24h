@@ -32,7 +32,11 @@ request) e, por rota, dos 12 serviços de domínio — `stores`, `products`,
 | `GET/POST /suppliers`, `GET/PATCH /suppliers/:id` | `suppliers:read` / `:write` | |
 | `POST /suppliers/resolve` | `suppliers:read` | Lote de grafias → `{ matched, unmatched }`; é leitura apesar do POST |
 | `POST /suppliers/:id/aliases`, `DELETE /:id/aliases/:aliasId` | `suppliers:write` | |
-| `/treasury/accounts`, `/treasury/transactions`, `/treasury/mappings`, `/treasury/fees`, `/treasury/settlements` | `treasury:read` / `:write` | 17 rotas; `GET /treasury/transactions/summary` traz `unresolved_count` |
+| `/treasury/accounts`, `/treasury/transactions`, `/treasury/mappings`, `/treasury/fees`, `/treasury/settlements`, `/treasury/categories` | `treasury:read` / `:write` | 22 rotas; `GET /treasury/transactions/summary` traz `unresolved_count`, `movement_cents`, `pending_count`/`pending_cents`; `.../by-supplier` consolida entre contas; `.../neutralization-candidates` só sugere, `POST .../neutralize` (`:write`) vincula |
+| `POST /treasury/imports/upload` | `treasury:write` | Multipart, até 6 arquivos (campo = fonte); grava no S3, chama `ingestion-worker-service` uma vez por arquivo — nunca fila direto (design de `add-ingestion-flow`, repetido aqui) |
+| `GET /treasury/imports`, `GET /treasury/imports/:id` | `treasury:read` | A conferência — imports `staged`/`confirmed`/`rejected` |
+| `PATCH /treasury/imports/:id/transactions/:txId[/proof]` | `treasury:write` | Corrige a sugestão / anexa comprovante (o `/proof` é o único endpoint de tesouraria que aceita arquivo além do upload principal) |
+| `POST /treasury/imports/:id/confirm`, `.../reject` | `treasury:write` | Vira `BankTransaction` em lote, ou descarta |
 | `/accounting/accounts`, `/accounting/entries`, `/accounting/pnl/*`, `/accounting/cash-flow` | `accounting:read` / `:write` | 11 rotas; `POST /accounting/pnl/:period/compute` congela o mês |
 | `/billing/clients`, `/billing/contracts`, `/billing/invoices`, `/billing/revenue-shares` | `billing:read` / `:write` | 17 rotas; `GET /billing/invoices/aging` deriva o vencido |
 | `/capex/investments`, `/capex/items`, `/capex/investors` | `capex:read` / `:write` | 16 rotas; `GET /capex/investments/payback` é MÉTRICA DERIVADA |
@@ -92,6 +96,24 @@ Nenhuma é óbvia pela assinatura, e as duas afetam a semântica acima:
    retentaria por ~40s. `UpstreamClient` impõe um deadline geral
    (`UPSTREAM_DEADLINE_MS`), que é o que torna real o "502 rápido" em vez de um
    request pendurado.
+
+## Um jeito de travar o request inteiro: parte de multipart não drenada
+
+`TreasuryImportsController.upload()` itera `request.parts()` (`@fastify/
+multipart`) e, para um `fieldname` de arquivo desconhecido, fazia só
+`continue` — sem consumir o stream daquela parte. **`@fastify/multipart`
+exige que toda parte tipo arquivo seja drenada antes de conseguir parsear a
+próxima ou finalizar o request; pular sem drenar trava o request inteiro
+pra sempre, sem resposta nenhuma, nem erro.** Achado ao vivo (não em teste):
+um build desatualizado do gateway que ainda não conhecia uma fonte nova
+(`pagseguro_invoice`, `add-treasury-statement-ingestion` design D11) travou
+o upload correspondente indefinidamente. Correção: `part.file.resume()`
+antes do `continue` — descarta o stream sem bufferizar. Mesma armadilha
+existiria pra QUALQUER `fieldname` desconhecido (nome errado, campo extra),
+não só pra essa causa específica — a correção é geral, não um workaround
+pontual. Sem teste de integração automatizado ainda (a suíte atual não tem
+infraestrutura de stub pra S3/multipart desse controller) — verificado só
+ao vivo, contra o stack Docker real.
 
 ## Testes
 

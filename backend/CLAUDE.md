@@ -20,21 +20,25 @@ visão geral do monorepo.
   [finance-service](apps/finance-service/CLAUDE.md) (a reconciliação mensal).
   `iam-service` foi o primeiro e serve de molde para os próximos.
 - **Back-office** — 5 serviços que saíram da planilha de relatórios, cada um
-  com seu Postgres (portas 5441-5445), sem ingestão por enquanto:
+  com seu Postgres (portas 5441-5445). Quatro ainda sem ingestão de arquivo;
+  [treasury-service](apps/treasury-service/CLAUDE.md) (extrato bancário,
+  fatura de cartão, DE-PARA, taxas de adquirente) é o primeiro a ganhar uma
+  (`add-treasury-statement-ingestion`: `ingestion-worker-service` parseia,
+  `treasury-service` classifica e fica em conferência até confirmar):
   [suppliers-service](apps/suppliers-service/CLAUDE.md) (fornecedores e as
   grafias sob as quais aparecem),
-  [treasury-service](apps/treasury-service/CLAUDE.md) (extrato, cartão,
-  DE-PARA, taxas de adquirente),
   [accounting-service](apps/accounting-service/CLAUDE.md) (plano de contas,
   DRE, fluxo de caixa),
   [billing-service](apps/billing-service/CLAUDE.md) (clientes, contratos,
   notas fiscais, repasse) e
   [capex-service](apps/capex-service/CLAUDE.md) (investimento por loja,
   aportes, payback).
-- `common/nest-libs/` — 10 libs: 8 abstratas mais dois pacotes de contrato sem
+- `common/nest-libs/` — 11 libs: 8 abstratas mais três pacotes de contrato sem
   lógica, [iam-contracts](common/nest-libs/iam-contracts/CLAUDE.md) (iam ↔
-  gateway) e [products-contracts](common/nest-libs/products-contracts/CLAUDE.md)
-  (products → finance/supply).
+  gateway), [products-contracts](common/nest-libs/products-contracts/CLAUDE.md)
+  (products → finance/supply) e
+  [treasury-ingestion-contracts](common/nest-libs/treasury-ingestion-contracts/CLAUDE.md)
+  (ingestion-worker → treasury).
 
 Vários `CLAUDE.md` das libs abaixo mencionam apps consumidores (`quote`,
 `search`, `bull-board`) — isso é histórico trazido de outro repositório;
@@ -56,6 +60,7 @@ ver [../openspec/project.md](../openspec/project.md).)
 | [products-contracts](common/nest-libs/products-contracts/CLAUDE.md) | `BulkCostResult` particionado + `Centavos` — contrato `products-service` → `finance`/`supply` |
 | [quote-search-match](common/nest-libs/quote-search-match/CLAUDE.md) | Contrato (filas + tipos) entre apps de quote e de search — sem lógica |
 | [sheeter](common/nest-libs/sheeter/CLAUDE.md) | Leitura/escrita de planilhas/CSV sobre `hold-it` + `aws` |
+| [treasury-ingestion-contracts](common/nest-libs/treasury-ingestion-contracts/CLAUDE.md) | Fila (`TREASURY_QUEUES.RAW_ROWS`) + tipos — contrato `ingestion-worker-service` → `treasury-service` |
 
 Padrão de composição: `hold-it` é a base de que `elasticsearch`, `aws` e
 `sheeter` dependem. Cada lib é um módulo `@Global()` focado em um serviço,
