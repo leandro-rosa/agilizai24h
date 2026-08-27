@@ -184,6 +184,19 @@ export class TreasuryController {
     return result.data
   }
 
+  @Get('categories')
+  @RequiresPermission(PERMISSIONS.TREASURY_READ)
+  @ApiOperation({ summary: 'Categories in use' })
+  async getCategories(@Req() request: FastifyRequest) {
+    const result = await this.domains.treasury({
+      method: 'get',
+      path: '/treasury/categories',
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
   @Get('transactions/summary')
   @RequiresPermission(PERMISSIONS.TREASURY_READ)
   @ApiOperation({ summary: 'Totals by nature and category' })
@@ -192,6 +205,61 @@ export class TreasuryController {
     const result = await this.domains.treasury({
       method: 'get',
       path: `/treasury/transactions/summary${search ? `?${search}` : ''}`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Get('transactions/by-supplier')
+  @RequiresPermission(PERMISSIONS.TREASURY_READ)
+  @ApiOperation({ summary: 'Expense total per fornecedor, consolidated across accounts' })
+  async getTransactionsBySupplier(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    const search = new URLSearchParams(query).toString()
+    const result = await this.domains.treasury({
+      method: 'get',
+      path: `/treasury/transactions/by-supplier${search ? `?${search}` : ''}`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Get('transactions/neutralization-candidates')
+  @RequiresPermission(PERMISSIONS.TREASURY_READ)
+  @ApiOperation({ summary: 'Suggested transaction pairs that may cancel each other out' })
+  async getNeutralizationCandidates(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    const search = new URLSearchParams(query).toString()
+    const result = await this.domains.treasury({
+      method: 'get',
+      path: `/treasury/transactions/neutralization-candidates${search ? `?${search}` : ''}`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Post('transactions/neutralize')
+  @RequiresPermission(PERMISSIONS.TREASURY_WRITE)
+  @ApiOperation({ summary: 'Confirm a neutralizing pair' })
+  async postTransactionsNeutralize(@Body() body: unknown, @Req() request: FastifyRequest) {
+    const result = await this.domains.treasury({
+      method: 'post',
+      path: '/treasury/transactions/neutralize',
+      payload: body,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Post('transactions/:id/unneutralize')
+  @RequiresPermission(PERMISSIONS.TREASURY_WRITE)
+  @ApiOperation({ summary: 'Undo a confirmed neutralization' })
+  async postTransactionsUnneutralize(@Param('id') id: string, @Req() request: FastifyRequest) {
+    const result = await this.domains.treasury({
+      method: 'post',
+      path: `/treasury/transactions/${encodeURIComponent(id)}/unneutralize`,
       correlationId: correlationOf(request),
     })
 

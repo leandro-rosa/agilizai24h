@@ -10,6 +10,10 @@ import { ResourceFormDialog, type FieldSpec } from "@/components/resource-form-d
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
+  KIND_LABELS,
+  MAPPING_KINDS,
+  MATCH_TYPE_LABELS,
+  MATCH_TYPES,
   NATURE_LABELS,
   NATURES,
   useCreateMappingMutation,
@@ -20,13 +24,21 @@ import {
 } from "@/lib/api/treasury";
 import { useHasPermission } from "@/lib/auth/use-permission";
 
-const mappingSchema = z.object({
-  match_text: z.string().min(1, "Informe a grafia"),
-  display_name: z.string().min(1, "Informe o nome"),
-  entry_type: z.string().min(1, "Informe o tipo"),
-  category: z.string().min(1, "Informe a categoria"),
-  nature: z.enum(NATURES),
-});
+const mappingSchema = z
+  .object({
+    match_text: z.string().min(1, "Informe a grafia"),
+    display_name: z.string().min(1, "Informe o nome"),
+    entry_type: z.string().min(1, "Informe o tipo"),
+    category: z.string().min(1, "Informe a categoria"),
+    kind: z.enum(MAPPING_KINDS),
+    // Só obrigatória para kind "expense" — mesma regra da tela de lançamentos.
+    nature: z.enum(NATURES).optional(),
+    match_type: z.enum(MATCH_TYPES),
+  })
+  .refine((values) => values.kind !== "expense" || values.nature !== undefined, {
+    message: "Informe a natureza para despesa",
+    path: ["nature"],
+  });
 
 type MappingForm = z.infer<typeof mappingSchema>;
 
@@ -38,14 +50,29 @@ const FIELDS: FieldSpec<MappingForm>[] = [
     placeholder: "ASSAÍ ATACADISTA LJ49",
     hint: "É normalizada — caixa, acento e pontuação não importam.",
   },
+  {
+    name: "match_type",
+    label: "Como bate",
+    kind: "select",
+    options: MATCH_TYPES.map((m) => ({ value: m, label: MATCH_TYPE_LABELS[m] })),
+    hint: '"Exato" é o padrão. "Contém" é para palavra-chave (ex.: texto contém "POSTO" ⇒ Combustível).',
+  },
   { name: "display_name", label: "Nome de exibição", kind: "text", placeholder: "Assaí Atacadista" },
   { name: "entry_type", label: "Tipo", kind: "text", placeholder: "estoque" },
   { name: "category", label: "Categoria", kind: "text", placeholder: "estoque geral" },
+  {
+    name: "kind",
+    label: "Tipo de lançamento",
+    kind: "select",
+    options: MAPPING_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k] })),
+    hint: "Movimentação nunca conta como receita/despesa (ex.: transferência entre contas próprias, fatura, CDB, sócio).",
+  },
   {
     name: "nature",
     label: "Natureza",
     kind: "select",
     options: NATURES.map((n) => ({ value: n, label: NATURE_LABELS[n] })),
+    hint: "Só se aplica quando o tipo é Despesa.",
   },
 ];
 
@@ -73,7 +100,7 @@ export default function MappingsPage() {
               }
               schema={mappingSchema}
               fields={FIELDS}
-              defaultValues={{ nature: "cogs" } as MappingForm}
+              defaultValues={{ kind: "expense", nature: "cogs", match_type: "exact" } as MappingForm}
               onSubmit={(values) => createMapping(values).unwrap()}
             />
           ) : null
@@ -94,18 +121,30 @@ export default function MappingsPage() {
               <TableHead>Nome</TableHead>
               <TableHead>Tipo</TableHead>
               <TableHead>Categoria</TableHead>
-              <TableHead>Natureza</TableHead>
+              <TableHead>Classificação</TableHead>
               {canWrite && <TableHead className="w-24" />}
             </TableRow>
           </TableHeader>
           <TableBody>
             {(mappings ?? []).map((mapping) => (
               <TableRow key={mapping.id}>
-                <TableCell className="font-mono text-xs">{mapping.match_text}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  {mapping.match_text}
+                  {mapping.match_type === "contains" && (
+                    <span className="ml-1 text-muted-foreground">(contém)</span>
+                  )}
+                </TableCell>
                 <TableCell className="font-medium">{mapping.display_name}</TableCell>
                 <TableCell>{mapping.entry_type}</TableCell>
                 <TableCell>{mapping.category}</TableCell>
-                <TableCell>{NATURE_LABELS[mapping.nature] ?? mapping.nature}</TableCell>
+                <TableCell>
+                  {KIND_LABELS[mapping.kind] ?? mapping.kind}
+                  {mapping.nature && (
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      ({NATURE_LABELS[mapping.nature] ?? mapping.nature})
+                    </span>
+                  )}
+                </TableCell>
                 {canWrite && (
                   <TableCell className="text-right">
                     <Button variant="ghost" size="icon" title="Editar" onClick={() => setEditing(mapping)}>
@@ -134,7 +173,9 @@ export default function MappingsPage() {
               display_name: editing.display_name,
               entry_type: editing.entry_type,
               category: editing.category,
-              nature: editing.nature,
+              kind: editing.kind,
+              nature: editing.nature ?? undefined,
+              match_type: editing.match_type,
             } as MappingForm
           }
           open

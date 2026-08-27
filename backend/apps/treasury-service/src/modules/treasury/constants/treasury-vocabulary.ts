@@ -15,9 +15,40 @@ export type Direction = (typeof DIRECTIONS)[number]
  * - `operating`      — frete, coffee break, deslocamento
  * - `administrative` — sistema, contador, imposto, pró-labore
  * - `investment`     — equipamento, móvel, comunicação de loja
+ *
+ * Só se aplica a lançamento `kind: expense` — ver `KINDS` abaixo.
  */
 export const NATURES = ['cogs', 'operating', 'administrative', 'investment'] as const
 export type Nature = (typeof NATURES)[number]
+
+/**
+ * O eixo novo, independente de `nature`: é receita, é despesa real, é só
+ * dinheiro se movendo entre contas da própria empresa, ou ainda não foi
+ * identificado?
+ *
+ * - `revenue`  — venda, voucher, recebimento de cliente
+ * - `expense`  — despesa real por fornecedor; só este carrega `nature`
+ * - `movement` — transferência entre contas próprias, pagamento de fatura,
+ *                CDB, empréstimo, retirada de sócio — nunca conta como
+ *                receita nem despesa, não importa o valor
+ * - `pending`  — favorecido ainda não resolvido; fica fora dos totais até
+ *                ser classificado
+ */
+export const KINDS = ['revenue', 'expense', 'movement', 'pending'] as const
+export type Kind = (typeof KINDS)[number]
+
+/** Toda `CounterpartyMapping` resolve para um desses três — nunca `pending`: uma regra sempre resolve para algo. */
+export const MAPPING_KINDS = ['revenue', 'expense', 'movement'] as const
+export type MappingKind = (typeof MAPPING_KINDS)[number]
+
+/**
+ * `exact` — comportamento de sempre: bate só quando o texto normalizado do
+ * favorecido é igual a `match_text`.
+ * `contains` — novo: bate quando o texto normalizado CONTÉM `match_text`
+ * como substring (regra de palavra-chave, ex.: "POSTO" ⇒ Combustível).
+ */
+export const MATCH_TYPES = ['exact', 'contains'] as const
+export type MatchType = (typeof MATCH_TYPES)[number]
 
 export const PAYMENT_METHODS = ['debit', 'credit', 'pix', 'voucher'] as const
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number]

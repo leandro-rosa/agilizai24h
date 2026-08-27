@@ -6,6 +6,7 @@ import {
   CreateMappingDto,
   CreateTransactionDto,
   ListTransactionsDto,
+  NeutralizeDto,
   UpdateAccountDto,
   UpdateMappingDto,
   UpdateTransactionDto,
@@ -107,6 +108,13 @@ export class TreasuryController {
     return this.treasury.upsertSettlement(dto)
   }
 
+  // categorias
+  @Get('categories')
+  @ApiOperation({ summary: 'Categories in use (seeded + anything a mapping rule introduced)' })
+  listCategories() {
+    return this.treasury.listCategories()
+  }
+
   // lançamentos
   @Get('transactions/summary')
   @ApiOperation({
@@ -115,6 +123,34 @@ export class TreasuryController {
   })
   summary(@Query() query: ListTransactionsDto) {
     return this.treasury.summary(query)
+  }
+
+  @Get('transactions/by-supplier')
+  @ApiOperation({ summary: 'Expense total per fornecedor, consolidated across every account in the period' })
+  transactionsBySupplier(@Query('period') period: string) {
+    return this.treasury.transactionsBySupplier(period)
+  }
+
+  @Get('transactions/neutralization-candidates')
+  @ApiOperation({
+    summary: 'Suggested pairs that may cancel each other out',
+    description: 'A suggestion only — nothing is linked until POST /transactions/neutralize confirms it.',
+  })
+  neutralizationCandidates(@Query('period') period: string) {
+    return this.treasury.neutralizationCandidates(period)
+  }
+
+  @Post('transactions/neutralize')
+  @ApiOperation({ summary: 'Confirm a neutralizing pair — both are excluded from every total, neither is deleted' })
+  neutralize(@Body() dto: NeutralizeDto) {
+    return this.treasury.neutralize(dto.a_id, dto.b_id)
+  }
+
+  @Post('transactions/:id/unneutralize')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Undo a confirmed neutralization' })
+  unneutralize(@Param('id', ParseIntPipe) id: number) {
+    return this.treasury.unneutralize(id)
   }
 
   @Get('transactions')

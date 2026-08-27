@@ -27,7 +27,8 @@ model BankAccount {
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
-  transactions BankTransaction[]
+  transactions   BankTransaction[]
+  pending_imports PendingImport[]
 
   @@map("bank_account")
 }
@@ -46,6 +47,13 @@ model BankTransaction {
   direction    String
   amount_cents Int
 
+  /// revenue | expense | movement | pending — independente do `nature`
+  /// ligado ao DRE. Só `expense` conta como despesa e só ele carrega
+  /// `nature`; `movement` (transferência entre contas próprias, fatura,
+  /// CDB, empréstimo, retirada de sócio) e `pending` nunca entram em total
+  /// de receita/despesa. Ver add-treasury-classification-model.
+  kind String
+
   /// Como veio da origem, antes do DE-PARA. Preservado mesmo depois de
   /// resolvido: é o que permite reconferir uma classificação suspeita.
   counterparty_raw String
@@ -55,10 +63,12 @@ model BankTransaction {
   /// Coluna "Tipo": estoque | investimento | mensalidade sistema | Contador...
   entry_type String
   /// Coluna "Categoria": congelados | cartão | sistema | estoque geral...
+  /// Semi-curada (seed + `/treasury/categories`), continua texto livre.
   category   String
   /// Coluna "Natureza" (aba Página64), o eixo que alimenta o DRE:
-  /// cogs | operating | administrative | investment
-  nature     String
+  /// cogs | operating | administrative | investment. Só presente quando
+  /// `kind = expense` — `movement`/`revenue`/`pending` nunca carregam DRE.
+  nature     String?
 
   /// Quando o lançamento é atribuível a uma loja. Nulo é o caso comum:
   /// despesa administrativa não pertence a loja nenhuma.
@@ -73,6 +83,34 @@ model BankTransaction {
   /// Nulo enquanto não houver ingestão automática.
   ingestion_id String?
 
+  /// De qual PendingImport (arquivo/fonte/período) este lançamento veio,
+  /// setado só em `confirm()`. Nulo para lançamento criado manualmente
+  /// ("Novo lançamento") ou anterior a esta coluna. `onDelete: SetNull`
+  /// pelo mesmo motivo de `neutralized_with_id`: apagar o import não pode
+  /// derrubar silenciosamente o lançamento já confirmado.
+  pending_import_id Int?
+  pending_import     PendingImport? @relation(fields: [pending_import_id], references: [id], onDelete: SetNull)
+
+  /// Qual regra de CounterpartyMapping (de-para) classificou este
+  /// lançamento NO MOMENTO do confirm — nulo quando a classificação veio
+  /// de `structuralHint` do parser (formato do arquivo, não favorecido),
+  /// quando ainda não resolvido (`kind: pending`), ou lançamento manual.
+  /// Não é sincronizado se o lançamento for editado depois — registra o
+  /// que decidiu na hora, mesma filosofia de `counterparty_raw` nunca ser
+  /// sobrescrito.
+  mapping_rule_id Int?
+  mapping_rule     CounterpartyMapping? @relation(fields: [mapping_rule_id], references: [id], onDelete: SetNull)
+
+  /// Aponta para o lançamento que este neutraliza (Pix recusado + estornado,
+  /// devolução que cancela uma saída recente) — sempre dentro do mesmo
+  /// período. Um par vinculado é excluído dos totais dos dois lados, mas
+  /// nenhum dos dois é apagado: os dois são fatos reais de extrato.
+  /// Auto-FK sem `onDelete` em cascata — apagar um lado não deve derrubar o
+  /// outro silenciosamente (ver deleteTransaction).
+  neutralized_with_id Int?
+  neutralized_with    BankTransaction?  @relation("Neutralization", fields: [neutralized_with_id], references: [id])
+  neutralized_by       BankTransaction[] @relation("Neutralization")
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -83,6 +121,10 @@ model BankTransaction {
   @@index([supplier_id])
   @@index([nature, period])
   @@index([store_id, period])
+  @@index([kind, period])
+  @@index([neutralized_with_id])
+  @@index([pending_import_id])
+  @@index([mapping_rule_id])
   @@map("bank_transaction")
 }
 
@@ -97,9 +139,22 @@ model CounterpartyMapping {
   supplier_id  Int?
   entry_type   String
   category     String
-  nature       String
+  /// Só presente quando `kind = expense` — mesma regra do `BankTransaction`.
+  nature       String?
+  /// revenue | expense | movement — nunca `pending` (uma regra sempre
+  /// resolve para algo; "não resolvido" é a ausência de regra, não um valor
+  /// dela). Ver add-treasury-classification-model.
+  kind         String   @default("expense")
+  /// exact | contains. `exact` é o comportamento de sempre (favorecido
+  /// batendo com `match_text` normalizado); `contains` é novo, para regra
+  /// de palavra-chave (ex.: texto contém "POSTO" ⇒ Combustível) que não dá
+  /// pra expressar como um favorecido exato.
+  match_type   String   @default("exact")
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
+
+  matched_transactions         BankTransaction[]
+  matched_pending_transactions PendingTransaction[]
 
   @@map("counterparty_mapping")
 }
@@ -146,4 +201,103 @@ model SettlementReceipt {
   @@unique([store_id, period, payment_method])
   @@index([period])
   @@map("settlement_receipt")
+}
+
+// ----- staging: add-treasury-statement-ingestion --------------------------
+//
+// Um lote de upload por conta+período+fonte. Fica fora de BankTransaction de
+// propósito: nada aqui conta em total nenhum até `confirm` — é exatamente
+// isso que "conferir antes de confirmar" (regra da área financeira) exige, e
+// o gap de auto-finalize que `add-ingestion-flow` tem para sales/supply/cost
+// não serve aqui.
+
+model PendingImport {
+  id         Int    @id @default(autoincrement())
+  account_id Int
+  /// "YYYY-MM"
+  period     String
+  /// pagbank_statement | c6_statement | c6_invoice | nubank_statement | bradesco_statement | itau_statement
+  source     String
+  /// staged | confirmed | rejected
+  status     String @default("staged")
+  /// Onde o arquivo cru está no object storage — a evidência, preservada mesmo depois de confirmado.
+  object_key String
+
+  line_count          Int @default(0)
+  rejected_line_count Int @default(0)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  account      BankAccount          @relation(fields: [account_id], references: [id])
+  transactions PendingTransaction[]
+  rejections   PendingRejection[]
+  /// BankTransaction confirmada a partir deste import — nulo até `confirm()`.
+  confirmed_transactions BankTransaction[]
+
+  @@index([account_id, period, source])
+  @@index([status])
+  @@map("pending_import")
+}
+
+/// Uma linha ainda não confirmada. Carrega a classificação SUGERIDA (o motor
+/// de add-treasury-classification-model já rodou), nunca grava em
+/// BankTransaction até `confirm`.
+model PendingTransaction {
+  id                Int      @id @default(autoincrement())
+  pending_import_id Int
+  occurred_on       DateTime @db.Date
+  amount_cents      Int
+  direction         String
+  counterparty_raw  String
+  source_ref        String?
+  installment_index Int?
+  installment_total Int?
+
+  /// revenue | expense | movement | pending — igual ao kind de BankTransaction.
+  suggested_kind        String?
+  suggested_entry_type  String?
+  suggested_category    String?
+  suggested_nature      String?
+  suggested_supplier_id Int?
+
+  /// Qual regra de CounterpartyMapping resolveu esta linha — nulo para
+  /// `structuralHint` (formato do arquivo, não favorecido) ou ainda
+  /// pendente. Carregado para `BankTransaction.mapping_rule_id` no confirm.
+  mapping_rule_id Int?
+  mapping_rule    CounterpartyMapping? @relation(fields: [mapping_rule_id], references: [id], onDelete: SetNull)
+
+  /// Comprovante anexado na conferência — o caminho do SISPAG do Itaú, que não
+  /// traz favorecido no extrato (ver add-treasury-statement-ingestion spec).
+  proof_object_key String?
+
+  /// Preenchido na criação quando esta linha bate (data+valor+favorecido
+  /// normalizado) com uma BankTransaction já confirmada — reenvio depois de
+  /// confirmado, nunca detectado depois (design D6).
+  likely_duplicate_of_id Int?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  pending_import PendingImport @relation(fields: [pending_import_id], references: [id], onDelete: Cascade)
+
+  @@index([pending_import_id])
+  @@index([mapping_rule_id])
+  @@map("pending_transaction")
+}
+
+/// Linha que o parser não conseguiu ler — mesmo padrão de IngestionRejection
+/// no ingestion-worker-service.
+model PendingRejection {
+  id                Int      @id @default(autoincrement())
+  pending_import_id Int
+  row_reference     String
+  reason            String
+  detail            String
+  created_at        DateTime @default(now())
+
+  pending_import PendingImport @relation(fields: [pending_import_id], references: [id], onDelete: Cascade)
+
+  @@index([pending_import_id])
+  @@map("pending_rejection")
 }
