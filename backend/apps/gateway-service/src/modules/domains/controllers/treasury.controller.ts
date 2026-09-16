@@ -294,6 +294,20 @@ export class TreasuryController {
     return result.data
   }
 
+  @Patch('transactions/bulk')
+  @RequiresPermission(PERMISSIONS.TREASURY_WRITE)
+  @ApiOperation({ summary: 'Bulk-update nature/category for multiple transactions (declared before :id on purpose)' })
+  async patchTransactionsBulk(@Body() body: unknown, @Req() request: FastifyRequest) {
+    const result = await this.domains.treasury({
+      method: 'patch',
+      path: '/treasury/transactions/bulk',
+      payload: body,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
   @Patch('transactions/:id')
   @RequiresPermission(PERMISSIONS.TREASURY_WRITE)
   @ApiOperation({ summary: 'Correct a transaction' })

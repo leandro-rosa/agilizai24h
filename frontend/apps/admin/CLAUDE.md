@@ -97,6 +97,10 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
   separado: é assim que a CLI do shadcn v4 estrutura o CSS.
 - `scripts/contrast.mjs` (`pnpm contrast`) — verifica 20 pares de contraste
   WCAG e sai != 0 se algum reprovar. Rodar ao mexer em token.
+- `scripts/generate-contour-pattern.py` — gera `public/brand/contour.svg` e
+  `contour-surface.svg` (o padrão de fundo da marca, ver DESIGN.md
+  `.brand-canvas`). `numpy` só; rodar de novo para mudar o padrão, nunca
+  editar o `.svg` na mão.
 
 ## Rotas e navegação
 
@@ -154,20 +158,50 @@ para uma ação que o menu deixou visível.
   limpa o `setInterval` anterior e não cria um novo. `refetch()` dentro do
   callback do timer (não síncrono no corpo do efeito) é o que evita o aviso
   de "setState síncrono".
-- **`suggested_supplier_id`/`supplier_id` nunca são preenchidos por nenhum
-  fluxo hoje** — nem a classificação automática (`CounterpartyMapping` do
-  seed não seta `supplier_id`), nem os formulários "Novo lançamento"/
-  "Corrigir classificação" fazem disso um campo obrigatório (é opcional, só
-  para o caso raro de vincular a um fornecedor de estoque real já
-  cadastrado). Por isso `GET /treasury/transactions/by-supplier`
-  (`useGetTransactionsBySupplierQuery`) sempre volta vazio contra dado
-  real, e "despesa por fornecedor" (tela de conferência e dashboard) é
-  calculada no cliente agrupando por `normalizeCounterpartyForGrouping`
-  (`src/lib/api/treasury.ts` — mesmo dobramento de
-  `normalizeCounterparty` do `treasury-service`), não por `supplier_id`.
-  Ligar os ~30 fornecedores confirmados do Anexo A a registros reais de
-  `suppliers-service` resolveria isto — não feito aqui porque precisa de
-  dado de fornecedor real para linkar, não de mudança de tela.
+- **`supplier_id` agora está ligado a `suppliers-service` para as despesas
+  já classificadas** (~680 lançamentos, ~123 fornecedores cadastrados
+  cobrindo estoque/frutas/equipamento/serviços/sistema — sócios, impostos,
+  tarifas bancárias e repasse de receita também viraram fornecedor, por
+  pedido explícito; CDB, transferência entre contas e demais `movement`
+  ficam de fora de propósito, não são compra de fornecedor).
+  `CounterpartyMapping.supplier_id` também foi preenchido para as regras
+  correspondentes, então uma confirmação nova do mesmo favorecido já herda
+  o fornecedor sem passar por este backfill de novo.
+- **"Despesa por fornecedor" em `/treasury` tem 2 níveis: grupo financeiro →
+  fornecedor → lançamento** (`groupByExpenseGroupThenSupplier`/
+  `groupBySupplier`, `src/app/(app)/treasury/page.tsx`). O grupo do topo
+  (`EXPENSE_GROUPS`, mesmo arquivo) é por `bank_transaction.category`
+  (texto livre do de-para — "Combustível", "Estoque", "Pró-labore" etc.),
+  **não** por `Supplier.category` (vocabulário fechado de
+  `suppliers-service`) — são dois eixos diferentes que coincidem de nome
+  ("categoria" no fornecedor é congelados/bebidas/mercearia/atacado/
+  equipamentos/serviços/sistema; "categoria" no lançamento é o rótulo
+  específico do de-para). Agrupar pelo lançamento, não pelo fornecedor, é
+  o que separa por exemplo o pró-labore do Josias ("Despesas fixas") do
+  empréstimo dele — sempre R$3.852,44 — que vai para o grupo "Empréstimos";
+  o mesmo fornecedor `Supplier.category="services"` gera lançamentos nos
+  dois grupos dependendo só do `bank_transaction.category` daquela linha.
+  Categoria sem grupo mapeado cai em "Outras despesas" (catch-all, nunca
+  esconde). "Empréstimos" é o único grupo que inclui `kind: movement`
+  (`category = "Financiamento/empréstimo"`) — pedido explícito do operador
+  para acompanhar Josias/Gerson no mesmo painel, mesmo esse valor não
+  somando ao resultado. Fornecedor sem `supplier_id` cai no bucket "Sem
+  fornecedor" dentro do grupo, mesma filosofia de nunca esconder dado
+  incompleto que já vale para `sem_natureza`. `GET /treasury/transactions/
+  by-supplier` (`useGetTransactionsBySupplierQuery`) já devolve dado real
+  agora, mas nenhuma tela chama — o agrupamento client-side acima cobre o
+  mesmo caso e já tem o drill-down por lançamento.
+  **Gap que continua aberto**: os formulários "Novo lançamento"/"Corrigir
+  classificação" ainda não pedem/setam `supplier_id` (só um campo de texto
+  livre para `counterparty_raw`) — um lançamento novo digitado à mão só
+  ganha fornecedor se, mais tarde, uma regra de de-para com `supplier_id`
+  já setado o classificar automaticamente.
+- **O card "Pendente" do resumo é clicável** — abre um `Dialog` (`Lançamentos
+  pendentes — {período}`) com a lista completa via `PendingTable` (mesmo
+  componente usado no card "Pendentes" menor, agora com banco/direção além
+  de data/favorecido/valor). Clicar numa linha fecha o diálogo e abre o
+  mesmo `ResourceFormDialog` de "Editar lançamento" — não existe um
+  formulário de classificação separado, é o mesmo de "Novo lançamento".
 - **Edição de lançamento confirmado agora existe** (`/treasury`, ícone de
   lápis por linha) — reusa exatamente o mesmo `fields`/`transactionSchema`
   de "Novo lançamento" via `submitValues()`, e `useUpdateTransactionMutation`
@@ -204,6 +238,24 @@ para uma ação que o menu deixou visível.
   diária real por lançamento, os outros só têm mês. `Calendar`/`Popover`
   (shadcn, `react-day-picker@10`) já estavam vendorizados mas sem nenhum
   consumidor antes deste componente.
+- **Performance de `/treasury`**: todo o estado interativo (período,
+  natureza, range de dias, edição, categoria/fornecedor expandido, diálogo
+  de pendentes) vive num componente só (`TreasuryPage`), então qualquer
+  clique re-renderiza a função inteira. Com até ~2.300 lançamentos/período,
+  isso tinha dois efeitos que juntos mediam 1-4s por clique (medido com
+  Chrome DevTools Performance trace, escalando com o nº de linhas — ~1s em
+  período leve/226 linhas, ~4,3s em período cheio/2272): (1) os valores
+  derivados (`porGrupo`/`porTipo`/`porNatureza`/os `Map` de id→entidade)
+  recalculando do zero a cada render — corrigido com `useMemo`; (2), a causa
+  maior, a tabela principal ("Lançamentos", até ~2 mil `<TableRow>` com
+  `Tooltip` do Radix cada) sendo reconciliada inteira mesmo quando o clique
+  não tinha nada a ver com ela — corrigido extraindo `TransactionsTable`
+  como componente próprio envolto em `memo`, com `provenanceLabel` em
+  `useCallback` (referência estável é obrigatória pro `memo` funcionar; sem
+  isso ele re-renderiza igual). Qualquer novo bloco grande/frequente nesta
+  tela (nova tabela extensa, novo gráfico) deveria seguir o mesmo padrão:
+  componente próprio + `memo` + props estáveis, não ficar inline na função
+  de `TreasuryPage`.
 
 ## O que as telas novas recusam mostrar como zero
 

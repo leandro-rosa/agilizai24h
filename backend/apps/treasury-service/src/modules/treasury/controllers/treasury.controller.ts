@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import {
+  BulkUpdateTransactionsDto,
   CreateAccountDto,
   CreateFeeDto,
   CreateMappingDto,
@@ -163,6 +164,12 @@ export class TreasuryController {
   @ApiOperation({ summary: 'Record a transaction' })
   createTransaction(@Body() dto: CreateTransactionDto) {
     return this.treasury.createTransaction(dto)
+  }
+
+  @Patch('transactions/bulk')
+  @ApiOperation({ summary: 'Bulk-update nature/category for multiple transactions (declared before :id on purpose)' })
+  bulkUpdateTransactions(@Body() dto: BulkUpdateTransactionsDto) {
+    return this.treasury.bulkUpdateTransactions(dto)
   }
 
   @Patch('transactions/:id')

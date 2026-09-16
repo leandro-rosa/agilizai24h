@@ -29,7 +29,7 @@ const PATTERNS: StructuralPattern[] = [
   { matchText: 'EMISSAO DE CDB', kind: 'movement', category: 'CDB' },
   { matchText: 'RESGATE DE CDB', kind: 'movement', category: 'CDB' },
   { matchText: 'SEGURO CONTA C6', kind: 'expense', category: 'Financeiro/Tributos' },
-  { matchText: 'JUROS CHEQUE ESP', kind: 'expense', category: 'Financeiro/Tributos' },
+  { matchText: 'JUROS CHEQUE ESP', kind: 'expense', category: 'Juros de conta' },
   { matchText: 'IOF CHEQUE ESPECIAL', kind: 'expense', category: 'Financeiro/Tributos' },
   { matchText: 'SIMPLES NACIONAL', kind: 'expense', category: 'Financeiro/Tributos' },
   { matchText: 'RECEITA FEDERAL', kind: 'expense', category: 'Financeiro/Tributos' },

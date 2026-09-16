@@ -2,8 +2,48 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ChevronDown, ChevronRight, Info, Pencil, Plus, Trash2, Upload, Wand2 } from "lucide-react";
-import { useState } from "react";
+import {
+  AlertTriangle,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Calculator,
+  Camera,
+  Car,
+  Cherry,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  Cloud,
+  Coffee,
+  CreditCard,
+  FlaskConical,
+  Fuel,
+  HandCoins,
+  Info,
+  Landmark,
+  Megaphone,
+  MonitorSmartphone,
+  Package,
+  PackageOpen,
+  Palette,
+  Pencil,
+  Percent,
+  Plus,
+  Receipt,
+  SquareParking,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Truck,
+  Undo2,
+  Upload,
+  UtensilsCrossed,
+  Users,
+  Wand2,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -16,6 +56,9 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -26,11 +69,12 @@ import {
   NATURE_LABELS,
   NATURES,
   TREASURY_SOURCE_LABELS,
-  normalizeCounterpartyForGrouping,
   useApplyMappingsMutation,
+  useBulkUpdateTransactionsMutation,
   useCreateTransactionMutation,
   useDeleteTransactionMutation,
   useGetAccountsQuery,
+  useGetCategoriesQuery,
   useGetMappingsQuery,
   useGetPendingImportsQuery,
   useGetTransactionSummaryQuery,
@@ -39,6 +83,7 @@ import {
   type BankTransaction,
   type Nature,
 } from "@/lib/api/treasury";
+import { useGetSuppliersQuery, type Supplier } from "@/lib/api/suppliers";
 import { useHasPermission } from "@/lib/auth/use-permission";
 
 /** Mesmos tons semânticos dos 4 SummaryCard logo acima, por `kind` — o gráfico não introduz paleta nova. */
@@ -94,7 +139,10 @@ export default function TreasuryPage() {
   // tabela vazia sem nenhuma explicação.
   const [dateRange, setDateRange] = useState<DayRange>({});
   const [editing, setEditing] = useState<BankTransaction | null>(null);
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null);
+  const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
+  const [categoryGridExpanded, setCategoryGridExpanded] = useState(false);
 
   const filter = {
     period,
@@ -113,6 +161,12 @@ export default function TreasuryPage() {
     error: summaryError,
     refetch: refetchSummary,
   } = useGetTransactionSummaryQuery({ period });
+  // Só para o "vs período anterior" dos cards de Entrada/Despesa — mesmo
+  // endpoint, um mês antes; `skip` deixa de buscar sem período resolvido.
+  const { data: previousSummary } = useGetTransactionSummaryQuery(
+    { period: shiftPeriod(period, -1) },
+    { skip: !period },
+  );
   const {
     data: periodTransactions,
     isLoading: periodLoading,
@@ -120,6 +174,12 @@ export default function TreasuryPage() {
     refetch: refetchPeriod,
   } = useGetTransactionsQuery({ period });
   const { data: accounts } = useGetAccountsQuery();
+  // Fornecedor real (suppliers-service) — usado só para resolver nome/categoria
+  // no agrupamento "Despesa por fornecedor" abaixo, não para o formulário de
+  // lançamento (que continua um texto livre em `counterparty_raw`).
+  const { data: suppliers } = useGetSuppliersQuery();
+  const supplierById = useMemo(() => new Map((suppliers ?? []).map((s) => [s.id, s])), [suppliers]);
+  const accountById = useMemo(() => new Map((accounts ?? []).map((a) => [a.id, a])), [accounts]);
   // Só para resolver rótulo de vínculo (regra de-para / extrato de origem) na
   // tabela abaixo — volume pequeno (dezenas de regra, poucos imports por
   // período), não justifica incluir o relacionamento em `listTransactions`.
@@ -131,20 +191,27 @@ export default function TreasuryPage() {
   const [applyMappings, { isLoading: applying }] = useApplyMappingsMutation();
   const canWrite = useHasPermission("treasury:write");
 
-  const mappingById = new Map((mappings ?? []).map((m) => [m.id, m]));
-  const importById = new Map((importsForPeriod ?? []).map((i) => [i.id, i]));
+  const mappingById = useMemo(() => new Map((mappings ?? []).map((m) => [m.id, m])), [mappings]);
+  const importById = useMemo(() => new Map((importsForPeriod ?? []).map((i) => [i.id, i])), [importsForPeriod]);
 
-  function provenanceLabel(t: BankTransaction): string {
-    if (t.pending_import_id === null) return "Lançamento manual";
-    const source = importById.get(t.pending_import_id);
-    const originText = source ? `Extrato: ${TREASURY_SOURCE_LABELS[source.source]} · ${fmtPeriod(source.period)}` : "Extrato";
-    if (t.mapping_rule_id !== null) {
-      const rule = mappingById.get(t.mapping_rule_id);
-      return `${originText} — Classificado pela regra: ${rule?.display_name ?? "(regra removida)"}`;
-    }
-    if (t.kind === "pending") return `${originText} — Ainda sem classificação`;
-    return `${originText} — Classificado pelo formato do arquivo`;
-  }
+  // `useCallback` (não só uma função comum) é o que mantém a referência
+  // estável entre renders — necessário para o `React.memo` de
+  // `TransactionsTable` conseguir pular o re-render quando só um estado
+  // não relacionado (ex: `expandedCategory`) muda na página.
+  const provenanceLabel = useCallback(
+    (t: BankTransaction): string => {
+      if (t.pending_import_id === null) return "Lançamento manual";
+      const source = importById.get(t.pending_import_id);
+      const originText = source ? `Extrato: ${TREASURY_SOURCE_LABELS[source.source]} · ${fmtPeriod(source.period)}` : "Extrato";
+      if (t.mapping_rule_id !== null) {
+        const rule = mappingById.get(t.mapping_rule_id);
+        return `${originText} — Classificado pela regra: ${rule?.display_name ?? "(regra removida)"}`;
+      }
+      if (t.kind === "pending") return `${originText} — Ainda sem classificação`;
+      return `${originText} — Classificado pelo formato do arquivo`;
+    },
+    [importById, mappingById],
+  );
 
   const fields: FieldSpec<TransactionForm>[] = [
     {
@@ -204,35 +271,57 @@ export default function TreasuryPage() {
     }
   }
 
-  const pendentes = (periodTransactions ?? []).filter((t) => t.kind === "pending");
-  const porFornecedor = groupBySupplier((periodTransactions ?? []).filter((t) => t.kind === "expense"));
-  // Ordem fixa (não por valor): é uma comparação categórica entre os 4
-  // `kind`, não um ranking — barras não devem trocar de posição mês a mês.
-  const porTipo = KINDS.map((kind) => {
-    const rows = (periodTransactions ?? []).filter((t) => t.kind === kind);
-    return {
-      kind,
-      label: KIND_LABELS[kind],
-      amount: rows.reduce((sum, t) => sum + t.amount_cents, 0) / 100,
-      count: rows.length,
-    };
-  });
+  const pendentes = useMemo(() => (periodTransactions ?? []).filter((t) => t.kind === "pending"), [periodTransactions]);
+  // Despesa de verdade (kind: expense) + o único bucket de `movement` que
+  // entra aqui de propósito — empréstimo de sócio não é resultado (não soma
+  // ao DRE), mas o operador quer acompanhar Josias/Gerson no mesmo painel;
+  // o grupo "Empréstimos" abaixo deixa isso visualmente separado do resto.
+  const porGrupo = useMemo(
+    () =>
+      groupByExpenseGroupThenSupplier(
+        (periodTransactions ?? []).filter(
+          (t) => t.kind === "expense" || (t.kind === "movement" && t.category === "Financiamento/empréstimo"),
+        ),
+        supplierById,
+      ),
+    [periodTransactions, supplierById],
+  );
+  // Só Entrada/Despesa — Movimentação e Pendente saíram do gráfico (pedido
+  // do operador): pendente já é o card "Pendente", movimentação passa a
+  // viver na tela de Fluxo de caixa (lente de caixa, não de classificação).
+  // Ordem fixa (não por valor): comparação categórica entre 2 `kind`, não
+  // ranking — barras não devem trocar de posição mês a mês.
+  const porTipo = useMemo(
+    () =>
+      (["revenue", "expense"] as const).map((kind) => {
+        const rows = (periodTransactions ?? []).filter((t) => t.kind === kind);
+        return {
+          kind,
+          label: KIND_LABELS[kind],
+          amount: rows.reduce((sum, t) => sum + t.amount_cents, 0) / 100,
+          count: rows.length,
+        };
+      }),
+    [periodTransactions],
+  );
   // `nature` só existe para `kind: expense` — os outros 3 `kind` nunca
   // entram aqui. "sem_natureza" é o catch-all defensivo para uma despesa
   // ainda não classificada até o fim (mesma filosofia de `porTipo` mostrar
   // R$0,00 em vez de esconder um `kind` sem linha nenhuma no mês).
-  const porNatureza: { nature: NatureBucket; label: string; amount: number; count: number }[] = NATURE_BUCKETS.map(
-    (bucket) => {
-      const rows = (periodTransactions ?? []).filter(
-        (t) => t.kind === "expense" && (bucket === "sem_natureza" ? t.nature === null : t.nature === bucket),
-      );
-      return {
-        nature: bucket,
-        label: bucket === "sem_natureza" ? "Sem natureza" : NATURE_LABELS[bucket],
-        amount: rows.reduce((sum, t) => sum + t.amount_cents, 0) / 100,
-        count: rows.length,
-      };
-    },
+  const porNatureza: { nature: NatureBucket; label: string; amount: number; count: number }[] = useMemo(
+    () =>
+      NATURE_BUCKETS.map((bucket) => {
+        const rows = (periodTransactions ?? []).filter(
+          (t) => t.kind === "expense" && (bucket === "sem_natureza" ? t.nature === null : t.nature === bucket),
+        );
+        return {
+          nature: bucket,
+          label: bucket === "sem_natureza" ? "Sem natureza" : NATURE_LABELS[bucket],
+          amount: rows.reduce((sum, t) => sum + t.amount_cents, 0) / 100,
+          count: rows.length,
+        };
+      }),
+    [periodTransactions],
   );
 
   return (
@@ -323,33 +412,64 @@ export default function TreasuryPage() {
       >
         {summary && (
           <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <SummaryCard label="Entrada consolidada" value={money(summary.inflow_cents)} tone="positive" />
-              <SummaryCard label="Despesa confirmada" value={money(summary.outflow_cents)} tone="critical" />
-              <SummaryCard label="Pendente" value={money(summary.pending_cents)} tone="attention" hint={`${summary.pending_count} lançamento(s)`} />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <SummaryCard
-                label="Movimentação"
-                value={money(summary.movement_cents)}
-                tone="muted"
-                hint="Não entra no resultado"
+                label="Entrada consolidada"
+                value={money(summary.inflow_cents)}
+                tone="positive"
+                icon={ArrowUpCircle}
+                trend={previousSummary ? trendPercent(summary.inflow_cents, previousSummary.inflow_cents) : undefined}
+              />
+              <SummaryCard
+                label="Despesa confirmada"
+                value={money(summary.outflow_cents)}
+                tone="critical"
+                icon={ArrowDownCircle}
+                trend={previousSummary ? trendPercent(summary.outflow_cents, previousSummary.outflow_cents) : undefined}
+              />
+              <SummaryCard
+                label="Pendente"
+                value={money(summary.pending_cents)}
+                tone="attention"
+                icon={Clock}
+                hint={`${summary.pending_count} lançamento(s) — clique para ver`}
+                onClick={summary.pending_count > 0 ? () => setPendingDialogOpen(true) : undefined}
               />
             </div>
 
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Despesa por categoria</CardTitle>
+                {summary.by_category.length > CATEGORY_GRID_COLLAPSED_COUNT && (
+                  <Button variant="ghost" size="sm" onClick={() => setCategoryGridExpanded((v) => !v)}>
+                    {categoryGridExpanded ? "Ver menos" : "Ver detalhes"}
+                    <ChevronRight className={`size-4 transition-transform ${categoryGridExpanded ? "rotate-90" : ""}`} />
+                  </Button>
+                )}
               </CardHeader>
               <CardContent>
                 {summary.by_category.length === 0 ? (
                   <p className="py-2 text-sm text-muted-foreground">Nenhuma despesa classificada neste período.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-4">
-                    {summary.by_category.map((row) => (
-                      <div key={row.category}>
-                        <p className="text-xs text-muted-foreground">{row.category}</p>
-                        <p className="tabular text-lg font-semibold">{money(row.outflow_cents)}</p>
-                      </div>
-                    ))}
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+                    {(categoryGridExpanded ? summary.by_category : summary.by_category.slice(0, CATEGORY_GRID_COLLAPSED_COUNT)).map(
+                      (row) => {
+                        const Icon = CATEGORY_ICONS[row.category] ?? Receipt;
+                        return (
+                          <div key={row.category} className="flex items-center gap-2.5 rounded-lg border p-3">
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                              <Icon className="size-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-xs text-muted-foreground" title={row.category}>
+                                {row.category}
+                              </p>
+                              <p className="tabular text-sm font-semibold">{money(row.outflow_cents)}</p>
+                            </div>
+                          </div>
+                        );
+                      },
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -437,28 +557,46 @@ export default function TreasuryPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Despesa por fornecedor</CardTitle>
             </CardHeader>
             <CardContent>
-              {porFornecedor.length === 0 ? (
+              {porGrupo.length === 0 ? (
                 <p className="py-2 text-sm text-muted-foreground">Nenhuma despesa classificada neste período.</p>
               ) : (
                 <div className="flex flex-col">
-                  {porFornecedor.map((group) => (
-                    <div key={group.key} className="border-b py-2 last:border-b-0">
+                  {porGrupo.map((cat) => (
+                    <div key={cat.key} className="border-b py-2 last:border-b-0">
                       <button
                         className="flex w-full items-center justify-between text-left"
-                        onClick={() => setExpandedSupplier(expandedSupplier === group.key ? null : group.key)}
+                        onClick={() => setExpandedCategory(expandedCategory === cat.key ? null : cat.key)}
                       >
-                        <span className="flex items-center gap-1 font-medium">
-                          {expandedSupplier === group.key ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-                          {group.label}
+                        <span className="flex items-center gap-1.5 font-medium">
+                          {expandedCategory === cat.key ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                          {cat.label}
                         </span>
-                        <span className="tabular">{money(group.total)}</span>
+                        <span className="tabular">{money(cat.total)}</span>
                       </button>
-                      {expandedSupplier === group.key && (
+                      {expandedCategory === cat.key && (
                         <div className="mt-2 flex flex-col gap-1 pl-5">
-                          {group.items.map((t) => (
-                            <div key={t.id} className="flex justify-between text-sm text-muted-foreground">
-                              <span>{date(t.occurred_on)}</span>
-                              <span className="tabular">{money(t.amount_cents)}</span>
+                          {cat.suppliers.map((group) => (
+                            <div key={group.key} className="border-b py-1.5 last:border-b-0">
+                              <button
+                                className="flex w-full items-center justify-between text-left"
+                                onClick={() => setExpandedSupplier(expandedSupplier === group.key ? null : group.key)}
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  {expandedSupplier === group.key ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                                  {group.label}
+                                </span>
+                                <span className="tabular">{money(group.total)}</span>
+                              </button>
+                              {expandedSupplier === group.key && (
+                                <div className="mt-1.5 flex flex-col gap-1 pl-5">
+                                  {group.items.map((t) => (
+                                    <div key={t.id} className="flex justify-between text-sm text-muted-foreground">
+                                      <span>{date(t.occurred_on)}</span>
+                                      <span className="tabular">{money(t.amount_cents)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -474,26 +612,36 @@ export default function TreasuryPage() {
             <CardHeader>
               <CardTitle className="text-sm font-medium text-muted-foreground">Pendentes</CardTitle>
             </CardHeader>
-            <CardContent>
-              {pendentes.length === 0 ? (
-                <p className="py-2 text-sm text-muted-foreground">Nenhum lançamento pendente neste período.</p>
-              ) : (
-                <Table>
-                  <TableBody>
-                    {pendentes.map((t) => (
-                      <TableRow key={t.id} className={canWrite ? "cursor-pointer" : undefined} onClick={() => canWrite && setEditing(t)}>
-                        <TableCell className="tabular">{date(t.occurred_on)}</TableCell>
-                        <TableCell>{t.counterparty_raw}</TableCell>
-                        <TableCell className="tabular text-right">{money(t.amount_cents)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+            <CardContent className="max-h-96 overflow-y-auto">
+              <PendingTable
+                pendentes={pendentes}
+                accountById={accountById}
+                canWrite={canWrite}
+                onSelect={setEditing}
+                emptyMessage="Nenhum lançamento pendente neste período."
+              />
             </CardContent>
           </Card>
         </div>
       </RequestState>
+
+      <Dialog open={pendingDialogOpen} onOpenChange={setPendingDialogOpen}>
+        <DialogContent className="max-h-[85vh] w-full max-w-3xl overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Lançamentos pendentes — {fmtPeriod(period)}</DialogTitle>
+          </DialogHeader>
+          <PendingTable
+            pendentes={pendentes}
+            accountById={accountById}
+            canWrite={canWrite}
+            onSelect={(t) => {
+              setPendingDialogOpen(false);
+              setEditing(t);
+            }}
+            emptyMessage="Nenhum lançamento pendente neste período."
+          />
+        </DialogContent>
+      </Dialog>
 
       <RequestState
         isLoading={isLoading}
@@ -508,74 +656,14 @@ export default function TreasuryPage() {
             {summary.unresolved_count} lançamento(s) sem fornecedor cadastrado vinculado.
           </p>
         )}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Data</TableHead>
-              <TableHead>Favorecido</TableHead>
-              <TableHead>Categoria</TableHead>
-              <TableHead>Tipo</TableHead>
-              <TableHead className="tabular text-right">Valor</TableHead>
-              {canWrite && <TableHead className="w-20" />}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(transactions ?? []).map((transaction) => (
-              <TableRow key={transaction.id}>
-                <TableCell className="tabular">{date(transaction.occurred_on)}</TableCell>
-                <TableCell>
-                  <span className="font-medium">{transaction.counterparty_raw}</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="ml-1.5 inline size-3.5 shrink-0 text-muted-foreground align-text-top" />
-                    </TooltipTrigger>
-                    <TooltipContent>{provenanceLabel(transaction)}</TooltipContent>
-                  </Tooltip>
-                  {transaction.supplier_id === null && (
-                    <StatusBadge tone="attention" className="ml-2">
-                      Sem fornecedor
-                    </StatusBadge>
-                  )}
-                  {transaction.installment_total && (
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {transaction.installment_index}/{transaction.installment_total}
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell>{transaction.category}</TableCell>
-                <TableCell>
-                  {KIND_LABELS[transaction.kind] ?? transaction.kind}
-                  {transaction.nature && (
-                    <span className="ml-1 text-xs text-muted-foreground">
-                      ({NATURE_LABELS[transaction.nature] ?? transaction.nature})
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell
-                  className={`tabular text-right ${transaction.direction === "inflow" ? "text-success" : ""}`}
-                >
-                  {transaction.direction === "inflow" ? "+" : "−"}
-                  {money(transaction.amount_cents)}
-                </TableCell>
-                {canWrite && (
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" title="Editar" onClick={() => setEditing(transaction)}>
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Excluir"
-                      onClick={() => deleteTransaction(transaction.id)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </TableCell>
-                )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <TransactionsTable
+          transactions={transactions ?? []}
+          accountById={accountById}
+          canWrite={canWrite}
+          onEdit={setEditing}
+          onDelete={deleteTransaction}
+          provenanceLabel={provenanceLabel}
+        />
       </RequestState>
 
       {editing && (
@@ -607,26 +695,67 @@ export default function TreasuryPage() {
   );
 }
 
+/**
+ * `trend` é sempre calculado de um segundo `getTransactionSummaryQuery` do
+ * mês anterior de verdade (`shiftPeriod`/`trendPercent` acima) — nunca uma
+ * variação inventada. `trendPercent` volta `null` sem base de comparação
+ * (mês anterior zerado), e aqui isso vira "sem comparação" em vez de uma
+ * seta/porcentagem sem sentido — mesmo princípio de "vazio honesto" do
+ * resto do painel (ver DESIGN.md), só que na célula do card.
+ */
 function SummaryCard({
   label,
   value,
   tone,
   hint,
+  onClick,
+  icon: Icon,
+  trend,
 }: {
   label: string;
   value: string;
   tone?: "positive" | "critical" | "attention" | "muted";
   hint?: string;
+  onClick?: () => void;
+  icon?: LucideIcon;
+  trend?: number | null;
 }) {
   const color =
     tone === "positive" ? "text-success" : tone === "critical" ? "text-destructive" : tone === "attention" ? "text-warning" : "";
+  const badgeBg =
+    tone === "positive"
+      ? "bg-success/12 text-success"
+      : tone === "critical"
+        ? "bg-destructive/12 text-destructive"
+        : tone === "attention"
+          ? "bg-warning/12 text-warning"
+          : "bg-muted text-muted-foreground";
   return (
-    <Card className={tone === "muted" ? "border-dashed" : undefined}>
+    <Card
+      className={`${tone === "muted" ? "border-dashed" : ""} ${onClick ? "cursor-pointer transition-colors hover:bg-accent/50" : ""}`}
+      {...(onClick ? { role: "button", tabIndex: 0, onClick, onKeyDown: (e) => e.key === "Enter" && onClick() } : {})}
+    >
       <CardHeader>
-        <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
+          {Icon && (
+            <span className={`flex size-8 shrink-0 items-center justify-center rounded-full ${badgeBg}`}>
+              <Icon className="size-4" />
+            </span>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <p className={`tabular text-2xl font-semibold ${tone === "muted" ? "text-muted-foreground" : color}`}>{value}</p>
+        {trend !== undefined &&
+          (trend === null ? (
+            <p className="mt-1 text-xs text-muted-foreground">Sem comparação com o mês anterior</p>
+          ) : (
+            <p className={`mt-1 flex items-center gap-1 text-xs ${trend >= 0 ? "text-success" : "text-destructive"}`}>
+              {trend >= 0 ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+              {Math.abs(trend).toFixed(0)}% vs. mês anterior
+            </p>
+          ))}
         {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
       </CardContent>
     </Card>
@@ -634,23 +763,382 @@ function SummaryCard({
 }
 
 /**
- * `supplier_id` nunca é preenchido hoje — nem a classificação automática
- * nem este formulário o setam (gap documentado em CLAUDE.md) — então o
- * agrupamento por fornecedor usa o favorecido normalizado, não o FK de
- * `suppliers-service`. Mesmo mecanismo do de-para (`normalizeCounterparty`).
+ * Lista de pendentes com o contexto necessário para identificar o
+ * lançamento sem abrir mais nada — banco (via `accountById`, resolvido no
+ * cliente pelo mesmo motivo de `mappingById`/`importById` acima: poucas
+ * dezenas de contas, não justifica incluir o relacionamento na API), data e
+ * direção (entrada/saída), igual à tabela principal de "Lançamentos" mais
+ * abaixo. Clicar na linha abre o mesmo formulário de edição de
+ * "Novo lançamento"/"Editar lançamento" — é onde o kind/categoria/natureza
+ * são corrigidos, não há um formulário de classificação em separado.
  */
-function groupBySupplier(transactions: BankTransaction[]) {
+function PendingTable({
+  pendentes,
+  accountById,
+  canWrite,
+  onSelect,
+  emptyMessage,
+}: {
+  pendentes: BankTransaction[];
+  accountById: Map<number, { name: string }>;
+  canWrite: boolean;
+  onSelect: (t: BankTransaction) => void;
+  emptyMessage: string;
+}) {
+  if (pendentes.length === 0) {
+    return <p className="py-2 text-sm text-muted-foreground">{emptyMessage}</p>;
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Data</TableHead>
+          <TableHead>Banco</TableHead>
+          <TableHead>Favorecido</TableHead>
+          <TableHead>Direção</TableHead>
+          <TableHead className="tabular text-right">Valor</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {pendentes.map((t) => (
+          <TableRow key={t.id} className={canWrite ? "cursor-pointer" : undefined} onClick={() => canWrite && onSelect(t)}>
+            <TableCell className="tabular whitespace-nowrap">{date(t.occurred_on)}</TableCell>
+            <TableCell className="whitespace-nowrap">{accountById.get(t.account_id)?.name ?? `Conta ${t.account_id}`}</TableCell>
+            <TableCell>{t.counterparty_raw}</TableCell>
+            <TableCell className={t.direction === "inflow" ? "text-success" : undefined}>
+              {t.direction === "inflow" ? "Entrada" : "Saída"}
+            </TableCell>
+            <TableCell className="tabular text-right whitespace-nowrap">{money(t.amount_cents)}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+/**
+ * Extraída da página principal e envolvida em `memo` de propósito: um
+ * período cheio passa de 2 mil lançamentos, e antes desse componente existir
+ * essa tabela inteira (com `Tooltip` do Radix por linha) era recriada e
+ * reconciliada a cada clique em QUALQUER outro lugar da página — expandir
+ * uma categoria em "Despesa por fornecedor", abrir o modal de pendentes,
+ * etc. — porque todo o estado de `TreasuryPage` vive num componente só. Sem
+ * o `memo` aqui (e sem `provenanceLabel` ser `useCallback` lá em cima), isso
+ * media consistentemente 1-4s por clique, escalando com o número de linhas
+ * (medido: ~1s com 226 linhas, ~4,3s com 2272) — era a maior fatia da
+ * lentidão relatada, maior que o custo dos `useMemo` de `porGrupo`/
+ * `porTipo`/etc. sozinhos.
+ */
+/**
+ * Seleção múltipla e o mutation de bulk-update vivem AQUI DENTRO, não no
+ * componente pai — se `selected` fosse estado de `TreasuryPage`, marcar uma
+ * única linha re-renderizaria a página inteira (e, com ela, esta mesma
+ * tabela de novo, o problema que o `memo` acima existe pra evitar). Cada
+ * clique de seleção fica contido neste componente.
+ */
+const TransactionsTable = memo(function TransactionsTable({
+  transactions,
+  accountById,
+  canWrite,
+  onEdit,
+  onDelete,
+  provenanceLabel,
+}: {
+  transactions: BankTransaction[];
+  accountById: Map<number, { name: string }>;
+  canWrite: boolean;
+  onEdit: (t: BankTransaction) => void;
+  onDelete: (id: number) => void;
+  provenanceLabel: (t: BankTransaction) => string;
+}) {
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkNature, setBulkNature] = useState<Nature | "">("");
+  const [bulkCategory, setBulkCategory] = useState("");
+  const [updateTransaction] = useUpdateTransactionMutation();
+  const [bulkUpdateTransactions, { isLoading: bulkApplying }] = useBulkUpdateTransactionsMutation();
+  const { data: categories } = useGetCategoriesQuery();
+
+  const allSelected = transactions.length > 0 && transactions.every((t) => selected.has(t.id));
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(transactions.map((t) => t.id)));
+  }
+
+  function toggleOne(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function applyBulk() {
+    if (!bulkNature && !bulkCategory) return;
+    const result = await bulkUpdateTransactions({
+      ids: Array.from(selected),
+      ...(bulkNature ? { nature: bulkNature } : {}),
+      ...(bulkCategory ? { category: bulkCategory } : {}),
+    })
+      .unwrap()
+      .catch(() => null);
+    if (result) {
+      toast.success(`${result.updated} lançamento(s) atualizado(s).`);
+      setSelected(new Set());
+      setBulkNature("");
+      setBulkCategory("");
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {canWrite && selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
+          <span className="text-sm font-medium">{selected.size} selecionado(s)</span>
+          <Select value={bulkNature} onValueChange={(value) => setBulkNature(value as Nature)}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Aplicar natureza" />
+            </SelectTrigger>
+            <SelectContent>
+              {NATURES.map((n) => (
+                <SelectItem key={n} value={n}>
+                  {NATURE_LABELS[n]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="Aplicar categoria"
+            value={bulkCategory}
+            onChange={(e) => setBulkCategory(e.target.value)}
+            list="treasury-categories"
+            className="w-48"
+          />
+          <Button size="sm" onClick={applyBulk} disabled={bulkApplying || (!bulkNature && !bulkCategory)}>
+            {bulkApplying ? "Aplicando..." : "Aplicar"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+            Limpar seleção
+          </Button>
+        </div>
+      )}
+      <datalist id="treasury-categories">
+        {(categories ?? []).map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {canWrite && (
+              <TableHead className="w-10">
+                <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Selecionar todos" />
+              </TableHead>
+            )}
+            <TableHead>Data</TableHead>
+            <TableHead>Descrição/Origem</TableHead>
+            <TableHead>Natureza</TableHead>
+            <TableHead>Categoria</TableHead>
+            <TableHead className="tabular text-right">Valor</TableHead>
+            <TableHead>Status</TableHead>
+            {canWrite && <TableHead className="w-20" />}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {transactions.map((transaction) => (
+            <TableRow key={transaction.id}>
+              {canWrite && (
+                <TableCell>
+                  <Checkbox
+                    checked={selected.has(transaction.id)}
+                    onCheckedChange={() => toggleOne(transaction.id)}
+                    aria-label={`Selecionar lançamento de ${date(transaction.occurred_on)}`}
+                  />
+                </TableCell>
+              )}
+              <TableCell className="tabular whitespace-nowrap">{date(transaction.occurred_on)}</TableCell>
+              <TableCell>
+                <span className="font-medium">{transaction.counterparty_raw}</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="ml-1.5 inline size-3.5 shrink-0 text-muted-foreground align-text-top" />
+                  </TooltipTrigger>
+                  <TooltipContent>{provenanceLabel(transaction)}</TooltipContent>
+                </Tooltip>
+                {transaction.supplier_id === null && (
+                  <StatusBadge tone="attention" className="ml-2">
+                    Sem fornecedor
+                  </StatusBadge>
+                )}
+                {transaction.installment_total && (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {transaction.installment_index}/{transaction.installment_total}
+                  </span>
+                )}
+                <div className="text-xs text-muted-foreground">
+                  {accountById.get(transaction.account_id)?.name ?? `Conta ${transaction.account_id}`}
+                </div>
+              </TableCell>
+              <TableCell>
+                {transaction.kind !== "expense" ? (
+                  <span className="text-muted-foreground">—</span>
+                ) : canWrite ? (
+                  <Select
+                    value={transaction.nature ?? undefined}
+                    onValueChange={(value) => updateTransaction({ id: transaction.id, nature: value as Nature })}
+                  >
+                    <SelectTrigger className="w-36" data-size="sm">
+                      <SelectValue placeholder="Definir" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {NATURES.map((n) => (
+                        <SelectItem key={n} value={n}>
+                          {NATURE_LABELS[n]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  (transaction.nature && NATURE_LABELS[transaction.nature]) || "—"
+                )}
+              </TableCell>
+              <TableCell>
+                {canWrite ? (
+                  <Input
+                    defaultValue={transaction.category}
+                    list="treasury-categories"
+                    className="w-40"
+                    onBlur={(e) => {
+                      const value = e.target.value.trim();
+                      if (value && value !== transaction.category) {
+                        updateTransaction({ id: transaction.id, category: value });
+                      }
+                    }}
+                  />
+                ) : (
+                  transaction.category
+                )}
+              </TableCell>
+              <TableCell className={`tabular text-right ${transaction.direction === "inflow" ? "text-success" : ""}`}>
+                {transaction.direction === "inflow" ? "+" : "−"}
+                {money(transaction.amount_cents)}
+              </TableCell>
+              <TableCell>
+                <StatusBadge tone={transaction.kind === "pending" ? "attention" : "positive"}>
+                  {transaction.kind === "pending" ? "Pendente de classificação" : "Confirmado"}
+                </StatusBadge>
+              </TableCell>
+              {canWrite && (
+                <TableCell className="text-right">
+                  <Button variant="ghost" size="icon" title="Editar" onClick={() => onEdit(transaction)}>
+                    <Pencil />
+                  </Button>
+                  <Button variant="ghost" size="icon" title="Excluir" onClick={() => onDelete(transaction.id)}>
+                    <Trash2 />
+                  </Button>
+                </TableCell>
+              )}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+});
+
+/** Sentinela de chave para despesa sem `supplier_id` — mantém o grupo visível
+ * em vez de escondê-lo, mesma filosofia de "sem_natureza" em `porNatureza`. */
+const SEM_FORNECEDOR_KEY = "sem-fornecedor";
+
+function groupBySupplier(transactions: BankTransaction[], supplierById: Map<number, Supplier>) {
   const map = new Map<string, BankTransaction[]>();
   for (const t of transactions) {
-    const key = normalizeCounterpartyForGrouping(t.counterparty_raw);
+    const key = t.supplier_id === null ? SEM_FORNECEDOR_KEY : String(t.supplier_id);
     const list = map.get(key) ?? [];
     list.push(t);
     map.set(key, list);
   }
-  return Array.from(map, ([key, items]) => ({
+  return Array.from(map, ([key, items]) => {
+    const supplier = key === SEM_FORNECEDOR_KEY ? null : supplierById.get(Number(key));
+    return {
+      key,
+      label: supplier?.name ?? "Sem fornecedor",
+      items,
+      total: items.reduce((sum, t) => sum + t.amount_cents, 0),
+    };
+  }).sort((a, b) => b.total - a.total);
+}
+
+/**
+ * Grupo por `bank_transaction.category` (texto livre do de-para — ex.
+ * "Combustível", "Estoque", "Financiamento/empréstimo" — não o vocabulário
+ * fechado de `Supplier.category` em `suppliers-service`). Um fornecedor só
+ * tem UMA categoria própria, mas o mesmo fornecedor pode gerar lançamentos
+ * de tipos diferentes (Josias: "Pró-labore" num mês, "Financiamento/
+ * empréstimo" — o valor certinho de R$3.852,44 — noutro), então agrupar
+ * pela categoria do lançamento em vez da do fornecedor é o que mantém os
+ * R$3.852,44 do Josias dentro de "Empréstimos" mesmo o resto do que ele
+ * recebe caindo em "Despesas fixas" (pró-labore) — pedido explícito do
+ * operador. Categoria sem grupo mapeado cai em "Outras despesas" — nunca
+ * some, mesma filosofia de "sem_natureza"/"Sem fornecedor".
+ */
+/** Quantas categorias mostrar antes do "Ver detalhes" expandir o resto. */
+const CATEGORY_GRID_COLLAPSED_COUNT = 12;
+
+/** Ícone por `bank_transaction.category` (texto livre) só de apoio visual
+ * no card-grid de "Despesa por categoria" — categoria sem ícone mapeado usa
+ * `Receipt` (genérico), nunca quebra por categoria nova/imprevista. */
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  Estoque: Package,
+  Frutas: Cherry,
+  "Investimento (cartão sócio)": CreditCard,
+  "Pró-labore": Users,
+  "Financeiro/Tributos": Landmark,
+  "Juros de conta": Percent,
+  Combustível: Fuel,
+  "Sistema Touchpay": MonitorSmartphone,
+  "Sistema (câmeras)": Camera,
+  "Repasse de receita (Plena Saúde)": HandCoins,
+  Equipamento: Wrench,
+  "Equipamento/móveis/manutenção": Wrench,
+  "Coffee break": Coffee,
+  Contador: Calculator,
+  Alimentação: UtensilsCrossed,
+  "Decoração de loja nova": Palette,
+  "Manutenção de veículo": Car,
+  Estacionamento: SquareParking,
+  "Cloud/Apple": Cloud,
+  Frete: Truck,
+  "Frete e envelopamento (loja nova)": PackageOpen,
+  "Consumo interno/teste": FlaskConical,
+  Marketing: Megaphone,
+  "Perdas/devoluções": Undo2,
+};
+
+const EXPENSE_GROUPS: { label: string; categories: string[] }[] = [
+  { label: "Despesas variáveis", categories: ["Combustível", "Estacionamento", "Alimentação", "Manutenção de veículo", "Coffee break", "Frete"] },
+  { label: "Despesas fixas", categories: ["Sistema Touchpay", "Sistema (câmeras)", "Cloud/Apple", "Contador", "Pró-labore", "Marketing"] },
+  { label: "Despesas financeiras", categories: ["Financeiro/Tributos", "Juros de conta"] },
+  { label: "Frutas", categories: ["Frutas"] },
+  { label: "Despesas operacionais", categories: ["Estoque"] },
+  { label: "Investimento loja", categories: ["Equipamento", "Equipamento/móveis/manutenção", "Decoração de loja nova", "Frete e envelopamento (loja nova)", "Investimento (cartão sócio)"] },
+  { label: "Empréstimos", categories: ["Financiamento/empréstimo"] },
+];
+const OUTRAS_DESPESAS_LABEL = "Outras despesas";
+const categoryToGroupLabel = new Map(EXPENSE_GROUPS.flatMap((g) => g.categories.map((c) => [c, g.label])));
+
+function groupByExpenseGroupThenSupplier(transactions: BankTransaction[], supplierById: Map<number, Supplier>) {
+  const byGroup = new Map<string, BankTransaction[]>();
+  for (const t of transactions) {
+    const key = categoryToGroupLabel.get(t.category) ?? OUTRAS_DESPESAS_LABEL;
+    const list = byGroup.get(key) ?? [];
+    list.push(t);
+    byGroup.set(key, list);
+  }
+  return Array.from(byGroup, ([key, items]) => ({
     key,
-    label: items[0].counterparty_raw,
-    items,
+    label: key,
+    suppliers: groupBySupplier(items, supplierById),
     total: items.reduce((sum, t) => sum + t.amount_cents, 0),
   })).sort((a, b) => b.total - a.total);
 }
@@ -664,4 +1152,22 @@ function lastPeriods(n: number): string[] {
     cursor.setMonth(cursor.getMonth() - 1);
   }
   return out;
+}
+
+/** "2026-08" deslocado N meses (negativo = pra trás) — usado só para achar
+ * o período anterior do "vs período anterior" dos cards de resumo. */
+function shiftPeriod(period: string, deltaMonths: number): string {
+  const [year, month] = period.split("-").map(Number);
+  const d = new Date(year, month - 1 + deltaMonths, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * `null` quando o período anterior não tem base pra comparar (0 lançamento
+ * ou 0 absoluto) — vira "sem comparação" na UI em vez de um "+∞%"/"-100%"
+ * sem sentido, mesma filosofia de "vazio honesto" do resto do painel.
+ */
+function trendPercent(current: number, previous: number): number | null {
+  if (previous === 0) return null;
+  return ((current - previous) / Math.abs(previous)) * 100;
 }

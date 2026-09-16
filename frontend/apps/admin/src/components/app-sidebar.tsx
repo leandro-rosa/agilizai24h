@@ -159,10 +159,10 @@ export function AppSidebar() {
   }
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" className="brand-sidebar">
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1.5">
-          <BrandMark variant="symbol" height={26} className="shrink-0" />
+          <BrandMark variant="symbol-white" height={26} className="shrink-0" />
           {/*
             "Agiliz Admin" é o nome da ferramenta, não o logotipo — por isso
             vai em --foreground chapado, sem gradiente. O logotipo é o
@@ -188,7 +188,7 @@ export function AppSidebar() {
                         asChild
                         isActive={isActive}
                         tooltip={item.title}
-                        className="data-[active=true]:border-l-2 data-[active=true]:border-l-primary data-[active=true]:bg-sidebar-accent"
+                        className="data-[active=true]:border-l-2 data-[active=true]:border-l-sidebar-primary data-[active=true]:bg-sidebar-accent"
                       >
                         <Link href={item.href}>
                           <item.icon />
@@ -203,7 +203,7 @@ export function AppSidebar() {
           </SidebarGroup>
         ))}
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="border-t border-t-sidebar-border">
         <SidebarMenu>
           <SidebarMenuItem>
             <ThemeToggle />

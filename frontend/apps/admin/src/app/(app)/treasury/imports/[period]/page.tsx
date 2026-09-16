@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { ImagePlus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -49,6 +49,22 @@ const pendingEditSchema = z.object({
 
 type PendingEditForm = z.infer<typeof pendingEditSchema>;
 
+// Referências estáveis (fora do componente) para os `groupBy`/`groupLabel`
+// de `GroupSection` — como prop, uma arrow function inline seria recriada a
+// cada render do componente pai e invalidaria o `useMemo` interno do
+// `GroupSection` sempre, mesmo sem os dados mudarem.
+function groupByCategory(t: PendingTransaction): string {
+  return t.suggested_category ?? "Sem categoria";
+}
+
+function groupByCounterparty(t: PendingTransaction): string {
+  return normalizeCounterpartyForGrouping(t.counterparty_raw);
+}
+
+function counterpartyLabel(t: PendingTransaction): string {
+  return t.counterparty_raw;
+}
+
 export default function TreasuryImportReviewPage({
   params,
   searchParams,
@@ -83,12 +99,18 @@ export default function TreasuryImportReviewPage({
     return () => clearInterval(id);
   }, [stillWaiting, refetch]);
 
-  const staged = (imports ?? []).filter((imp) => imp.status === "staged");
-  const stagedTransactions = staged.flatMap((imp) => detailsById[imp.id]?.transactions ?? []);
+  const staged = useMemo(() => (imports ?? []).filter((imp) => imp.status === "staged"), [imports]);
+  const stagedTransactions = useMemo(
+    () => staged.flatMap((imp) => detailsById[imp.id]?.transactions ?? []),
+    [staged, detailsById],
+  );
 
-  const expense = stagedTransactions.filter((t) => t.suggested_kind === "expense");
-  const movement = stagedTransactions.filter((t) => t.suggested_kind === "movement");
-  const pending = stagedTransactions.filter((t) => t.suggested_kind === "pending" || !t.suggested_kind);
+  const expense = useMemo(() => stagedTransactions.filter((t) => t.suggested_kind === "expense"), [stagedTransactions]);
+  const movement = useMemo(() => stagedTransactions.filter((t) => t.suggested_kind === "movement"), [stagedTransactions]);
+  const pending = useMemo(
+    () => stagedTransactions.filter((t) => t.suggested_kind === "pending" || !t.suggested_kind),
+    [stagedTransactions],
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -128,15 +150,15 @@ export default function TreasuryImportReviewPage({
             title="Despesa por categoria"
             emptyMessage="Nenhuma despesa classificada ainda."
             transactions={expense}
-            groupBy={(t) => t.suggested_category ?? "Sem categoria"}
+            groupBy={groupByCategory}
             canWrite={canWrite}
           />
           <GroupSection
             title="Despesa por fornecedor"
             emptyMessage="Nenhuma despesa classificada ainda."
             transactions={expense}
-            groupBy={(t) => normalizeCounterpartyForGrouping(t.counterparty_raw)}
-            groupLabel={(t) => t.counterparty_raw}
+            groupBy={groupByCounterparty}
+            groupLabel={counterpartyLabel}
             canWrite={canWrite}
           />
           <GroupSection
@@ -278,24 +300,28 @@ function GroupSection({
   canWrite: boolean;
   flat?: boolean;
 }) {
-  const groups = groupBy
-    ? Array.from(
-        transactions.reduce((map, t) => {
-          const key = groupBy(t);
-          const list = map.get(key) ?? [];
-          list.push(t);
-          map.set(key, list);
-          return map;
-        }, new Map<string, PendingTransaction[]>()),
-      )
-        .map(([key, items]) => ({
-          key,
-          label: groupLabel ? groupLabel(items[0]) : key,
-          items,
-          total: items.reduce((sum, t) => sum + t.amount_cents, 0),
-        }))
-        .sort((a, b) => b.total - a.total)
-    : null;
+  const groups = useMemo(
+    () =>
+      groupBy
+        ? Array.from(
+            transactions.reduce((map, t) => {
+              const key = groupBy(t);
+              const list = map.get(key) ?? [];
+              list.push(t);
+              map.set(key, list);
+              return map;
+            }, new Map<string, PendingTransaction[]>()),
+          )
+            .map(([key, items]) => ({
+              key,
+              label: groupLabel ? groupLabel(items[0]) : key,
+              items,
+              total: items.reduce((sum, t) => sum + t.amount_cents, 0),
+            }))
+            .sort((a, b) => b.total - a.total)
+        : null,
+    [transactions, groupBy, groupLabel],
+  );
 
   return (
     <Card>

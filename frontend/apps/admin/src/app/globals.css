@@ -166,6 +166,26 @@
 }
 
 @layer utilities {
+  /*
+   * Padrão de fundo do manual (prancha 07): contorno topográfico orgânico —
+   * `public/brand/contour.svg`, gerado (marching squares sobre um campo de
+   * gaussianas somadas — script fora do repo), não desenhado à mão, porque a
+   * tentativa manual anterior (blobs sólidos ancorados num canto) não lia
+   * como o padrão do manual, que é linha fina cobrindo o quadro inteiro a
+   * partir de vários centros de espiral (ver a contracapa em
+   * ../../../docs/manual-da-marca/). `background-size: cover` estica o
+   * mesmo desenho para preencher qualquer proporção de tela — funciona em
+   * `body` inteiro, no header de 56px (mostra só uma fatia, e uma fatia de
+   * linha fina não corta feio como um blob cortava) e no painel do `/login`.
+   * Um único arquivo serve os dois temas porque o stroke é --brand-magenta,
+   * que não muda entre claro e escuro — só `--background` muda.
+   */
+  .brand-canvas {
+    background-image: url("/brand/contour.svg");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
+  }
   .brand-gradient {
     background-image: linear-gradient(
       to right,
@@ -190,17 +210,77 @@
    * só existe com wordmark branco.
    */
   .brand-surface {
-    background-image: linear-gradient(
-      135deg,
-      var(--brand-purple) 0%,
-      #8e1d4d 55%,
-      #6d1740 100%
-    );
+    /* Contorno claro (contour-surface.svg) por cima do gradiente sólido —
+       mesma dupla gradiente+contorno da contracapa do manual, full-bleed
+       (cover) igual à peça original, camada única via lista de
+       background-image (CSS aceita várias, a primeira fica no topo). */
+    background-image:
+      url("/brand/contour-surface.svg"),
+      linear-gradient(
+        135deg,
+        var(--brand-purple) 0%,
+        #8e1d4d 55%,
+        #6d1740 100%
+      );
+    background-repeat: no-repeat, no-repeat;
+    background-position: center, 0 0;
+    background-size: cover, auto;
     /* A superfície é idêntica nos dois temas, então o texto sobre ela também
        precisa ser — `text-primary-foreground` viraria #0d0d0d no escuro e
        sumiria. Creme Quente sobre a parada mais clara do gradiente
        (#8e1d4d) dá 7,95:1. */
     color: #fff4e6;
+  }
+  /*
+   * Régua lateral com a mesma superfície de `.brand-surface` (gradiente +
+   * contorno) nos DOIS temas de propósito — igual ao painel do `/login`,
+   * era a única peça de chrome sem nenhum traço de marca.
+   *
+   * `className` em `<Sidebar>` (`app-sidebar.tsx`) cai no `sidebar-container`
+   * de `ui/sidebar.tsx`, ancestral de `sidebar-inner` (quem pinta
+   * `bg-sidebar`, sem prop de `className` própria — não dá pra pintar o
+   * gradiente direto nele sem editar o arquivo vendorizado pela CLI).
+   * Zerar `--sidebar` aqui deixa esse `bg-sidebar` transparente e revela o
+   * gradiente pintado um nível acima. Os outros `--sidebar-*` são
+   * redefinidos pelo mesmo motivo — cascata: toda classe
+   * `bg-sidebar-accent`/`text-sidebar-foreground`/`border-l-sidebar-primary`
+   * já usada em `app-sidebar.tsx` passa a resolver contra estes valores
+   * fixos, porque os de `:root`/`.dark` (framboesa sobre branco, magenta
+   * sobre carvão) não leriam sobre um fundo que já é magenta/roxo.
+   *
+   * **`color: #fff4e6` explícito é obrigatório aqui, redefinir só a
+   * variável não basta** — já mordeu em produção (tema claro saía com
+   * texto quase preto sobre o gradiente). O wrapper mais externo de
+   * `<Sidebar>` (`ui/sidebar.tsx:209`, ancestral de `sidebar-container`,
+   * fora do alcance desta classe) já declara `text-sidebar-foreground`, e
+   * herança de `color` propaga o VALOR JÁ COMPUTADO ali — `#1f1f1f` no
+   * tema claro — não uma referência viva à custom property. Redefinir
+   * `--sidebar-foreground` aqui de nada adianta pra quem herda `color` de
+   * fora desta classe; só recomeça a cascata quem, a partir daqui pra
+   * baixo, também não seta `color` própria. Mesmo padrão de
+   * `.brand-surface` acima, pelo mesmo motivo.
+   */
+  .brand-sidebar {
+    --sidebar: transparent;
+    --sidebar-foreground: #fff4e6;
+    --sidebar-accent: rgb(255 255 255 / 16%);
+    --sidebar-accent-foreground: #fff4e6;
+    --sidebar-border: rgb(255 255 255 / 20%);
+    --sidebar-primary: #ffffff;
+    --sidebar-primary-foreground: #6d1740;
+    --sidebar-ring: #ffffff;
+    color: #fff4e6;
+    background-image:
+      url("/brand/contour-surface.svg"),
+      linear-gradient(
+        135deg,
+        var(--brand-purple) 0%,
+        #8e1d4d 55%,
+        #6d1740 100%
+      );
+    background-repeat: no-repeat, no-repeat;
+    background-position: center, center;
+    background-size: cover, cover;
   }
   /* O painel é quase todo número em coluna — dígitos precisam alinhar. */
   .tabular {

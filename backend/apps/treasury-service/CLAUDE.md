@@ -157,6 +157,7 @@ Origem na planilha: abas `extrato bancário`, `cartão de crédito`, `DE-PARA`,
 | `POST /treasury/transactions/neutralize` | `{ a_id, b_id }` → vincula o par, mesmo período |
 | `POST /treasury/transactions/:id/unneutralize` | Desfaz o vínculo dos dois lados |
 | `POST/PATCH/DELETE /treasury/transactions[/:id]` | `kind` obrigatório; `nature` só quando `kind: expense` |
+| `PATCH /treasury/transactions/bulk` | `{ ids, nature?, category? }` — seleção múltipla da tela de Lançamentos; `nature` só grava nas linhas selecionadas com `kind: expense`, ignora as demais sem erro (não é `updateMany`: precisa do `kind` por linha, então é `$transaction` de updates individuais) |
 | `GET/POST /treasury/mappings`, `PATCH`/`DELETE /:id` | O DE-PARA — agora com `kind`/`match_type` |
 | `POST /treasury/mappings/apply/:period` | → `{ examined, classified }` |
 | `GET/POST /treasury/fees` | Taxa por adquirente/método, com vigência |

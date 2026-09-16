@@ -26,6 +26,10 @@ services:
       # normal runtime var here — unlike admin-prod, which bakes it into the
       # standalone bundle at build time (see that service's build.args).
       - NEXT_PUBLIC_GATEWAY_URL=${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:3080}
+      # Comma-separated hosts allowed to hit Next dev's HMR/chunk endpoints
+      # (next.config.ts's allowedDevOrigins). Empty by default: unset means
+      # only the browser's same-origin requests to localhost work.
+      - ADMIN_ALLOWED_DEV_ORIGINS=${ADMIN_ALLOWED_DEV_ORIGINS:-}
     networks:
       - agiliz_network
     restart: unless-stopped

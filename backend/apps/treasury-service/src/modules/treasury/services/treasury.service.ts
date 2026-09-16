@@ -8,6 +8,7 @@ import {
   type PaymentMethod,
 } from '../constants/treasury-vocabulary'
 import type {
+  BulkUpdateTransactionsDto,
   CreateAccountDto,
   CreateFeeDto,
   CreateMappingDto,
@@ -115,6 +116,39 @@ export class TreasuryService {
         ...(dto.occurred_on ? { occurred_on: new Date(dto.occurred_on) } : {}),
       },
     })
+  }
+
+  /**
+   * Update em lote de `nature`/`category` (seleção múltipla na tela de
+   * Lançamentos). `nature` só é gravada nas linhas com `kind: expense` — uma
+   * seleção mista (receita+despesa) não pode deixar `nature` órfã numa
+   * receita, mesma regra de `updateTransaction`, mas aqui ignora em vez de
+   * rejeitar a linha inteira, porque selecionar tipos mistos só pra aplicar
+   * categoria em massa é um caso de uso válido.
+   */
+  async bulkUpdateTransactions(dto: BulkUpdateTransactionsDto): Promise<{ updated: number }> {
+    if (dto.nature === undefined && dto.category === undefined) {
+      throw new BadRequestException('Informe nature e/ou category para atualizar em lote')
+    }
+
+    const rows = await this.prisma.bankTransaction.findMany({
+      where: { id: { in: dto.ids } },
+      select: { id: true, kind: true },
+    })
+    if (rows.length === 0) throw new NotFoundException('Nenhum lançamento encontrado para os ids informados')
+
+    const results = await this.prisma.$transaction(
+      rows.map(row =>
+        this.prisma.bankTransaction.update({
+          where: { id: row.id },
+          data: {
+            ...(dto.category !== undefined ? { category: dto.category } : {}),
+            ...(dto.nature !== undefined && row.kind === 'expense' ? { nature: dto.nature } : {}),
+          },
+        }),
+      ),
+    )
+    return { updated: results.length }
   }
 
   async deleteTransaction(id: number): Promise<void> {

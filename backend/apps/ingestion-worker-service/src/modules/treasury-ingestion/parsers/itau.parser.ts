@@ -22,6 +22,7 @@ import type { ParseStatementLinesResult, StructuralPattern } from './statement-l
 const PATTERNS: StructuralPattern[] = [
   { matchText: 'SISPAG PAGAMENTO DE FORNECEDOR', kind: 'pending' },
   { matchText: 'SISPAG FORNECEDORES', kind: 'pending' },
+  { matchText: 'JUROS', kind: 'expense', category: 'Juros de conta' },
 ]
 
 /** Balance/limit snapshot lines, not movements — share the exact `DD/MM/YYYY <text> <bare

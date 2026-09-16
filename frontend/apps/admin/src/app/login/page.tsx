@@ -52,21 +52,31 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-svh flex-col md:grid md:grid-cols-2">
       {/*
-        O lockup do kit só existe com wordmark branco, então este painel
-        precisa da mesma superfície escura nos DOIS temas — `bg-background`
-        o apagaria no claro, e carvão chapado o funde com o fundo no escuro,
-        fazendo o split sumir. `.brand-surface` é o gradiente que a prancha
+        `.brand-surface` precisa da mesma superfície escura nos DOIS temas —
+        `bg-background` o apagaria no claro, e carvão chapado o funde com o
+        fundo no escuro, fazendo o split sumir. É o gradiente que a prancha
         07 designa para fundo, e se distingue de creme e de carvão.
+
+        O grupo símbolo+wordmark+frase fica centralizado no espaço acima da
+        linha de crédito (`flex-1 justify-center` no wrapper interno, não no
+        `<aside>` inteiro) — pedido explícito, junto com o símbolo maior:
+        "mais embaixo" sozinho colou tudo rente à base; centralizado é o
+        meio-termo entre isso e o topo onde estava antes.
       */}
-      <aside className="brand-surface flex flex-col justify-between gap-8 p-8 md:p-12">
-        <BrandMark variant="lockup" height={52} />
-        <p className="max-w-sm text-lg font-semibold md:text-2xl">
-          Feito para quem não tem tempo a perder.
-        </p>
+      <aside className="brand-surface flex flex-col p-8 md:p-12">
+        <div className="flex flex-1 flex-col justify-center gap-6">
+          <div className="flex items-center gap-4">
+            <BrandMark variant="symbol-white" height={140} />
+            <span className="text-5xl font-bold tracking-tight md:text-6xl">agiliz.ai</span>
+          </div>
+          <p className="max-w-sm text-lg font-semibold md:text-2xl">
+            Feito para quem não tem tempo a perder.
+          </p>
+        </div>
         <p className="hidden text-sm opacity-75 md:block">Painel de gestão do Agiliz.AI</p>
       </aside>
 
-      <main className="flex flex-1 items-center justify-center bg-background p-6 md:p-12">
+      <main className="brand-canvas flex flex-1 items-center justify-center bg-background p-6 md:p-12">
         <div className="w-full max-w-sm">
           <h1 className="text-2xl font-bold tracking-tight">Entrar no Agiliz Admin</h1>
           <p className="mb-6 mt-1 text-sm text-muted-foreground">Use a conta de operador do Agiliz.AI.</p>

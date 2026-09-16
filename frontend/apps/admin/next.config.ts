@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
   // Dockerfile's COPY paths can't silently break when the workspace layout
   // changes.
   outputFileTracingRoot: path.join(__dirname, "../../.."),
+  // Next dev blocks HMR/chunk requests whose Host doesn't match what it
+  // expects — without this, loading the app from a LAN IP renders a blank
+  // page (HTML loads, every JS chunk request gets rejected, nothing hydrates).
+  allowedDevOrigins: process.env.ADMIN_ALLOWED_DEV_ORIGINS
+    ? process.env.ADMIN_ALLOWED_DEV_ORIGINS.split(",")
+    : undefined,
 };
 
 export default nextConfig;

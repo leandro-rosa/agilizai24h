@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsIn,
@@ -161,6 +163,29 @@ export class CreateTransactionDto {
 }
 
 export class UpdateTransactionDto extends PartialType(CreateTransactionDto) {}
+
+export class BulkUpdateTransactionsDto {
+  @ApiProperty({ type: [Number], example: [101, 102, 103] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsInt({ each: true })
+  ids: number[]
+
+  @ApiPropertyOptional({
+    enum: NATURES,
+    description: 'Aplicada só nas linhas selecionadas com `kind: expense` — as demais são ignoradas silenciosamente, não é erro.',
+  })
+  @IsOptional()
+  @IsIn(NATURES)
+  nature?: Nature
+
+  @ApiPropertyOptional({ example: 'Combustível' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  category?: string
+}
 
 export class ListTransactionsDto {
   @ApiPropertyOptional({ example: '2026-07' })

@@ -265,14 +265,12 @@ export interface TransactionFilter {
 }
 
 /**
- * Mesmo dobramento de `normalizeCounterparty` do treasury-service — usado
- * aqui para agrupar "despesa por fornecedor" no cliente. `supplier_id`
- * nunca é preenchido hoje (nem a classificação automática, nem o
- * formulário manual de lançamento setam), então o agrupamento real
- * (`GET /treasury/transactions/by-supplier`) sempre devolve vazio na prática
- * — gap documentado em frontend/apps/admin/CLAUDE.md. Agrupar por
- * `counterparty_raw` normalizado é o proxy correto para "mesmo favorecido"
- * enquanto isso não for ligado a `suppliers-service`.
+ * Mesmo dobramento de `normalizeCounterparty` do treasury-service. Usado na
+ * tela de conferência de import (`treasury/imports/[period]`) para agrupar
+ * `PendingTransaction` por favorecido antes da confirmação — nesse estágio
+ * ainda não existe `supplier_id` (só `suggested_supplier_id`, opcional). Já
+ * confirmado, `/treasury` agrupa "despesa por fornecedor" pelo `supplier_id`
+ * real, não por este texto normalizado.
  */
 export function normalizeCounterpartyForGrouping(value: string): string {
   return value
@@ -344,6 +342,13 @@ export const treasuryApi = createApi({
     }),
     deleteTransaction: builder.mutation<void, number>({
       query: (id) => ({ url: `/treasury/transactions/${id}`, method: "DELETE" }),
+      invalidatesTags: ["Transaction"],
+    }),
+    bulkUpdateTransactions: builder.mutation<
+      { updated: number },
+      { ids: number[]; nature?: Nature; category?: string }
+    >({
+      query: (body) => ({ url: "/treasury/transactions/bulk", method: "PATCH", body }),
       invalidatesTags: ["Transaction"],
     }),
     getMappings: builder.query<CounterpartyMapping[], void>({
@@ -439,6 +444,7 @@ export const {
   useCreateTransactionMutation,
   useUpdateTransactionMutation,
   useDeleteTransactionMutation,
+  useBulkUpdateTransactionsMutation,
   useGetMappingsQuery,
   useCreateMappingMutation,
   useUpdateMappingMutation,
