@@ -7,10 +7,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { date, money } from "@/lib/format";
 import type { BankTransaction } from "@/lib/api/treasury";
 
-const INTERNAL_TRANSFER_CATEGORY = "Movimentação entre contas";
+const INTERNAL_TRANSFER_CATEGORIES = new Set(["Movimentação entre contas", "Pagamento de fatura"]);
 
 function movementType(t: BankTransaction): "Transferência" | "Entrada" | "Saída" {
-  if (t.category === INTERNAL_TRANSFER_CATEGORY) return "Transferência";
+  if (INTERNAL_TRANSFER_CATEGORIES.has(t.category)) return "Transferência";
   return t.direction === "inflow" ? "Entrada" : "Saída";
 }
 

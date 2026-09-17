@@ -76,14 +76,22 @@ com o saldo real do banco") obriga uma regra diferente:
 - **Saldo (inicial/final)**: soma de TODAS as linhas do período (qualquer
   `kind`/categoria) — é o saldo de caixa de verdade.
 - **Entradas/Saídas (cards + gráfico diário), com "Todas as contas"
-  selecionado**: soma de tudo EXCETO a categoria `"Movimentação entre
-  contas"` (transferência entre as próprias contas Agiliz.AI) — essa
-  categoria, e só ela, é excluída porque cada transferência tem uma ponta
-  de saída numa conta e uma ponta de entrada em outra (rastreável via
-  `neutralized_with_id`, já existente), então soma zero no consolidado. As
-  demais categorias hoje classificadas como `movement` (empréstimo, sócio,
-  CDB, pagamento de fatura) **entram** em Entradas/Saídas — são caixa real
-  saindo da empresa, mesmo não sendo resultado contábil.
+  selecionado**: soma de tudo EXCETO as categorias `"Movimentação entre
+  contas"` (transferência entre as próprias contas Agiliz.AI) e
+  `"Pagamento de fatura"` (pagamento de fatura de cartão de crédito) — as
+  duas, e só elas, são excluídas porque cada uma tem uma ponta de saída
+  numa conta/lado e uma ponta de entrada em outra (rastreável via
+  `neutralized_with_id`, já existente), então soma zero no consolidado.
+  `"Pagamento de fatura"` entrou nessa exclusão na revisão final desta
+  implementação: o achado original tratava só transferência entre contas,
+  mas pagamento de fatura tem a mesma estrutura de duas pernas (a perna de
+  saída no extrato bancário, a perna de entrada no lado do cartão) e pelo
+  mesmo motivo — o gasto no cartão já foi contado na compra, contar de
+  novo na fatura infla Entradas (a perna de entrada) e duplica Saídas (a
+  perna de saída). As demais categorias hoje classificadas como `movement`
+  (empréstimo, sócio, CDB) **entram** em Entradas/Saídas — são caixa real
+  saindo/entrando na empresa, mesmo não sendo resultado contábil, e não têm
+  segunda perna interna correspondente.
 - **Entradas/Saídas com UMA conta específica selecionada**: soma de TUDO,
   sem excluir `"Movimentação entre contas"` — do ponto de vista de uma
   conta isolada, uma transferência para outra conta própria é caixa real
@@ -100,8 +108,9 @@ com o saldo real do banco") obriga uma regra diferente:
 - **Tabela "Movimentações"**: `GET /treasury/transactions` com
   `occurred_from`/`occurred_to` (já suporta, já é usado assim por
   Lançamentos na tabela principal) — sem endpoint novo. Coluna "Tipo"
-  deriva de `direction` + `category === "Movimentação entre contas"` →
-  "Transferência"; senão Entrada/Saída pelo `direction`. Coluna "Conciliado"
+  deriva de `direction` + `category` em `{"Movimentação entre contas",
+  "Pagamento de fatura"}` → "Transferência"; senão Entrada/Saída pelo
+  `direction`. Coluna "Conciliado"
   deriva de `kind`: `pending` → "Pendente"; qualquer outro → "Sim". Coluna
   "Regime" sempre "Realizado" nesta fase (documentado acima).
 

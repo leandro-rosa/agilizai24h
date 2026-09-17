@@ -82,6 +82,13 @@ export default function CashFlowDashboardPage() {
     fill: CATEGORY_DONUT_COLORS[i % CATEGORY_DONUT_COLORS.length],
   }));
 
+  // Normalmente fecha exatamente, mas uma transferência/fatura com uma
+  // perna fora do range abre um residual conhecido, por design — ver
+  // "Gap conhecido" na spec e o CLAUDE.md deste app.
+  const closingResidualCents = summary
+    ? summary.closing_balance_cents - (summary.opening_balance_cents + summary.inflow_cents - summary.outflow_cents)
+    : 0;
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -136,7 +143,11 @@ export default function CashFlowDashboardPage() {
                 value={money(summary.closing_balance_cents)}
                 icon={Scale}
                 tone={summary.closing_balance_cents >= 0 ? "positive" : "critical"}
-                hint="Saldo inicial + entradas − saídas"
+                hint={
+                  closingResidualCents === 0
+                    ? "Saldo inicial + entradas − saídas"
+                    : `Saldo inicial + entradas − saídas, com ${money(closingResidualCents)} de diferença não explicada (perna de transferência ou fatura fora do período — ver CLAUDE.md)`
+                }
               />
             </div>
 

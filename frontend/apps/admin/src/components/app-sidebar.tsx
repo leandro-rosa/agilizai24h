@@ -83,7 +83,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { title: "Reconciliação", href: "/finance", icon: Wallet, permission: "finance:read" },
       { title: "DRE", href: "/finance/pnl", icon: Scale, permission: "accounting:read" },
-      { title: "Fluxo de caixa", href: "/finance/cash-flow", icon: Banknote, permission: "accounting:read" },
+      { title: "Fluxo de caixa", href: "/finance/cash-flow", icon: Banknote, permission: "treasury:read" },
     ],
   },
   {

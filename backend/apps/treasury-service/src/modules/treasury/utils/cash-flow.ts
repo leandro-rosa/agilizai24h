@@ -27,22 +27,31 @@ export interface CashFlowSummary {
 }
 
 /**
- * Transferência entre as próprias contas Agiliz.AI — a categoria que sai de
- * Entradas/Saídas no consolidado (cada transferência grava uma perna de
- * saída numa conta e uma perna de entrada em outra, então soma zero ali),
- * mas NUNCA sai do saldo (é caixa real se movendo).
+ * Categorias que representam movimento interno em duas pernas — cada uma
+ * grava uma perna de saída numa conta/lado e uma perna de entrada em
+ * outra, então soma zero no consolidado — e por isso saem de
+ * Entradas/Saídas no consolidado, mas NUNCA saem do saldo (é caixa real se
+ * movendo):
+ * - `"Movimentação entre contas"`: transferência entre as próprias contas
+ *   Agiliz.AI.
+ * - `"Pagamento de fatura"`: pagamento de fatura de cartão de crédito —
+ *   mesma estrutura de duas pernas (a perna de saída no extrato bancário, a
+ *   perna de entrada no lado do cartão), pelo mesmo motivo: o dinheiro não
+ *   sai da empresa nesse lançamento, só muda de "disponível" para "gasto no
+ *   cartão, já contado" (na compra em si, não na fatura).
  */
-export const INTERNAL_TRANSFER_CATEGORY = 'Movimentação entre contas'
+export const INTERNAL_TRANSFER_CATEGORIES = new Set(['Movimentação entre contas', 'Pagamento de fatura'])
 
 /**
  * Agrega lançamentos já filtrados por `occurred_on` em [from, to] num
  * resumo de fluxo de caixa. Dois acumuladores independentes por dia — o
  * saldo soma TODA linha (é o saldo de caixa de verdade), Entradas/Saídas
- * somam tudo MENOS `INTERNAL_TRANSFER_CATEGORY` quando `accountId` é nulo
- * (consolidado). Com uma conta específica, nada é excluído — do ponto de
- * vista de uma conta isolada uma transferência é caixa real saindo/entrando
- * dela, e excluir quebraria "saldo inicial + entradas − saídas = saldo
- * final" para essa visão.
+ * somam tudo MENOS as categorias em `INTERNAL_TRANSFER_CATEGORIES` quando
+ * `accountId` é nulo (consolidado). Com uma conta específica, nada é
+ * excluído — do ponto de vista de uma conta isolada uma transferência ou um
+ * pagamento de fatura é caixa real saindo/entrando dela, e excluir
+ * quebraria "saldo inicial + entradas − saídas = saldo final" para essa
+ * visão.
  *
  * A identidade acima fecha exatamente sempre que as duas pernas de cada
  * transferência caem dentro de [from, to] — o caso comum. Se uma
@@ -66,7 +75,7 @@ export function computeCashFlow(
     const signed = t.direction === 'inflow' ? t.amount_cents : -t.amount_cents
     bucket.balanceDelta += signed
 
-    const countsAsFlow = !excludeTransfers || t.category !== INTERNAL_TRANSFER_CATEGORY
+    const countsAsFlow = !excludeTransfers || !INTERNAL_TRANSFER_CATEGORIES.has(t.category)
     if (countsAsFlow) {
       if (t.direction === 'inflow') bucket.flowInflow += t.amount_cents
       else bucket.flowOutflow += t.amount_cents

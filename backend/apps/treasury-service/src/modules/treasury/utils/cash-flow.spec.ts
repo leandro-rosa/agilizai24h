@@ -1,4 +1,8 @@
-import { computeCashFlow, INTERNAL_TRANSFER_CATEGORY, type CashFlowTransaction } from './cash-flow'
+import { computeCashFlow, INTERNAL_TRANSFER_CATEGORIES, type CashFlowTransaction } from './cash-flow'
+
+// Named references into the Set, in the same order `cash-flow.ts` declares
+// it — keeps the tests below from repeating the literal category strings.
+const [TRANSFER_CATEGORY, FATURA_CATEGORY] = [...INTERNAL_TRANSFER_CATEGORIES]
 
 function tx(partial: Partial<CashFlowTransaction> & Pick<CashFlowTransaction, 'occurred_on' | 'direction' | 'amount_cents'>): CashFlowTransaction {
   return { category: 'Estoque', ...partial }
@@ -41,8 +45,8 @@ describe('computeCashFlow', () => {
     // leg on account 1 and the paired inflow leg on account 2, same day,
     // same amount — this is what makes the exclusion net to zero.
     const result = computeCashFlow('2026-06-01', '2026-06-30', null, 0, [
-      tx({ occurred_on: '2026-06-05', direction: 'outflow', amount_cents: 1_000, category: INTERNAL_TRANSFER_CATEGORY }),
-      tx({ occurred_on: '2026-06-05', direction: 'inflow', amount_cents: 1_000, category: INTERNAL_TRANSFER_CATEGORY }),
+      tx({ occurred_on: '2026-06-05', direction: 'outflow', amount_cents: 1_000, category: TRANSFER_CATEGORY }),
+      tx({ occurred_on: '2026-06-05', direction: 'inflow', amount_cents: 1_000, category: TRANSFER_CATEGORY }),
       tx({ occurred_on: '2026-06-05', direction: 'inflow', amount_cents: 300, category: 'Vendas' }),
     ])
 
@@ -54,9 +58,29 @@ describe('computeCashFlow', () => {
     expect(result.closing_balance_cents).toBe(result.opening_balance_cents + result.inflow_cents - result.outflow_cents)
   })
 
+  it('excludes "Pagamento de fatura" from entradas/saídas in consolidated view, but keeps it in the balance', () => {
+    // Same two-legged structure as "Movimentação entre contas": the bank-side
+    // outflow leg (money leaving the checking account) and the card-side
+    // inflow leg (money arriving on the card side), same day, same amount —
+    // the card spend itself was already counted at purchase time, so both
+    // legs of the invoice payment must net to zero in the consolidated view.
+    const result = computeCashFlow('2026-06-01', '2026-06-30', null, 0, [
+      tx({ occurred_on: '2026-06-05', direction: 'outflow', amount_cents: 1_000, category: FATURA_CATEGORY }),
+      tx({ occurred_on: '2026-06-05', direction: 'inflow', amount_cents: 1_000, category: FATURA_CATEGORY }),
+      tx({ occurred_on: '2026-06-05', direction: 'inflow', amount_cents: 300, category: 'Vendas' }),
+    ])
+
+    expect(result.inflow_cents).toBe(300) // the fatura inflow leg is excluded
+    expect(result.outflow_cents).toBe(0) // the fatura outflow leg is excluded
+    // Balance reflects the true cash position: both fatura legs + the sale.
+    expect(result.closing_balance_cents).toBe(1_000 - 1_000 + 300)
+    // Formula closes exactly because both fatura legs landed in the window.
+    expect(result.closing_balance_cents).toBe(result.opening_balance_cents + result.inflow_cents - result.outflow_cents)
+  })
+
   it('does NOT exclude "Movimentação entre contas" when a specific account is selected', () => {
     const result = computeCashFlow('2026-06-01', '2026-06-30', 17, 0, [
-      tx({ occurred_on: '2026-06-05', direction: 'outflow', amount_cents: 1_000, category: INTERNAL_TRANSFER_CATEGORY }),
+      tx({ occurred_on: '2026-06-05', direction: 'outflow', amount_cents: 1_000, category: TRANSFER_CATEGORY }),
     ])
 
     // From this single account's perspective the transfer is real cash
@@ -82,7 +106,7 @@ describe('computeCashFlow', () => {
     // (transfer exclusion) — so the identity has a residual, by design. See
     // "Gap conhecido" in the spec.
     const result = computeCashFlow('2026-06-01', '2026-06-30', null, 0, [
-      tx({ occurred_on: '2026-06-30', direction: 'outflow', amount_cents: 1_000, category: INTERNAL_TRANSFER_CATEGORY }),
+      tx({ occurred_on: '2026-06-30', direction: 'outflow', amount_cents: 1_000, category: TRANSFER_CATEGORY }),
     ])
 
     expect(result.inflow_cents).toBe(0)

@@ -265,8 +265,11 @@ para uma ação que o menu deixou visível.
   forem métrica derivada, ver CLAUDE.md raiz). Os números de Entrada/Despesa
   do dashboard **divergem de propósito** dos cards de Lançamentos: aqui
   inclui `kind: movement` não-transferência (empréstimo, sócio, CDB) porque
-  é caixa real, e exclui só a categoria "Movimentação entre contas" — nunca
-  os dois ao mesmo tempo. Ver
+  é caixa real, e exclui as categorias "Movimentação entre contas" e
+  "Pagamento de fatura" (mesmo motivo estrutural: cada uma grava duas
+  pernas — saída de um lado, entrada do outro — então soma zero no
+  consolidado; achado e corrigido na revisão final deste plano) — nunca as
+  demais `movement` ao mesmo tempo. Ver
   `docs/superpowers/specs/2026-09-16-fluxo-de-caixa-design.md` para a
   regra completa.
 
