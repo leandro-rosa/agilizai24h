@@ -306,7 +306,7 @@ export function normalizeCounterpartyForGrouping(value: string): string {
     .replace(/\s+/g, " ");
 }
 
-function toQuery(filter: Record<string, any> = {}): string {
+function toQuery<T extends object = Record<string, never>>(filter: T = {} as T): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filter)) {
     if (value !== undefined && value !== "") params.set(key, String(value));
