@@ -57,8 +57,8 @@ export default function CashFlowPage() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Fluxo de caixa"
-        description="Recebimentos, OPEX, empréstimos e CAPEX, mês a mês."
+        title="Premissas mensais"
+        description="Saldo inicial, recebimentos, OPEX, empréstimos e CAPEX digitados por mês — usado enquanto payback e repasse dependerem de premissa, não de dado real."
         actions={
           canWrite ? (
             <ResourceFormDialog
