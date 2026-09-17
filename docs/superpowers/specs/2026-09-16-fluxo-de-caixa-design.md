@@ -98,8 +98,21 @@ com o saldo real do banco") obriga uma regra diferente:
   saindo dessa conta (a ponta de entrada está em outra conta, não nesta).
   Excluir aqui quebraria a fórmula "saldo inicial + entradas − saídas =
   saldo final" para visão de conta única.
-- Com essas duas regras, a fórmula **sempre fecha exatamente**, em
-  qualquer seleção de conta — não é aproximação.
+- **Correção (revisão final desta implementação): a frase acima ("sempre
+  fecha exatamente") estava errada e foi comprovada errada contra dado
+  real.** Com uma conta específica selecionada a fórmula fecha exatamente,
+  sempre (nada é excluído ali, então balanço e fluxo somam a mesma coisa
+  por construção). **No consolidado, não fecha sempre** — fecha só quando
+  as duas pernas de toda transferência/fatura caem dentro do range
+  consultado, e isso não é garantido (uma perna pode cair no mês seguinte,
+  numa conta com lacuna de importação, ou simplesmente não ter sido
+  importada ainda). Medido ao vivo em junho/2026 consolidado, mesmo depois
+  de excluir as duas categorias corretamente: residual real de R$42.587,63,
+  explicado integralmente por pernas de "Movimentação entre contas" sem par
+  dentro da janela — não um bug, o comportamento documentado abaixo em "Gap
+  conhecido". A tela mostra esse residual quando ele existe (ver
+  `SummaryCard` "Saldo final") em vez de escondê-lo ou forçar a fórmula a
+  bater.
 - **Despesa por categoria (donut)**: reaproveita `by_category` do
   `summary()` existente (só `kind: expense`, já correto — categoria de
   transferência/empréstimo não faz sentido num donut de despesa
