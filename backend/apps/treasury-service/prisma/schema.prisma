@@ -118,6 +118,7 @@ model BankTransaction {
 
   @@index([period])
   @@index([account_id, period])
+  @@index([account_id, occurred_on])
   @@index([supplier_id])
   @@index([nature, period])
   @@index([store_id, period])
