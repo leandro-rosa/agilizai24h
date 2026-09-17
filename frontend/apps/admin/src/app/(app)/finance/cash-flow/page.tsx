@@ -57,16 +57,15 @@ export default function CashFlowDashboardPage() {
     isLoading: summaryLoading,
     error: summaryError,
     refetch: refetchSummary,
-  } = useGetCashFlowSummaryQuery(filter, { skip: !range.from || !range.to });
+  } = useGetCashFlowSummaryQuery(filter);
 
   // "Despesa por categoria" reaproveita o `summary()` de Lançamentos — mesma
   // regra de by_category (só kind: expense), só que por occurred_on em vez
   // de period. Nenhum código novo no backend para isso (ver spec).
-  const { data: categorySummary } = useGetTransactionSummaryQuery(filter, { skip: !range.from || !range.to });
+  const { data: categorySummary } = useGetTransactionSummaryQuery(filter);
 
   const { data: movements, isLoading: movementsLoading, error: movementsError, refetch: refetchMovements } = useGetTransactionsQuery(
     filter,
-    { skip: !range.from || !range.to },
   );
 
   const dailyChartData = (summary?.daily ?? []).map((d) => ({
@@ -205,7 +204,9 @@ export default function CashFlowDashboardPage() {
                         {a.name}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {lastMovement ? `Extrato importado até ${date(lastMovement.occurred_on)}` : "Sem extrato importado"}
+                        {lastMovement
+                          ? `Extrato importado até ${date(lastMovement.occurred_on)}`
+                          : "Sem movimentação neste período"}
                       </span>
                     </div>
                   );
