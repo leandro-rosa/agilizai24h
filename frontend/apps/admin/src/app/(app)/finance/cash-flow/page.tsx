@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowDownCircle, ArrowUpCircle, Landmark, Scale, Wallet } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, ChevronRight, Equal, Landmark, Scale, Wallet } from "lucide-react";
 import { Bar, CartesianGrid, ComposedChart, Line, Pie, PieChart, XAxis, YAxis } from "recharts";
 
 import { DateRangePicker, type DayRange } from "@/components/date-range-picker";
@@ -30,6 +30,9 @@ const dailyChartConfig: ChartConfig = {
 
 const CATEGORY_DONUT_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 
+/** Quantas categorias mostrar na lista antes do "Ver todas" expandir o resto. */
+const CATEGORY_LIST_COLLAPSED_COUNT = 5;
+
 /** Primeiro e último dia do mês corrente, em "YYYY-MM-DD" — o range padrão ao abrir a tela. */
 function currentMonthRange(): { from: string; to: string } {
   const now = new Date();
@@ -42,6 +45,7 @@ function currentMonthRange(): { from: string; to: string } {
 export default function CashFlowDashboardPage() {
   const [range, setRange] = useState<DayRange>(currentMonthRange());
   const [accountId, setAccountId] = useState<string>("all");
+  const [categoryListExpanded, setCategoryListExpanded] = useState(false);
 
   const { data: accounts } = useGetAccountsQuery();
   const accountById = useMemo(() => new Map((accounts ?? []).map((a) => [a.id, a])), [accounts]);
@@ -76,9 +80,15 @@ export default function CashFlowDashboardPage() {
     label: date(d.date),
   }));
 
+  // Já vem ordenado por valor decrescente (mesma regra do `summary()` que
+  // Lançamentos usa) — a lista e o "Ver todas" reaproveitam essa ordem.
+  const categoryTotalCents = (categorySummary?.by_category ?? []).reduce((sum, row) => sum + row.outflow_cents, 0);
+
   const donutData = (categorySummary?.by_category ?? []).map((row, i) => ({
     name: row.category,
+    cents: row.outflow_cents,
     value: row.outflow_cents / 100,
+    percent: categoryTotalCents > 0 ? (row.outflow_cents / categoryTotalCents) * 100 : 0,
     fill: CATEGORY_DONUT_COLORS[i % CATEGORY_DONUT_COLORS.length],
   }));
 
@@ -128,7 +138,7 @@ export default function CashFlowDashboardPage() {
       >
         {summary && (
           <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
               <SummaryCard
                 label="Saldo inicial"
                 value={money(summary.opening_balance_cents)}
@@ -138,6 +148,13 @@ export default function CashFlowDashboardPage() {
               />
               <SummaryCard label="Entradas" value={money(summary.inflow_cents)} icon={ArrowUpCircle} tone="positive" />
               <SummaryCard label="Saídas" value={money(summary.outflow_cents)} icon={ArrowDownCircle} tone="critical" />
+              <SummaryCard
+                label="Saldo do período"
+                value={money(summary.inflow_cents - summary.outflow_cents)}
+                icon={Equal}
+                tone={summary.inflow_cents - summary.outflow_cents >= 0 ? "positive" : "critical"}
+                hint="Entradas − saídas"
+              />
               <SummaryCard
                 label="Saldo final"
                 value={money(summary.closing_balance_cents)}
@@ -181,19 +198,43 @@ export default function CashFlowDashboardPage() {
               </Card>
 
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Despesas por categoria</CardTitle>
+                  {donutData.length > CATEGORY_LIST_COLLAPSED_COUNT && (
+                    <Button variant="ghost" size="sm" onClick={() => setCategoryListExpanded((v) => !v)}>
+                      {categoryListExpanded ? "Ver menos" : "Ver todas"}
+                      <ChevronRight className={`size-4 transition-transform ${categoryListExpanded ? "rotate-90" : ""}`} />
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent>
                   {donutData.length === 0 ? (
                     <p className="py-2 text-sm text-muted-foreground">Nenhuma despesa classificada neste período.</p>
                   ) : (
-                    <ChartContainer config={{}} className="h-64 w-full">
-                      <PieChart>
-                        <ChartTooltip content={<ChartTooltipContent formatter={(value) => money(Number(value) * 100)} />} />
-                        <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90} />
-                      </PieChart>
-                    </ChartContainer>
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                      <ChartContainer config={{}} className="h-40 w-full shrink-0 sm:w-40">
+                        <PieChart>
+                          <ChartTooltip content={<ChartTooltipContent formatter={(value) => money(Number(value) * 100)} />} />
+                          <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={40} outerRadius={70} />
+                        </PieChart>
+                      </ChartContainer>
+                      <ul className="flex min-w-0 flex-1 flex-col gap-2.5">
+                        {(categoryListExpanded ? donutData : donutData.slice(0, CATEGORY_LIST_COLLAPSED_COUNT)).map((row) => (
+                          <li key={row.name} className="flex items-center justify-between gap-3 text-sm">
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.fill }} />
+                              <span className="truncate" title={row.name}>
+                                {row.name}
+                              </span>
+                            </span>
+                            <span className="tabular flex shrink-0 items-center gap-2">
+                              <span className="text-xs text-muted-foreground">{row.percent.toFixed(1)}%</span>
+                              <span className="font-medium">{money(row.cents)}</span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                 </CardContent>
               </Card>
