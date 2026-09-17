@@ -256,6 +256,19 @@ para uma ação que o menu deixou visível.
   tela (nova tabela extensa, novo gráfico) deveria seguir o mesmo padrão:
   componente próprio + `memo` + props estáveis, não ficar inline na função
   de `TreasuryPage`.
+- **`/finance/cash-flow` é dois arquivos, não um**: `page.tsx` (o dashboard
+  real, regime de caixa — `GET /treasury/transactions/cash-flow`, dado
+  agregado pelo `computeCashFlow` puro em `treasury-service/.../utils/
+  cash-flow.ts`) e `premises/page.tsx` (o formulário mensal antigo,
+  `accounting-service`, PREMISSA digitada — ainda vivo porque
+  `capex-service`/`billing-service` dependem dele enquanto payback/repasse
+  forem métrica derivada, ver CLAUDE.md raiz). Os números de Entrada/Despesa
+  do dashboard **divergem de propósito** dos cards de Lançamentos: aqui
+  inclui `kind: movement` não-transferência (empréstimo, sócio, CDB) porque
+  é caixa real, e exclui só a categoria "Movimentação entre contas" — nunca
+  os dois ao mesmo tempo. Ver
+  `docs/superpowers/specs/2026-09-16-fluxo-de-caixa-design.md` para a
+  regra completa.
 
 ## O que as telas novas recusam mostrar como zero
 
