@@ -148,6 +148,30 @@ export interface TransactionSummary {
   pending_cents: number;
 }
 
+export interface DailyCashFlow {
+  date: string;
+  inflow_cents: number;
+  outflow_cents: number;
+  balance_cents: number;
+}
+
+export interface CashFlowSummary {
+  from: string;
+  to: string;
+  account_id: number | null;
+  opening_balance_cents: number;
+  inflow_cents: number;
+  outflow_cents: number;
+  closing_balance_cents: number;
+  daily: DailyCashFlow[];
+}
+
+export interface CashFlowFilter {
+  occurred_from: string;
+  occurred_to: string;
+  account_id?: number;
+}
+
 export interface SupplierTotal {
   supplier_id: number;
   outflow_cents: number;
@@ -282,7 +306,7 @@ export function normalizeCounterpartyForGrouping(value: string): string {
     .replace(/\s+/g, " ");
 }
 
-function toQuery(filter: TransactionFilter = {}): string {
+function toQuery(filter: Record<string, any> = {}): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filter)) {
     if (value !== undefined && value !== "") params.set(key, String(value));
@@ -330,6 +354,10 @@ export const treasuryApi = createApi({
     }),
     getTransactionSummary: builder.query<TransactionSummary, TransactionFilter | void>({
       query: (filter) => `/treasury/transactions/summary${toQuery(filter ?? undefined)}`,
+      providesTags: ["Transaction"],
+    }),
+    getCashFlowSummary: builder.query<CashFlowSummary, CashFlowFilter>({
+      query: (filter) => `/treasury/transactions/cash-flow${toQuery(filter)}`,
       providesTags: ["Transaction"],
     }),
     createTransaction: builder.mutation<BankTransaction, Partial<BankTransaction>>({
@@ -437,6 +465,7 @@ export const {
   useGetCategoriesQuery,
   useGetTransactionsQuery,
   useGetTransactionSummaryQuery,
+  useGetCashFlowSummaryQuery,
   useGetTransactionsBySupplierQuery,
   useGetNeutralizationCandidatesQuery,
   useNeutralizeTransactionsMutation,
