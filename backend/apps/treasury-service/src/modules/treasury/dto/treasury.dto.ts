@@ -255,6 +255,22 @@ export class ListTransactionsDto {
   unresolved?: boolean
 }
 
+export class CashFlowQueryDto {
+  @ApiProperty({ example: '2026-06-01', description: 'Início do range, sobre `occurred_on` (data real).' })
+  @IsDateString()
+  occurred_from: string
+
+  @ApiProperty({ example: '2026-06-30' })
+  @IsDateString()
+  occurred_to: string
+
+  @ApiPropertyOptional({ description: 'Omitido = "Todas as contas" (consolidado).' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  account_id?: number
+}
+
 export class CreateMappingDto {
   @ApiProperty({ example: 'ASSAÍ ATACADISTA LJ49' })
   @IsString()

@@ -9,6 +9,7 @@ import {
 } from '../constants/treasury-vocabulary'
 import type {
   BulkUpdateTransactionsDto,
+  CashFlowQueryDto,
   CreateAccountDto,
   CreateFeeDto,
   CreateMappingDto,
@@ -19,6 +20,7 @@ import type {
   UpdateTransactionDto,
   UpsertSettlementDto,
 } from '../dto/treasury.dto'
+import { computeCashFlow, type CashFlowSummary } from '../utils/cash-flow'
 
 export interface NatureTotal {
   nature: string
@@ -251,6 +253,63 @@ export class TreasuryService {
       pending_count: pendingCount,
       pending_cents: pendingCents,
     }
+  }
+
+  /**
+   * Fluxo de caixa em regime de caixa — mesma tabela de `summary()`, mas por
+   * `occurred_on` (data real) em vez de `period` (competência), e com saldo
+   * de verdade (toda linha, qualquer `kind`) em vez de só receita/despesa.
+   * Ver `computeCashFlow` pra a regra completa de o que entra em Entradas/
+   * Saídas vs. saldo. `neutralized_with_id: null` nas duas queries, mesma
+   * regra de `summary()`/`transactionsBySupplier()` — um par neutralizado
+   * nunca entra em total nenhum.
+   *
+   * Gap conhecido, não escondido (documentado também na tela — ver
+   * `frontend/apps/admin/.../finance/cash-flow/page.tsx`): `opening_balance_cents`
+   * assume saldo zero antes do primeiro `bank_transaction` importado da
+   * conta. Períodos que dependem de um mês sem extrato importado (ver
+   * lacunas conhecidas no CLAUDE.md deste serviço) vêm com saldo inicial
+   * incorreto — não há como resolver sem o extrato que falta ou uma âncora
+   * de saldo manual, que não existe nesta fase.
+   */
+  async cashFlow(filter: CashFlowQueryDto): Promise<CashFlowSummary> {
+    const from = new Date(filter.occurred_from)
+    const to = new Date(filter.occurred_to)
+    const accountId = filter.account_id ?? null
+
+    const openingRows = await this.prisma.bankTransaction.groupBy({
+      by: ['direction'],
+      where: {
+        occurred_on: { lt: from },
+        neutralized_with_id: null,
+        ...(accountId !== null ? { account_id: accountId } : {}),
+      },
+      _sum: { amount_cents: true },
+    })
+    const openingInflow = openingRows.find(r => r.direction === 'inflow')?._sum.amount_cents ?? 0
+    const openingOutflow = openingRows.find(r => r.direction === 'outflow')?._sum.amount_cents ?? 0
+
+    const rows = await this.prisma.bankTransaction.findMany({
+      where: {
+        occurred_on: { gte: from, lte: to },
+        neutralized_with_id: null,
+        ...(accountId !== null ? { account_id: accountId } : {}),
+      },
+      select: { occurred_on: true, direction: true, amount_cents: true, category: true },
+    })
+
+    return computeCashFlow(
+      filter.occurred_from,
+      filter.occurred_to,
+      accountId,
+      openingInflow - openingOutflow,
+      rows.map(r => ({
+        occurred_on: r.occurred_on.toISOString().slice(0, 10),
+        direction: r.direction as 'inflow' | 'outflow',
+        amount_cents: r.amount_cents,
+        category: r.category,
+      })),
+    )
   }
 
   /**
