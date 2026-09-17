@@ -210,21 +210,27 @@
    * só existe com wordmark branco.
    */
   .brand-surface {
-    /* Contorno claro (contour-surface.svg) por cima do gradiente sólido —
-       mesma dupla gradiente+contorno da contracapa do manual, full-bleed
-       (cover) igual à peça original, camada única via lista de
-       background-image (CSS aceita várias, a primeira fica no topo). */
+    /* Ondas de luz em radial-gradient por cima do gradiente sólido, no
+       lugar do contour-surface.svg de linha fina anterior — pedido do
+       operador sobre uma referência visual nova (mockup de login), mais
+       vibrante que a peça de linha fina do manual. Gerado via CSS, mesma
+       filosofia de "gerado, não desenhado à mão" do contour.svg que
+       substitui: sem asset novo, resolução independente. Três radiais
+       (duas em magenta, uma em roxo) simulam o brilho ondulado; a última
+       camada da lista é o gradiente de base, sem imagem por cima. */
     background-image:
-      url("/brand/contour-surface.svg"),
+      radial-gradient(120% 90% at 12% 8%, rgb(233 30 140 / 55%) 0%, transparent 55%),
+      radial-gradient(100% 90% at 88% 30%, rgb(91 45 142 / 50%) 0%, transparent 60%),
+      radial-gradient(140% 100% at 50% 105%, rgb(233 30 140 / 40%) 0%, transparent 65%),
       linear-gradient(
         135deg,
         var(--brand-purple) 0%,
         #8e1d4d 55%,
         #6d1740 100%
       );
-    background-repeat: no-repeat, no-repeat;
-    background-position: center, 0 0;
-    background-size: cover, auto;
+    background-repeat: no-repeat, no-repeat, no-repeat, no-repeat;
+    background-position: center, center, center, 0 0;
+    background-size: cover, cover, cover, auto;
     /* A superfície é idêntica nos dois temas, então o texto sobre ela também
        precisa ser — `text-primary-foreground` viraria #0d0d0d no escuro e
        sumiria. Creme Quente sobre a parada mais clara do gradiente
@@ -270,17 +276,21 @@
     --sidebar-primary-foreground: #6d1740;
     --sidebar-ring: #ffffff;
     color: #fff4e6;
+    /* Mesmas ondas de `.brand-surface` acima — ver o comentário lá para o
+       raciocínio completo (troca do contour-surface.svg por radial-gradient). */
     background-image:
-      url("/brand/contour-surface.svg"),
+      radial-gradient(120% 90% at 12% 8%, rgb(233 30 140 / 55%) 0%, transparent 55%),
+      radial-gradient(100% 90% at 88% 30%, rgb(91 45 142 / 50%) 0%, transparent 60%),
+      radial-gradient(140% 100% at 50% 105%, rgb(233 30 140 / 40%) 0%, transparent 65%),
       linear-gradient(
         135deg,
         var(--brand-purple) 0%,
         #8e1d4d 55%,
         #6d1740 100%
       );
-    background-repeat: no-repeat, no-repeat;
-    background-position: center, center;
-    background-size: cover, cover;
+    background-repeat: no-repeat, no-repeat, no-repeat, no-repeat;
+    background-position: center, center, center, center;
+    background-size: cover, cover, cover, cover;
   }
   /* O painel é quase todo número em coluna — dígitos precisam alinhar. */
   .tabular {

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff, Lock, Mail, ShieldCheck } from "lucide-react";
 import { z } from "zod";
 
 import { BrandMark } from "@/components/brand-mark";
@@ -30,6 +31,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [login, { isLoading }] = useLoginMutation();
   const [formError, setFormError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -50,7 +52,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-svh flex-col md:grid md:grid-cols-2">
+    // Fundo sempre escuro dos dois lados, independente do tema do painel —
+    // mesma decisão de `.brand-surface`/`.brand-sidebar` (o lockup só existe
+    // sobre superfície escura). Antes o lado direito seguia `bg-background`
+    // (creme no claro); pedido explícito do operador sobre um mockup novo
+    // de login: os dois lados ficam escuros sempre.
+    <div className="flex min-h-svh flex-col bg-[#0a0a0d] md:grid md:grid-cols-2">
       {/*
         `.brand-surface` precisa da mesma superfície escura nos DOIS temas —
         `bg-background` o apagaria no claro, e carvão chapado o funde com o
@@ -63,7 +70,7 @@ export default function LoginPage() {
         "mais embaixo" sozinho colou tudo rente à base; centralizado é o
         meio-termo entre isso e o topo onde estava antes.
       */}
-      <aside className="brand-surface flex flex-col p-8 md:p-12">
+      <aside className="brand-surface relative flex flex-col p-8 md:p-12">
         <div className="flex flex-1 flex-col justify-center gap-6">
           <div className="flex items-center gap-4">
             <BrandMark variant="symbol-white" height={140} />
@@ -73,13 +80,32 @@ export default function LoginPage() {
             Feito para quem não tem tempo a perder.
           </p>
         </div>
-        <p className="hidden text-sm opacity-75 md:block">Painel de gestão do Agiliz.AI</p>
+        <div className="hidden items-end justify-between md:flex">
+          <p className="text-sm opacity-75">Painel de gestão do Agiliz.AI</p>
+          {/* Toque decorativo do mockup — texto pequeno empilhado, sem link/ação. */}
+          <span className="text-right text-[10px] font-semibold leading-[1.6] tracking-[0.2em] text-white/40 uppercase">
+            Mais
+            <br />
+            Tempo
+            <br />
+            Mais
+            <br />
+            Resultados
+          </span>
+        </div>
       </aside>
 
-      <main className="brand-canvas flex flex-1 items-center justify-center bg-background p-6 md:p-12">
-        <div className="w-full max-w-sm">
-          <h1 className="text-2xl font-bold tracking-tight">Entrar no Agiliz Admin</h1>
-          <p className="mb-6 mt-1 text-sm text-muted-foreground">Use a conta de operador do Agiliz.AI.</p>
+      <main className="brand-canvas relative flex flex-1 items-center justify-center p-6 md:p-12">
+        <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/[0.04] p-8 shadow-2xl backdrop-blur-sm">
+          <div className="mb-6 flex flex-col items-center gap-4 text-center">
+            <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--brand-magenta)] to-[var(--brand-purple)] shadow-lg">
+              <BrandMark variant="symbol-white" height={36} />
+            </span>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-white">Entrar no Agiliz Admin</h1>
+              <p className="mt-1 text-sm text-white/60">Use a conta de operador do Agiliz.AI.</p>
+            </div>
+          </div>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
               <FormField
@@ -87,9 +113,18 @@ export default function LoginPage() {
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>E-mail</FormLabel>
+                    <FormLabel className="text-white/80">E-mail</FormLabel>
                     <FormControl>
-                      <Input type="email" autoComplete="username" placeholder="voce@agiliz.ai" {...field} />
+                      <div className="relative">
+                        <Mail className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-white/40" />
+                        <Input
+                          type="email"
+                          autoComplete="username"
+                          placeholder="voce@agiliz.ai"
+                          className="border-white/15 bg-white/5 pl-9 text-white placeholder:text-white/30"
+                          {...field}
+                        />
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -100,9 +135,25 @@ export default function LoginPage() {
                 name="password"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Senha</FormLabel>
+                    <FormLabel className="text-white/80">Senha</FormLabel>
                     <FormControl>
-                      <Input type="password" autoComplete="current-password" {...field} />
+                      <div className="relative">
+                        <Lock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-white/40" />
+                        <Input
+                          type={showPassword ? "text" : "password"}
+                          autoComplete="current-password"
+                          className="border-white/15 bg-white/5 px-9 text-white"
+                          {...field}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          className="absolute top-1/2 right-3 -translate-y-1/2 text-white/40 hover:text-white/70"
+                          aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                        >
+                          {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                        </button>
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -113,12 +164,28 @@ export default function LoginPage() {
                   {formError}
                 </p>
               )}
-              <Button type="submit" disabled={isLoading} className="mt-2 w-full">
+              <Button
+                type="submit"
+                disabled={isLoading}
+                className="mt-2 w-full bg-gradient-to-r from-[var(--brand-magenta)] to-[#ff4fa8] text-white hover:opacity-90"
+              >
                 {isLoading ? "Entrando..." : "Entrar"}
               </Button>
             </form>
           </Form>
+          <div className="mt-6 flex items-center justify-center gap-2 text-xs text-white/40">
+            <span className="h-px flex-1 bg-white/10" />
+            <ShieldCheck className="size-3.5 shrink-0" />
+            <span className="text-center">Acesso restrito a operadores autorizados</span>
+            <span className="h-px flex-1 bg-white/10" />
+          </div>
         </div>
+        {/* Mesmo toque decorativo do lado esquerdo, espelhado. */}
+        <span className="pointer-events-none absolute right-8 bottom-8 hidden text-right text-[10px] font-semibold leading-[1.6] tracking-[0.2em] text-white/30 uppercase md:block">
+          Agiliz.ai
+          <br />
+          Sempre à frente
+        </span>
       </main>
     </div>
   );

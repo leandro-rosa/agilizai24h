@@ -132,11 +132,15 @@ abaixo) — só parou de ser aplicada nas telas de operação, que agora têm
 "corrigir" pra bater com o manual — a legibilidade em uso real venceu a
 fidelidade à peça de marca aqui.
 
-`.brand-surface` usa `contour-surface.svg` (mesma geometria, stroke creme
-translúcido em vez de magenta — a versão magenta se perderia por já estar
-na mesma família de cor do gradiente escuro), também `cover`/`center`, uma
-segunda camada de `background-image` por cima do gradiente sólido — é a
-dupla gradiente+contorno da contracapa do manual, agora fiel de verdade.
+**Atualizado (pedido do operador sobre um mockup de login novo)**:
+`.brand-surface` não usa mais `contour-surface.svg` — o traço fino de
+contorno saiu, entraram três `radial-gradient` em camada (duas em
+`--brand-magenta`, uma em `--brand-purple`) por cima do gradiente sólido,
+simulando o brilho ondulado da referência. Mesma filosofia de "gerado, não
+desenhado à mão" do `contour.svg`: sem asset novo, resolução independente.
+`contour-surface.svg` continua no repo (não deletado), só parou de ser
+referenciado — se `.brand-surface`/`.brand-sidebar` precisarem voltar ao
+traço fino do manual, o arquivo está lá.
 
 O `<header>` das rotas autenticadas soma `bg-primary/10` (Tailwind, mesma
 ordem de grandeza de `--accent`/`--secondary`, tokens já verificados por
@@ -146,8 +150,8 @@ onde a linha passa.
 ### `.brand-sidebar`
 
 A régua lateral inteira (não só header/footer, tentativa anterior) usa a
-mesma superfície de `.brand-surface` — gradiente + `contour-surface.svg`,
-**igual nos dois temas**, pedido explícito ("no menu do tema claro não
+mesma superfície de `.brand-surface` — gradiente + as ondas em
+radial-gradient (ver acima), **igual nos dois temas**, pedido explícito ("no menu do tema claro não
 pode ficar com a cor preta, pois fica ruim pra ver com o background
 rosa"). 240px de largura continua estreito demais pro desenho de 1400×800
 não virar rabisco, mas aqui não precisa: é a MESMA superfície de
@@ -194,6 +198,27 @@ zero `--` duplo em comentário) valem pra qualquer `.svg` novo nesta pasta.
 Nunca aplicado em `--card`/`--sidebar` (a régua lateral, `bg-sidebar` em
 `ui/sidebar.tsx`): essas superfícies continuam sólidas de propósito, é o
 que preserva legibilidade de tabela/formulário densos.
+
+### Card de formulário do `/login`
+
+Redesenho sobre o mesmo mockup que trouxe as ondas de `.brand-surface`. O
+lado direito do login deixou de seguir `bg-background` (creme no tema
+claro, carvão no escuro) — agora é sempre escuro (`#0a0a0d` de base, com
+`.brand-canvas` por cima), igual ao lado esquerdo: o card do formulário é
+`bg-white/[0.04]` com borda `border-white/10` e `backdrop-blur-sm`, não uma
+superfície sólida do design system. Campo de e-mail/senha ganharam ícone à
+esquerda (`Mail`/`Lock`, `lucide-react`) e a senha um toggle de
+mostrar/ocultar (`Eye`/`EyeOff`) — nenhum dos dois existia antes. O botão
+"Entrar" usa `bg-gradient-to-r` de `--brand-magenta` a um rosa mais claro
+(`#ff4fa8`, não um token novo — só para o gradiente do botão), em vez de
+`--primary` sólido.
+
+**Não entrou**: o mockup mostra um link "Esqueceu sua senha?" — não existe
+fluxo de recuperação de senha no `iam-service` nesta fase (nenhum endpoint,
+nenhum e-mail transacional), então o link ficou de fora. Adicionar um link
+que não leva a lugar nenhum violaria o mesmo princípio de "vazio honesto"
+do resto do painel — não é este componente que decide se a decoração é
+mentirosa ou não, é a ausência do backend por trás dela.
 
 ## Layout
 
