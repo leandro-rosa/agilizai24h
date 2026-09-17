@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Po
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import {
   BulkUpdateTransactionsDto,
+  CashFlowQueryDto,
   CreateAccountDto,
   CreateFeeDto,
   CreateMappingDto,
@@ -130,6 +131,12 @@ export class TreasuryController {
   @ApiOperation({ summary: 'Expense total per fornecedor, consolidated across every account in the period' })
   transactionsBySupplier(@Query('period') period: string) {
     return this.treasury.transactionsBySupplier(period)
+  }
+
+  @Get('transactions/cash-flow')
+  @ApiOperation({ summary: 'Cash-flow summary (regime de caixa) for a day range, optionally scoped to one account' })
+  cashFlow(@Query() query: CashFlowQueryDto) {
+    return this.treasury.cashFlow(query)
   }
 
   @Get('transactions/neutralization-candidates')

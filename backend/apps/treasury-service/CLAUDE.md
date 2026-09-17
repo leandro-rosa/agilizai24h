@@ -153,6 +153,7 @@ Origem na planilha: abas `extrato bancário`, `cartão de crédito`, `DE-PARA`,
 | `GET /treasury/transactions` | Filtros: `period`, `from`/`to` (mês), `occurred_from`/`occurred_to` (dia, sobre `occurred_on` — independente de `period`/`from`/`to`), `account_id`, `nature`, `kind`, `direction`, `store_id`, `supplier_id`, `unresolved` |
 | `GET /treasury/transactions/summary` | Totais por natureza e categoria (só `kind: expense`) + `movement_cents`, `pending_count`/`pending_cents`, `unresolved_count`. Compartilha `ListTransactionsDto`/`transactionWhere` com `listTransactions` — aceita os mesmos filtros, inclusive `occurred_from`/`occurred_to`, mesmo que o painel hoje só os use na tabela |
 | `GET /treasury/transactions/by-supplier` | Despesa por fornecedor, consolidada entre contas |
+| `GET /treasury/transactions/cash-flow` | `{ occurred_from, occurred_to, account_id? }` → saldo inicial/final, entradas/saídas e `daily[]` — regime de caixa (não confundir com `summary`, que é competência e só receita/despesa) |
 | `GET /treasury/transactions/neutralization-candidates` | Sugestão de par a neutralizar — nunca vincula sozinho |
 | `POST /treasury/transactions/neutralize` | `{ a_id, b_id }` → vincula o par, mesmo período |
 | `POST /treasury/transactions/:id/unneutralize` | Desfaz o vínculo dos dois lados |

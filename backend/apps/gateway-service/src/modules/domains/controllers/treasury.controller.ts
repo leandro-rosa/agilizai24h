@@ -225,6 +225,20 @@ export class TreasuryController {
     return result.data
   }
 
+  @Get('transactions/cash-flow')
+  @RequiresPermission(PERMISSIONS.TREASURY_READ)
+  @ApiOperation({ summary: 'Cash-flow summary (regime de caixa) for a day range' })
+  async getTransactionsCashFlow(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    const search = new URLSearchParams(query).toString()
+    const result = await this.domains.treasury({
+      method: 'get',
+      path: `/treasury/transactions/cash-flow${search ? `?${search}` : ''}`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
   @Get('transactions/neutralization-candidates')
   @RequiresPermission(PERMISSIONS.TREASURY_READ)
   @ApiOperation({ summary: 'Suggested transaction pairs that may cancel each other out' })
