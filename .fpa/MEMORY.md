@@ -52,5 +52,11 @@ can be cited.
   current period, never traced to an origin store; resolves D6 of
   `align-ingestion-with-real-reports`
 
+- [Pró-labore e "Investimento (cartão sócio)"](research/prolabore-e-investimento-cartao-socio.md) —
+  Sócios/Investimento (cartão sócio) ≠ pró-labore, confirmado pelo
+  operador; R$67.019,73 (mar-ago/2026) de "Investimento (cartão sócio)"
+  não está em nenhum lugar (nem DRE, nem CAPEX) — falta itemização do
+  operador para lançar em `capex-service`.
+
 <!-- add one line per new fact/decision/assumption file, in this format:
      - [Title](path/to/file.md) — one-line hook, newest relevant first -->

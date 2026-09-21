@@ -48,7 +48,7 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
 - `src/app/login/page.tsx` — rota pública, formulário de e-mail/senha
   (`react-hook-form` + `zod`).
 - `src/app/(app)/` — route group que concentra toda rota autenticada
-  (`/`, `/sales`, `/finance`, `/supply`, `/inventory`, `/products`,
+  (`/`, `/sales`, `/supply`, `/inventory`, `/products`,
   `/stores`, `/ingestion`). `(app)/layout.tsx` é quem monta `AuthGate` +
   `SidebarProvider`/`AppSidebar`/`SidebarInset` — um group novo nasce
   protegido só por estar dentro dessa pasta.
@@ -104,14 +104,14 @@ do painel é a operação do Agiliz.AI no Brasil — mesma convenção do
 
 ## Rotas e navegação
 
-Vinte rotas em sete grupos (`navGroups` em `src/components/app-sidebar.tsx`).
-Lista plana com vinte itens é inutilizável, e o agrupamento é o que separa
+Vinte e uma rotas em sete grupos (`navGroups` em `src/components/app-sidebar.tsx`).
+Lista plana com vinte e um itens é inutilizável, e o agrupamento é o que separa
 "o que a loja fez" de "o que a empresa deve":
 
 | Grupo | Rotas |
 |---|---|
-| Operação | `/` · `/sales` · `/supply` · `/inventory` · `/inventory/central` |
-| Financeiro | `/finance` (reconciliação) · `/finance/pnl` (DRE) · `/finance/cash-flow` |
+| Operação | `/` · `/sales` · `/commercial-intelligence` (Inteligência Comercial) · `/supply` (movimentos + reconciliação) · `/inventory` · `/inventory/central` |
+| Financeiro | `/finance/pnl` (DRE) · `/finance/stores` (resultado por loja) · `/finance/cash-flow` |
 | Tesouraria | `/treasury` · `/treasury/imports` · `/treasury/mappings` |
 | Comercial | `/billing/clients` · `/billing/contracts` · `/billing/invoices` |
 | Investimento | `/capex` · `/capex/investors` |
@@ -122,6 +122,69 @@ Cada item some para quem não tem a permissão de leitura
 (`useHasPermission`, que agora aceita `undefined` como "não exige nenhuma").
 Continua sendo cortesia de UX — o gateway é a fronteira e pode devolver 403
 para uma ação que o menu deixou visível.
+
+**`/supply` reúne quatro assuntos em abas — Visão geral · Reposição ·
+Perdas · Reconciliação** (pedido do operador 2026-09-18: a antiga rota
+`/finance`, dedicada só à reconciliação, foi removida por redundante —
+"as informações são de abastecimento" — e depois a própria página de
+abastecimento foi reorganizada porque "perda é um dos maiores pontos de
+impacto na rentabilidade das lojas, ela merece uma análise própria").
+`Reposição` é `NetworkSupplyMovementsView`/`StoreSupplyMovementsView`
+(restocks/remoções/ajustes brutos, sem mudança). `Reconciliação` é
+`NetworkReconciliationView`/`StoreReconciliationView` (o que era
+`NetworkFinanceView`/`StoreFinanceView`) — abastecido/CMV/sobra/perda
+real/ajuste, evolução mensal e a tabela de lojas; o detalhe de perda por
+motivo/produto que antes vivia aqui (`LossTables`/`ReasonSkuBreakdown`,
+o drill-down por loja em `NetworkStoreDetail`) foi removido daqui — ficou
+só em `Perdas`, pra não duplicar a mesma informação em duas abas.
+
+**`Perdas`** (`src/components/supply/loss-tab.tsx` + `src/lib/
+loss-insights.ts`) é o centro de investigação de perda: 6 KPIs com
+tendência vs. mês anterior, "Perda por loja" (toggle R$/Perda%/Unidades,
+pra não deixar loja grande sempre parecer pior), donut "Perda por
+motivo", "Evolução das perdas" (6 meses), um card de insights
+regra-a-regra (evidência primeiro, recomendação só quando a evidência
+aponta pra uma ação específica — nunca "reduza abastecimento" solto),
+ranking "Produtos com maior perda" (Qtd. + R$ + % das vendas daquele SKU
++ lojas afetadas + motivo principal, com abas por motivo), matriz
+Produto × Loja (distingue produto ruim de loja com problema) e
+"Abastecido × Vendido × Perdido por validade" (distingue produto ruim de
+excesso de abastecimento). Tudo client-side sobre dado que as outras
+abas já buscam (`useGetNetworkReconciliationRangeQuery` — que ganhou
+`monthlyLossByReason` pra alimentar a evolução —, `useGetNetworkSalesRangeQuery`,
+`useGetNetworkSupplyRangeQuery`), zero endpoint novo.
+`aggregateAcrossStores` (`src/lib/reconciliation-aggregate.ts`) faz pra
+lojas o que `sumReconciliations` já fazia pra meses — permite tratar rede
+e loja única com o mesmo código.
+
+**Três correções do operador logo após a primeira versão da aba
+Perdas** (2026-09-18): (1) o seletor de "Período" ficava preso aos meses
+do range escolhido lá em cima na página (`StorePeriodPicker`, muitas vezes
+um único mês) — agora é independente, sempre lista os últimos 24 meses a
+partir de `lastCompleteMonth()`, porque Perdas tem seu próprio conceito de
+período/comparação. (2) A matriz "Produto × Loja" e o `topSkus` que a
+alimenta agora respeitam a aba de motivo selecionada na tabela ("Geral/
+Validade/Avaria/Outros") — o operador usa "Outro motivo" na prática pra
+registrar suspeita de furto, então isolar essa aba isola o padrão
+loja-a-loja daquele motivo específico ("produto suscetível a furto" vs.
+"furto isolado numa loja"), em vez de misturar com validade/avaria. (3) Uma
+linha da tabela "Produtos com maior perda" agora expande ao clicar
+(`SkuStoreBreakdownTable`, `skuStoreBreakdown` em `loss-insights.ts`) —
+mostra, por loja, os motivos que perderam aquele SKU lado a lado com a
+venda da mesma loja pro mesmo SKU, sempre com TODOS os motivos (não filtra
+pela aba ativa: o ponto de abrir um produto é comparar motivos entre lojas,
+não estreitar pra um só).
+
+O KPI "Divergência de estoque não explicada" usa
+`unclassified_stock_adjustment_value_cents` — não é somado à "Perda
+total": é contagem de estoque que não bate com nenhuma remoção
+registrada (pode ser furto, contagem errada ou lançamento faltando), tema
+diferente de perda com motivo conhecido. **A heatmap "Perda por dia da
+semana e horário" do mockup original não foi construída** — o mesmo gap
+já documentado abaixo ("Perda por dia de visita de abastecimento":
+`supply-service` não guarda nada mais fino que o mês) segue de pé; construir
+essa visão exigiria mudança de schema a montante, não é um filtro novo na
+tela.
 
 ## Componentes que a Fase C trouxe
 
@@ -312,6 +375,247 @@ vez por loja (nunca uma vez por loja por mês) e soma no cliente —
 `sales`/`supply`/`inventory` seguem o mesmo padrão de fan-out client-side
 descrito acima, cada um com sua própria opção "Rede (todas as lojas)".
 
+## `/sales` — reconstruída sobre detalhe por transação (`add-sales-transaction-detail`)
+
+Deixou de ser só "quanto vendemos por SKU" (`SalesRecord`, ainda usado por
+`/supply`'s aba Perdas e pela reconciliação — `getSalesRangeQuery`/
+`getNetworkSalesRangeQuery` continuam intocados) e virou 5 abas — **Visão
+geral | Produtos | Lojas | Comportamento | Pagamentos** — sobre
+`SalesTransaction` (um registro por transação: horário, método, adquirente,
+bandeira, desconto, comprador, PDV/máquina, resultado), só disponível para
+loja/período ingeridos do formato de vendas por rede (ago/2026 em diante —
+ver `add-sales-transaction-detail`). Um mês do formato antigo não tem
+nenhuma dessas colunas; a tela mostra o estado vazio do `RequestState`
+nesse caso, nunca zero fabricado.
+
+**`result !== 'OK'` é excluído de toda métrica de venda** (receita,
+unidades, ticket, margem, mix, heatmap) via `onlyOk()`
+(`src/lib/sales-insights.ts`) — só a seção "Resultado das transações" (aba
+Pagamentos) lê o conjunto completo, porque o ponto dela é justamente
+comparar aprovadas com não-concluídas.
+
+**"Compra" é agrupada por `Cupom`, não por linha** (`groupBaskets()`) —
+cada linha do arquivo é um SKU vendido, várias linhas com o mesmo Cupom na
+mesma loja são a mesma compra. Uma linha sem Cupom vira uma compra de um
+item só (degradado, mas honesto — o arquivo não deu como agrupar). É o que
+faz "itens por compra"/"ticket médio" serem reais em vez de sempre 1,0.
+
+**Margem usa `products-service`'s custo datado** (`getCostsAsOfQuery`,
+`asOf: "${period}-01"`), nunca o CMV do arquivo de vendas (que tem colunas
+`CMV`/`Margem`/`Margem(%)` — deliberadamente nunca lidas, ver
+`add-sales-transaction-detail`) nem o CMV do `finance-service` (grão
+loja-mês, não serve para margem por produto). Um SKU sem custo resolvido
+não zera a margem do agregado — é excluído do cálculo e contado em
+`unresolvedSkuCount`, mostrado como aviso no card, nunca escondido.
+
+**"Loja vs rede" é comparação de primeira classe em toda a página** (spec
+do operador, 2026-09-18: "a média da rede deve servir como benchmark, e
+não como regra"). Por isso `page.tsx` busca `getNetworkSalesTransactionsQuery`
+**sempre na largura da rede inteira** (`{stores: allStores, period}`),
+mesmo com uma loja específica selecionada — o escopo da tela (uma loja ou
+a rede) é filtro client-side sobre esse mesmo cache, nunca uma fetch
+diferente. Trocar de loja no seletor nunca dispara uma nova requisição;
+só trocar de período dispara. `networkCurrentByStore`/`networkPreviousByStore`
+(sempre a rede inteira) e `currentByStore`/`previousByStore` (o escopo
+selecionado) convivem nas mesmas props (`SalesTabProps`,
+`src/components/sales/shared.tsx`) — a aba Lojas é a que mais depende dos
+dois ao mesmo tempo (perfil da loja + afinidade de produto comparam contra
+a rede mesmo com uma loja só selecionada).
+
+**Afinidade de produto é relativa, nunca absoluta** (`productAffinity()`):
+participação do SKU nas vendas da loja ÷ participação nas vendas da rede —
+o que evita que lojas grandes pareçam "afins" a tudo só por venderem mais
+em volume absoluto.
+
+**O heatmap "por dia da semana e horário" existe aqui** (ao contrário do
+que foi descartado na aba Perdas de `/supply` por falta de dado) porque
+`SalesTransaction.occurred_at` é real, por transação — o gap documentado
+em `ingestion-worker-service/CLAUDE.md` ("Perda por dia de visita de
+abastecimento") é sobre abastecimento, nunca existiu para vendas.
+
+**Não construído** (fora do escopo desta primeira versão): "Perfis de
+lojas" agrupados automaticamente por comportamento (spec seção 18 —
+clustering, não um filtro) e PDVs/máquinas com alerta automático de
+comportamento anômalo (seção 17's "criar alertas") — ambos exigiriam um
+modelo dedicado, não só leitura+agregação como o resto da tela.
+
+## `/commercial-intelligence` — Inteligência Comercial (`add-commercial-intelligence-page`)
+
+Página somente-leitura, item de Operação logo depois de Vendas (`sales:read`),
+que vai transformar o detalhe por transação em recomendações explicáveis
+(o que compra junto, o que falta no carrinho, quais produtos rendem depois das
+perdas, qual loja se comporta diferente). **Estado: a fundação está construída
+e as análises estão em espera de propósito** (pedido do operador, 2026-09-19):
+só começam depois que os meses reais forem importados pelo Drive e a qualidade
+do `Cupom` e do histórico for conferida (grupos 5–11 da change). Existe hoje: a
+casca (filtros, seis abas), o motor de medição, o aviso de qualidade dos dados,
+os KPIs e a "Estimativa de impacto" da Visão geral, a aba **Qualidade dos
+dados** (disponibilidade de cada análise), a folha **Regras de negócio**, a
+página avançada `/commercial-intelligence/calibration` ("Configurações
+avançadas / calibração", fora do menu, com o catálogo de parâmetros
+documentado) e o diagnóstico de cobertura de cupom na aba Combos. Produtos,
+Comportamento, Lojas e a Central de oportunidades dizem "Em espera" — nunca uma
+tabela vazia que pareça "nada encontrado". Nenhuma regra analítica foi
+congelada.
+
+**Três tipos de regra, nunca misturados** (pedido do operador, 2026-09-19):
+**regra de negócio** (decisão da empresa: margem mínima do combo, maior desconto
+que vale testar, piso de impacto para listar e para priorizar, quantas
+oportunidades na tela principal — 5 parâmetros), **critério de qualidade** (decide
+se há dado para uma análise: aparece como indicador e bloqueio, nunca como
+ajuste) e **modelo analítico** (associação, tendência, similaridade, confiança —
+só na página avançada). **Nenhuma regra que muda a recomendação mora no
+navegador**: a primeira versão deixava a margem mínima e a captura em
+`localStorage` por visualizador e foi removida, porque duas pessoas receberiam
+recomendações diferentes. Hoje o valor vem do padrão da implantação (ambiente,
+lido em build) e a folha diz isso e não edita nada. O **registro oficial** — valor
+único, permissão, histórico de alteração, versão da lógica e registro de
+decisões — é a change `add-commercial-intelligence-governance` (proposta escrita,
+com um `intelligence-service` novo; aguarda aprovação do operador); até ela ser
+construída, a parte de regra de negócio **não está pronta**. Só o tema fica local.
+
+- **Motor puro** em `src/lib/commercial-intelligence/` (`types`, `parameters`,
+  `parameter-docs`, `logic-version`, `env`, `confidence`, `availability`,
+  `synthetic`, `dataset`, `kpis`, `loss-index`, `quality`): sem React, fetch nem
+  storage; só imports relativos ou `import type`; TS "apagável" (sem
+  enum/namespace), para rodar em Node puro. `env.ts` é o único arquivo que lê
+  `process.env` e não entra no barrel `index.ts`;
+  `components/commercial-intelligence/runtime-parameters.ts` é quem o converte
+  nos parâmetros da página. Nada aqui toca `localStorage`.
+- **Parâmetros** (`CommercialParameters`, 95 valores): um objeto tipado com
+  padrões documentados. Cada um tem **tipo** (`business`/`quality`/`analytic`) e
+  documentação completa em `PARAMETER_DOCS` (finalidade, fórmula, unidade, motivo
+  do padrão, onde é usado, efeito de subir e de descer) — tipada sobre todo
+  caminho numérico, então um parâmetro sem documentação não passa no `tsc`. Toda
+  função do motor recebe `p` como argumento — nenhum módulo guarda limiar próprio.
+  Override por `NEXT_PUBLIC_CI_<CAMINHO>`
+  (`coupon.exclusionCoverage` → `NEXT_PUBLIC_CI_COUPON_EXCLUSION_COVERAGE`), lido
+  em **build**: o Next só inlina `process.env.NEXT_PUBLIC_X` escrito literal, por
+  isso `env.ts` lista as 95 uma a uma (gerado a partir de `PARAMETER_PATHS`, e
+  conferido contra ele). Em `admin-prod` um valor novo pede build arg, que o
+  `docker-compose.yml` ainda não repassa: lá vale o padrão. Valor inválido, fora
+  do intervalo ou que quebre um par ordenado (piso > teto, cenário conservador >
+  esperado > otimista) é ignorado e reportado no aviso — nunca derruba a página.
+  **Todos são "provisório"** até a calibração (`APPROVED_PARAMETERS` está vazio):
+  são guardrails escritos antes de ver cupom real, para evitar falso sinal sem
+  bloquear análise útil — **nunca ajustados para fazer aparecer resultado**. Cada
+  recomendação registrará a versão da lógica (`LOGIC_VERSION`,
+  `ci-logic/0.1.0-provisional`) e os valores em vigor, para que mudar um valor não
+  reescreva o que uma recomendação anterior usou.
+- **Disponibilidade da análise** (`assessAvailability`): cada análise (combos,
+  retorno dos produtos, perdas, comportamento por horário, lojas parecidas,
+  comparação e histórico) sai como "Análise disponível", "Disponível com
+  ressalvas" ou "Dados insuficientes", com os indicadores que decidem e a
+  ressalva escrita. Só bloqueia o que torna a análise impossível ou enganosa; o
+  que só enfraquece continua disponível com confiança menor. Vive na aba
+  "Qualidade dos dados"; os limites são texto de referência, não ajuste.
+- **"Estimativa de impacto"** (antes "captura da lacuna"): três cenários —
+  conservador 20%, esperado 40%, otimista 60% da diferença observada recuperada —
+  sempre com a frase de que é premissa de potencial, não resultado medido nem
+  garantido, e o valor Observado ao lado do Estimado. Sem lacuna observável, "impacto
+  não estimável".
+- **Portão de cobertura de cupom** (`assessCouponGate`). Cobertura da loja =
+  linhas concluídas com cupom ÷ todas as linhas concluídas da loja; da rede =
+  soma ÷ soma (agregada: loja grande pesa mais, não é média de percentuais); em
+  receita, só informativa. Loja < 80% sai das análises de cesta e é listada;
+  rede ≥ 95% sem loja excluída = aberta; rede em [80%, 95%) ou loja excluída =
+  parcial (confiança de cesta ≤ Média); menos de 300 cestas elegíveis ou < 5%
+  das cestas com 2+ produtos = bloqueada. Linha sem cupom **nunca** vira cesta de
+  1 item (inflaria o lift). Cupom com linhas a mais de 30 min é reaproveitado:
+  cesta descartada e contada. A aba Combos mostra isso, a cobertura por loja com
+  os dois limites desenhados e o diagnóstico cupom × sem cupom (categoria, valor
+  da linha, hora, modelo de máquina, PDV, com a diferença entre as duas
+  distribuições) que alimenta a calibração — só mede, não recomenda.
+- **Margem só sobre linha com custo resolvido** (`computeMarginBreakdown`): a
+  receita e o custo de um SKU sem custo saem juntos e o SKU é contado; sem custo
+  carregado, ou sem nenhuma linha resolvida, a margem é `null`, nunca 0 nem 100%.
+  Receita, ticket e itens por compra usam a definição do `/sales`
+  (`groupBaskets`): paridade verificada. **Difere de propósito do `/sales`** com
+  SKU sem custo: o `computeMargin` de lá mantém a receita e tira só o custo,
+  inflando a margem (achado de 2026-09-19; a correção é change à parte).
+  "Margem após perdas" só existe onde há margem **e** reconciliação, com "sobre N
+  de M lojas"; loja sem reconciliação do período é perda desconhecida, não zero.
+- **Hora de parede via UTC** (`wallClock`): `occurred_at` é o relógio da loja
+  gravado como se fosse UTC; `getHours()` num navegador em BRT desloca −3h e
+  manda venda de 00:00–02:59 para o dia anterior. O mesmo defeito está no
+  `heatmapData` e no perfil de loja do `/sales` (follow-up; não corrigido aqui).
+- **Fluxo de dados**: hooks em duas ondas — lojas, produtos e transações da rede
+  primeiro; comparação, custos datados (chaveados na lista de SKUs da rede, do
+  período e do de comparação), reconciliação de 6 meses e abastecimento só depois
+  que as transações resolvem, para não abrir ~100 requisições juntas. **Trocar de
+  loja não faz requisição nenhuma**: a rede inteira já está carregada e o escopo é
+  filtro no cliente. Fonte sem permissão nem é pedida e vira "Sem permissão"; só
+  as transações (ou o catálogo) derrubam a página, com "Tentar novamente".
+  `getNetworkReconciliationRange` engole erro por loja: uma falha ali aparece como
+  perda desconhecida.
+- **Guarda de dado sintético** (`isSynthetic`/`partitionSynthetic`): loja ou
+  produto com o marcador (`sintético`, `synthetic`, `[teste]`) fica fora de todo
+  número no gateway real, e o aviso diz o que saiu. Só
+  `NEXT_PUBLIC_ALLOW_SYNTHETIC=true` (execução contra um mock) os mantém — rotulados.
+- **Confiança graduada** (`computeConfidence`): pontuação sobre o que se aplica
+  mais tetos duros — cobertura entre 80% e 95% → Média; SKU com estoque
+  inconsistente e perda como motor → Baixa; contradição entre as metades, < 7
+  dias com venda, loja com < 100 compras, conclusão por aproximação → Baixa. Sem
+  evidência mínima: "Dados insuficientes para recomendar X: … (mínimo N)". Os pesos
+  da régua (`RUBRIC_POINTS`) são a própria régua; os limiares que escolhem o
+  patamar são parâmetros.
+- **Limites que a página mostra**: sem estoque diário nem histórico de promoção
+  (elasticidade não é medida), sem data de visita (perda só mensal por loja ×
+  produto), catálogo com só 4 categorias (as ~22 marmitas estão como snack; nada é
+  deduzido do nome) e um único mês completo com detalhe (sem estabilidade entre
+  meses). O filtro de Categoria existe, mas desligado até as análises que o usam.
+- **Sem suíte de testes no app.** O motor foi verificado por script descartável
+  **fora** do repo (Node 24 + um hook `module.registerHooks` que resolve `.ts` e
+  `@/`), com fixtures calculadas à mão — 13 checagens do núcleo (rodadas em UTC,
+  America/Sao_Paulo e Asia/Tokyo) e 19 das regras (parâmetros, tipos,
+  disponibilidade) —, e a tela por um gateway simulado (dados 100%
+  `[SINTÉTICO]`, fora de qualquer banco). Trazer isso para dentro do repo é a
+  change `add-admin-test-runner`.
+- **Deriva de documentação vista, não corrigida aqui**: `add-sales-transaction-
+  detail` ainda diz que `Cupom` não é lido (o schema e o código já persistem), e,
+  pela exploração de 2026-09-19, `gateway-service/CLAUDE.md` documenta rotas de
+  preço e estoque central que o gateway não implementa.
+
+## `/ingestion` — "Arquivos no Drive" (`add-drive-ingestion-source`)
+
+Seção abaixo do envio manual: os relatórios que caem no Google Drive todo mês,
+achados e conferidos pelo `ingestion-worker-service` (ver
+[o CLAUDE.md dele](../../../backend/apps/ingestion-worker-service/CLAUDE.md)).
+**A tela nunca importa sozinha — só o clique em "Importar".** Arquivos:
+`src/components/ingestion/{drive-files-section,drive-file-row,drive-import-dialog}.tsx`,
+`src/lib/drive-findings.ts` (texto em português por `code` de achado; a
+`message` em inglês do backend é só rede de segurança para um código que a
+tela ainda não conhece) e os seis endpoints em `src/lib/api/ingestion.ts`
+(tags `DriveFile`/`DriveStatus`).
+
+- **Importar** fica desabilitado até haver tipo e período válidos e para
+  arquivo bloqueado, duplicado ou sintético; o motivo aparece sob o botão. Tipo
+  e período nascem da sugestão, mas o que a pessoa escolhe vale mais, e trocar
+  qualquer um chama `POST /:id/validate`, que reavalia pelos agregados
+  guardados — sem baixar o arquivo de novo.
+- **`needs_validation`** abre o diálogo com as inconsistências (loja, cobertura,
+  datas faltando) e o "Revisei…"; o corpo do import leva
+  `confirm_validation.content_sha256` **do hash que ela viu**. **`would_replace`**
+  pede a confirmação de substituição (`confirm_replace: true`). O servidor
+  refaz toda conferência e pode recusar; a mensagem dele é a que aparece.
+- Sem `ingestion:upload` não há nenhuma ação (as linhas continuam visíveis);
+  com o Drive não configurado, só "Drive não configurado".
+- **Polling** (3s) usa o padrão lint-safe de sempre (efeito por booleano
+  derivado + `setInterval` + `refetch`), liga enquanto há scan, validação ou
+  import em andamento e por 60s depois de uma ação, e **desiste após 15 min
+  contínuos**: um job perdido na fila ou um worker parado deixaria o arquivo
+  "em andamento" para sempre, e cada aba aberta consultaria o servidor sem fim.
+  `Date.now()` só dentro de callbacks (regra de pureza do React Compiler).
+- **Layout — dois pegadores**: o `TableCell` do shadcn é `whitespace-nowrap`,
+  então todo texto corrido dentro de uma célula precisa de `whitespace-normal`;
+  e o container de rolagem do `Table` conta para a largura mínima do `main`
+  (flex sem `min-w-0`), então o cartão da tabela leva `contain-inline-size` —
+  sem isso, em janela abaixo de ~1300px a tabela estica a página inteira em
+  vez de rolar dentro do cartão.
+- Verificado no browser contra um gateway **mock sintético** (nunca contra a
+  pasta real; a aceitação real é a tarefa 13.3 da change): todos os estados,
+  os corpos das requisições, claro/escuro e janela de 1170px.
+
 ## Scripts
 
 `pnpm dev` (Turbopack) / `build` / `start` / `lint` / `typecheck`. ESLint flat
@@ -399,7 +703,7 @@ que faz a sessão funcionar.
   `;`, e nunca passou por `pnpm format`. Rodar hoje reformata o app todo —
   decisão à parte.
 - **Sem suíte de testes automatizados no app** — a verificação é manual,
-  ao vivo, contra o stack real. Com 20 rotas isso ficou grande demais para
+  ao vivo, contra o stack real. Com 21 rotas isso ficou grande demais para
   seguir assim; levar o painel a ter testes é proposta OpenSpec própria.
 - **Das 12 telas novas, nem todas renderizaram com dado real ainda.** Login,
   visão geral, financeiro e agora tesouraria (`/treasury`,

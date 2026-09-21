@@ -17,12 +17,22 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export type FieldSpec<T extends FieldValues> =
   | { name: Path<T>; label: string; kind: "text" | "number" | "date" | "email"; placeholder?: string; hint?: string }
-  | { name: Path<T>; label: string; kind: "select"; options: { value: string; label: string }[]; hint?: string };
+  | { name: Path<T>; label: string; kind: "select"; options: { value: string; label: string }[]; hint?: string }
+  | {
+      name: Path<T>;
+      label: string;
+      kind: "combobox";
+      /** Existing values to suggest — picking one is the common case, but typing a new one is still allowed. */
+      options: string[];
+      placeholder?: string;
+      hint?: string;
+    };
 
 /**
  * O formulário de CRUD de todo domínio novo, num lugar só.
@@ -128,6 +138,13 @@ export function ResourceFormDialog<T extends FieldValues>({
                             ))}
                           </SelectContent>
                         </Select>
+                      ) : spec.kind === "combobox" ? (
+                        <Combobox
+                          options={spec.options}
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          placeholder={spec.placeholder}
+                        />
                       ) : (
                         <Input
                           type={spec.kind === "number" ? "number" : spec.kind === "date" ? "date" : spec.kind}

@@ -47,10 +47,10 @@ services:
       REDIS_QUEUE_PORT: 6379
       # Unset would default to TRUE in @app/hold-it and crash NestJS at startup.
       WITH_KAFKA_BROKERS: "false"
-      SALES_SERVICE_URL: http://agiliz-sales-prod:3000
-      SUPPLY_SERVICE_URL: http://agiliz-supply-prod:3000
-      INVENTORY_SERVICE_URL: http://agiliz-inventory-prod:3000
-      PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
+      SALES_SERVICE_URL: http://agiliz-sales-dev:3000
+      SUPPLY_SERVICE_URL: http://agiliz-supply-dev:3000
+      INVENTORY_SERVICE_URL: http://agiliz-inventory-dev:3000
+      PRODUCTS_SERVICE_URL: http://agiliz-products-dev:3000
     # No published host port: domain services stay internal to agiliz_network,
     # reachable only through gateway-service.
     expose:

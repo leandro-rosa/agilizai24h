@@ -74,6 +74,7 @@ import {
   useDeleteTransactionMutation,
   useGetAccountsQuery,
   useGetCategoriesQuery,
+  useGetEntryTypesQuery,
   useGetMappingsQuery,
   useGetPendingImportsQuery,
   useGetTransactionSummaryQuery,
@@ -173,6 +174,8 @@ export default function TreasuryPage() {
     refetch: refetchPeriod,
   } = useGetTransactionsQuery({ period });
   const { data: accounts } = useGetAccountsQuery();
+  const { data: categories } = useGetCategoriesQuery();
+  const { data: entryTypes } = useGetEntryTypesQuery();
   // Fornecedor real (suppliers-service) — usado só para resolver nome/categoria
   // no agrupamento "Despesa por fornecedor" abaixo, não para o formulário de
   // lançamento (que continua um texto livre em `counterparty_raw`).
@@ -233,8 +236,25 @@ export default function TreasuryPage() {
     },
     { name: "amount", label: "Valor (R$)", kind: "number" },
     { name: "counterparty_raw", label: "Favorecido", kind: "text", placeholder: "ASSAÍ ATACADISTA LJ49" },
-    { name: "entry_type", label: "Tipo", kind: "text", placeholder: "estoque" },
-    { name: "category", label: "Categoria", kind: "text", placeholder: "estoque geral" },
+    {
+      name: "entry_type",
+      label: "Tipo",
+      kind: "combobox",
+      // "Outros" is a standing catch-all, always offered even before any
+      // transaction has ever used it — the list otherwise only shows values
+      // already in use, so a never-used fallback would never appear on its own.
+      // Pinned first, not appended: it's meant to be quick to find, not
+      // buried at the end of an alphabetical scroll.
+      options: ["Outros", ...(entryTypes ?? [])],
+      placeholder: "estoque",
+    },
+    {
+      name: "category",
+      label: "Categoria",
+      kind: "combobox",
+      options: ["Outros", ...(categories ?? [])],
+      placeholder: "estoque geral",
+    },
     {
       name: "kind",
       label: "Tipo de lançamento",

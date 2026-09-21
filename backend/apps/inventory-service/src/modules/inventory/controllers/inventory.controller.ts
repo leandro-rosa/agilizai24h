@@ -1,9 +1,12 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { ApiProperty } from '@nestjs/swagger'
 import { IsInt, Min } from 'class-validator'
 import { DerivedEventsPublisher } from '../services/derived-events.publisher'
 import { InventoryService } from '../services/inventory.service'
+
+/** `YYYY-MM` — every period in this platform is a whole month, never finer. */
+const PERIOD_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/
 
 export class SetMinimumDto {
   @ApiProperty({ description: 'The level at or below which the SKU is reported as low.' })
@@ -78,7 +81,18 @@ export class InventoryController {
     description: 'For backfills and corrections that produce no period event.',
   })
   @ApiQuery({ name: 'from', required: true, example: '2026-01' })
+  @ApiResponse({ status: 400, description: '"from" is missing or not a YYYY-MM period' })
   async recompute(@Param('storeId', ParseIntPipe) storeId: number, @Query('from') from: string) {
+    // "required: true" above is Swagger documentation only — NestJS does not
+    // enforce it at runtime. Without this check, an omitted or malformed
+    // "from" reached periodsFrom() as undefined/garbage and either crashed
+    // with an opaque "Cannot read properties of undefined (reading
+    // 'localeCompare')" 500, or — worse, for a malformed-but-present string —
+    // built silently wrong periods instead of failing at all.
+    if (!from || !PERIOD_PATTERN.test(from)) {
+      throw new BadRequestException(`"from" must be a YYYY-MM period, got ${JSON.stringify(from ?? null)}`)
+    }
+
     const result = await this.inventory.recomputeStore(storeId, from)
 
     // A backfill moves closing stock exactly like an ingestion does, so

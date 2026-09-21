@@ -324,6 +324,10 @@ export const treasuryApi = createApi({
       query: () => "/treasury/categories",
       providesTags: ["Mapping"],
     }),
+    getEntryTypes: builder.query<string[], void>({
+      query: () => "/treasury/entry-types",
+      providesTags: ["Mapping"],
+    }),
     getTransactionsBySupplier: builder.query<SupplierTotal[], string>({
       query: (period) => `/treasury/transactions/by-supplier?period=${period}`,
       providesTags: ["Transaction"],
@@ -463,6 +467,7 @@ export const {
   useGetAccountsQuery,
   useCreateAccountMutation,
   useGetCategoriesQuery,
+  useGetEntryTypesQuery,
   useGetTransactionsQuery,
   useGetTransactionSummaryQuery,
   useGetCashFlowSummaryQuery,
