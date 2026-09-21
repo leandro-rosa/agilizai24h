@@ -115,6 +115,27 @@ model PnlSnapshot {
   @@map("pnl_snapshot")
 }
 
+/// Nº de visitas de abastecimento por loja × período — dado real (não
+/// estimativa), sincronizado por backfill de `ingestion_operation` do
+/// `ingestion-worker-service` (database-per-service impede ler de lá
+/// direto). Usado só para ratear Deslocamento (Gasolina/Pedágio/
+/// Alimentação) entre lojas pelo driver real do custo — quantas vezes a
+/// rota de abastecimento passou ali — em vez de por participação na
+/// receita, que não tem relação com o custo do frete.
+model StoreVisitCount {
+  id          Int    @id @default(autoincrement())
+  store_id    Int
+  /// "YYYY-MM"
+  period      String
+  visit_count Int
+
+  updated_at DateTime @updatedAt
+
+  @@unique([store_id, period])
+  @@index([period])
+  @@map("store_visit_count")
+}
+
 model CashFlowSnapshot {
   id     Int    @id @default(autoincrement())
   period String @unique

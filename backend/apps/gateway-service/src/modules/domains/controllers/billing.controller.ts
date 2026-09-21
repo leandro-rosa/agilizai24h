@@ -31,6 +31,19 @@ export class BillingController {
     return result.data
   }
 
+  @Get('sites')
+  @RequiresPermission(PERMISSIONS.BILLING_READ)
+  @ApiOperation({ summary: 'List every client site across all clients, with its store_id' })
+  async getSites(@Req() request: FastifyRequest) {
+    const result = await this.domains.billing({
+      method: 'get',
+      path: '/billing/sites',
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
   @Post('clients')
   @RequiresPermission(PERMISSIONS.BILLING_WRITE)
   @ApiOperation({ summary: 'Create a client' })

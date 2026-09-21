@@ -27,6 +27,12 @@ export class BillingController {
     return this.billing.listClients(status)
   }
 
+  @Get('sites')
+  @ApiOperation({ summary: 'List every client site across all clients, with its store_id' })
+  listSites() {
+    return this.billing.listSites()
+  }
+
   @Get('clients/:id')
   @ApiOperation({ summary: 'Retrieve a client with its sites' })
   findClient(@Param('id', ParseIntPipe) id: number) {

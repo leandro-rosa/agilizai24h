@@ -12,17 +12,21 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
+  CONTRACT_KIND_LABELS,
   SEGMENT_LABELS,
   SEGMENTS,
   useCreateClientMutation,
   useCreateSiteMutation,
   useGetClientQuery,
   useGetClientsQuery,
+  useGetContractsQuery,
   useUpdateClientMutation,
   type Client,
+  type Contract,
 } from "@/lib/api/billing";
+import { useGetStoresQuery } from "@/lib/api/stores";
 import { useHasPermission } from "@/lib/auth/use-permission";
-import { count } from "@/lib/format";
+import { bps, count, date, money } from "@/lib/format";
 
 const clientSchema = z.object({
   name: z.string().min(1, "Informe o nome"),
@@ -77,6 +81,12 @@ const SITE_FIELDS: FieldSpec<SiteForm>[] = [
   },
   { name: "store_id", label: "Loja instalada (id)", kind: "number" },
 ];
+
+function contractValue(contract: Contract): string {
+  if (contract.kind === "revenue_share") return bps(contract.revenue_share_bps);
+  if (contract.monthly_fee_cents > 0) return money(contract.monthly_fee_cents);
+  return "—";
+}
 
 export default function ClientsPage() {
   const { data: clients, isLoading, error, refetch } = useGetClientsQuery();
@@ -197,6 +207,15 @@ function SitesSheet({
 }) {
   const { data, isLoading, error, refetch } = useGetClientQuery(clientId as number, { skip: clientId === null });
   const [createSite] = useCreateSiteMutation();
+  const { data: contracts } = useGetContractsQuery();
+  const { data: stores } = useGetStoresQuery();
+
+  const storeById = new Map((stores ?? []).map((s) => [s.id, s]));
+  const contractByStoreId = new Map(
+    (contracts ?? [])
+      .filter((c) => c.client_id === clientId)
+      .flatMap((c) => (c.stores ?? []).map((s) => [s.store_id, c] as const)),
+  );
 
   return (
     <Sheet open={clientId !== null} onOpenChange={(open) => !open && onClose()}>
@@ -208,7 +227,8 @@ function SitesSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-4 px-4 pb-4">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="flex flex-col gap-4 px-4 pb-4">
           {canWrite && clientId !== null && (
             <ResourceFormDialog
               title="Nova unidade"
@@ -246,24 +266,54 @@ function SitesSheet({
             loadingRows={3}
           >
             <ul className="flex flex-col gap-2">
-              {data?.sites.map((site) => (
-                <li key={site.id} className="rounded-md border px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium">{site.code}</p>
-                    {site.store_id !== null && <StatusBadge tone="positive">Loja #{site.store_id}</StatusBadge>}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {site.address} · {site.city}
-                  </p>
-                  {site.weighted_daily_traffic !== null && (
-                    <p className="tabular mt-1 text-xs text-muted-foreground">
-                      {count(site.weighted_daily_traffic)} pessoas/dia (ponderado)
+              {data?.sites.map((site) => {
+                const contract = site.store_id !== null ? contractByStoreId.get(site.store_id) : undefined;
+                const store = site.store_id !== null ? storeById.get(site.store_id) : undefined;
+                const storeInactive = store !== undefined && store.status !== "active";
+                return (
+                  <li key={site.id} className="rounded-md border px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium">{site.code}</p>
+                      {site.store_id !== null && (
+                        <StatusBadge tone={storeInactive ? "neutral" : "positive"}>
+                          {store?.name ?? `Loja #${site.store_id}`}
+                          {storeInactive && " · inativa"}
+                        </StatusBadge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {site.address} · {site.city}
                     </p>
-                  )}
-                </li>
-              ))}
+                    {site.tax_id && <p className="tabular text-xs text-muted-foreground">CNPJ: {site.tax_id}</p>}
+                    <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                      {site.employees !== null && <p className="tabular">{count(site.employees)} funcionários</p>}
+                      {site.employees_and_clients !== null && (
+                        <p className="tabular">{count(site.employees_and_clients)} funcionários + clientes</p>
+                      )}
+                      {site.service_providers !== null && (
+                        <p className="tabular">{count(site.service_providers)} prestadores</p>
+                      )}
+                      {site.visitors !== null && <p className="tabular">{count(site.visitors)} visitantes</p>}
+                      {site.weighted_daily_traffic !== null && (
+                        <p className="tabular">{count(site.weighted_daily_traffic)} pessoas/dia (ponderado)</p>
+                      )}
+                    </div>
+                    {contract && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t pt-2 text-xs">
+                        <span>{CONTRACT_KIND_LABELS[contract.kind] ?? contract.kind}</span>
+                        <span className="tabular font-medium">{contractValue(contract)}</span>
+                        <span className="text-muted-foreground">· desde {date(contract.starts_on)}</span>
+                        <StatusBadge tone={contract.status === "active" ? "positive" : "neutral"}>
+                          {contract.status === "active" ? "Ativo" : "Encerrado"}
+                        </StatusBadge>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </RequestState>
+          </div>
         </div>
       </SheetContent>
     </Sheet>

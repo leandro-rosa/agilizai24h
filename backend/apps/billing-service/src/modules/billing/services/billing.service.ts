@@ -49,6 +49,20 @@ export class BillingService {
     })
   }
 
+  /**
+   * Todas as unidades de todos os clientes, achatado — pedido do operador
+   * 2026-09-18: o painel "Resultado por loja" precisa de funcionários por
+   * `store_id` numa chamada só, sem dar N+1 em `GET /clients/:id` por
+   * cliente. Inclui o nome do cliente porque a tela também usa isso.
+   */
+  listSites() {
+    return this.prisma.clientSite.findMany({
+      where: { store_id: { not: null } },
+      include: { client: { select: { name: true } } },
+      orderBy: [{ store_id: 'asc' }],
+    })
+  }
+
   async findClient(id: number) {
     const client = await this.prisma.client.findUnique({
       where: { id },

@@ -48,6 +48,8 @@ export interface AccountNode {
   sort_order: number;
   amount_cents: number;
   origin: string | null;
+  /** Estimado por rateio (participação na receita), não um lançamento real desta loja — ver AccountRow. */
+  allocated: boolean;
   children: AccountNode[];
 }
 
@@ -70,6 +72,28 @@ export interface PnlView {
   status: string;
   totals: PnlTotals;
   sections: { section: string; amount_cents: number; accounts: AccountNode[] }[];
+}
+
+/** Uma linha do painel "Lojas" — resumo enxuto, não a árvore inteira. */
+export interface StorePnlSummary {
+  store_id: number;
+  gross_revenue_cents: number;
+  net_revenue_cents: number;
+  cogs_cents: number;
+  contribution_margin_cents: number;
+  operating_profit_cents: number;
+  mensalidade_cents: number;
+  perdas_cents: number;
+  /** Soma de tudo marcado como rateio nesta loja (custo de rede sem lançamento próprio dela). */
+  allocated_cents: number;
+  /** Resultado usando só o que é fato desta loja — nenhum rateio contado. Compare com operating_profit_cents. */
+  operating_profit_before_allocation_cents: number;
+  /** Só o pacote administrativo de rede (contador, pró-labore, sistema, ERP, juros, marketing, degustações) — o filtro Sem rateio × Com rateio. Não inclui Deslocamento/Repasse, que são custo real da loja com driver próprio. */
+  admin_allocated_cents: number;
+  /** Margem de contribuição sem o pacote administrativo (Degustações/Marketing somados de volta) — a "Margem de contribuição" da visão Sem rateio. */
+  contribution_margin_excl_admin_cents: number;
+  /** Resultado sem o pacote administrativo — a "Resultado operacional" da visão Sem rateio. Continua contando Deslocamento/Repasse (custo real da loja). */
+  operating_profit_excl_admin_cents: number;
 }
 
 export interface PnlSnapshot {
@@ -123,6 +147,10 @@ export const accountingApi = createApi({
         `/accounting/pnl/${period}${storeId !== undefined ? `?store_id=${storeId}` : ""}`,
       providesTags: ["Ledger"],
     }),
+    getPnlByStore: builder.query<StorePnlSummary[], { period: string }>({
+      query: ({ period }) => `/accounting/pnl/${period}/by-store`,
+      providesTags: ["Ledger"],
+    }),
     getPnlSeries: builder.query<PnlSnapshot[], { from?: string; to?: string; storeId?: number }>({
       query: ({ from, to, storeId }) => {
         const params = new URLSearchParams();
@@ -169,6 +197,7 @@ export const accountingApi = createApi({
 export const {
   useGetChartQuery,
   useGetPnlQuery,
+  useGetPnlByStoreQuery,
   useGetPnlSeriesQuery,
   usePutEntryMutation,
   useComputePnlMutation,

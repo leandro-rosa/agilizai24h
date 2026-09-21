@@ -74,6 +74,12 @@ export class AccountingController {
     return this.accounting.pnl(period, storeId ? Number(storeId) : undefined)
   }
 
+  @Get('pnl/:period/by-store')
+  @ApiOperation({ summary: 'Lean P&L summary for every store with revenue in the period, side by side' })
+  pnlByStore(@Param('period') period: string) {
+    return this.accounting.pnlByStore(period)
+  }
+
   @Post('pnl/:period/compute')
   @HttpCode(200)
   @ApiOperation({

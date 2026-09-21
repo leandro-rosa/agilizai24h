@@ -110,6 +110,10 @@ export const billingApi = createApi({
       query: (id) => `/billing/clients/${id}`,
       providesTags: ["Client"],
     }),
+    getSites: builder.query<(ClientSite & { client: { name: string } })[], void>({
+      query: () => "/billing/sites",
+      providesTags: ["Client"],
+    }),
     createClient: builder.mutation<Client, Partial<Client>>({
       query: (body) => ({ url: "/billing/clients", method: "POST", body }),
       invalidatesTags: ["Client"],
@@ -175,6 +179,7 @@ export const billingApi = createApi({
 export const {
   useGetClientsQuery,
   useGetClientQuery,
+  useGetSitesQuery,
   useCreateClientMutation,
   useUpdateClientMutation,
   useCreateSiteMutation,

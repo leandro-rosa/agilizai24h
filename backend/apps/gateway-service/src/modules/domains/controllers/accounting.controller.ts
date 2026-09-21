@@ -169,4 +169,17 @@ export class AccountingController {
 
     return result.data
   }
+
+  @Get('pnl/:period/by-store')
+  @RequiresPermission(PERMISSIONS.ACCOUNTING_READ)
+  @ApiOperation({ summary: 'Lean P&L summary for every store with revenue in the period, side by side' })
+  async getPnlByStore(@Param('period') period: string, @Req() request: FastifyRequest) {
+    const result = await this.domains.accounting({
+      method: 'get',
+      path: `/accounting/pnl/${encodeURIComponent(period)}/by-store`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
 }
