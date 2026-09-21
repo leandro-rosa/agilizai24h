@@ -27,15 +27,14 @@ frontend/apps/admin/src/lib/loss-intelligence/
   parameter-docs.ts       documentação de cada threshold (§14)
   metrics.ts              cálculo dos fatos/métricas observadas (§7)
   temporal.ts             janela, período fechado vs em andamento, borda (§8)
-  test-product-proxy.ts   heurística de produto novo (§9, dado a ausência de flag real)
+  recent-history-guard.ts  heurística de histórico recente/insuficiente (§9, dado a ausência de flag real)
   diagnosis/
     validity.ts           árvore de validade (§10.1)
-    theft.ts               árvore de roubo (§10.2)
+    other-reason.ts        análise neutra de "Outro motivo" — impacto econômico, recorrência, concentração (§10.2). SEM lógica de roubo. Ponto de extensão para uma futura `theft.ts` (§10.2, nota de extensibilidade)
     damage.ts               árvore de danificado (§10.3)
-    other-reason.ts          "Outro motivo": só métricas, nunca árvore (§10.4)
   consolidate.ts          Produto×Loja×Motivo → Produto×Loja (§11)
   network-comparison.ts   mesmo SKU entre lojas (§12)
-  unnecessary-supply.ts   detector transversal (§9 do pedido / aqui §10.5)
+  unnecessary-supply.ts   detector transversal (§10.4)
   priority.ts             cálculo de prioridade (§16 aqui, chamado de risco-ordering)
   confidence.ts           cálculo de confiança (§17)
   explain.ts              texto determinístico a partir da saída estruturada (§15.4)
@@ -113,13 +112,13 @@ Calculadas por (loja, SKU) sobre uma janela de períodos fechados (§8):
 | `saleToSupplyRatio` | `qtySold / qtyRestocked` | vendido | abastecido | MÉTRICA DERIVADA — **nunca chamada de "sell-through"** (§14 do pedido: esse nome pressupõe disponibilidade/estoque, que não temos) |
 | `lossToSupplyRatio[reason]` | `qtyLost[reason] / qtyRestocked` | perdido | abastecido | MÉTRICA DERIVADA |
 | `lossToRevenueRatio[reason]` | `valueLostCents[reason] / revenueCents` | perda R$ | receita | MÉTRICA DERIVADA — indefinida se `revenueCents = 0` |
-| `lossToMarginRatio[reason]` | `valueLostCents[reason] / grossMarginCents` | perda R$ | margem bruta | MÉTRICA DERIVADA — indefinida se `grossMarginCents ≤ 0`; é o teste de viabilidade econômica do roubo (§10.2) |
+| `lossToMarginRatio[reason]` | `valueLostCents[reason] / grossMarginCents` | perda R$ | margem bruta | MÉTRICA DERIVADA — indefinida se `grossMarginCents ≤ 0`; é o teste de viabilidade econômica usado na análise neutra de Outro motivo (§10.2) |
 | `netMarginAfterLossCents` | `grossMarginCents − Σ valueLostCents[reason]` | — | — | MÉTRICA DERIVADA, **só para exibição** ("se essa perda não existisse, a margem seria X") — nunca reentra como denominador de outra métrica, para não haver dupla dedução |
 | `monthsWithRestock` | contagem de períodos na janela com `quantity_restocked > 0` | — | — | FATO — chamado exatamente assim, nunca "frequência de visitas" |
 | `monthsWithSales` | contagem de períodos na janela com `quantity_sold > 0` | — | — | FATO |
 | `monthsAnalyzed` | nº de períodos fechados na janela | — | — | FATO |
 | `firstSeenPeriod` | menor período, em todo o histórico disponível (não só a janela), com abastecimento OU venda deste SKU nesta loja | — | — | FATO |
-| `monthsSinceFirstSeen` | `monthsAnalyzed` desde `firstSeenPeriod` até o fim da janela | — | — | FATO — usado no proxy de produto novo (§9) |
+| `monthsSinceFirstSeen` | `monthsAnalyzed` desde `firstSeenPeriod` até o fim da janela | — | — | FATO — usado no sinal `firstSeenRecently` (§9) |
 
 `grossMarginCents` fica `null` (não `0`) quando `costsBySkuAsOf` não resolve o custo para nenhuma venda do período — o motor declara `margem_desconhecida`, nunca assume custo zero.
 
@@ -129,29 +128,29 @@ Calculadas por (loja, SKU) sobre uma janela de períodos fechados (§8):
 
 **Regra da borda**: um abastecimento ocorrido no **último período fechado** da janela só entra no cálculo de `saleToSupplyRatio`/sinais de "abasteceu e não vendeu" se houver **pelo menos um período fechado seguinte** dentro da janela em que a venda poderia ter acontecido. Concretamente:
 
-- `qualifyingRestockPeriods` = períodos fechados da janela, **exceto o mais recente**, a não ser que esse já seja o único período com abastecimento em todo o histórico (SKU claramente novo, tratado por §9).
-- O período em andamento nunca entra como evidência de "abasteceu sem vender" — aparece na saída como `contexto_periodo_atual`, informativo, nunca decisivo.
+- `qualifyingRestockPeriods` = períodos fechados da janela, **exceto o mais recente**, a não ser que esse já seja o único período com abastecimento em todo o histórico (SKU com histórico recente, tratado por §9).
+- O período em andamento nunca entra em `qualifyingRestockPeriods` e nunca é, sozinho, a evidência que decide uma ação — mas também não é descartado: aparece na saída como `contexto_periodo_atual` e **pode reforçar** um alerta já sustentado por períodos fechados (ex.: "a tendência de zero vendas continua também no mês corrente"). A distinção é: decisões **estruturais** (`suspender_abastecimento`, `avaliar_retirada_loja`, `avaliar_retirada_rede`) exigem que suas condições (§10) já estejam satisfeitas só com `qualifyingRestockPeriods` — o mês em andamento nunca é o que faz uma dessas condições passar a ser satisfeita, só pode aparecer como reforço textual depois que a condição já foi cumprida com dado fechado.
 - Se a janela tem só 1 período fechado qualificável, a confiança nunca passa de "Média" (ver §17) — evidência de um período só é fraca.
 
 Isso evita o caso citado no pedido: abastecer no dia 28 e classificar como "sem venda" antes mesmo do mês seguinte fechar.
 
 **Janela padrão**: `parameters.window.primaryWindowMonths` (provisório: 3 meses fechados) é a janela que decide a recomendação. `parameters.window.recurrenceLookbackMonths` (provisório: 6 meses fechados) é usada só para o sinal de recorrência (§10.1 caso E, §16) — olha mais para trás sem mudar a recomendação-base.
 
-## 9. Produto novo / "em teste" (gap real, sem flag no sistema)
+## 9. Histórico recente / insuficiente (gap real, sem flag de teste no sistema)
 
-**Fato confirmado no código**: não existe nenhum campo "em teste"/`is_test` em `products-service` nem em nenhum outro serviço (checado em `backend/apps/products-service/prisma/schema.prisma` e `src/`). A Fase 1 não pode inventar esse campo.
+**Fato confirmado no código**: não existe nenhum campo "em teste"/`is_test`/experimento em `products-service` nem em nenhum outro serviço (checado em `backend/apps/products-service/prisma/schema.prisma` e `src/`). A Fase 1 não pode inventar esse campo — e, mais importante, **primeira aparição recente não é a mesma coisa que "colocado deliberadamente em teste"**. Um SKU pode aparecer recente no histórico por vários motivos (loja nova, SKU novo na rede, reintrodução) sem ser um teste controlado. O motor nunca afirma intenção de teste — só observa que o histórico é curto.
 
-**Proxy usado, honestamente rotulado como proxy**: `monthsSinceFirstSeen` (§7) substitui a flag ausente. Se `monthsSinceFirstSeen < parameters.testProduct.minClosedMonths` (provisório: 2) **ou** `qtyRestocked` acumulado desde `firstSeenPeriod` `< parameters.testProduct.minUnits` (provisório: 15), o SKU×Loja entra em **modo protegido**:
+**Proxy usado, honestamente rotulado como o que é — indício de histórico curto, não um teste**: `monthsSinceFirstSeen` (§7) alimenta o sinal `firstSeenRecently`. Se `monthsSinceFirstSeen < parameters.recentHistory.minClosedMonths` (provisório: 2) **ou** `qtyRestocked` acumulado desde `firstSeenPeriod` `< parameters.recentHistory.minUnits` (provisório: 15), o SKU×Loja entra em **modo protegido**:
 
 - Confiança nunca passa de "Baixa", a não ser que a evidência seja tão grande que nem 2 meses de histórico deixem dúvida (ex.: 50 unidades abastecidas, zero vendidas, 20 perdidas — caso extremo, ver §19 casos extremos).
-- As árvores de decisão (§10) ainda rodam, mas o resultado nunca ultrapassa 🟡/🟠 nesta condição — nunca 🔴/⚫ enquanto "novo" — a não ser pela mesma exceção de evidência esmagadora acima.
-- A saída inclui explicitamente `produto_provavelmente_novo: true` e a limitação correspondente em `limitacoes_dos_dados`.
+- As árvores de decisão (§10) ainda rodam, mas o resultado nunca ultrapassa 🟡/🟠 nesta condição — nunca 🔴/⚫ (nenhuma decisão estrutural: suspender, avaliar retirada de loja/rede) enquanto o histórico for recente — a não ser pela mesma exceção de evidência esmagadora acima.
+- A saída inclui explicitamente `firstSeenRecently: true` (nunca `isTestProduct`) e a limitação correspondente em `limitacoesDosDados`.
 
-Isso fica documentado como **gap conhecido** no §21: se `products-service` ganhar uma flag real de "em teste" no futuro, ela substitui este proxy sem mudar o resto do motor (só a condição de entrada do modo protegido muda).
+Isso fica documentado como **gap conhecido** no §21: se `products-service` ganhar uma flag real de experimento/teste no futuro, ela é um sinal **adicional e distinto** — soma-se ao modo protegido (qualquer um dos dois liga a proteção), mas não substitui `firstSeenRecently`, porque um SKU com histórico longo ainda pode estar formalmente em teste, e um SKU com histórico curto pode não ser um teste deliberado. São duas perguntas diferentes; o motor só responde a que tem dado para responder hoje.
 
 ## 10. Árvores de decisão por motivo
 
-Cada árvore roda **independente por Produto×Loja×Motivo** (não mistura roubo com validade). A entrada de cada árvore é o subconjunto de métricas do §7 filtrado pelo `reason` correspondente.
+Cada árvore roda **independente por Produto×Loja×Motivo** (validade, danificado e "Outro motivo" nunca se misturam). A entrada de cada árvore é o subconjunto de métricas do §7 filtrado pelo `reason` correspondente.
 
 ### 10.1 Validade (`reason = "expired"`)
 
@@ -168,20 +167,23 @@ Sinais de entrada: `qtySold`, `qtyLost["expired"]`, `qtyRestocked`, `saleToSuppl
 
 Casos D/E dependem da comparação de rede (§12) ter rodado primeiro — a árvore de validade consulta o resultado dela, não a recalcula. D e E **não são ramos independentes de A/B/C**: são um refinamento — primeiro decide-se A, B ou C pela evidência local, depois, se a loja caiu em A ou B, a comparação de rede pode *escalar* essa ação (D → retirada da loja, E → retirada da rede). Entre `localOutlierMaxShare` (0.3) e `networkWideMinShare` (0.7) nenhuma escalada acontece — a ação fica a de A/B mesmo, sem upgrade nem downgrade.
 
-### 10.2 Roubo (`reason = "other_reason"`, quando o contexto é de roubo suspeito — ver nota)
+### 10.2 Outro motivo — análise neutra (`reason = "other_reason"`)
 
-**Nota de nomenclatura**: como `other_reason` é o único bucket disponível e nunca deve ser chamado de roubo por inferência (restrição §2), esta árvore roda sobre `other_reason` mas a interface **nunca afirma "roubo"** — mostra "Outro motivo" com a mesma lógica de viabilidade econômica descrita aqui, e a documentação do parâmetro deixa claro que "roubo" é a hipótese de negócio por trás do nome da árvore, não um fato extraído do dado. (Isso resolve a tensão entre a pergunta 1 respondida — "roubo está classificado como outro motivo, manter assim" — e o pedido de uma árvore de roubo: a lógica de roubo existe, rotulada honestamente como análise de "Outro motivo".)
+**Esta NÃO é uma árvore de roubo.** `other_reason` é o único bucket disponível no dado hoje, e nem o rótulo nem a lógica interna presumem roubo — a análise é puramente econômica/estatística: impacto financeiro, recorrência, vendas, margem e concentração por loja. Nenhuma condição, nenhum nome de regra e nenhum texto gerado por esta árvore menciona roubo, furto, exposição ou controle de perda física — essas são hipóteses de negócio que uma pessoa pode levantar ao ler "Outro motivo" concentrado, não algo que o motor infere ou afirma.
 
-Sinais: `qtySold`, `valueLostCents["other_reason"]`, `grossMarginCents`, `lossToMarginRatio["other_reason"]`, recorrência.
+**Ponto de extensão preparado, não implementado**: o despacho por motivo (`diagnosis/` dispatch table, chaveado por `reason.key`) é o único lugar que precisaria mudar se o backend um dia ganhar uma categoria explícita `theft`/`roubo` na tabela de motivos (`supply-service`, hoje só `expired`/`damaged_product`/`other_reason` contam como perda). Quando essa categoria existir, uma nova `diagnosis/theft.ts` com a lógica causal específica de roubo (posição, exposição, recorrência por PDV etc.) é adicionada como mais uma entrada nessa tabela — sem tocar em `other-reason.ts`, `validity.ts` ou `damage.ts`. Até lá, `other_reason` continua neutro.
+
+Sinais: `qtySold`, `valueLostCents["other_reason"]`, `grossMarginCents`, `lossToMarginRatio["other_reason"]`, `lossToRevenueRatio["other_reason"]`, recorrência (períodos no `recurrenceLookbackMonths` com `qtyLost["other_reason"]>0`), `concentrationShareStore` (mesma fórmula de §10.3: perda em "Outro motivo" deste SKU nesta loja ÷ perda em "Outro motivo" deste SKU em toda a rede).
 
 | Caso | Condição | Regra | Ação |
 |---|---|---|---|
-| Saudável com perda | `qtySold > minHealthyUnits` (provisório: definido por categoria seria melhor, mas Fase 1 usa um valor de rede: 20) E `grossMarginCents > 0` E `lossToMarginRatio["other_reason"] < viabilityMaxRatio` (0.3) | `HEALTHY_PRODUCT_WITH_LOSS` | 🟠 Investigar controle/exposição (nunca 🔴) |
-| Inviável economicamente | `lossToMarginRatio["other_reason"] ≥ viabilityMaxRatio` (0.3) — a perda consome 30%+ da margem gerada — E recorrente (≥2 períodos) | `LOSS_EXCEEDS_VIABILITY_THRESHOLD` | 🔴 Avaliar retirada da loja |
-| Margem desconhecida | `grossMarginCents == null` | `MARGIN_UNKNOWN` | ⚪ Dados insuficientes (nunca assume margem) |
-| Baixo volume, perda baixa | nenhum dos acima e `valueLostCents["other_reason"]` abaixo de `negligibleValueCents` (provisório) | `NEGLIGIBLE_OTHER_REASON_LOSS` | 🟢 Manter |
+| Impacto desprezível | `valueLostCents["other_reason"] < otherReason.negligibleValueCents` | `OTHER_REASON_NEGLIGIBLE` | 🟢 Manter |
+| Saudável, ocorrência pontual | `qtySold ≥ otherReason.minHealthyUnits` (20) E `grossMarginCents > 0` E `lossToMarginRatio["other_reason"] < otherReason.viabilityMaxRatio` (0.3) E não recorrente (só 1 período no lookback) E `concentrationShareStore < otherReason.localConcentrationMin` | `OTHER_REASON_HEALTHY_ISOLATED` | 🟢 Manter + monitorar |
+| Saudável, mas recorrente ou concentrado | mesmas condições de saúde econômica acima, mas recorrente (≥2 períodos) OU `concentrationShareStore ≥ otherReason.localConcentrationMin` (0.7) | `OTHER_REASON_RECURRING_OR_CONCENTRATED` | 🟠 Investigar (texto neutro: "perda recorrente/concentrada em Outro motivo nesta loja; causa não determinada pelo dado disponível") |
+| Margem desconhecida | `grossMarginCents == null` | `OTHER_REASON_MARGIN_UNKNOWN` | ⚪ Dados insuficientes (nunca assume margem) |
+| Economicamente muito negativo e recorrente | `lossToMarginRatio["other_reason"] ≥ otherReason.viabilityMaxRatio` E recorrente (≥ `otherReason.minRecurringPeriods`, provisório 3) | `OTHER_REASON_SEVERE_RECURRING` | 🔴/⚫ Avaliar permanência — usa a mesma comparação de rede do §12 para decidir loja (concentrado) vs rede (disperso), igual aos casos D/E de validade |
 
-Explícito na saída: **hipótese, nunca causa afirmada** — o diagnóstico textual nunca diz "está sendo roubado por exposição ruim"; diz "perda concentrada em Outro motivo, sem evidência de causa específica no dado disponível".
+"Avaliar permanência" reaproveita os mesmos valores de `LossAction` já definidos (`avaliar_retirada_loja`/`avaliar_retirada_rede`) — não é uma ação nova, só a redação neutra usada na interface para este motivo especificamente, já que "retirada" soaria mais causal do que a evidência (puramente econômica) sustenta.
 
 ### 10.3 Danificado (`reason = "damaged_product"`)
 
@@ -195,11 +197,7 @@ Sinais: `qtyLost["damaged_product"]` por loja, e a mesma métrica para o mesmo S
 | Espalhado na rede | `concentrationShare < localConcentrationMin` em toda loja relevante E `qtyLost["damaged_product"]` recorrente em `≥ minStoresForSystemic` (4) lojas | `DAMAGE_SYSTEMIC_NETWORK` | 🟠 Investigar problema sistêmico — hipóteses (embalagem/transporte/produto), nunca afirmadas |
 | Poucas lojas carregam o SKU | `< minStoresCarryingForConcentration` | `INSUFFICIENT_STORES_FOR_DAMAGE_PATTERN` | ⚪ Dados insuficientes para concluir concentração — mostra só os fatos locais |
 
-### 10.4 Outro motivo — quando NÃO está no papel de "roubo suspeito"
-
-Fora do uso descrito em §10.2 (que é a única árvore que consome `other_reason` como sinal de decisão), toda ocorrência de `other_reason` aparece nas métricas gerais (KPI de perda por motivo, recorrência) exatamente como está — sem árvore própria adicional, sem reclassificação. Isto evita rodar a "árvore de roubo" duas vezes com nomes diferentes.
-
-### 10.5 Detector transversal — abastecimento sem sentido
+### 10.4 Detector transversal — abastecimento sem sentido
 
 Roda **depois** das três árvores acima, sobre o mesmo Produto×Loja consolidado (§11), nunca por motivo isolado — porque o padrão que ele procura frequentemente cruza motivos (abasteceu, perdeu por validade, abasteceu de novo).
 
@@ -214,27 +212,47 @@ Sinais compostos (cada um citando os fatos usados, nunca "estoque"):
 
 Cada padrão detectado vira um `sinal_detectado` com prioridade elevada (§16) — não substitui a árvore por motivo, **soma-se** a ela como evidência extra no diagnóstico consolidado. O caso do pedido (Paçoquita, 18 abastecidos / 0 vendidos / 5 perdidos por validade / 3 meses com abastecimento) aciona tanto `ZERO_SALES_REPEATED_SUPPLY_EXPIRY_LOSS` (§10.1 caso A) quanto `ZERO_SALES_RECURRING_SUPPLY` e `LOW_SALES_EXPIRY_WASTE` aqui — os três nomeados juntos em `regras_acionadas`.
 
-Sujeito ao modo protegido de produto novo (§9): um SKU com `monthsSinceFirstSeen < 2` nunca aciona este detector com prioridade Crítica, só Média no máximo, até completar o mínimo de meses.
+Sujeito ao modo protegido de histórico recente (§9): um SKU com `firstSeenRecently=true` nunca aciona este detector com prioridade Crítica, só Média no máximo, até completar o mínimo de meses.
 
 ## 11. Consolidação Produto × Loja
 
-Cada árvore (§10.1-10.3) produz um diagnóstico **por motivo**. A tela mostra uma linha por Produto×Loja (não por motivo) — por isso existe uma regra explícita de consolidação, que **não é "pega o mais severo"**:
+Cada árvore (§10.1-10.3) produz um diagnóstico **por motivo**. A tela mostra uma linha por Produto×Loja (não por motivo) — por isso existe uma regra explícita de consolidação. Duas perguntas diferentes, cada uma com sua própria resposta, **que podem divergir**:
+
+- **"Qual motivo perdeu mais dinheiro?"** → `maiorImpactoFinanceiro` — puramente financeiro.
+- **"O que eu devo fazer primeiro?"** → `diagnosticoPrioritario`/`acaoPrioritaria` — decidido pela gravidade da decisão, não pelo R$.
+
+### 11.1 Maior impacto financeiro
+
+`maiorImpactoFinanceiroMotivo` = o motivo com maior `valueLostCents[reason]` no período. Empate desempatado por `qtyLost[reason]` (unidades), depois por ordem alfabética do `reason` (determinístico). Sempre calculado, sempre exibido — é um fato, não uma recomendação.
+
+### 11.2 Diagnóstico e ação prioritária
+
+**Não é "o motivo que perdeu mais dinheiro"** — é o motivo cujo diagnóstico exige a decisão mais urgente, considerando severidade da ação, recorrência, evitabilidade, evidência (confiança) e impacto, nessa ordem:
 
 1. Calcula-se o diagnóstico de cada motivo presente (só motivos com `qtyLost[reason] > 0` no período geram diagnóstico).
-2. **Motivo principal** = o motivo com maior `valueLostCents[reason]` no período — critério financeiro, não de severidade da ação.
-3. **Ação principal** = a ação do diagnóstico do motivo principal.
-4. **Ações secundárias** = ações dos demais motivos com diagnóstico, listadas, nunca escondidas — se validade diz "suspender" e danificado (motivo secundário, menor valor) diz "investigar", a tela mostra os dois, com o principal em destaque.
-5. **Exceção de segurança**: se qualquer motivo (principal ou secundário) chega em 🔴/⚫ por evidência de rede (casos D/E de §10.1, ou o caso de inviabilidade de §10.2), essa ação **nunca é rebaixada** pela consolidação — ela sempre aparece pelo menos como ação secundária visível, mesmo que não seja a principal. Isto é o que evita "conflito escondido": a consolidação organiza por relevância financeira, mas nunca apaga um sinal grave.
-6. Se dois motivos empatam em valor perdido, desempata por `qtyLost[reason]` (unidades), depois por ordem alfabética do `reason` (determinístico, nunca aleatório).
+2. Ordena-se por **severidade da ação recomendada**, da mais para a menos grave: `avaliar_retirada_rede` > `avaliar_retirada_loja` > `suspender_abastecimento` > `reduzir_abastecimento` > `investigar` > `manter_monitorar` > `manter` > `dados_insuficientes`. O motivo com a ação mais severa vira `diagnosticoPrioritario`, e `acaoPrioritaria` é a ação desse diagnóstico.
+3. **Desempate quando dois motivos caem na mesma severidade** (ex.: dois motivos "investigar"): (a) mais períodos de recorrência no lookback vence; (b) se ainda empatado, maior evitabilidade vence — `evitabilidade = 1 − saleToSupplyRatio` do motivo (perda com menos venda relativa ao abastecido é mais claramente evitável, por falta de evidência de demanda); (c) se ainda empatado, maior confiança vence; (d) se ainda empatado, maior `valueLostCents[reason]` vence; (e) por fim, ordem alfabética do `reason`.
+4. **Ações secundárias** = ações dos demais motivos com diagnóstico, sempre listadas, nunca escondidas.
+5. **Exceção de segurança**: se qualquer motivo (prioritário ou secundário) chega em 🔴/⚫ por evidência de rede (casos D/E de §10.1, ou o caso severo/recorrente de §10.2), essa ação **nunca é rebaixada** pela consolidação — sempre aparece pelo menos como ação secundária visível, mesmo que não seja a prioritária. Isto é o que evita "conflito escondido".
 
-Exemplo do próprio pedido: Paçoquita×ADM tem só validade com perda (`qtyLost["damaged_product"]=0`) → motivo principal = validade, ação = suspender, sem ação secundária. Se também tivesse dano recorrente, apareceria: "Recomendação principal: suspender (validade) · Ação secundária: investigar dano recorrente (danificado)" — exatamente como o pedido pede em §4.
+### 11.3 Quando os dois divergem, a tela mostra os dois
+
+Exemplo (o mesmo levantado na revisão): Danificado R$300 pontual (ação "investigar" ou "manter+monitorar", dependendo da concentração) vs Validade R$220 recorrente há 4 meses sem vendas (ação "suspender_abastecimento", severidade maior). `maiorImpactoFinanceiroMotivo = damaged_product` (R$300 > R$220), mas `diagnosticoPrioritario = expired` (suspender é mais severo que investigar). A interface mostra os dois separadamente, nunca um escondendo o outro:
+
+```
+Maior impacto financeiro: Danificado — R$300
+Ação prioritária: Suspender abastecimento (Validade, recorrente há 4 meses, sem vendas)
+Ação secundária: Investigar dano (Danificado)
+```
+
+Exemplo do próprio pedido, sem divergência: Paçoquita×ADM tem só validade com perda (`qtyLost["damaged_product"]=0`) → os dois campos coincidem em validade, ação = suspender, sem ação secundária.
 
 ## 12. Comparação com a rede
 
 Para cada (SKU, motivo) com diagnóstico em pelo menos uma loja, calcula-se sobre **todas as lojas onde o SKU foi abastecido ou vendido** na mesma janela:
 
 - `storesCarryingSku` = nº de lojas com `qtyRestocked>0 OU qtySold>0` para o SKU na janela.
-- `storesWithSameSignal` = nº dessas lojas cujo diagnóstico daquele motivo caiu no mesmo "lado ruim" (casos A/B de validade, caso de inviabilidade de roubo, concentração local de dano — cada árvore define o que conta como "sinal ruim" dela).
+- `storesWithSameSignal` = nº dessas lojas cujo diagnóstico daquele motivo caiu no mesmo "lado ruim" (casos A/B de validade, caso severo/recorrente de Outro motivo, concentração local de dano — cada árvore define o que conta como "sinal ruim" dela).
 - `affectedShare = storesWithSameSignal / storesCarryingSku`, só calculado quando `storesCarryingSku ≥ minStoresForNetworkVerdict` (5); abaixo disso, a comparação de rede fica `dado_insuficiente` e as árvores não usam os casos D/E.
 
 A saída de cada linha inclui `comparacao_rede: { storesCarryingSku, storesWithSameSignal, affectedShare, storesHealthy: [...nomes] }` — a base do texto "o SKU tem desempenho saudável em N outras lojas" pedido em §11/§24.
@@ -257,25 +275,30 @@ interface LossIntelligenceRecommendation {
     sinaisDetectados: string[];                   // ex.: ["ZERO_SALES_REPEATED_SUPPLY_EXPIRY_LOSS"]
     regrasAcionadas: string[];                     // mesmo conjunto, nome estável para UI técnica
     acao: LossAction;
-    hipoteses: string[];                            // só quando a árvore gera hipótese não-afirmada (roubo/dano)
+    hipoteses: string[];                            // só quando a árvore gera hipótese não-afirmada (hoje só danificado, §10.3 — "Outro motivo" nunca gera hipótese causal, §10.2)
   }[];
 
-  motivoPrincipal: "expired" | "damaged_product" | "other_reason";
+  // §11.1 — puramente financeiro, sempre calculado.
+  maiorImpactoFinanceiroMotivo: "expired" | "damaged_product" | "other_reason";
+  maiorImpactoFinanceiroValueCents: number;
+
+  // §11.2 — decidido por severidade da ação, recorrência, evitabilidade, confiança e impacto, nessa ordem. Pode divergir de maiorImpactoFinanceiroMotivo (§11.3).
+  motivoDiagnosticoPrioritario: "expired" | "damaged_product" | "other_reason";
   motivosSecundarios: string[];
 
-  recomendacaoPrincipal: LossAction;
+  acaoPrioritaria: LossAction;
   acoesSecundarias: LossAction[];
 
-  sinaisTransversais: string[];                    // §10.5, ex.: ["RESTOCK_AFTER_EXPIRY_LOSS"]
+  sinaisTransversais: string[];                    // §10.4, ex.: ["RESTOCK_AFTER_EXPIRY_LOSS"]
 
   prioridade: "critica" | "alta" | "media" | "baixa";
   confianca: "alta" | "media" | "baixa" | "insuficiente";
 
   comparacaoRede: NetworkComparisonResult | "dado_insuficiente";
 
-  limitacoesDosDados: string[];                    // ex.: ["margem_desconhecida", "produto_provavelmente_novo"]
+  limitacoesDosDados: string[];                    // ex.: ["margem_desconhecida", "historico_recente"]
 
-  produtoProvavelmenteNovo: boolean;
+  firstSeenRecently: boolean;                       // NUNCA "isTestProduct" — indício de histórico curto, não um teste deliberado (§9)
 
   versaoMotor: string;                              // ex.: "loss-intelligence/0.1.0-provisional"
   versaoParametros: string;                          // hash ou versão de LossIntelligenceParameters
@@ -307,16 +330,18 @@ Arquivo próprio, `NEXT_PUBLIC_LI_<PATH>` como prefixo de env (paralelo a `NEXT_
 | `validity.localOutlierMaxShare` | 0.3 | lojas com mesmo sinal / lojas comparáveis | caso D (retirada da loja) | mais difícil chegar em D | mais fácil chegar em D | usa `dado_insuficiente` de §12 |
 | `validity.networkWideMinShare` | 0.7 | idem | caso E (retirada da rede) | mais difícil chegar em E | mais fácil chegar em E | idem |
 | `network.minStoresForNetworkVerdict` | 5 | nº de lojas | habilita §12 | exige mais lojas para comparar | compara com poucas lojas (menos confiável) | abaixo disso, `dado_insuficiente` |
-| `theft.minHealthyUnits` | 20 | unidades vendidas na janela | "saudável" em §10.2 | mais exigente p/ considerar saudável | menos exigente | — |
-| `theft.viabilityMaxRatio` | 0.3 | perda R$ / margem bruta R$ | corte de inviabilidade econômica | mais perda tolerada antes de sugerir retirada | menos perda tolerada | `dados_insuficientes` se margem desconhecida |
-| `theft.negligibleValueCents` | 5000 (R$50) por janela | valor perdido R$ na janela | corte "manter" sem investigar | mais casos viram "investigar" | mais casos viram "manter" | — |
+| `otherReason.minHealthyUnits` | 20 | unidades vendidas na janela | "saudável" em §10.2 | mais exigente p/ considerar saudável | menos exigente | — |
+| `otherReason.viabilityMaxRatio` | 0.3 | perda R$ / margem bruta R$ | corte "severo e recorrente" (§10.2) | mais perda tolerada antes de sugerir avaliar permanência | menos perda tolerada | `dados_insuficientes` se margem desconhecida |
+| `otherReason.negligibleValueCents` | 5000 (R$50) por janela | valor perdido R$ na janela | corte "manter" sem investigar | mais casos viram "investigar" | mais casos viram "manter" | — |
+| `otherReason.localConcentrationMin` | 0.7 | perda "Outro motivo" nesta loja / perda do SKU na rede | separa caso "recorrente" de caso "concentrado" em §10.2 | mais exigente p/ afirmar concentração | mais fácil afirmar concentração | mesma regra de `network.minStoresForNetworkVerdict` para ter significado |
+| `otherReason.minRecurringPeriods` | 3 | períodos no lookback com perda | corte do caso severo/recorrente (§10.2) | exige mais repetição antes de "avaliar permanência" | reage mais cedo | — |
 | `damage.localConcentrationMin` | 0.7 | perda nesta loja / perda do SKU na rede | concentração local | mais exigente p/ afirmar "local" | mais fácil afirmar "local" | — |
 | `damage.minStoresCarryingForConcentration` | 3 | nº de lojas | habilita o cálculo de concentração | — | — | abaixo disso, `dados_insuficientes` |
 | `damage.minStoresForSystemic` | 4 | nº de lojas afetadas | caso sistêmico | mais exigente | menos exigente | — |
 | `unnecessarySupply.verylowSaleRatio` | 0.15 | vendido/abastecido | padrão "baixíssima venda" | — | — | — |
-| `testProduct.minClosedMonths` | 2 | meses fechados desde primeira aparição | modo protegido liga/desliga | protege por mais tempo | protege por menos tempo | — |
-| `testProduct.minUnits` | 15 | unidades abastecidas desde primeira aparição | idem | idem | idem | — |
-| `priority.criticalValueCents` | 30000 (R$300) na janela principal | valor perdido R$ do motivo principal | corte Crítica vs Alta (§16) | menos casos viram Crítica | mais casos viram Crítica | não bloqueia — falta de custo datado só afeta `grossMarginCents`, não este corte (é valor de perda, já valorado por `finance`) |
+| `recentHistory.minClosedMonths` | 2 | meses fechados desde primeira aparição | liga/desliga `firstSeenRecently` (modo protegido) | protege por mais tempo | protege por menos tempo | — |
+| `recentHistory.minUnits` | 15 | unidades abastecidas desde primeira aparição | idem | idem | idem | — |
+| `priority.criticalValueCents` | 30000 (R$300) na janela principal | valor perdido R$ do `motivoDiagnosticoPrioritario` | corte Crítica vs Alta (§16) | menos casos viram Crítica | mais casos viram Crítica | não bloqueia — falta de custo datado só afeta `grossMarginCents`, não este corte (é valor de perda, já valorado por `finance`) |
 | `confidence.minMonthsForHigh` | 3 | meses fechados qualificáveis | corte Alta vs Média (§17) | mais exigente para "Alta" | menos exigente | — |
 
 Todos com `isProvisional: true` — mesma bandeira de `commercial-intelligence`, mesma tela "Regras de negócio" (agora genérica, §4) avisando que são padrões de julgamento, não medidos.
@@ -341,19 +366,19 @@ Impacto potencial estimado: R$ X–Y/mês em perdas potencialmente evitáveis
 [Ver todas as recomendações]
 ```
 
-Contagens vêm de `recomendacaoPrincipal` de cada linha (não conta ações secundárias, para não inflar o total). O intervalo de impacto usa os mesmos três cenários (conservador/esperado/otimista) já com precedente em `commercial-intelligence` — aplicados sobre a soma de `valueLostCents` das linhas com ação diferente de "manter"/"dados insuficientes".
+Contagens vêm de `acaoPrioritaria` de cada linha (não conta ações secundárias, para não inflar o total). O intervalo de impacto usa os mesmos três cenários (conservador/esperado/otimista) já com precedente em `commercial-intelligence` — aplicados sobre a soma de `valueLostCents` das linhas com ação diferente de "manter"/"dados insuficientes".
 
 ### 15.2 Tabela "Produtos que exigem decisão"
 
-Colunas: Produto, Loja, Vendas, Abastecido, Perda, Motivo principal, Diagnóstico (texto curto), Ação, Prioridade, Confiança.
+Colunas: Produto, Loja, Vendas, Abastecido, Perda, Maior impacto (motivo), Ação prioritária, Diagnóstico (texto curto), Prioridade, Confiança. Quando `motivoDiagnosticoPrioritario ≠ maiorImpactoFinanceiroMotivo` (§11.3), a célula de "Maior impacto" mostra o motivo financeiro entre parênteses junto da ação prioritária, para o caso de divergência nunca passar despercebido numa leitura rápida da tabela.
 
-Filtros: motivo (Todos/Validade/Roubo/Danificado/Outro — "Roubo" aqui filtra por `diagnosticosPorMotivo` cujo `reason="other_reason"` E que passou pela árvore de §10.2, não por todo `other_reason`), ação (Todas/Manter/Monitorar/Reduzir/Investigar/Suspender/Retirar), prioridade, confiança, loja, categoria (via `products-service`).
+Filtros: motivo (Todos/Validade/Outro motivo/Danificado — sem opção "Roubo", já que não existe essa categoria no dado; ver §21), ação (Todas/Manter/Monitorar/Reduzir/Investigar/Suspender/Retirar), prioridade, confiança, loja, categoria (via `products-service`).
 
 Nunca repete gráfico/ranking/KPI já existente na aba — é só a tabela de decisão.
 
 ### 15.3 Drill-down (drawer lateral)
 
-Ao clicar numa linha: cabeçalho (Produto — Loja, badge de ação, prioridade, confiança) → Evidências (métricas da janela principal) → Histórico (uma linha por período dentro do lookback de recorrência) → Comparação com a rede (texto + números de §12) → Diagnóstico (motivo principal + secundários, com hipóteses claramente marcadas como hipótese) → Recomendação → "Ver regras acionadas" (expande a lista técnica de `regrasAcionadas`) → Limitações (`limitacoesDosDados`, sempre visível quando não-vazio, nunca escondida atrás de um clique extra).
+Ao clicar numa linha: cabeçalho (Produto — Loja, badge de ação prioritária, prioridade, confiança) → Evidências (métricas da janela principal) → Histórico (uma linha por período dentro do lookback de recorrência) → Comparação com a rede (texto + números de §12) → Diagnóstico (maior impacto financeiro e diagnóstico prioritário mostrados como dois campos distintos quando divergem, §11.3; motivos secundários; hipóteses, quando existirem, claramente marcadas como hipótese, nunca como fato) → Recomendação → "Ver regras acionadas" (expande a lista técnica de `regrasAcionadas`) → Limitações (`limitacoesDosDados`, sempre visível quando não-vazio, nunca escondida atrás de um clique extra).
 
 ### 15.4 Texto explicativo (determinístico, Fase 1)
 
@@ -371,20 +396,20 @@ Isso cumpre o §21 do pedido ("motor primeiro, texto depois") sem esperar por um
 
 Não é um score único — é atribuição por regra, auditável (lista de gatilhos, cada um citado em `sinaisDetectados`):
 
-- **Crítica**: `recomendacaoPrincipal ∈ {suspender_abastecimento, avaliar_retirada_rede}` E `confianca ≥ media` E (`sinaisTransversais` não-vazio OU `valueLostCents` do motivo principal acima de `priority.criticalValueCents` (provisório)).
-- **Alta**: `recomendacaoPrincipal ∈ {suspender_abastecimento, avaliar_retirada_loja, avaliar_retirada_rede, reduzir_abastecimento}` sem atender Crítica.
-- **Média**: `recomendacaoPrincipal ∈ {investigar, manter_monitorar}`.
-- **Baixa**: `recomendacaoPrincipal ∈ {manter}`.
+- **Crítica**: `acaoPrioritaria ∈ {suspender_abastecimento, avaliar_retirada_rede}` E `confianca ≥ media` E (`sinaisTransversais` não-vazio OU `valueLostCents` do `motivoDiagnosticoPrioritario` acima de `priority.criticalValueCents` (provisório)).
+- **Alta**: `acaoPrioritaria ∈ {suspender_abastecimento, avaliar_retirada_loja, avaliar_retirada_rede, reduzir_abastecimento}` sem atender Crítica.
+- **Média**: `acaoPrioritaria ∈ {investigar, manter_monitorar}`.
+- **Baixa**: `acaoPrioritaria ∈ {manter}`.
 - `dados_insuficientes` nunca recebe prioridade — fica fora do ranking, listada à parte ("N casos sem evidência suficiente ainda").
 
-Isso já cobre os fatores pedidos em §19 (impacto financeiro e unidades entram via o corte `criticalValueCents`; recorrência e continuidade de abastecimento entram via os `sinaisTransversais` que só disparam com recorrência real; extensão do problema entra via `avaliar_retirada_rede` só existir com evidência de rede) sem um score opaco.
+Isso já cobre os fatores de priorização pedidos pelo usuário (impacto financeiro e unidades entram via o corte `criticalValueCents`; recorrência e continuidade de abastecimento entram via os `sinaisTransversais` que só disparam com recorrência real; extensão do problema entra via `avaliar_retirada_rede` só existir com evidência de rede) sem um score opaco.
 
 ## 17. Cálculo de confiança
 
 Por regra, não por fórmula contínua:
 
-- **Insuficiente**: `monthsAnalyzed < 1` período qualificável, ou `produtoProvavelmenteNovo` sem evidência esmagadora (§9), ou margem desconhecida quando a árvore depende dela (roubo).
-- **Baixa**: exatamente 1 período qualificável, ou `produtoProvavelmenteNovo=true` com evidência forte (exceção de §9), ou `comparacaoRede="dado_insuficiente"` quando a árvore usaria rede (casos D/E de validade).
+- **Insuficiente**: `monthsAnalyzed < 1` período qualificável, ou `firstSeenRecently` sem evidência esmagadora (§9), ou margem desconhecida quando a árvore depende dela ("Outro motivo").
+- **Baixa**: exatamente 1 período qualificável, ou `firstSeenRecently=true` com evidência forte (exceção de §9), ou `comparacaoRede="dado_insuficiente"` quando a árvore usaria rede (casos D/E de validade).
 - **Média**: ≥2 períodos qualificáveis, sem contradição (ver abaixo), rede insuficiente mas a árvore não depende dela neste caso.
 - **Alta**: ≥`confidence.minMonthsForHigh` (provisório: 3) períodos qualificáveis, sem contradição, E (comparação de rede disponível OU não necessária para o caso).
 
@@ -395,13 +420,13 @@ Por regra, não por fórmula contínua:
 Um `.spec.ts` por módulo do §3, cobrindo pelo menos:
 
 - `metrics.ts`: cada fórmula do §7, incluindo os casos `null`/indefinido (margem desconhecida, denominador zero).
-- `temporal.ts`: borda de janela (restock no último período fechado não conta), mês em andamento nunca decide, janela com só 1 período qualificável.
-- `test-product-proxy.ts`: SKU novo entra em modo protegido; SKU novo com evidência esmagadora escapa do teto de prioridade mas não do de confiança "Baixa" salvo o caso extremo citado.
+- `temporal.ts`: borda de janela (restock no último período fechado não conta), mês em andamento nunca sozinho sustenta uma decisão estrutural mas pode reforçar um alerta já sustentado por dado fechado (§8), janela com só 1 período qualificável.
+- `recent-history-guard.ts`: SKU com histórico recente entra em modo protegido (`firstSeenRecently=true`); SKU com histórico recente e evidência esmagadora escapa do teto de severidade de ação mas não do teto de confiança "Baixa" salvo o caso extremo citado; nunca usa o nome/campo `isTestProduct`.
 - `diagnosis/validity.ts`: um teste por caso A-E do §10.1, incluindo o exemplo literal do pedido (Paçoquita: 18/0/5/3 meses → suspender, confiança alta) e o "caso diferente" do pedido original (50/42/4 → reduzir, não retirar).
-- `diagnosis/theft.ts`: produto saudável com perda (nunca retirar automaticamente — teste que EXPLICITAMENTE falha se a ação for `avaliar_retirada_loja` quando `lossToMarginRatio < viabilityMaxRatio`), produto inviável (retirada só aqui), margem desconhecida → dados insuficientes.
+- `diagnosis/other-reason.ts`: produto saudável com perda pontual → manter+monitorar; saudável mas recorrente/concentrado → investigar (teste que EXPLICITAMENTE falha se a ação for `avaliar_retirada_loja`/`avaliar_retirada_rede` quando `lossToMarginRatio < viabilityMaxRatio`, para garantir que nunca escala sem evidência econômica severa); severo e recorrente → avaliar permanência (loja ou rede, conforme §12); margem desconhecida → dados insuficientes; **teste de nomenclatura**: nenhuma string de regra, sinal ou texto gerado por este módulo contém "roubo"/"furto"/"theft" (busca literal nas fixtures de teste, deve falhar se aparecer).
 - `diagnosis/damage.ts`: concentração local (90%/1 loja → investigar local), espalhado (sistêmico), poucas lojas carregando o SKU → dados insuficientes.
-- `unnecessary-supply.ts`: cada um dos 4 padrões do §10.5 isolado, e o caso combinado (Paçoquita aciona 3 regras ao mesmo tempo).
-- `consolidate.ts`: motivo principal por valor (não por severidade), ação secundária nunca escondida, exceção de segurança (🔴 secundário nunca rebaixado), empate desempatado deterministicamente.
+- `unnecessary-supply.ts`: cada um dos 4 padrões do §10.4 isolado, e o caso combinado (Paçoquita aciona 3 regras ao mesmo tempo).
+- `consolidate.ts`: `maiorImpactoFinanceiroMotivo` decidido só por valor; `motivoDiagnosticoPrioritario`/`acaoPrioritaria` decidido por severidade da ação (não por valor) — teste explícito com o exemplo do dano pontual de maior R$ vs validade recorrente de menor R$ (§11.3), confirmando que a ação prioritária é validade mesmo com o impacto financeiro maior sendo dano; cada critério de desempate (recorrência → evitabilidade → confiança → valor → alfabética) testado isoladamente; ação secundária nunca escondida; exceção de segurança (🔴/⚫ secundário nunca rebaixado).
 - `network-comparison.ts`: `affectedShare` correto, corte de `minStoresForNetworkVerdict`, caso D e caso E do pedido (Paçoquita saudável em 9 lojas vs SKU ruim em 14 de 17).
 - `priority.ts`, `confidence.ts`: cada tier, e o caso explícito do pedido "prioridade alta + confiança baixa é válido" (não são a mesma dimensão).
 - `engine.ts`: teste de integração ponta a ponta com um `LossIntelligenceInput` sintético cobrindo os 3 motivos numa mesma loja×SKU, verificando o objeto de saída completo.
@@ -410,11 +435,11 @@ Fixtures sintéticas — nunca dado real do banco de dev nos testes (regra de is
 
 ## 19. Casos extremos
 
-- SKU sem nenhuma venda nem perda no período, só abastecimento — sem diagnóstico de motivo (não há `reason` com `qtyLost>0`), mas ainda pode acionar `ZERO_SALES_RECURRING_SUPPLY` (§10.5) sozinho.
-- Loja nova (poucos meses de operação) — mesma proteção de "produto novo" se aplica quando `firstSeenPeriod` da LOJA (não só do produto) é recente; usar o mínimo de `monthsSinceFirstSeen` entre produto e loja.
+- SKU sem nenhuma venda nem perda no período, só abastecimento — sem diagnóstico de motivo (não há `reason` com `qtyLost>0`), mas ainda pode acionar `ZERO_SALES_RECURRING_SUPPLY` (§10.4) sozinho.
+- Loja nova (poucos meses de operação) — mesma proteção de histórico recente se aplica quando `firstSeenPeriod` da LOJA (não só do produto) é recente; usar o mínimo de `monthsSinceFirstSeen` entre produto e loja.
 - SKU descontinuado no meio da janela (abastecido nos 2 primeiros meses, não no 3º) — `monthsWithRestock` conta certo, mas o período sem abastecimento não deve gerar falso "zero abastecimento contínuo"; a árvore só olha períodos em que houve pelo menos abastecimento OU venda.
-- Custo datado ausente para parte das vendas do período (produto sem custo cadastrado naquele mês) — `grossMarginCents=null`, árvore de roubo cai em `dados_insuficientes`, nunca assume custo zero nem ignora as vendas sem custo.
-- Mesmo SKU com motivo principal diferente em meses diferentes dentro do lookback (ex.: validade em junho, dano em agosto) — cada mês entra na recorrência do seu próprio motivo; não soma perdas de motivos diferentes para "inflar" recorrência de um só.
+- Custo datado ausente para parte das vendas do período (produto sem custo cadastrado naquele mês) — `grossMarginCents=null`, a árvore de "Outro motivo" cai em `dados_insuficientes` quando depende de margem, nunca assume custo zero nem ignora as vendas sem custo.
+- Mesmo SKU com motivo dominante diferente em meses diferentes dentro do lookback (ex.: validade em junho, dano em agosto) — cada mês entra na recorrência do seu próprio motivo; não soma perdas de motivos diferentes para "inflar" recorrência de um só.
 - Todas as lojas da rede compartilham o mesmo problema (nenhuma "saudável" para comparar) — caso E deve disparar mesmo sem lojas saudáveis de referência, já que o critério é `affectedShare`, não a existência de contraste.
 
 ## 20. O que fica para a Fase 2 (não construir agora)
@@ -429,16 +454,16 @@ Fixtures sintéticas — nunca dado real do banco de dev nos testes (regra de is
 
 - Sem estoque confiável — nenhuma conclusão sobre "produto parado" é feita; o motor só fala de abastecido/vendido/perdido, nunca de saldo.
 - Sem data de visita de abastecimento — "meses com abastecimento" é o proxy mais fino disponível, não é frequência real de visitas.
-- Sem flag real de "produto em teste" — proxy por tempo desde primeira aparição, documentado como aproximação.
-- `other_reason` nunca é afirmado como roubo — é tratado com a lógica de viabilidade econômica que faz sentido para roubo, mas o rótulo na tela é sempre "Outro motivo".
+- Sem flag real de experimento/teste — o sinal `firstSeenRecently` é só um proxy por tempo desde a primeira aparição no histórico, documentado como aproximação, nunca chamado de "produto em teste" (histórico recente ≠ teste deliberado).
+- `other_reason` nunca é tratado como roubo, nem no rótulo nem na lógica interna — a análise de §10.2 é neutra (impacto econômico, recorrência, concentração), sem hipótese causal. Uma árvore de roubo real só passa a existir se o backend ganhar uma categoria explícita de motivo para isso (ponto de extensão documentado em §10.2).
 - Comparação de rede exige um mínimo de lojas comparáveis (5) — SKUs de nicho (poucas lojas) não geram veredito de rede.
 
 ## 22. Critérios de aceite da Fase 1
 
 1. A aba Perdas mostra o painel do Agente, a tabela de decisões e o drill-down, sem remover nem duplicar nenhum widget existente.
 2. Nenhuma chamada de rede nova além das já usadas por `loss-tab.tsx` mais custo datado de `products-service`.
-3. Nenhuma menção a estoque, saldo, disponibilidade ou dias de cobertura em qualquer texto gerado pelo motor — checável por teste (busca por essas palavras na saída de `explain.ts` sobre as fixtures de teste, falha se aparecerem fora de `limitacoesDosDados` declarando a ausência).
-4. Os dois exemplos literais do pedido do usuário (Paçoquita 18/0/5 → suspender; 50/42/4 → reduzir; Produto ADM 84 vendidos/11 roubados com margem positiva → investigar, nunca retirar; dano 86% concentrado numa loja → investigar local) produzem exatamente a ação esperada nos testes do motor.
+3. Nenhuma menção a estoque, saldo, disponibilidade, ruptura, cobertura ou "sell-through" em qualquer texto gerado pelo motor — checável por teste (busca por essas palavras, mais "roubo"/"furto"/"theft" fora do escopo do §10.2, na saída de `explain.ts` sobre as fixtures de teste, falha se aparecerem fora de `limitacoesDosDados` declarando a ausência).
+4. Os exemplos literais do pedido do usuário produzem exatamente a ação esperada nos testes do motor: Paçoquita 18/0/5 → suspender; 50/42/4 → reduzir; Produto ADM 84 vendidos / 11 unidades em Outro motivo com margem positiva e ocorrência pontual → manter+monitorar (ou investigar, se recorrente/concentrado) — nunca avaliar retirada sem evidência econômica severa e recorrente, e o texto gerado nunca afirma "roubo" como causa; dano 86% concentrado numa loja → investigar operação local; o exemplo de divergência do §11.3 (dano R$300 pontual vs validade R$220 recorrente) produz `maiorImpactoFinanceiroMotivo=damaged_product` e `motivoDiagnosticoPrioritario=expired` simultaneamente, ambos visíveis na saída.
 5. Toda ação 🔴/⚫ tem pelo menos um `sinalDetectado`/`regraAcionada` nomeado na saída — nunca aparece sem explicação auditável.
 6. `pnpm --filter @agiliz/admin typecheck lint` e a suíte de testes do motor passam limpos.
-7. Revisão manual no browser (mock ou dados reais já importados) confirmando que os textos de diagnóstico soam como o exemplo do §36 do pedido, sem eu precisar caçar a informação manualmente.
+7. Revisão manual no browser (mock ou dados reais já importados) confirmando que os textos de diagnóstico soam como os exemplos do pedido original, sem eu precisar caçar a informação manualmente.
