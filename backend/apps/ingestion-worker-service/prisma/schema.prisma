@@ -45,9 +45,10 @@ model Ingestion {
   uploaded_at    DateTime @default(now())
   updated_at     DateTime @updatedAt
 
-  staged     StagedRow[]
-  rejections IngestionRejection[]
-  operations IngestionOperation[]
+  staged               StagedRow[]
+  staged_transactions  StagedSalesTransaction[]
+  rejections           IngestionRejection[]
+  operations           IngestionOperation[]
 
   @@index([store_id, period])
   @@index([status])
@@ -130,6 +131,51 @@ model StagedRow {
   @@map("staged_row")
 }
 
+/// A parsed, per-transaction sales detail row waiting for every chunk of its
+/// file to arrive — same reason `StagedRow` exists, a separate table rather
+/// than more nullable columns on it (see add-sales-transaction-detail design
+/// D1): none of these ~14 fields mean anything for a supply or cost row.
+/// Only staged for the network-wide, per-transaction sales format; an
+/// old-format sales upload never produces any of these.
+model StagedSalesTransaction {
+  id           Int    @id @default(autoincrement())
+  ingestion_id String
+
+  store_id    Int
+  occurred_at DateTime?
+  sku         String
+  quantity    Int
+
+  /// Integer minor units. Never a float.
+  amount_paid_cents     Int
+  original_amount_cents Int?
+  discount_cents        Int?
+  /// Amount settled after acquirer/payment fees — a treasury concept, never CMV/margin.
+  net_amount_cents      Int?
+  /// The receipt/basket identifier — groups several rows into one purchase.
+  coupon                String?
+
+  /// Verbatim from the report's Resultado column — every attempted
+  /// transaction is staged here, not only completed sales (see
+  /// add-sales-transaction-detail design D4).
+  result String
+
+  method           String?
+  acquirer         String?
+  card_brand       String?
+  card_last_digits String?
+  internal_code    String?
+  acquirer_code    String?
+  pos_id           String?
+  machine_model    String?
+  buyer_number     String?
+
+  ingestion Ingestion @relation(fields: [ingestion_id], references: [id], onDelete: Cascade)
+
+  @@index([ingestion_id])
+  @@map("staged_sales_transaction")
+}
+
 /// A row that could not be processed, kept so the operator can fix the file.
 ///
 /// Rejections are recorded rather than skipped: a skipped row produces a total
@@ -149,4 +195,99 @@ model IngestionRejection {
 
   @@index([ingestion_id])
   @@map("ingestion_rejection")
+}
+
+/// One file found in the Google Drive folder (add-drive-ingestion-source): its metadata, what
+/// validating it found, and what became of it. A scan writes only metadata; nothing here ever
+/// holds a row of the file — `validation_report` is aggregates and findings.
+///
+/// `imported_ingestion_id` and `duplicate_of_id` are plain columns, not foreign keys: the
+/// `Ingestion` model stays untouched, and the "derived status" of an imported file whose
+/// ingestion later failed is a second query rather than a join.
+model DriveFile {
+  id            String @id @default(uuid())
+  /// The Drive's own id — the identity of the file across renames and moves.
+  drive_file_id String @unique
+  name          String
+  /// Folder path from the configured root, e.g. `agosto-26/Relatório_2026`.
+  path          String
+  mime_type     String
+  /// Null for native Google Sheets, which report no size.
+  size_bytes    Int?
+  /// md5Checksum when the Drive provides one, else "{modifiedTime}#{version}".
+  fingerprint   String
+  /// The name or path matched the synthetic marker: never importable.
+  is_synthetic  Boolean @default(false)
+
+  suggested_file_type String?
+  suggested_period    String?
+  suggestion_note     String?
+
+  /// 'new' | 'changed' | 'importing' | 'imported' | 'ignored' | 'missing' | 'error'
+  status String @default("new")
+  error  String?
+
+  /// 'none' | 'validating' | 'passed' | 'needs_validation' | 'blocked' | 'failed'
+  validation_status     String    @default("none")
+  /// Aggregated result of validating the file — see ValidationReport. No row-level content.
+  validation_report     Json?
+  /// The fingerprint the report was computed on; a different one means the file changed.
+  validated_fingerprint String?
+  validated_at          DateTime?
+  content_sha256        String?
+
+  /// Set when the content equals a file already imported for the same type and period.
+  duplicate_of_id String?
+
+  /// The person's review of the inconsistencies, bound to the hash they reviewed.
+  validation_confirmed_by     String?
+  validation_confirmed_at     DateTime?
+  validation_confirmed_sha256 String?
+
+  /// The type and period the person confirmed for the import IN FLIGHT. They become
+  /// `imported_*` only when the import succeeds, so a re-import that fails never
+  /// overwrites what the earlier, successful one recorded.
+  import_file_type String?
+  import_period    String?
+
+  imported_ingestion_id String?
+  imported_fingerprint  String?
+  imported_sha256       String?
+  imported_file_type    String?
+  imported_period       String?
+  confirmed_by          String?
+  confirmed_at          DateTime?
+
+  first_seen_at DateTime @default(now())
+  last_seen_at  DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  /// Layer 4 of the duplicate-import guard: the same content cannot be imported twice for the
+  /// same type and period, even if two imports race. Postgres treats NULLs as distinct, so a
+  /// file that was never imported (all three NULL) never collides.
+  @@unique([imported_sha256, imported_file_type, imported_period])
+  @@index([status])
+  @@index([content_sha256])
+  @@index([imported_ingestion_id])
+  @@map("drive_file")
+}
+
+/// One run of the Drive scan, kept for the status view. Only the latest few are retained.
+model DriveScanRun {
+  id                 Int       @id @default(autoincrement())
+  started_at         DateTime  @default(now())
+  finished_at        DateTime?
+  /// 'schedule' | 'manual'
+  trigger            String
+  /// 'running' | 'ok' | 'failed'
+  outcome            String    @default("running")
+  files_seen         Int       @default(0)
+  /// Files skipped because their name matched none of the configured patterns.
+  skipped_by_pattern Int       @default(0)
+  new_count          Int       @default(0)
+  changed_count      Int       @default(0)
+  error              String?
+
+  @@index([started_at])
+  @@map("drive_scan_run")
 }

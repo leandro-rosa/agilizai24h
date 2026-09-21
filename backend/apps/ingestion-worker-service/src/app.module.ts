@@ -2,13 +2,15 @@ import { Module } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { HealthModule } from '@app/health'
 import { HoldItModule } from '@app/hold-it'
-import { INGESTION_QUEUES } from '@app/ingestion-contracts'
-import { TREASURY_QUEUES, TREASURY_SOURCE_QUEUES } from '@app/treasury-ingestion-contracts'
 import { validateEnv } from './config/env.validation'
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware'
 import { DbClientModule } from './modules/db-client/db-client.module'
+import { DriveImportWorker } from './modules/drive-source/jobs/drive-import.worker'
+import { DriveScanWorker } from './modules/drive-source/jobs/drive-scan.worker'
+import { DriveValidateWorker } from './modules/drive-source/jobs/drive-validate.worker'
+import { DriveSourceModule } from './modules/drive-source/drive-source.module'
 import { IngestionModule } from './modules/ingestion/ingestion.module'
-import { INTERNAL_QUEUES } from './modules/ingestion/constants/file-types'
+import { REGISTERED_QUEUES } from './registered-queues'
 import { CostRowsWorker } from './modules/ingestion/jobs/cost-rows.worker'
 import { ParseFileWorker } from './modules/ingestion/jobs/parse-file.worker'
 import { StagedRowsWorker } from './modules/ingestion/jobs/staged-rows.worker'
@@ -28,25 +30,9 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     HealthModule,
     DbClientModule,
     IngestionModule,
+    DriveSourceModule,
     TreasuryIngestionModule,
-    HoldItModule.register(
-      [
-        // Internal: file → chunks → staged rows.
-        INTERNAL_QUEUES.PARSE_FILE,
-        INTERNAL_QUEUES.STAGED_ROWS,
-        // Outbound: one batch per period to each owning service.
-        INGESTION_QUEUES.SALES_ROWS,
-        INGESTION_QUEUES.SUPPLY_ROWS,
-        INGESTION_QUEUES.COST_ROWS,
-        // Treasury: one inbound queue per source (this service's own fourth
-        // sink family, add-treasury-statement-ingestion design D3), one
-        // outbound queue to treasury-service regardless of which source
-        // produced the rows.
-        ...Object.values(TREASURY_SOURCE_QUEUES),
-        TREASURY_QUEUES.RAW_ROWS,
-      ],
-      { withKafkaBrokers: false },
-    ),
+    HoldItModule.register(REGISTERED_QUEUES, { withKafkaBrokers: false }),
     HoldItModule.registerWorker({
       processors: [
         ParseFileWorker,
@@ -59,6 +45,9 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
         NubankStatementWorker,
         BradescoStatementWorker,
         ItauStatementWorker,
+        DriveScanWorker,
+        DriveValidateWorker,
+        DriveImportWorker,
       ],
     }),
   ],

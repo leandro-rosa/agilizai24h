@@ -54,16 +54,21 @@ export class IngestionController {
     // reliable machine-readable one, and inferring it would silently
     // attribute March's data to April.
     //
-    // Store is required for sales and cost, which carry no store identity of
-    // their own — but NOT for supply (restocking): that workbook covers every
-    // store in the month, one operation per sheet, each naming its own store
-    // via Cliente (design D2 of align-ingestion-with-real-reports). Requiring
-    // one here would attribute every other store's rows to whichever one was
-    // picked.
+    // Store is required only for cost, which carries no store identity of its
+    // own — NOT for supply (restocking): that workbook covers every store in
+    // the month, one operation per sheet, each naming its own store via
+    // Cliente (design D2 of align-ingestion-with-real-reports). Requiring one
+    // here would attribute every other store's rows to whichever one was
+    // picked. Sales is the same story since Aug 2026 for uploads of the new,
+    // network-wide per-transaction format — but unlike supply, the OLD,
+    // per-store sales format still needs one, and the gateway cannot tell
+    // which format a file is without parsing it. So store_id stays optional
+    // here too, and ingestion-worker-service (which does parse the file)
+    // fails loudly if it turns out to be the old format with none given.
     if (!fileType || !FILE_TYPES.includes(fileType)) {
       throw new BadRequestException(`file_type must be one of: ${FILE_TYPES.join(', ')}`)
     }
-    if (fileType !== 'supply' && (!storeId || Number.isNaN(Number(storeId)))) {
+    if (fileType === 'cost' && (!storeId || Number.isNaN(Number(storeId)))) {
       throw new BadRequestException('store_id is required')
     }
     if (!period || !PERIOD_PATTERN.test(period)) throw new BadRequestException('period is required, as YYYY-MM')
@@ -98,7 +103,7 @@ export class IngestionController {
         file_type: fileType,
         object_key: objectKey,
         original_name: filename,
-        // Absent for supply — the store comes from the file itself (design D2).
+        // Absent for supply, and now optionally for sales — see the comment above.
         store_id: storeId ? Number(storeId) : undefined,
         period,
         correlation_id: correlationId,

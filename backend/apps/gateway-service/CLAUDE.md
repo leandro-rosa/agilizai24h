@@ -23,6 +23,7 @@ request) e, por rota, dos 12 serviços de domínio — `stores`, `products`,
 | `POST /products/costs/bulk` | `products:read` | Custo de vários SKUs numa data — nunca "custo atual" sem data |
 | `POST /products`, `POST /products/:sku/costs` | `products:write` | |
 | `GET /sales/:storeId`, `GET /sales/:storeId/totals` | `sales:read` | Exige `?period=` |
+| `GET /sales/:storeId/transactions` | `sales:read` | Detalhe por transação (`add-sales-transaction-detail`) — 404 se a loja/período não tiver, exige `?period=` |
 | `GET /supply/reasons` | `supply:read` | O vocabulário de motivo de remoção |
 | `GET /supply/:storeId`, `GET /supply/:storeId/loss` | `supply:read` | Exige `?period=` |
 | `GET /inventory/:storeId`, `.../below-minimum`, `.../minimums` | `inventory:read` | `period` opcional (padrão: mais recente) |
@@ -44,6 +45,8 @@ request) e, por rota, dos 12 serviços de domínio — `stores`, `products`,
 | `POST /products/prices/bulk` | `products:read` | Particionado, nunca mapa |
 | `GET/POST /inventory/central`, `PATCH`/`DELETE /inventory/central/:id` | `inventory:read` / `:write` | Estoque do CD, por lote, com validade |
 | `GET /inventory/central/summary` | `inventory:read` | |
+| `GET /drive-files`, `GET /drive-files/status` | `ingestion:read` | Arquivos do Google Drive e a última sincronização (`add-drive-ingestion-source`). Caminho de topo de propósito: sob `/ingestions/…` colidiria com `GET /ingestions/:id`. Nenhuma resposta carrega credencial |
+| `POST /drive-files/scan`, `/:id/validate`, `/:id/import`, `/:id/ignore` | `ingestion:upload` | Só repassa ao `ingestion-worker-service` e injeta `confirmed_by` da sessão, **sobrescrevendo** o que o browser mandar. O corpo de erro do worker (`code` + detalhes) é repassado inteiro pelo controller: o filtro compartilhado só leva status e mensagem e derrubaria o `code` de que a tela precisa |
 | `GET /overview` | `stores:read` | Agrega, com falha parcial explícita |
 | `GET /health`, `GET /docs` | pública | |
 

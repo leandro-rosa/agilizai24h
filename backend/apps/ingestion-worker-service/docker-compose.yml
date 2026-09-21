@@ -47,14 +47,28 @@ services:
       REDIS_QUEUE_PORT: 6379
       # Unset would default to TRUE in @app/hold-it and crash NestJS at startup.
       WITH_KAFKA_BROKERS: "false"
-      STORES_SERVICE_URL: http://agiliz-stores-prod:3000
-      PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
+      STORES_SERVICE_URL: http://agiliz-stores-dev:3000
+      PRODUCTS_SERVICE_URL: http://agiliz-products-dev:3000
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-agiliz}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-agiliz-dev-secret}
       AWS_S3_BUCKET: ${AWS_S3_BUCKET:-agiliz-uploads}
       AWS_S3_ENDPOINT: http://agiliz-minio:9000
       AWS_S3_FORCE_PATH_STYLE: "true"
+      # Google Drive source (add-drive-ingestion-source). All optional: with the first two unset the
+      # feature is off. The credential comes from the host environment or .env, never from this file.
+      GOOGLE_DRIVE_ROOT_FOLDER_ID: ${GOOGLE_DRIVE_ROOT_FOLDER_ID:-}
+      GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: ${GOOGLE_SERVICE_ACCOUNT_JSON_BASE64:-}
+      DRIVE_SCAN_CRON: ${DRIVE_SCAN_CRON:-}
+      DRIVE_AUTO_VALIDATE: ${DRIVE_AUTO_VALIDATE:-}
+      DRIVE_MAX_FILE_BYTES: ${DRIVE_MAX_FILE_BYTES:-}
+      DRIVE_INCLUDE_PATTERNS: ${DRIVE_INCLUDE_PATTERNS:-}
+      DRIVE_SYNTHETIC_PATTERN: ${DRIVE_SYNTHETIC_PATTERN:-}
+      DRIVE_PERIOD_MATCH_MIN_SHARE: ${DRIVE_PERIOD_MATCH_MIN_SHARE:-}
+      DRIVE_WEEKDAY_OPEN_MIN_SHARE: ${DRIVE_WEEKDAY_OPEN_MIN_SHARE:-}
+      DRIVE_COVERAGE_MIN_POOLED: ${DRIVE_COVERAGE_MIN_POOLED:-}
+      DRIVE_COVERAGE_MIN_STORE: ${DRIVE_COVERAGE_MIN_STORE:-}
+      DRIVE_EDGE_TOLERANCE_DAYS: ${DRIVE_EDGE_TOLERANCE_DAYS:-}
     # No published host port: domain services stay internal to agiliz_network,
     # reachable only through gateway-service.
     expose:
@@ -95,6 +109,20 @@ services:
       AWS_S3_BUCKET: ${AWS_S3_BUCKET:-agiliz-uploads}
       AWS_S3_ENDPOINT: http://agiliz-minio:9000
       AWS_S3_FORCE_PATH_STYLE: "true"
+      # Google Drive source (add-drive-ingestion-source). All optional: with the first two unset the
+      # feature is off. The credential comes from the host environment or .env, never from this file.
+      GOOGLE_DRIVE_ROOT_FOLDER_ID: ${GOOGLE_DRIVE_ROOT_FOLDER_ID:-}
+      GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: ${GOOGLE_SERVICE_ACCOUNT_JSON_BASE64:-}
+      DRIVE_SCAN_CRON: ${DRIVE_SCAN_CRON:-}
+      DRIVE_AUTO_VALIDATE: ${DRIVE_AUTO_VALIDATE:-}
+      DRIVE_MAX_FILE_BYTES: ${DRIVE_MAX_FILE_BYTES:-}
+      DRIVE_INCLUDE_PATTERNS: ${DRIVE_INCLUDE_PATTERNS:-}
+      DRIVE_SYNTHETIC_PATTERN: ${DRIVE_SYNTHETIC_PATTERN:-}
+      DRIVE_PERIOD_MATCH_MIN_SHARE: ${DRIVE_PERIOD_MATCH_MIN_SHARE:-}
+      DRIVE_WEEKDAY_OPEN_MIN_SHARE: ${DRIVE_WEEKDAY_OPEN_MIN_SHARE:-}
+      DRIVE_COVERAGE_MIN_POOLED: ${DRIVE_COVERAGE_MIN_POOLED:-}
+      DRIVE_COVERAGE_MIN_STORE: ${DRIVE_COVERAGE_MIN_STORE:-}
+      DRIVE_EDGE_TOLERANCE_DAYS: ${DRIVE_EDGE_TOLERANCE_DAYS:-}
     expose:
       - "3000"
     networks:

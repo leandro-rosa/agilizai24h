@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer'
 import { IsBooleanString, IsInt, IsNotEmpty, IsOptional, IsString, Min, validateSync } from 'class-validator'
+import { loadDriveConfig } from '../modules/drive-source/config/drive.config'
 
 class EnvironmentVariables {
   @IsString()
@@ -55,6 +56,24 @@ class EnvironmentVariables {
   @IsInt()
   @Min(1)
   PORT?: number
+
+  // Google Drive source (add-drive-ingestion-source). Every one is optional: with
+  // none set the feature is inert. They stay strings here and are parsed, with
+  // the documented defaults and the all-or-nothing rule, by loadDriveConfig —
+  // which also fails startup when the setup is half-done.
+  @IsOptional() @IsString() GOOGLE_DRIVE_ROOT_FOLDER_ID?: string
+  @IsOptional() @IsString() GOOGLE_SERVICE_ACCOUNT_JSON_BASE64?: string
+  @IsOptional() @IsString() GOOGLE_SERVICE_ACCOUNT_FILE?: string
+  @IsOptional() @IsString() DRIVE_SCAN_CRON?: string
+  @IsOptional() @IsString() DRIVE_AUTO_VALIDATE?: string
+  @IsOptional() @IsString() DRIVE_MAX_FILE_BYTES?: string
+  @IsOptional() @IsString() DRIVE_INCLUDE_PATTERNS?: string
+  @IsOptional() @IsString() DRIVE_SYNTHETIC_PATTERN?: string
+  @IsOptional() @IsString() DRIVE_PERIOD_MATCH_MIN_SHARE?: string
+  @IsOptional() @IsString() DRIVE_WEEKDAY_OPEN_MIN_SHARE?: string
+  @IsOptional() @IsString() DRIVE_COVERAGE_MIN_POOLED?: string
+  @IsOptional() @IsString() DRIVE_COVERAGE_MIN_STORE?: string
+  @IsOptional() @IsString() DRIVE_EDGE_TOLERANCE_DAYS?: string
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
@@ -64,6 +83,10 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   if (errors.length > 0) {
     throw new Error(`Invalid environment configuration:\n${errors.toString()}`)
   }
+
+  // Throws — naming the variable, never the credential — when the Drive setup is
+  // half-done or a value cannot be used; a no-op when nothing Drive-related is set.
+  loadDriveConfig(validated as unknown as Record<string, unknown>)
 
   return validated
 }

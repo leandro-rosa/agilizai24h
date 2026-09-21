@@ -4,8 +4,10 @@ Transforma as três planilhas operacionais em registros normalizados — a
 mudança que substitui o processo manual mensal. Ver
 [../../CLAUDE.md](../../CLAUDE.md) para as convenções do workspace backend.
 
-**Chamado por**: `gateway-service` (HTTP interno, ao aceitar um upload).
-**Lê**: `stores-service` e `products-service`.
+**Chamado por**: `gateway-service` (HTTP interno, ao aceitar um upload ou
+uma ação em `/drive-files`) e, sozinho, o agendador da fonte Drive.
+**Lê**: `stores-service` e `products-service`; e, se configurado, o Google
+Drive (somente leitura — ver "A fonte Drive").
 **Escreve**: filas de `sales`, `supply`, `products` e (quarta família,
 `add-treasury-statement-ingestion`) `treasury`.
 Sem superfície pública — não publica porta.
@@ -313,7 +315,164 @@ Interpretação de texto mora aqui, e não no `supply`, de propósito: o formato
 - **O MinIO subia sem bucket.** O `docker-compose.infra.yaml` tem um passo
   `minio-provision` que cria o bucket e sai.
 
+## A fonte Drive (`add-drive-ingestion-source`)
+
+O relatório mensal de vendas e o de abastecimento caem no Google Drive todo
+mês (`Vendas x abastecimento › <mês> › Relatório_2026`). Este módulo
+(`src/modules/drive-source/`) acha, confere e propõe — **e nunca importa
+sozinho: só o clique de quem opera em "Importar" (`/ingestion`) cria uma
+`Ingestion`**. Dormente enquanto `GOOGLE_DRIVE_ROOT_FOLDER_ID` e uma
+credencial não forem definidos: `GET /drive-files/status` diz
+`configured: false` e o agendador é removido no boot.
+
+```
+06:00 America/Sao_Paulo (BullMQ job scheduler, id fixo) ou "Sincronizar agora"
+  → ingestion.drive-scan      só metadados: lista a pasta, atualiza drive_file, nunca baixa
+  ↓ cada arquivo novo/alterado (DRIVE_AUTO_VALIDATE=true)
+  → ingestion.drive-validate  baixa para um tmp (0700), guarda só AGREGADOS, apaga o tmp
+operador confirma tipo + período → POST /drive-files/:id/import (202)
+  → ingestion.drive-import    rebaixa, refaz TODAS as checagens, sobe ao S3, IngestionService.create
+  ↓ daqui é o fluxo normal (ingestion.parse-file …)
+```
+
+As três filas são internas (`DRIVE_QUEUES`, não `@app/ingestion-contracts`) e
+**precisam estar em `REGISTERED_QUEUES`** — `registered-queues.spec.ts` falha
+se não estiverem; publicar numa fila não registrada só quebra em runtime
+("Nest could not find BullQueue_<nome>"). "Sincronizar agora" **não usa
+`jobId` fixo**: o hold-it retém job concluído por 2h e o BullMQ ignora um id
+ainda retido, o que travaria a sincronização manual por 2 horas; ele só olha
+se já há um scan waiting/active.
+
+**Rotas do worker** (`drive-files.controller.ts`; o gateway espelha em
+`/drive-files`, ver [gateway-service/CLAUDE.md](../gateway-service/CLAUDE.md)):
+`GET /`, `GET /status`, `POST /scan` (202), `POST /:id/validate` (200 se os
+agregados guardados já respondem — trocar tipo/período reavalia sem baixar de
+novo — ou 202 se enfileirou), `POST /:id/import` (202), `POST /:id/ignore`
+(`{ignored:false}` restaura). Toda recusa traz um `code` estável
+(`replace_confirmation_required`, `validation_confirmation_required`,
+`blocked`, `synthetic_file`, `not_importable`, …) e os detalhes.
+
+**Tabelas** (sem FK entre elas nem para `Ingestion`, de propósito):
+`drive_file` (uma linha por arquivo do Drive; `status`
+`new|changed|importing|imported|ignored|missing|error`; `validation_status`
+`none|validating|passed|needs_validation|blocked|failed`;
+`validation_report` jsonb = `{report, content}`) e `drive_scan_run` (últimos
+30). `import_*` é o que o import **em andamento** confirmou; só vira
+`imported_*` no sucesso, então uma reimportação que falha nunca apaga o
+registro da anterior.
+
+**O que se guarda do conteúdo**: formato, contagens, histograma de datas por
+mês e, por mês e loja, **quantidade de linhas e uma máscara de dias** (bit 0
+= dia 1) — nada de cupom, produto, número do comprador ou final de cartão.
+É isso que permite reavaliar tipo/período sem rebaixar. Detecção de formato
+reusa os leitores do worker (abastecimento primeiro — a aba de abastecimento
+também tem `Cliente` —, depois vendas por rede com as mesmas colunas que o
+`ParseFileWorker` exige, depois o formato antigo por loja, que é **nomeado e
+nunca importado**: precisa de loja que o arquivo não dá).
+
+**Validação** (`utils/evaluate-validation.ts`, `utils/coverage.ts`; todos os
+limiares são env vars, e cada relatório grava os que usou):
+
+- *Bloqueia* (`blocked`, nada a revisar — corrige e valida de novo): formato
+  ≠ tipo informado ou desconhecido; **identidade do período** —
+  `linhas datadas no mês ÷ todas as linhas datadas ≥ 0,90`, citando o mês
+  dominante; sem data legível; acima do tamanho; conteúdo duplicado; nome/pasta
+  marcados como sintéticos.
+- *Pede validação* (`needs_validation`, só vendas): **cobertura nos dias
+  esperados de operação, não nos dias do calendário**. Um dia da semana é
+  "normal" para a loja se ela vendeu (qualquer resultado) em ≥ 50% das
+  ocorrências dele na janela; dias esperados `E` = dias da janela nos dias
+  normais; `C` = os de `E` com ≥ 1 linha; cobertura da loja = `C ÷ E` (< 0,70
+  → `low_store_coverage`, com até 10 datas faltando). Loja com < 2 dias
+  normais ou `E` < 8 é `store_not_verifiable` (não se chuta). Cobertura do
+  arquivo = `Σ C ÷ Σ E` das lojas verificáveis (< 0,90 → `low_file_coverage`).
+  Bordas: 1ª linha depois do dia 1+3 ou última antes do fim−3 →
+  `edge_start`/`edge_end`. Mês em andamento: a janela vai até hoje
+  (America/Sao_Paulo).
+- Importar com `needs_validation` exige `confirm_validation:
+  {content_sha256}` com o hash que a pessoa **viu**; se o arquivo mudar, o
+  "ok" antigo não vale.
+- **Limites, e estão na UI**: os dias normais são inferidos do próprio
+  arquivo (não há calendário operacional — `opened_on`/`headcount` de
+  `stores-service` são nulos), então arquivo cortado é pego pela borda, não
+  pela cobertura da loja; feriado sem venda conta como dia esperado (o 0,90
+  do arquivo absorve); loja aberta no meio do mês aparece com cobertura baixa
+  e é validada uma vez.
+
+**Duplicidade em camadas**: (1) uma linha por `drive_file_id`; (2)
+`claimForImport` — `UPDATE … WHERE status IN (new, changed, error)`; zero
+linhas = 409, então dois cliques simultâneos criam uma `Ingestion`; (3)
+arquivo com fingerprint igual ao `imported_fingerprint` nunca é reproposto;
+(4) `content_sha256` contra `imported_sha256` do mesmo tipo e período, na
+validação e de novo no import, com índice único
+`(imported_sha256, imported_file_type, imported_period)` para a corrida.
+Arquivo corrigido tem outro hash: é substituição, não duplicata. **Limites**:
+o hash de uma Google Sheet exportada pode variar sem mudança de conteúdo (vale
+o fingerprint); um upload manual antigo não guarda hash, então um upload manual
+idêntico não é detectado (o aviso de substituição continua valendo).
+`would_replace` é conservador: qualquer `Ingestion` `completed`/`partially_
+completed` do mesmo tipo e período — alerta a mais, nunca a menos; o import
+exige `confirm_replace: true`.
+
+**Dado sintético**: nunca entra em banco real nem em análise real. Nome ou
+pasta que casa `DRIVE_SYNTHETIC_PATTERN` vira `is_synthetic`, aparece
+rotulado, **nem é baixado** e é recusado na validação e de novo no import.
+Os testes usam fixtures em memória (`testing/workbook-fixtures.ts`) e um
+`InMemoryDriveClient`; o que precisa de banco roda num Postgres **descartável**
+(`test/support/with-test-db.sh`: container próprio, porta livre, migrado do
+zero, removido ao sair — nunca o banco de quem opera).
+
+**Configuração** (tudo opcional; `.env.example` só documenta nomes; o
+`docker-compose.yml` repassa só `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` — o
+`..._FILE` serve para rodar fora do container):
+
+| Variável | Padrão |
+|---|---|
+| `GOOGLE_DRIVE_ROOT_FOLDER_ID` + `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` (ou `_FILE`) | — (juntos ou nenhum; metade do setup falha no boot, nomeando a variável, nunca o valor) |
+| `DRIVE_SCAN_CRON` | `0 6 * * *` (fuso fixo America/Sao_Paulo) |
+| `DRIVE_AUTO_VALIDATE` | `true` (`false` deixa só o "Validar" manual) |
+| `DRIVE_MAX_FILE_BYTES` | `26214400` (25 MiB, igual ao upload manual do gateway) |
+| `DRIVE_INCLUDE_PATTERNS` | `relat[oó]rio,abasteciment` (o que é rastreado; pula os `venda …` legados) |
+| `DRIVE_SYNTHETIC_PATTERN` | `sint[eé]tic\|synthetic\|\[teste\]` |
+| `DRIVE_PERIOD_MATCH_MIN_SHARE` / `DRIVE_WEEKDAY_OPEN_MIN_SHARE` | `0.90` / `0.50` |
+| `DRIVE_COVERAGE_MIN_POOLED` / `DRIVE_COVERAGE_MIN_STORE` | `0.90` / `0.70` |
+| `DRIVE_EDGE_TOLERANCE_DAYS` | `3` |
+
+Esses limiares são **padrões de julgamento**, ainda não calibrados com meses
+reais — a primeira importação real serve para ajustá-los (tarefa 13.4).
+
+**Setup no Google (quem opera faz; a chave só vai no `.env` local, nunca em
+chat nem no repo)**: (1) projeto no Google Cloud com a **Drive API** ativada;
+(2) conta de serviço **sem papéis**; (3) chave JSON dessa conta; (4)
+compartilhar a pasta `Vendas x abastecimento` com o e-mail da conta, como
+**Leitor**; (5) `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=$(base64 -w0 chave.json)` e
+`GOOGLE_DRIVE_ROOT_FOLDER_ID=<último trecho da URL da pasta>` no `.env`; (6)
+recriar o container de ingestão (a migration aplica sozinha). Escopo
+`drive.readonly`: a conta só enxerga o que foi compartilhado e nada aqui
+escreve, move ou apaga no Drive.
+
+**Rollback**: apagar as variáveis e subir de novo — o agendador é removido no
+boot e o feature volta a dormir; as duas tabelas podem ficar. O que já foi
+importado é uma `Ingestion` normal (mesma correção de sempre: reenviar e
+sobrescrever o período).
+
+**Dependência nova**: `@googleapis/drive` (traz `google-auth-library`).
+Rejeitados: o pacote `googleapis` inteiro (o SDK do Google todo para uma API)
+e assinar JWT à mão sobre `@app/http-client` (código de segurança que
+passaríamos a manter).
+
+**Testes**: `pnpm test` (unitários: sugestões, cobertura com fixtures de
+agosto/2026 calculadas à mão, transições de scan, config) e `pnpm
+test:integration:drive` (scan, validação, import e API contra o Postgres
+descartável e o `InMemoryDriveClient`; precisa de Docker). Nunca fala com o
+Google real. A aceitação com a pasta real é do operador (tarefa 13.3).
+
 ## Gaps conhecidos
+- **Fonte Drive: sem calendário operacional de loja** — a cobertura por dia
+  esperado depende dos dias normais inferidos do arquivo (ver acima). Vira
+  regra exata quando `stores-service` tiver calendário/`opened_on`.
+- **Fonte Drive: só vendas por rede e abastecimento.** O formato antigo de
+  vendas por loja e o de custos continuam só por upload manual em `/ingestion`.
 - **Os 7 parsers de tesouraria já foram validados contra arquivo real**
   (2026-08-26 — ver "A quarta família" acima, `add-treasury-statement-
   ingestion/design.md` D9-D11). O que ainda falta: só `pagbank-sample.pdf`

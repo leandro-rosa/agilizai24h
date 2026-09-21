@@ -12,13 +12,15 @@
     "test:integration": "jest --config jest.integration.config.js --runInBand --passWithNoTests",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "test:integration:drive": "bash test/support/with-test-db.sh npx jest --config jest.throwaway.config.js --runInBand"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1112.0",
     "@bull-board/api": "^9.2.0",
     "@bull-board/fastify": "^9.2.0",
     "@elastic/elasticsearch": "^9.5.0",
+    "@googleapis/drive": "^26.0.0",
     "@kafkajs/confluent-schema-registry": "^4.1.0",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/bullmq": "^11.0.5",
