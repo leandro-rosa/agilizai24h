@@ -1,0 +1,44 @@
+## Why
+
+`/sales` answers "what happened" (revenue, ticket, mix, payment methods, a time heatmap) and its insight cards are descriptive. Operators now want the admin to answer the next questions from the same real purchase behavior: which products are bought together, what is missing from the cart, which products actually earn money once losses are counted, and which store-specific commercial actions are worth testing. The per-transaction sales data (including the `Cupom` basket id) and the per-SKU loss data already exist, so a first, honest version of this can be built now, without waiting for the data the rest of the operator's intelligence roadmap needs (daily stock, visit dates, shelf life, persistence).
+
+The operator's principle is DATA → PATTERN → DIAGNOSIS → RECOMMENDATION → ACTION → MEASUREMENT → LEARNING, with every recommendation explainable by data and able to say "not enough data yet". This change delivers the first four steps as a read-only page; action, measurement and learning are later changes.
+
+## What Changes
+
+- **New page `Inteligência Comercial`** at `/commercial-intelligence`, a new item in the sidebar group "Operação" (after "Vendas"), gated by `sales:read`. Read-only: no control on the page mutates anything and nothing is executed automatically.
+- **Filters**: Store/Network, Period, Comparison, Category. Changing the store never triggers a new transaction request.
+- **Six tabs**: Overview (KPIs and the opportunities center) · Combos & Cross-sell · Products · Behavior · Stores · Qualidade dos dados.
+- **Opportunities center**: prioritized recommendations, each with evidence → interpretation → impact → recommendation → confidence, drillable from network to store to product to real sample baskets.
+- **Combos & cross-sell** from coupon baskets, with an explicit three-way classification (strong association / cross-sell potential / promotional opportunity) so that "bought together" never silently becomes "discount it", plus a "what is missing from the cart" analysis and a client-side combo simulator that checks a proposed price against the company's minimum margin (a business rule).
+- **Products by financial return** (result drivers, stars, under-explored potential, volume without return, low economic return), computed from margin after losses and relative percentiles, never from a single metric.
+- **Behavior by weekday, hour and daypart**, and **per-store profiles** benchmarked against stores with a similar demand pattern (the network average is a reference, not a rule).
+- **Confidence (High/Medium/Low/Insufficient data)** on every recommendation from a documented, versioned MVP rubric with hard caps, an **Observed vs Estimated** label on every number, and a **data-quality banner** plus a **"Qualidade dos dados" tab** that shows, for each analysis, whether it is *available*, *available with caveats* or *insufficient*, with the indicators behind it (coupon coverage, resolved costs, reconciliation, history, timestamps, sample sizes). A weakness lowers confidence; only a deficiency that makes an analysis impossible or misleading blocks it.
+- **Impact is an estimate in three scenarios** (conservative, expected, optimistic) and a range, never a precise figure, with the premise stated as a potential and not a measured or guaranteed result.
+- **Principles for every recommendation.** An insight is not a recommendation; nothing rests on a single threshold; absence of evidence is a valid answer; detectors that share a cause become one opportunity; ranking weighs impact, confidence, effort and risk, not impact alone; the main screen shows only a few; actions without discount come first; benchmarks prefer the store's own history and visible similar stores over the network average; every recommendation is explainable, records its origin and carries the version of the logic and the parameters that produced it.
+- **Loss is consumed, not re-analysed.** The existing loss analysis (`/supply` › Perdas) stays the only loss screen. This page reads the same reconciliation data to compute margin after losses and to let the loss *cause* shape wording. `other_reason` is never labelled theft.
+- **Three kinds of rule, kept apart.** *Business rules* (minimum combo margin, largest discount worth testing, the impact worth attention, how many opportunities the main screen shows) are decisions of the company: one value for the whole operation, shown read-only in the main experience, never stored in a viewer's browser; their official register, permission and change history are the separate change `add-commercial-intelligence-governance`, and until it lands they are deployment defaults, said to be so. *Data-quality rules* decide whether there is enough data and appear as indicators and blocks. The *analytic model* (lift bound, z, percentiles, Welch t, evidence and confidence tiers, scenario premises) lives in a separate "Configurações avançadas / calibração" page, every parameter documented and marked provisional. All are guardrails to be calibrated from the real distribution of the data, never tuned to make results appear.
+- **Implementation is staged.** The shell, parameters, measurement plumbing and coverage diagnostic can be built now; the analytic groups start only after the real monthly reports are imported (`add-drive-ingestion-source`), the quality of `Cupom` and of the history is validated, and a calibration report is approved by the operator.
+- **Synthetic data stays out of real analysis.** The page excludes and reports any entity carrying the synthetic marker; verification uses in-memory fixtures and a local mock gateway with every entity labelled "[SINTÉTICO]", never rows inserted into a real database.
+- **Deterministic engine, computed client-side** over data the admin already fetches through the gateway. No new endpoint, service, migration or dependency, and no generative model. Suggestions carry a "Sugestão IA" mark whose tooltip states they are rule-based statistics over observed data.
+
+**Out of scope** (later, separate changes; see design.md for the data each one needs): the official register of business rules with permission and history, versioned parameter sets, and the registry of decisions and results with calibration of the impact premise and of confidence from realized outcomes (`add-commercial-intelligence-governance`); Mix Inteligente (product × store keep/explore/reduce/withdraw), replenishment suggestions and picking lists, product tests, cross-store mix opportunities, persisted commercial experiments with before/during/after and cannibalization measurement, learning from human decisions, any backend work, and fixing two defects found in `/sales` (margin base and heatmap timezone), which get their own change.
+
+## Capabilities
+
+### New Capabilities
+
+- `commercial-intelligence`: the `/commercial-intelligence` page: its filters, KPIs, opportunities center, combo/cross-sell analysis and simulator, product-return classes, behavior and store analyses, and the confidence, provenance and data-quality rules that every recommendation on it must obey.
+
+### Modified Capabilities
+
+None.
+
+## Impact
+
+- **New**: `frontend/apps/admin/src/app/(app)/commercial-intelligence/page.tsx`, `frontend/apps/admin/src/components/commercial-intelligence/*`, and the pure engine in `frontend/apps/admin/src/lib/commercial-intelligence/*`.
+- **Modified**: `frontend/apps/admin/src/components/app-sidebar.tsx` (one nav item and one icon import), `frontend/apps/admin/CLAUDE.md` and `frontend/apps/admin/DESIGN.md`.
+- **Not modified**: `ui/*`, `lib/api/*`, `sales-insights.ts`, `loss-insights.ts`, `components/sales/*`, and every backend package. Business-rule persistence is deliberately left to `add-commercial-intelligence-governance` and is what stands between this page and production use.
+- **Depends on** `add-sales-transaction-detail` (per-transaction sales and `GET /sales/:storeId/transactions`), including the `coupon` column that was added after that change's proposal (which still lists `Cupom` as not read; align it before archiving). The change also reads `products-service` dated costs and the finance reconciliation and supply data the Perdas tab already uses.
+- **Data reality this design accepts**: only Aug/2026 onward has per-transaction sales; the comparison month is usually empty; the catalog has one `meal` SKU and null `subcategory`/`shelf_life_days`; every store-month reconciliation is currently `complete = false`; the real coupon fill rate is unmeasured. The page degrades honestly for each of these instead of assuming them away.
+- **User-visible**: a new sidebar item for anyone holding `sales:read`. The page also reads products, finance, supply and stores endpoints, each behind its own permission; a missing permission degrades the affected block ("Sem permissão") rather than the whole page.
