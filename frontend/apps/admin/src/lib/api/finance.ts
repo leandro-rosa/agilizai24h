@@ -76,6 +76,30 @@ export interface NetworkMonthlyTotal {
   loss_value_cents: number;
 }
 
+/** One month's network-wide loss for one reason — same already-fetched series as `monthlyTotals`, just reduced by reason too, for the "Evolução das perdas" trend by motivo. */
+export interface NetworkMonthlyLossByReason {
+  period: string;
+  reason: string;
+  quantity: number;
+  value_cents: number;
+}
+
+/**
+ * One store's totals for a single month within the range — same
+ * already-fetched series as `rows`/`monthlyTotals`, reduced per store per
+ * month instead of summed across the whole range. Lets a caller that needs
+ * both "this month" and "previous month" (the Perdas tab's KPI trend) read
+ * both from ONE range query instead of issuing the range query twice —
+ * `getReconciliationSeries`'s underlying `/finance/:storeId` already
+ * returns full history, so a second or third call for a different sub-range
+ * would just re-fetch the exact same payload.
+ */
+export interface PerStoreMonthlyTotal {
+  storeId: number;
+  period: string;
+  totals: ReconciliationTotals;
+}
+
 export const financeApi = createApi({
   reducerPath: "financeApi",
   baseQuery: gatewayBaseQuery,
@@ -96,7 +120,12 @@ export const financeApi = createApi({
      * network calls — for the network-wide monthly trend chart.
      */
     getNetworkReconciliationRange: builder.query<
-      { rows: NetworkReconciliationRangeRow[]; monthlyTotals: NetworkMonthlyTotal[] },
+      {
+        rows: NetworkReconciliationRangeRow[];
+        monthlyTotals: NetworkMonthlyTotal[];
+        monthlyLossByReason: NetworkMonthlyLossByReason[];
+        perStoreMonthly: PerStoreMonthlyTotal[];
+      },
       { stores: Store[]; range: PeriodRange }
     >({
       async queryFn({ stores, range }, _api, _extra, fetchWithBQ) {
@@ -128,7 +157,26 @@ export const financeApi = createApi({
           return { period, restocked_value_cents: restocked, cogs_cents: cogs, loss_value_cents: loss };
         });
 
-        return { data: { rows, monthlyTotals } };
+        const monthlyLossByReason: NetworkMonthlyLossByReason[] = months.flatMap((period) => {
+          const byReason = new Map<string, { quantity: number; value_cents: number }>();
+          for (const { series } of seriesByStore) {
+            const match = series.find((r) => r.period === period);
+            if (!match) continue;
+            for (const entry of match.loss_by_reason) {
+              const existing = byReason.get(entry.reason) ?? { quantity: 0, value_cents: 0 };
+              existing.quantity += entry.quantity;
+              existing.value_cents += entry.value_cents;
+              byReason.set(entry.reason, existing);
+            }
+          }
+          return [...byReason.entries()].map(([reason, totals]) => ({ period, reason, ...totals }));
+        });
+
+        const perStoreMonthly: PerStoreMonthlyTotal[] = seriesByStore.flatMap(({ store, series }) =>
+          months.map((period) => ({ storeId: store.id, period, totals: sumReconciliations(series, { start: period, end: period }) })),
+        );
+
+        return { data: { rows, monthlyTotals, monthlyLossByReason, perStoreMonthly } };
       },
       providesTags: ["Reconciliation"],
     }),

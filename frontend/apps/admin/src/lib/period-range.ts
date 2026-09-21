@@ -17,7 +17,7 @@ export function lastCompleteMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function addMonths(period: string, delta: number): string {
+export function addMonths(period: string, delta: number): string {
   const [year, month] = period.split("-").map(Number);
   const d = new Date(year, month - 1 + delta, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;

@@ -122,3 +122,69 @@ export function sumReconciliations(series: Reconciliation[], range: PeriodRange)
     monthsMissing,
   };
 }
+
+/**
+ * Same shape as `sumReconciliations`, but reducing across STORES instead of
+ * across months — lets the network-wide "Perdas" view (rede inteira, ou
+ * "Todas as contas" equivalente) reuse `LossTables`/`ReasonSkuBreakdown`
+ * exactly as a single store does, instead of a second copy of the same
+ * rendering logic. `complete`/`monthsMissing` don't have a cross-store
+ * meaning, so this only carries the summable fields.
+ */
+export function aggregateAcrossStores(
+  totalsList: ReconciliationTotals[],
+): Pick<ReconciliationTotals, "loss_value_cents" | "loss_quantity" | "restocked_value_cents" | "cogs_cents" | "loss_by_reason" | "loss_by_sku" | "loss_by_reason_sku"> {
+  const lossByReason = new Map<string, LossByReason>();
+  const lossBySku = new Map<string, LossBySku>();
+  const lossByReasonSku = new Map<string, LossByReasonSku>();
+  let loss = 0;
+  let lossQty = 0;
+  let restocked = 0;
+  let cogs = 0;
+
+  for (const totals of totalsList) {
+    loss += totals.loss_value_cents;
+    lossQty += totals.loss_quantity;
+    restocked += totals.restocked_value_cents;
+    cogs += totals.cogs_cents;
+
+    for (const entry of totals.loss_by_reason) {
+      const existing = lossByReason.get(entry.reason);
+      if (existing) {
+        existing.quantity += entry.quantity;
+        existing.value_cents += entry.value_cents;
+      } else {
+        lossByReason.set(entry.reason, { ...entry });
+      }
+    }
+    for (const entry of totals.loss_by_sku) {
+      const existing = lossBySku.get(entry.sku);
+      if (existing) {
+        existing.quantity += entry.quantity;
+        existing.value_cents += entry.value_cents;
+      } else {
+        lossBySku.set(entry.sku, { ...entry });
+      }
+    }
+    for (const entry of totals.loss_by_reason_sku) {
+      const key = `${entry.reason}|${entry.sku}`;
+      const existing = lossByReasonSku.get(key);
+      if (existing) {
+        existing.quantity += entry.quantity;
+        existing.value_cents += entry.value_cents;
+      } else {
+        lossByReasonSku.set(key, { ...entry });
+      }
+    }
+  }
+
+  return {
+    loss_value_cents: loss,
+    loss_quantity: lossQty,
+    restocked_value_cents: restocked,
+    cogs_cents: cogs,
+    loss_by_reason: [...lossByReason.values()].sort((a, b) => b.value_cents - a.value_cents),
+    loss_by_sku: [...lossBySku.values()].sort((a, b) => b.value_cents - a.value_cents),
+    loss_by_reason_sku: [...lossByReasonSku.values()].sort((a, b) => b.value_cents - a.value_cents),
+  };
+}
