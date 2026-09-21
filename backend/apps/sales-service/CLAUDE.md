@@ -14,15 +14,46 @@ estoque) e o painel através do `gateway-service`.
 |---|---|
 | `GET /sales/:storeId?period=YYYY-MM` | Linhas por SKU |
 | `GET /sales/:storeId/totals?period=YYYY-MM` | Totais agregados no banco |
-| fila `ingestion.sales-rows` | Lote de um período inteiro, de `@app/ingestion-contracts` |
-| fila `period.data-updated` | **Publica** quando as vendas do período mudam |
+| `GET /sales/:storeId/transactions?period=YYYY-MM` | Detalhe por transação (`add-sales-transaction-detail`) — 404 se não houver |
+| fila `ingestion.sales-rows` | Lote de um período inteiro (agregado por SKU), de `@app/ingestion-contracts` |
+| fila `ingestion.sales-transactions` | Lote de transações não somadas, mesmo contrato — só existe pra vendas no formato de rede |
+| fila `period.data-updated` | **Publica** quando as vendas do período mudam (só o agregado dispara isso — ver abaixo) |
 | `GET /health`, `GET /docs` | Health e OpenAPI |
+
+## `SalesTransaction` — detalhe por transação (`add-sales-transaction-detail`)
+
+Desde essa mudança, `SalesRecord` (agregado por SKU) **não é mais o único
+modelo**. `SalesTransaction` guarda um registro por transação — data/hora,
+método, adquirente, bandeira, desconto, PDV, número comprador, resultado —
+só para lojas/períodos ingeridos do formato de vendas por rede (que carrega
+`Cliente`/`Resultado` por linha); o formato antigo por SKU nunca produz
+linha nenhuma aqui. **Aditivo, nunca substitui o agregado**: os dois têm
+service/worker/fila próprios (`SalesTransactionsService`/
+`SalesTransactionsWorker`/`ingestion.sales-transactions`), e nada em
+`SalesService`/`SalesRowsWorker` mudou.
+
+`result` guarda o `Resultado` do arquivo **verbatim**, inclusive valores
+diferentes de `'OK'` — uma transação recusada/cancelada é gravada aqui (nunca
+no agregado, que continua só-`OK`), porque é o único jeito de calcular taxa
+de aprovação depois. `CMV`/`Margem`/`Margem(%)`/`Líquido` do arquivo nunca
+são lidos nem gravados — `finance-service` continua a única fonte de CMV do
+projeto (decisão do operador, 2026-09-18).
+
+`findPeriod` usa 404 por contagem de linha zero, sem uma tabela `IngestedPeriod`
+equivalente: "nunca ingerido" e "ingerido mas sem coluna de transação" são
+tratados como o mesmo resultado de propósito (ver spec de
+`sales-transaction-detail`) — diferente de `SalesRecord`, onde os dois
+precisam ser distinguíveis porque uma loja pode legitimamente ficar um mês
+inteiro sem vender nada.
 
 ## Decisões que não são óbvias no código
 
-- **O grão é (loja, período, SKU)**, não por transação. É o que o PDV realmente
-  exporta; modelar um grão que o dado não sustenta seria inventá-lo. (O mock do
-  painel tem forma transacional — é placeholder, não especificação.)
+- **O grão do agregado (`SalesRecord`) é (loja, período, SKU)**, não por
+  transação — é o que o PDV do formato antigo exporta; modelar um grão que
+  esse dado não sustenta seria inventá-lo. O formato de rede (acima) é
+  genuinamente por transação, e é isso que `SalesTransaction` modela — sem
+  mudar o grão do agregado, que outros serviços (finance, inventory) já
+  dependem.
 - **Substituição do período inteiro, em uma transação**, e não upsert linha a
   linha. Um upsert deixa para trás SKUs que o relatório corrigido não contém
   mais, então o período guarda linhas obsoletas e os totais ficam altos demais.

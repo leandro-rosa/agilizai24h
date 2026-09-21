@@ -25,6 +25,16 @@ const REQUIRED_COLUMNS: Record<Exclude<IngestionFileType, 'supply'>, ColumnKey[]
 }
 
 /**
+ * Which columns the NEW, network-wide, per-transaction sales format (Aug
+ * 2026 POS export capability) cannot be read without — a separate list from
+ * `REQUIRED_COLUMNS.sales`, since this format carries per-row store identity
+ * (`clientStore`) and a per-transaction outcome (`result`) the old,
+ * pre-aggregated per-SKU export never had.
+ */
+const NETWORK_SALES_REQUIRED_COLUMNS: ColumnKey[] = ['clientStore', 'product', 'quantity', 'result']
+const NETWORK_SALES_REQUIRED_HEADERS = ['Cliente', 'Descrição Produto', 'Quantidade', 'Resultado']
+
+/**
  * Downloads an uploaded workbook and hands it to sheeter for chunking.
  *
  * Sales and cost keep the original flat-table path: validate the declared
@@ -39,6 +49,15 @@ const REQUIRED_COLUMNS: Record<Exclude<IngestionFileType, 'supply'>, ColumnKey[]
  * BEFORE any product row is read. `smartChunk` still does the row chunking
  * once that shared header row is known — see design D8 for why reusing it
  * works despite the multi-sheet layout.
+ *
+ * Sales has a THIRD path since Aug 2026: the POS export gained a
+ * network-wide, per-transaction report covering every store for the month,
+ * detected by its `clientStore` (`Cliente`) column — the old, pre-aggregated
+ * per-SKU export never carried one. Structurally it is still a flat table
+ * (header at row 1), so it reuses `smartChunk` the same way as the old
+ * format; only the required columns and, in `StagedRowsWorker`, how each
+ * row's store is resolved, differ. Both formats are supported going
+ * forward — the old one is never removed.
  */
 @HoldItProcessor(INTERNAL_QUEUES.PARSE_FILE)
 export class ParseFileWorker extends HoldItWorkerHost<ParseFileJob> {
@@ -68,10 +87,32 @@ export class ParseFileWorker extends HoldItWorkerHost<ParseFileJob> {
       const filePath = join(workDir, ingestion.original_name.replace(/[^\w.-]/g, '_'))
       await writeFile(filePath, body)
 
+      // The new (Aug 2026) network-wide, per-transaction sales format is
+      // detected by the presence of the `clientStore` (Cliente) column, which
+      // the old, pre-aggregated per-SKU export never carried — that export
+      // has no store identity of its own (design D2 of
+      // align-ingestion-with-real-reports still applies: the OLD format keeps
+      // asking for the store at upload).
+      const isNetworkSales = fileType === 'sales' && (await this.isNetworkSalesFile(filePath))
+
+      // The old sales format has no store identity of its own anywhere in the
+      // file — it depends entirely on the upload-time store_id (design D2).
+      // The DTO no longer requires that field for `sales` (network uploads
+      // legitimately have none), so a plain old-format file uploaded without
+      // one must fail loudly here, rather than staging rows with no store and
+      // hitting a NOT NULL failure downstream.
+      if (fileType === 'sales' && !isNetworkSales && ingestion.store_id === null) {
+        throw new Error(
+          'This looks like the old, single-store sales format (no Cliente column) — a store must be selected at upload for it.',
+        )
+      }
+
       const headersRow =
         fileType === 'supply'
           ? await this.prepareRestockingFile(ingestionId, filePath, correlationId)
-          : await this.prepareFlatFile(filePath, fileType)
+          : isNetworkSales
+            ? await this.prepareNetworkSalesFile(filePath)
+            : await this.prepareFlatFile(filePath, fileType)
 
       if (headersRow === null) {
         // Every sheet in a restocking workbook failed to parse — nothing to
@@ -112,6 +153,30 @@ export class ParseFileWorker extends HoldItWorkerHost<ParseFileJob> {
   /** Sales and cost: single flat table, header at row 1. Returns the header row for smartChunk. */
   private async prepareFlatFile(filePath: string, fileType: Exclude<IngestionFileType, 'supply'>): Promise<number> {
     await this.assertHeadersMatchType(filePath, fileType)
+    return 1
+  }
+
+  /**
+   * The new (Aug 2026) network-wide, per-transaction sales format — a single
+   * flat table like the old sales export, header at row 1, so it reuses
+   * `smartChunk` the same way. Only the required columns differ: store
+   * identity now lives per row (`clientStore`/`Cliente`) instead of at
+   * upload, and a per-transaction outcome (`result`/`Resultado`) exists to
+   * filter. Store resolution itself happens per chunk in
+   * `StagedRowsWorker`, not here — unlike restocking, where every store is
+   * known upfront from the sheet-level pre-scan.
+   */
+  private async prepareNetworkSalesFile(filePath: string): Promise<number> {
+    const headers = await this.readHeaderRow(filePath)
+    const missing = NETWORK_SALES_REQUIRED_COLUMNS.filter(column => !hasRawColumn(headers, column))
+
+    if (missing.length > 0) {
+      throw new Error(
+        `This does not look like a network-wide sales report: missing column(s) ${missing.join(', ')}. ` +
+          `Expected something matching: ${NETWORK_SALES_REQUIRED_HEADERS.join(', ')}. Found: ${headers.join(', ')}`,
+      )
+    }
+
     return 1
   }
 
@@ -205,13 +270,7 @@ export class ParseFileWorker extends HoldItWorkerHost<ParseFileJob> {
     filePath: string,
     fileType: Exclude<IngestionFileType, 'supply'>,
   ): Promise<void> {
-    const sheets = await readWorkbookRows(filePath)
-    const sheet = sheets[0]
-    if (!sheet) throw new Error('The uploaded workbook has no worksheets')
-
-    const headers = (sheet.rows[0] ?? [])
-      .filter(value => value !== undefined && value !== null && String(value).trim() !== '')
-      .map(value => String(value))
+    const headers = await this.readHeaderRow(filePath)
 
     // Raw ExcelJS headers — smartChunk has not slugified anything yet, so the
     // raw-text matcher is the correct one here, not the slugified one.
@@ -223,5 +282,28 @@ export class ParseFileWorker extends HoldItWorkerHost<ParseFileJob> {
           `Expected something matching: ${REQUIRED_HEADERS[fileType].join(', ')}. Found: ${headers.join(', ')}`,
       )
     }
+  }
+
+  /**
+   * True when a `sales` upload's header row carries the `clientStore`
+   * (`Cliente`) column — the new, network-wide per-transaction format,
+   * present since Aug 2026. The old, pre-aggregated per-SKU export never
+   * carried store identity of its own (design D2 still holds for it: the
+   * store comes from the upload, not the file).
+   */
+  private async isNetworkSalesFile(filePath: string): Promise<boolean> {
+    const headers = await this.readHeaderRow(filePath)
+    return hasRawColumn(headers, 'clientStore')
+  }
+
+  /** Reads row 1 of the first sheet as raw ExcelJS header text. */
+  private async readHeaderRow(filePath: string): Promise<string[]> {
+    const sheets = await readWorkbookRows(filePath)
+    const sheet = sheets[0]
+    if (!sheet) throw new Error('The uploaded workbook has no worksheets')
+
+    return (sheet.rows[0] ?? [])
+      .filter(value => value !== undefined && value !== null && String(value).trim() !== '')
+      .map(value => String(value))
   }
 }

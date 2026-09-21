@@ -27,11 +27,15 @@ export class CreateIngestionDto {
 
   @ApiPropertyOptional({
     description:
-      'Stated by the uploader for sales and cost, which carry no store identity of their own. Absent for ' +
-      'supply (restocking) — that workbook covers every store in the month, and the store comes from the file ' +
-      "itself, per operation (design D2 of align-ingestion-with-real-reports).",
+      'Required for cost, which carries no store identity of its own. Optional for sales: the old, ' +
+      'pre-aggregated per-SKU export still needs it (applied to every staged row), but the network-wide, ' +
+      "per-transaction export (Aug 2026) resolves each row's store from its own Cliente column and ignores this " +
+      'field entirely when given. parse-file.worker.ts fails a plain, old-format sales upload that omits it, ' +
+      "since that format has no other way to learn the store. Absent for supply (restocking) — that workbook " +
+      "covers every store in the month, and the store comes from the file itself, per operation (design D2 of " +
+      "align-ingestion-with-real-reports).",
   })
-  @ValidateIf(dto => dto.file_type !== 'supply')
+  @ValidateIf(dto => dto.file_type === 'cost')
   @IsInt()
   store_id?: number
 

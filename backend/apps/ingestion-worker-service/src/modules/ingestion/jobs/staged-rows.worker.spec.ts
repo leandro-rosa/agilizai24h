@@ -16,11 +16,14 @@ describe('StagedRowsWorker', () => {
       skuUnmatched?: { sku: string; reason: string }[]
       nameMatched?: { source_name: string; product: { id: number; sku: string; name: string } }[]
       nameUnmatched?: { source_name: string; reason: string }[]
-      storeId?: number
+      storeId?: number | null
+      /** Cliente (external code) -> resolved store id, or null for "does not resolve". */
+      storesByExternalCode?: Record<string, number | null>
     } = {},
   ) => {
     const ingestions = {
       stageRows: jest.fn().mockResolvedValue(undefined),
+      stageSalesTransactions: jest.fn().mockResolvedValue(undefined),
       recordRejections: jest.fn().mockResolvedValue(undefined),
       completeChunk: jest.fn().mockResolvedValue(false),
       finalize: jest.fn().mockResolvedValue(undefined),
@@ -31,7 +34,7 @@ describe('StagedRowsWorker', () => {
         findUniqueOrThrow: jest.fn().mockResolvedValue({
           id: 'ing-1',
           file_type: 'sales',
-          store_id: opts.storeId ?? 7,
+          store_id: opts.storeId === undefined ? 7 : opts.storeId,
         }),
       },
     }
@@ -43,6 +46,10 @@ describe('StagedRowsWorker', () => {
       resolveProductNames: jest.fn().mockResolvedValue({
         matched: opts.nameMatched ?? [],
         unmatched: opts.nameUnmatched ?? [],
+      }),
+      resolveStoreByExternalCode: jest.fn(async (externalCode: string) => {
+        const id = opts.storesByExternalCode?.[externalCode]
+        return id ? { id, name: externalCode, external_code: externalCode } : null
       }),
     }
 
@@ -147,6 +154,217 @@ describe('StagedRowsWorker', () => {
       expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [
         expect.objectContaining({ reason: 'unknown_sku' }),
       ])
+    })
+  })
+
+  describe('the network-wide sales format (Aug 2026) — per-row store resolution', () => {
+    // Real column names, after smartChunk's slugification — "Cliente",
+    // "Resultado", "Cód. produto" -> "Cod_produto", "Quantidade", "Valor
+    // Pago" -> "Valor_Pago" (see row-mapping.spec.ts for the slugified
+    // forms this mirrors).
+    const networkRow = (overrides: Record<string, unknown> = {}, rowId?: number) =>
+      message(
+        {
+          Cliente: 'Ascenty - JDI01',
+          Resultado: 'OK',
+          Cod_produto: 'GUA-350',
+          Quantidade: 3,
+          Valor_Pago: '12,50',
+          ...overrides,
+        },
+        rowId,
+      )
+
+    it('is detected by the Cliente column and never touches the ingestion-level store_id', async () => {
+      const { worker, ingestions } = build({
+        skuMatched: knownProductByCode,
+        storesByExternalCode: { 'Ascenty - JDI01': 55 },
+        storeId: null,
+      })
+
+      await worker.process(jobOf([networkRow()]))
+
+      expect(ingestions.stageRows).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({ storeId: 55, sku: 'GUA-350', quantity: 3 }),
+      ])
+    })
+
+    it('resolves once per distinct Cliente value, not per row', async () => {
+      const { worker, upstream } = build({
+        skuMatched: [{ id: 1, sku: 'GUA-350', name: 'Guaraná' }, { id: 2, sku: 'COCA-350', name: 'Coca-Cola' }],
+        storesByExternalCode: { 'Ascenty - JDI01': 55 },
+        storeId: null,
+      })
+
+      await worker.process(
+        jobOf([
+          networkRow({ Cod_produto: 'GUA-350' }, 1),
+          networkRow({ Cod_produto: 'COCA-350' }, 2),
+        ]),
+      )
+
+      expect(upstream.resolveStoreByExternalCode).toHaveBeenCalledTimes(1)
+      expect(upstream.resolveStoreByExternalCode).toHaveBeenCalledWith('Ascenty - JDI01', undefined)
+    })
+
+    it('rejects only the row whose Cliente does not resolve, staging its resolvable siblings', async () => {
+      const { worker, ingestions } = build({
+        skuMatched: knownProductByCode,
+        storesByExternalCode: { 'Ascenty - JDI01': 55 },
+        storeId: null,
+      })
+
+      await worker.process(
+        jobOf([
+          networkRow({ Cliente: 'Loja Fantasma Que Nao Existe' }, 1),
+          networkRow({ Cliente: 'Ascenty - JDI01' }, 2),
+        ]),
+      )
+
+      expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({ reason: 'unresolved_store', detail: expect.stringContaining('Loja Fantasma') }),
+      ])
+      expect(ingestions.stageRows).toHaveBeenCalledWith('ing-1', [expect.objectContaining({ storeId: 55 })])
+    })
+
+    it('excludes a non-OK Resultado from the aggregate and reports it, never silently dropping or including it', async () => {
+      const { worker, ingestions } = build({
+        skuMatched: knownProductByCode,
+        storesByExternalCode: { 'Ascenty - JDI01': 55 },
+        storeId: null,
+      })
+
+      await worker.process(jobOf([networkRow({ Resultado: 'CANCELADO' })]))
+
+      expect(ingestions.stageRows).toHaveBeenCalledWith('ing-1', [])
+      expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({ reason: 'not_ok_result', detail: expect.stringContaining('CANCELADO') }),
+      ])
+    })
+
+    it('also stages a non-OK but resolvable transaction for detail — the rejection above and this are not exclusive (add-sales-transaction-detail D4)', async () => {
+      const { worker, ingestions } = build({
+        skuMatched: knownProductByCode,
+        storesByExternalCode: { 'Ascenty - JDI01': 55 },
+        storeId: null,
+      })
+
+      await worker.process(jobOf([networkRow({ Resultado: 'CANCELADO' })]))
+
+      expect(ingestions.stageSalesTransactions).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({ storeId: 55, sku: 'GUA-350', result: 'CANCELADO' }),
+      ])
+      // Still excluded from the aggregate — this table is additive, never a substitute.
+      expect(ingestions.stageRows).toHaveBeenCalledWith('ing-1', [])
+    })
+
+    it('a non-OK row whose store also fails to resolve gets exactly one rejection, never a second on top of not_ok_result', async () => {
+      const { worker, ingestions } = build({
+        skuMatched: knownProductByCode,
+        storesByExternalCode: { 'Ascenty - JDI01': 55 },
+        storeId: null,
+      })
+
+      await worker.process(jobOf([networkRow({ Resultado: 'CANCELADO', Cliente: 'Loja Fantasma Que Nao Existe' })]))
+
+      expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({ reason: 'not_ok_result' }),
+      ])
+      expect(ingestions.stageSalesTransactions).toHaveBeenCalledWith('ing-1', [])
+    })
+
+    it('a non-OK row whose product also fails to resolve gets exactly one rejection, never a second on top of not_ok_result', async () => {
+      const { worker, ingestions } = build({
+        skuUnmatched: [{ sku: 'GUA-350', reason: 'unknown_sku' }],
+        storesByExternalCode: { 'Ascenty - JDI01': 55 },
+        storeId: null,
+      })
+
+      await worker.process(jobOf([networkRow({ Resultado: 'CANCELADO' })]))
+
+      expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({ reason: 'not_ok_result' }),
+      ])
+      expect(ingestions.stageSalesTransactions).toHaveBeenCalledWith('ing-1', [])
+    })
+
+    it('stages transaction detail for an OK row too, with every column buildTransactionDetail reads', async () => {
+      const { worker, ingestions } = build({
+        skuMatched: knownProductByCode,
+        storesByExternalCode: { 'Ascenty - JDI01': 55 },
+        storeId: null,
+      })
+
+      await worker.process(
+        jobOf([
+          networkRow({
+            Metodo: 'PIX',
+            Adquirente: 'Stone',
+            Bandeira: 'Visa',
+            Final_cartao: '4321',
+            Cod_interno: 'INT-9',
+            Cod_adquirente: 'ACQ-9',
+            Ponto_de_venda: 'PDV-01',
+            Modelo_maq: 'TOTEM X1',
+            Numero_comprador: '99',
+            Valor_Original: '15,00',
+            Desconto: '2,50',
+            Liquido: '11,63',
+            Cupom: '000456',
+          }),
+        ]),
+      )
+
+      expect(ingestions.stageSalesTransactions).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({
+          storeId: 55,
+          sku: 'GUA-350',
+          result: 'OK',
+          method: 'PIX',
+          acquirer: 'Stone',
+          netAmountCents: 1163,
+          coupon: '000456',
+          cardBrand: 'Visa',
+          cardLastDigits: '4321',
+          internalCode: 'INT-9',
+          acquirerCode: 'ACQ-9',
+          posId: 'PDV-01',
+          machineModel: 'TOTEM X1',
+          buyerNumber: '99',
+          originalAmountCents: 1500,
+          discountCents: 250,
+        }),
+      ])
+      // Also staged to the aggregate, as before — additive, not a replacement.
+      expect(ingestions.stageRows).toHaveBeenCalledWith('ing-1', [expect.objectContaining({ storeId: 55 })])
+    })
+
+    it('stages the same store+SKU appearing on several transaction rows as separate rows — summing is finalize()\'s job, not this worker\'s', async () => {
+      const { worker, ingestions } = build({
+        skuMatched: knownProductByCode,
+        storesByExternalCode: { 'Ascenty - JDI01': 55 },
+        storeId: null,
+      })
+
+      await worker.process(
+        jobOf([
+          networkRow({ Quantidade: 1, Valor_Pago: '7,90' }, 1),
+          networkRow({ Quantidade: 1, Valor_Pago: '7,90' }, 2),
+        ]),
+      )
+
+      expect(ingestions.stageRows).toHaveBeenCalledWith('ing-1', [
+        expect.objectContaining({ storeId: 55, sku: 'GUA-350', quantity: 1, amountCents: 790 }),
+        expect.objectContaining({ storeId: 55, sku: 'GUA-350', quantity: 1, amountCents: 790 }),
+      ])
+    })
+
+    it('the old format never calls store resolution — its store is the ingestion-level store_id', async () => {
+      const { worker, upstream } = build({ skuMatched: knownProductByCode, storeId: 7 })
+
+      await worker.process(jobOf([message({ Codigo: 'GUA-350', Qtd_vendida: 3 })]))
+
+      expect(upstream.resolveStoreByExternalCode).not.toHaveBeenCalled()
     })
   })
 

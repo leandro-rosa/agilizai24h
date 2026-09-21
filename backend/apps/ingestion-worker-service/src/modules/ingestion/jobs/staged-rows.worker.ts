@@ -2,11 +2,16 @@ import { HoldItProcessor, HoldItWorkerHost } from '@app/hold-it'
 import type { Job } from 'bullmq'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { INTERNAL_QUEUES, type IngestionFileType } from '../constants/file-types'
-import { IngestionService, type RejectionInput, type StagedRowInput } from '../services/ingestion.service'
+import {
+  IngestionService,
+  type RejectionInput,
+  type StagedRowInput,
+  type StagedSalesTransactionInput,
+} from '../services/ingestion.service'
 import { UpstreamClient } from '../services/upstream.client'
 import { checkBalanceIdentity } from '../utils/check-balance-identity'
 import { parseRemovalReasons } from '../utils/parse-removal-reasons'
-import { readColumn, toCents, toQuantity } from '../utils/row-mapping'
+import { hasColumn, readColumn, toCents, toExcelDate, toQuantity } from '../utils/row-mapping'
 
 /** What sheeter puts on the queue: one message per row, batched into jobs. */
 interface SheeterRowMessage {
@@ -43,6 +48,16 @@ interface ResolvedOperation {
  * enqueues its rows regardless (it has no per-sheet filter), so without this
  * they would each produce a second, noisier rejection repeating the same
  * cause. They are silently dropped here instead.
+ *
+ * The network-wide sales format (Aug 2026) adds two more per-row checks,
+ * upstream of product resolution: `Resultado` must read `'OK'` (anything
+ * else is a real rejection, `not_ok_result`, never a silent drop), and
+ * `Cliente` must resolve to a registered store (`unresolved_store`) — one
+ * resolution call per distinct `Cliente` value in the chunk, the same
+ * batching `parse-file.worker.ts`'s `prepareRestockingFile` already uses for
+ * restocking's per-sheet store. The old format needs neither: it has no
+ * `Resultado` column, and its store is the ingestion's single upload-time
+ * `store_id`.
  */
 @HoldItProcessor(INTERNAL_QUEUES.STAGED_ROWS)
 export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | SheeterRowMessage> {
@@ -75,18 +90,89 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
       return { accepted: 0, rejected: 0, finalized: isLastChunk }
     }
 
+    const rejections: RejectionInput[] = []
+
+    // The network-wide sales format (Aug 2026) carries the store per row
+    // (`Cliente`), rather than the ingestion's single upload-time store_id —
+    // detected the same way parse-file.worker.ts detects it, by the presence
+    // of that column. Every message in a chunk shares the same file's
+    // headers, so checking the first one is enough.
+    const isNetworkSales = fileType === 'sales' && hasColumn(Object.keys(relevantMessages[0].rowData), 'clientStore')
+
+    const salesMessages = relevantMessages
+    const storeIdByClient = new Map<string, number | null>()
+
+    if (isNetworkSales) {
+      // One resolution call per distinct Cliente value in the chunk, not per
+      // row — same batching prepareRestockingFile already uses for
+      // restocking's per-sheet store. Resolved for EVERY relevant message,
+      // not only 'OK' ones (add-sales-transaction-detail design D4): a
+      // declined or cancelled row is still staged for transaction detail
+      // when its store and product resolve, so resolution cannot be skipped
+      // for it anymore.
+      const distinctClients = [
+        ...new Set(relevantMessages.map(message => String(readColumn(message.rowData, 'clientStore') ?? '').trim())),
+      ].filter(client => client !== '')
+
+      for (const clientRaw of distinctClients) {
+        const store = await this.upstream.resolveStoreByExternalCode(clientRaw, correlationId)
+        storeIdByClient.set(clientRaw, store?.id ?? null)
+      }
+    }
+
     const { skuByCode, unmatchedCodeReasons, skuByName, unmatchedNameReasons } = await this.resolveProducts(
-      relevantMessages,
+      salesMessages,
       correlationId,
     )
 
     const toStage: StagedRowInput[] = []
-    const rejections: RejectionInput[] = []
+    const toStageTransactions: StagedSalesTransactionInput[] = []
 
-    for (const message of relevantMessages) {
+    for (const message of salesMessages) {
       const reference = `${message.additionalData.worksheetName ?? 'sheet1'}!row ${message.rowId}`
       const operation =
         fileType === 'supply' ? operationsBySheet.get(message.additionalData.worksheetName ?? '') : undefined
+
+      let networkStoreId: number | null = null
+      let networkResult: string | null = null
+
+      if (isNetworkSales) {
+        networkResult = String(readColumn(message.rowData, 'result') ?? '').trim()
+
+        // Only a real 'OK' counts as a sale for the aggregate — any other
+        // outcome (a cancelled or reversed transaction, in this export) is
+        // excluded from it and reported here, exactly as before this row
+        // could also be staged for transaction detail. The two are no
+        // longer exclusive: this rejection is recorded regardless of
+        // whether the row goes on to resolve and be staged below.
+        if (networkResult.toUpperCase() !== 'OK') {
+          rejections.push({
+            rowReference: reference,
+            reason: 'not_ok_result',
+            detail: `Resultado is "${networkResult || '(blank)'}", not "OK"`,
+          })
+        }
+
+        const clientRaw = String(readColumn(message.rowData, 'clientStore') ?? '').trim()
+        networkStoreId = clientRaw !== '' ? (storeIdByClient.get(clientRaw) ?? null) : null
+
+        if (networkStoreId === null) {
+          // An unresolved store means nothing further can be done with this
+          // row — no transaction detail either. A non-OK row that also
+          // fails here gets exactly the one rejection above, never a second.
+          if (networkResult.toUpperCase() === 'OK') {
+            rejections.push({
+              rowReference: reference,
+              reason: 'unresolved_store',
+              detail:
+                clientRaw === ''
+                  ? 'The row names no store (Cliente is blank)'
+                  : `"${clientRaw}" matches no registered store`,
+            })
+          }
+          continue
+        }
+      }
 
       const code = String(readColumn(message.rowData, 'productCode') ?? '').trim()
       const productName = String(readColumn(message.rowData, 'product') ?? '').trim()
@@ -118,19 +204,39 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
       }
 
       if (productProblem) {
-        rejections.push({ rowReference: reference, ...productProblem })
+        // Same rule as the unresolved-store case above: a non-OK row whose
+        // product also fails to resolve gets only its not_ok_result rejection.
+        if (!isNetworkSales || networkResult!.toUpperCase() === 'OK') {
+          rejections.push({ rowReference: reference, ...productProblem })
+        }
         continue
+      }
+
+      if (isNetworkSales) {
+        // Staged for detail regardless of result — the whole point of
+        // keeping declined/cancelled transactions is computing an approval
+        // rate later, which needs them distinguishable from completed
+        // sales, not absent. Never staged when quantity is unreadable: an
+        // OK row in that state gets mapSalesOrCostRow's own
+        // 'unreadable_quantity' rejection below, and a non-OK row already
+        // has its not_ok_result rejection — neither needs a fabricated
+        // quantity to go with it.
+        const transactionRow = this.buildTransactionDetail(sku!, networkStoreId!, networkResult!, message.rowData)
+        if (transactionRow) toStageTransactions.push(transactionRow)
+
+        if (networkResult!.toUpperCase() !== 'OK') continue
       }
 
       const problem =
         fileType === 'supply'
           ? this.mapSupplyRow(sku!, message.rowData, operation!, toStage)
-          : this.mapSalesOrCostRow(fileType, sku!, ingestion.store_id!, message.rowData, toStage)
+          : this.mapSalesOrCostRow(fileType, sku!, networkStoreId ?? ingestion.store_id!, message.rowData, toStage)
 
       if (problem) rejections.push({ rowReference: reference, ...problem })
     }
 
     await this.ingestions.stageRows(ingestionId, toStage)
+    await this.ingestions.stageSalesTransactions(ingestionId, toStageTransactions)
     await this.ingestions.recordRejections(ingestionId, rejections)
 
     const isLastChunk = await this.ingestions.completeChunk(ingestionId, toStage.length, rejections.length)
@@ -226,6 +332,59 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
 
     into.push({ storeId, sku, amountCents })
     return undefined
+  }
+
+  /**
+   * Builds one transaction-detail row for the network-wide sales format,
+   * regardless of `result` — staged for every resolvable row, not only
+   * completed sales (design D4). Returns `undefined` (never staged, no
+   * rejection of its own) when the quantity is unreadable: an OK row in
+   * that state gets `mapSalesOrCostRow`'s own `unreadable_quantity`
+   * rejection right after this is called, and a non-OK row already has its
+   * `not_ok_result` rejection — neither needs a fabricated quantity.
+   */
+  private buildTransactionDetail(
+    sku: string,
+    storeId: number,
+    result: string,
+    rowData: Record<string, unknown>,
+  ): StagedSalesTransactionInput | undefined {
+    const quantity = toQuantity(readColumn(rowData, 'quantity'))
+    if (quantity === null) return undefined
+
+    const amountPaidCents = toCents(readColumn(rowData, 'amount')) ?? 0
+    const originalAmountCents = toCents(readColumn(rowData, 'originalAmount'))
+    const discountCents = toCents(readColumn(rowData, 'discount'))
+    const netAmountCents = toCents(readColumn(rowData, 'netAmount'))
+    const occurredAt = toExcelDate(readColumn(rowData, 'occurredAt'))
+
+    const text = (key: Parameters<typeof readColumn>[1]) => {
+      const value = readColumn(rowData, key)
+      const trimmed = value === undefined ? '' : String(value).trim()
+      return trimmed === '' ? undefined : trimmed
+    }
+
+    return {
+      storeId,
+      sku,
+      quantity,
+      amountPaidCents,
+      result,
+      occurredAt: occurredAt ?? undefined,
+      originalAmountCents: originalAmountCents ?? undefined,
+      discountCents: discountCents ?? undefined,
+      netAmountCents: netAmountCents ?? undefined,
+      coupon: text('coupon'),
+      method: text('paymentMethod'),
+      acquirer: text('acquirer'),
+      cardBrand: text('cardBrand'),
+      cardLastDigits: text('cardLastDigits'),
+      internalCode: text('internalCode'),
+      acquirerCode: text('acquirerCode'),
+      posId: text('posId'),
+      machineModel: text('machineModel'),
+      buyerNumber: text('buyerNumber'),
+    }
   }
 
   /**

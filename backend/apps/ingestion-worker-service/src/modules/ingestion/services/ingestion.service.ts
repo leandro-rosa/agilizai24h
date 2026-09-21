@@ -4,6 +4,8 @@ import {
   INGESTION_QUEUES,
   type CostRowsJob,
   type SalesRowsJob,
+  type SalesTransactionRow,
+  type SalesTransactionsJob,
   type SupplyAdjustmentRow,
   type SupplyRecordedClosingBalanceRow,
   type SupplyRemovalRow,
@@ -41,6 +43,29 @@ export interface StagedRowInput {
   amountCents?: number
   sourceText?: string
   recordedClosingBalance?: number
+}
+
+/** One transaction-detail row awaiting staging — see `StagedSalesTransaction` and design D1/D4. */
+export interface StagedSalesTransactionInput {
+  storeId: number
+  sku: string
+  quantity: number
+  amountPaidCents: number
+  result: string
+  occurredAt?: Date
+  originalAmountCents?: number
+  discountCents?: number
+  netAmountCents?: number
+  coupon?: string
+  method?: string
+  acquirer?: string
+  cardBrand?: string
+  cardLastDigits?: string
+  internalCode?: string
+  acquirerCode?: string
+  posId?: string
+  machineModel?: string
+  buyerNumber?: string
 }
 
 @Injectable()
@@ -189,6 +214,41 @@ export class IngestionService {
   }
 
   /**
+   * A separate table from `stageRows` (design D1) — every network-format
+   * sales row, regardless of `Resultado`, is staged here for detail. Whether
+   * it ALSO reaches the aggregate via `stageRows`/`mapSalesOrCostRow` is
+   * decided by the caller (`StagedRowsWorker`), based on its result.
+   */
+  stageSalesTransactions(id: string, rows: StagedSalesTransactionInput[]) {
+    if (rows.length === 0) return Promise.resolve()
+
+    return this.prisma.stagedSalesTransaction.createMany({
+      data: rows.map(row => ({
+        ingestion_id: id,
+        store_id: row.storeId,
+        occurred_at: row.occurredAt ?? null,
+        sku: row.sku,
+        quantity: row.quantity,
+        amount_paid_cents: row.amountPaidCents,
+        original_amount_cents: row.originalAmountCents ?? null,
+        discount_cents: row.discountCents ?? null,
+        net_amount_cents: row.netAmountCents ?? null,
+        coupon: row.coupon ?? null,
+        result: row.result,
+        method: row.method ?? null,
+        acquirer: row.acquirer ?? null,
+        card_brand: row.cardBrand ?? null,
+        card_last_digits: row.cardLastDigits ?? null,
+        internal_code: row.internalCode ?? null,
+        acquirer_code: row.acquirerCode ?? null,
+        pos_id: row.posId ?? null,
+        machine_model: row.machineModel ?? null,
+        buyer_number: row.buyerNumber ?? null,
+      })),
+    })
+  }
+
+  /**
    * Hands the staged rows to the owning service(s) as ONE batch per period,
    * then clears the staging area.
    *
@@ -208,19 +268,13 @@ export class IngestionService {
     const staged = await this.prisma.stagedRow.findMany({ where: { ingestion_id: id } })
 
     if (ingestion.file_type === 'sales') {
-      const message: SalesRowsJob = {
-        schemaVersion: 1,
-        ingestionId: id,
-        correlationId: ingestion.correlation_id ?? undefined,
-        storeId: ingestion.store_id!,
-        period: ingestion.period,
-        rows: staged.map(row => ({
-          sku: row.sku,
-          quantitySold: row.quantity ?? 0,
-          revenueCents: row.amount_cents ?? 0,
-        })),
-      }
-      await this.broker.holdIt({ queueName: INGESTION_QUEUES.SALES_ROWS, message, options: RETRY_OPTIONS })
+      await this.publishSalesByStore(id, ingestion.period, ingestion.correlation_id ?? undefined, staged)
+
+      // Only the network-wide format ever stages anything here — an
+      // old-format upload's staged_sales_transaction rows are always empty,
+      // and publishSalesTransactionsByStore is a no-op for an empty list.
+      const stagedTransactions = await this.prisma.stagedSalesTransaction.findMany({ where: { ingestion_id: id } })
+      await this.publishSalesTransactionsByStore(id, ingestion.period, ingestion.correlation_id ?? undefined, stagedTransactions)
     }
 
     if (ingestion.file_type === 'supply') {
@@ -248,6 +302,7 @@ export class IngestionService {
 
     await this.prisma.$transaction([
       this.prisma.stagedRow.deleteMany({ where: { ingestion_id: id } }),
+      this.prisma.stagedSalesTransaction.deleteMany({ where: { ingestion_id: id } }),
       this.prisma.ingestion.update({
         where: { id },
         data: {
@@ -262,6 +317,149 @@ export class IngestionService {
       `Finalised ingestion ${id}: ${staged.length} rows handed to ${ingestion.file_type}, ` +
         `${ingestion.rejected_rows} rejected`,
     )
+  }
+
+  /**
+   * Groups staged sales rows by store and sends one `SalesRowsJob` per store,
+   * summing quantity and revenue by SKU within each.
+   *
+   * The old, pre-aggregated per-SKU export always staged exactly one row per
+   * (store, sku), so the sum below was always a no-op for it, and every
+   * staged row already carried the same store_id — the ingestion's single
+   * upload-time one. The network-wide, per-transaction export (Aug 2026)
+   * changes both assumptions at once: it stages MANY rows for the same
+   * (store, sku) — one per transaction — and those rows can belong to
+   * different stores within the same ingestion, resolved per row from
+   * `Cliente` (`StagedRowsWorker`).
+   *
+   * Summing by SKU is not an optimisation here, it is what makes the batch
+   * correct: sales-service replaces a store's period with `salesRecord.
+   * createMany`, and `(store_id, period, sku)` is a unique constraint there.
+   * Sending the same SKU twice in one batch — which an unaggregated,
+   * per-transaction file guarantees — would violate that constraint on the
+   * second row and fail the whole job, rather than sum or overwrite. This
+   * was a latent bug in `finalize()` itself (not sales-service, which
+   * already assumes it is handed one row per SKU): it just never showed up
+   * before, because the old format's export was always pre-aggregated.
+   *
+   * Grouping by store mirrors `publishSupplyByStore` below, for the same
+   * reason: one ingestion can now span every store in the network, and each
+   * still needs its own whole-period replacement.
+   */
+  private async publishSalesByStore(
+    ingestionId: string,
+    period: string,
+    correlationId: string | undefined,
+    staged: { store_id: number; sku: string; quantity: number | null; amount_cents: number | null }[],
+  ): Promise<void> {
+    if (staged.length === 0) return
+
+    const byStore = new Map<number, typeof staged>()
+    for (const row of staged) {
+      if (!byStore.has(row.store_id)) byStore.set(row.store_id, [])
+      byStore.get(row.store_id)!.push(row)
+    }
+
+    for (const [storeId, rows] of byStore) {
+      const bySku = new Map<string, { quantity: number; amountCents: number }>()
+      for (const row of rows) {
+        const existing = bySku.get(row.sku) ?? { quantity: 0, amountCents: 0 }
+        existing.quantity += row.quantity ?? 0
+        existing.amountCents += row.amount_cents ?? 0
+        bySku.set(row.sku, existing)
+      }
+
+      const message: SalesRowsJob = {
+        schemaVersion: 1,
+        ingestionId,
+        correlationId,
+        storeId,
+        period,
+        rows: [...bySku.entries()].map(([sku, totals]) => ({
+          sku,
+          quantitySold: totals.quantity,
+          revenueCents: totals.amountCents,
+        })),
+      }
+
+      await this.broker.holdIt({ queueName: INGESTION_QUEUES.SALES_ROWS, message, options: RETRY_OPTIONS })
+    }
+  }
+
+  /**
+   * Groups staged transaction-detail rows by store and sends one
+   * `SalesTransactionsJob` per store — unlike `publishSalesByStore`, rows are
+   * NOT summed by SKU: each staged row is already one real transaction, and
+   * `sales-service`'s `SalesTransaction` table has no per-row uniqueness
+   * constraint for this to violate (design D3).
+   */
+  private async publishSalesTransactionsByStore(
+    ingestionId: string,
+    period: string,
+    correlationId: string | undefined,
+    staged: {
+      store_id: number
+      occurred_at: Date | null
+      sku: string
+      quantity: number
+      amount_paid_cents: number
+      original_amount_cents: number | null
+      discount_cents: number | null
+      net_amount_cents: number | null
+      coupon: string | null
+      result: string
+      method: string | null
+      acquirer: string | null
+      card_brand: string | null
+      card_last_digits: string | null
+      internal_code: string | null
+      acquirer_code: string | null
+      pos_id: string | null
+      machine_model: string | null
+      buyer_number: string | null
+    }[],
+  ): Promise<void> {
+    if (staged.length === 0) return
+
+    const byStore = new Map<number, typeof staged>()
+    for (const row of staged) {
+      if (!byStore.has(row.store_id)) byStore.set(row.store_id, [])
+      byStore.get(row.store_id)!.push(row)
+    }
+
+    for (const [storeId, rows] of byStore) {
+      const message: SalesTransactionsJob = {
+        schemaVersion: 1,
+        ingestionId,
+        correlationId,
+        storeId,
+        period,
+        rows: rows.map(
+          (row): SalesTransactionRow => ({
+            sku: row.sku,
+            quantity: row.quantity,
+            amountPaidCents: row.amount_paid_cents,
+            result: row.result,
+            occurredAt: row.occurred_at?.toISOString(),
+            originalAmountCents: row.original_amount_cents ?? undefined,
+            discountCents: row.discount_cents ?? undefined,
+            netAmountCents: row.net_amount_cents ?? undefined,
+            coupon: row.coupon ?? undefined,
+            method: row.method ?? undefined,
+            acquirer: row.acquirer ?? undefined,
+            cardBrand: row.card_brand ?? undefined,
+            cardLastDigits: row.card_last_digits ?? undefined,
+            internalCode: row.internal_code ?? undefined,
+            acquirerCode: row.acquirer_code ?? undefined,
+            posId: row.pos_id ?? undefined,
+            machineModel: row.machine_model ?? undefined,
+            buyerNumber: row.buyer_number ?? undefined,
+          }),
+        ),
+      }
+
+      await this.broker.holdIt({ queueName: INGESTION_QUEUES.SALES_TRANSACTIONS, message, options: RETRY_OPTIONS })
+    }
   }
 
   /**

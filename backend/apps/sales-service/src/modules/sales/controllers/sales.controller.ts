@@ -1,11 +1,15 @@
 import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { SalesService } from '../services/sales.service'
+import { SalesTransactionsService } from '../services/sales-transactions.service'
 
 @ApiTags('sales')
 @Controller('sales')
 export class SalesController {
-  constructor(private readonly sales: SalesService) {}
+  constructor(
+    private readonly sales: SalesService,
+    private readonly transactions: SalesTransactionsService,
+  ) {}
 
   @Get(':storeId')
   @ApiOperation({
@@ -26,5 +30,20 @@ export class SalesController {
   @ApiQuery({ name: 'period', required: true, example: '2026-03' })
   totals(@Param('storeId', ParseIntPipe) storeId: number, @Query('period') period: string) {
     return this.sales.totals(storeId, period)
+  }
+
+  @Get(':storeId/transactions')
+  @ApiOperation({
+    summary: 'Sales transaction detail for a store and period',
+    description:
+      'One row per transaction (timestamp, payment method, discount, buyer, POS identifiers, result) — only ' +
+      'present for stores/periods ingested from the network-wide, per-transaction sales format. 404 when no ' +
+      'transaction detail exists for that store and period, whether because it was never ingested or because ' +
+      'the source report carried no transaction-level columns.',
+  })
+  @ApiQuery({ name: 'period', required: true, example: '2026-08' })
+  @ApiResponse({ status: 404, description: 'No transaction detail for that store and period' })
+  findPeriodTransactions(@Param('storeId', ParseIntPipe) storeId: number, @Query('period') period: string) {
+    return this.transactions.findPeriod(storeId, period)
   }
 }

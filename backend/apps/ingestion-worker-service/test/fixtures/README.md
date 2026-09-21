@@ -17,6 +17,24 @@ handles the format we imagined.
   `Vendas x abastecimento/fevereiro-26/venda Ascenty - SP02 fev.xlsx`.
   Confirms every real sales row is accepted (today, none would be).
 
+- **`real-network-sales.xlsx`** — 22 real rows plus 2 built ones, cut from
+  the August 2026 network-wide, per-transaction sales export ("Relatório de
+  vendas" — one row per transaction, every store, whole month; 11,080 rows
+  in the real file, verified via openpyxl). 3 of the real rows are the same
+  (Cliente, Cód. produto) pair — `Plena Saude - Taipas` / `1070` — appearing
+  on 3 separate transaction rows, the case that exercises "the same
+  store+SKU across many rows sums, never the last one winning" (see
+  `align-sales-with-network-export`). The other 19 real rows cover the
+  other 19 distinct `Cliente` values in the file, for variety. 2 rows are
+  built, same reason as `unresolved-store.xlsx` below: never observed in
+  this file (`Resultado` was `'OK'` on all 11,080 real rows, and every
+  `Cliente` matched a registered store), so this fixture forces both cases
+  from real row shapes — one row with `Resultado` changed to `'CANCELADO'`
+  (exercises "a non-OK Resultado is excluded and rejected, not silently
+  dropped or counted"), one row with `Cliente` changed to `'Loja Fantasma
+  Que Nao Existe'` (exercises "an unresolved Cliente rejects only its own
+  row").
+
 - **`real-restocking.xlsx`** — three sheets, one of each operation kind:
   - `Operação 1` (Abastecimento) — 5 rows from
     `abril-26/Abastecimentos 2026-04-01 _ 2026-04-30 (2).xlsx`, `Operação 26`
@@ -78,3 +96,8 @@ Cut with `xlsx` (`XLSX.readFile` / `XLSX.utils.sheet_to_json` /
 source files under `var/exemplos-de-planilhas/`. There is no committed
 script — these were built by hand for this change, at the specific rows
 named above, and the workbook layout is what matters, not the tool.
+
+`real-network-sales.xlsx` was cut the same way but with Python/openpyxl
+(`align-sales-with-network-export`), from a full August 2026 export the
+operator provided directly (not under `var/exemplos-de-planilhas/`) — same
+"the layout matters, not the tool" reasoning; no committed script either.

@@ -9,6 +9,7 @@ import { CorrelationIdMiddleware } from './common/correlation-id.middleware'
 import { DbClientModule } from './modules/db-client/db-client.module'
 import { SalesModule } from './modules/sales/sales.module'
 import { SalesRowsWorker } from './modules/sales/jobs/sales-rows.worker'
+import { SalesTransactionsWorker } from './modules/sales/jobs/sales-transactions.worker'
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
 
 @Module({
@@ -23,12 +24,13 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     // NestJS then fails at startup. Passing it here means the service cannot
     // be broken by a missing env var; the env var is still required by config
     // validation so a misconfigured deployment fails loudly rather than at DI.
-    HoldItModule.register([INGESTION_QUEUES.SALES_ROWS, ...PERIOD_DATA_UPDATED_SUBSCRIBERS], {
-      withKafkaBrokers: false,
-    }),
+    HoldItModule.register(
+      [INGESTION_QUEUES.SALES_ROWS, INGESTION_QUEUES.SALES_TRANSACTIONS, ...PERIOD_DATA_UPDATED_SUBSCRIBERS],
+      { withKafkaBrokers: false },
+    ),
     // Workers live in their own dynamic module and do not import SalesModule —
     // which is why SalesModule is @Global().
-    HoldItModule.registerWorker({ processors: [SalesRowsWorker] }),
+    HoldItModule.registerWorker({ processors: [SalesRowsWorker, SalesTransactionsWorker] }),
   ],
 })
 export class AppModule implements NestModule {

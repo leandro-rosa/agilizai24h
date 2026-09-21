@@ -15,6 +15,7 @@
 
 export const INGESTION_QUEUES = {
   SALES_ROWS: 'ingestion.sales-rows',
+  SALES_TRANSACTIONS: 'ingestion.sales-transactions',
   SUPPLY_ROWS: 'ingestion.supply-rows',
   COST_ROWS: 'ingestion.cost-rows',
 } as const
@@ -47,6 +48,44 @@ export interface SalesRow {
 }
 
 export type SalesRowsJob = IngestionEnvelope<SalesRow>
+
+/**
+ * One row per transaction, unsummed — distinct from `SalesRow`, which is
+ * already aggregated per SKU. Only the network-wide, per-transaction sales
+ * format (Aug 2026) produces these; the old per-SKU export never does, and
+ * no field here is ever fabricated for it. `result` carries the source
+ * report's `Resultado` value verbatim (not only `'OK'` rows — a declined or
+ * cancelled transaction is staged too, so an approval rate can ever be
+ * computed), and every other field is optional because the report's own
+ * columns are optional at the file level.
+ */
+export interface SalesTransactionRow {
+  sku: string
+  quantity: number
+  /** Integer minor units (centavos). Never a float. */
+  amountPaidCents: number
+  originalAmountCents?: number
+  discountCents?: number
+  /** Amount settled after acquirer/payment fees — a treasury concept, never CMV/margin. */
+  netAmountCents?: number
+  /** The receipt/basket identifier — groups several rows into one purchase. */
+  coupon?: string
+  /** Verbatim from the report's `Resultado` column — not narrowed to an enum; see design D3. */
+  result: string
+  /** ISO 8601 — parsed from the report's Excel serial date/time. */
+  occurredAt?: string
+  method?: string
+  acquirer?: string
+  cardBrand?: string
+  cardLastDigits?: string
+  internalCode?: string
+  acquirerCode?: string
+  posId?: string
+  machineModel?: string
+  buyerNumber?: string
+}
+
+export type SalesTransactionsJob = IngestionEnvelope<SalesTransactionRow>
 
 export interface SupplyRestockRow {
   sku: string

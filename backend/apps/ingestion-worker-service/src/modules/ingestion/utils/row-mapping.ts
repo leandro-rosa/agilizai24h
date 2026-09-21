@@ -30,10 +30,10 @@ import { normalizeReasonText } from './parse-removal-reasons'
  * two, is what keeps them from silently drifting apart.
  */
 export const COLUMN_ALIASES = {
-  product: ['Nome produto', 'Descrição', 'Produto', 'Item'],
-  productCode: ['Código Produto', 'Código', 'sku'],
-  quantity: ['Qtd. vendida', 'Quantidade Vendida'],
-  amount: ['Valor Vendido', 'Valor Total'],
+  product: ['Nome produto', 'Descrição', 'Produto', 'Item', 'Descrição Produto'],
+  productCode: ['Código Produto', 'Código', 'sku', 'Cód. produto'],
+  quantity: ['Qtd. vendida', 'Quantidade Vendida', 'Quantidade'],
+  amount: ['Valor Vendido', 'Valor Total', 'Valor Pago'],
   /** Units restocked this operation. Absent (not zero) on a pure Inventário row. */
   restocked: ['Qtd. abastecida'],
   /**
@@ -73,6 +73,50 @@ export const COLUMN_ALIASES = {
    * balance, rather than an arbitrary earlier reading (design D5).
    */
   finishedAt: ['Finalizado em'],
+  /**
+   * Per-transaction outcome, carried only by the network-wide sales format
+   * (Aug 2026 POS export capability — one row per transaction, every store,
+   * whole month). Only `'OK'` counts as a real sale for the per-SKU
+   * aggregate; every other value is still staged for transaction detail
+   * (add-sales-transaction-detail), carrying its real result, never
+   * fabricated as 'OK' or silently dropped. The old, pre-aggregated per-SKU
+   * sales export has no equivalent column.
+   */
+  result: ['Resultado'],
+  /**
+   * The remaining columns below are transaction-detail-only
+   * (add-sales-transaction-detail) — read for the network-wide sales format,
+   * never for the old per-SKU export. Each is optional at the file level:
+   * a report missing one of these produces rows with that field absent, not
+   * a rejected file. `CMV`/`Margem`/`Margem(%)` are deliberately NOT aliased
+   * here — finance-service is this project's only source of CMV/margin
+   * (root CLAUDE.md), and a second figure from the sales file would be a
+   * second, uncoordinated source. `Líquido` IS read (below, as `netAmount`):
+   * it is the amount settled after acquirer/payment fees, a treasury concept
+   * unrelated to product cost, so it doesn't fall under that same rule.
+   * `Categoria produto`, `Local` and `Seleção` are also deliberately not
+   * read: category has a canonical source in products-service, `Local` is
+   * the store's own address once `Cliente` resolves it, and `Seleção` has
+   * no requirement anywhere that reads it. `Cupom` IS read (below, as
+   * `coupon`): it's the receipt/basket identifier that groups several rows
+   * into one purchase, load-bearing for "itens por compra"/ticket médio.
+   */
+  occurredAt: ['Data/Hora'],
+  originalAmount: ['Valor Original'],
+  discount: ['Desconto'],
+  /** Amount settled after acquirer/payment fees — never confused with CMV/Margem, a cost concept this file deliberately never reads. */
+  netAmount: ['Líquido'],
+  /** The receipt/basket identifier — several rows (one per SKU) share one Cupom when they were bought in the same checkout. What groups "itens por compra"/"ticket médio" into real baskets instead of one row per item. */
+  coupon: ['Cupom'],
+  paymentMethod: ['Método'],
+  acquirer: ['Adquirente'],
+  cardLastDigits: ['Final cartão'],
+  cardBrand: ['Bandeira'],
+  internalCode: ['Cód. interno'],
+  acquirerCode: ['Cód. adquirente'],
+  posId: ['Ponto de venda'],
+  machineModel: ['Modelo máq.'],
+  buyerNumber: ['Número comprador'],
 } as const
 
 export type ColumnKey = keyof typeof COLUMN_ALIASES

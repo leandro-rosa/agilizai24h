@@ -1,4 +1,5 @@
 import {
+  COLUMN_ALIASES,
   hasColumn,
   hasRawColumn,
   locateRawHeaderRow,
@@ -52,6 +53,97 @@ describe('hasColumn', () => {
 
   it('reports a genuinely missing column', () => {
     expect(hasColumn(['Produto'], 'cost')).toBe(false)
+  })
+})
+
+describe('the network-wide sales format (Aug 2026) column names', () => {
+  // Real header row of "Relatório de vendas" — every value below is the
+  // exact column text measured against a real August 2026 export, not
+  // invented (see test/fixtures/real-network-sales.xlsx).
+  it('resolves product, code, quantity and amount by their new-format names', () => {
+    expect(readColumn({ Descricao_Produto: 'Refrigerante Coca-Cola Lata 350 ml' }, 'product')).toBe(
+      'Refrigerante Coca-Cola Lata 350 ml',
+    )
+    expect(readColumn({ Cod_produto: '1070' }, 'productCode')).toBe('1070')
+    expect(readColumn({ Quantidade: 1 }, 'quantity')).toBe(1)
+    expect(readColumn({ Valor_Pago: 7.9 }, 'amount')).toBe(7.9)
+  })
+
+  it('still resolves the old format aliases unchanged', () => {
+    expect(readColumn({ Nome_produto: 'Guaraná' }, 'product')).toBe('Guaraná')
+    expect(readColumn({ Codigo: 'GUA-350' }, 'productCode')).toBe('GUA-350')
+    expect(readColumn({ Qtd_vendida: 3 }, 'quantity')).toBe(3)
+    expect(readColumn({ Valor_Vendido: '12,50' }, 'amount')).toBe('12,50')
+  })
+
+  it('reads Resultado, the per-transaction outcome new to this format', () => {
+    expect(readColumn({ Resultado: 'OK' }, 'result')).toBe('OK')
+    expect(hasColumn(['Resultado'], 'result')).toBe(true)
+    expect(hasColumn(['Produto'], 'result')).toBe(false)
+  })
+
+  it('reads every transaction-detail column added by add-sales-transaction-detail', () => {
+    // Real slugified keys, as smartChunk actually produces them from the raw
+    // header text (verified against the package's real transform, not
+    // guessed) — slugify strips diacritics and punctuation itself, and
+    // `Data/Hora` loses its `/` with nothing left to insert `_` for.
+    expect(readColumn({ DataHora: 45900.5 }, 'occurredAt')).toBe(45900.5)
+    expect(readColumn({ Valor_Original: '9,90' }, 'originalAmount')).toBe('9,90')
+    expect(readColumn({ Desconto: '2,00' }, 'discount')).toBe('2,00')
+    expect(readColumn({ Metodo: 'Cartão de crédito' }, 'paymentMethod')).toBe('Cartão de crédito')
+    expect(readColumn({ Adquirente: 'Stone' }, 'acquirer')).toBe('Stone')
+    expect(readColumn({ Final_cartao: '1234' }, 'cardLastDigits')).toBe('1234')
+    expect(readColumn({ Bandeira: 'Visa' }, 'cardBrand')).toBe('Visa')
+    expect(readColumn({ Cod_interno: 'INT-1' }, 'internalCode')).toBe('INT-1')
+    expect(readColumn({ Cod_adquirente: 'ACQ-1' }, 'acquirerCode')).toBe('ACQ-1')
+    expect(readColumn({ Ponto_de_venda: 'PDV-03' }, 'posId')).toBe('PDV-03')
+    expect(readColumn({ Modelo_maq: 'TOTEM X1' }, 'machineModel')).toBe('TOTEM X1')
+    expect(readColumn({ Numero_comprador: '778899' }, 'buyerNumber')).toBe('778899')
+  })
+
+  it('treats every transaction-detail column as optional — absence reads as undefined, not a rejection', () => {
+    expect(readColumn({ Quantidade: 1 }, 'occurredAt')).toBeUndefined()
+    expect(readColumn({ Quantidade: 1 }, 'paymentMethod')).toBeUndefined()
+    expect(hasColumn(['Quantidade'], 'acquirer')).toBe(false)
+  })
+
+  it('never reads CMV, Margem or category from the sales file — no alias exists for them', () => {
+    // finance-service is the only source of CMV/margin (root CLAUDE.md); category has its
+    // own canonical source in products-service. Asserting these raw header strings appear
+    // nowhere in the alias table is what keeps a future column addition from accidentally
+    // wiring one of them back in. `Líquido`/`Cupom` are NOT in this list — see the next two
+    // tests: neither is a cost/margin or category concept.
+    const everyAliasValue = Object.values(COLUMN_ALIASES).flat()
+    for (const excluded of ['CMV', 'Margem', 'Margem(%)', 'Categoria produto', 'Local', 'Seleção']) {
+      expect(everyAliasValue).not.toContain(excluded)
+    }
+  })
+
+  it('reads Líquido (amount net of acquirer fees) — a treasury concept, not CMV/margin', () => {
+    expect(readColumn({ Liquido: '7,50' }, 'netAmount')).toBe('7,50')
+    expect(hasColumn(['Líquido'], 'netAmount')).toBe(true)
+  })
+
+  it('reads Cupom — the basket identifier that groups several rows into one purchase', () => {
+    expect(readColumn({ Cupom: '000123' }, 'coupon')).toBe('000123')
+    expect(hasColumn(['Cupom'], 'coupon')).toBe(true)
+  })
+
+  it('detects the format at the raw (pre-smartChunk) header level via Cliente, same as clientStore already works for supply', () => {
+    const headers = [
+      'Data/Hora',
+      'Cliente',
+      'Local',
+      'Resultado',
+      'Quantidade',
+      'Valor Pago',
+      'Cód. produto',
+      'Descrição Produto',
+    ]
+    expect(hasRawColumn(headers, 'clientStore')).toBe(true)
+
+    const oldFormatHeaders = ['Nome produto', 'Qtd. vendida', 'Valor Vendido']
+    expect(hasRawColumn(oldFormatHeaders, 'clientStore')).toBe(false)
   })
 })
 

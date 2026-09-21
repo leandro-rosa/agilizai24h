@@ -46,4 +46,27 @@ export class SalesController {
 
     return result.data
   }
+
+  @Get(':storeId/transactions')
+  @RequiresPermission(PERMISSIONS.SALES_READ)
+  @ApiOperation({
+    summary: 'Sales transaction detail for a store and period (add-sales-transaction-detail)',
+    description:
+      'One row per transaction — only present for stores/periods ingested from the network-wide, per-transaction ' +
+      'sales format. 404 when no transaction detail exists for that store and period.',
+  })
+  @ApiQuery({ name: 'period', required: true, example: '2026-08' })
+  async findPeriodTransactions(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Query('period') period: string,
+    @Req() request: FastifyRequest,
+  ) {
+    const result = await this.domains.sales({
+      method: 'get',
+      path: `/sales/${storeId}/transactions?period=${encodeURIComponent(period)}`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
 }

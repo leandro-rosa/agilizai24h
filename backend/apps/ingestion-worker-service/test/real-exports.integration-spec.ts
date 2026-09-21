@@ -44,6 +44,28 @@ describe('real exports', () => {
     'ascenty - jdi01': 101,
     'ascenty - sp03 copa': 102,
     'rolls-royce': 103,
+    // The 20 distinct Cliente values in real-network-sales.xlsx (Aug 2026
+    // network-wide sales export) — see test/fixtures/README.md.
+    'plena saude - taipas': 201,
+    'plena saude - franco da rocha': 202,
+    'plena saude - mogi': 203,
+    'ascenty - pln01': 204,
+    'plena saude - itaqua': 205,
+    'ascenty - sum01': 206,
+    'ascenty - htl05': 207,
+    'ascenty - vin02': 208,
+    'ascenty - htl01': 209,
+    'ascenty - vin01': 210,
+    'ascenty - sp04': 211,
+    'plena saude - adm taipas': 212,
+    'ascenty - sp05': 213,
+    'ascenty - adm': 214,
+    'ascenty - sp02': 215,
+    'ascenty - jdi02': 216,
+    'ascenty - sp03': 217,
+    'ascenty - cps01': 218,
+    // "Loja Fantasma Que Nao Existe" is deliberately absent — it must not
+    // resolve, same as unresolved-store.xlsx's case for supply.
   }
 
   beforeAll(async () => {
@@ -118,6 +140,7 @@ describe('real exports', () => {
   afterAll(async () => {
     if (prisma) {
       await prisma.stagedRow.deleteMany({ where: { ingestion_id: { in: ingestionIds } } })
+      await prisma.stagedSalesTransaction.deleteMany({ where: { ingestion_id: { in: ingestionIds } } })
       await prisma.ingestionOperation.deleteMany({ where: { ingestion_id: { in: ingestionIds } } })
       await prisma.ingestionRejection.deleteMany({ where: { ingestion_id: { in: ingestionIds } } })
       await prisma.ingestion.deleteMany({ where: { id: { in: ingestionIds } } })
@@ -170,6 +193,78 @@ describe('real exports', () => {
       expect(ingestion.rejected_rows).toBe(0)
       expect(ingestion.accepted_rows).toBe(5)
       expect(ingestion.status).toBe('completed')
+    }, 30000)
+  })
+
+  describe('the network-wide sales format (Aug 2026)', () => {
+    it('detects the format from Cliente, resolves each row\'s own store, and rejects only the two built edge cases', async () => {
+      // No storeId at upload — this format covers every store in the
+      // network from one file, resolved per row instead.
+      const id = await ingest('sales', 'real-network-sales.xlsx', { period: '2026-08' })
+
+      const ingestion = await ingestions.findById(id)
+
+      // 22 real rows accepted; the 2 built ones (a non-OK Resultado, an
+      // unresolvable Cliente) are the only rejections.
+      expect(ingestion.accepted_rows).toBe(22)
+      expect(ingestion.rejected_rows).toBe(2)
+      expect(ingestion.status).toBe('partially_completed')
+
+      expect(ingestion.rejections).toContainEqual(expect.objectContaining({ reason: 'not_ok_result' }))
+      expect(ingestion.rejections).toContainEqual(expect.objectContaining({ reason: 'unresolved_store' }))
+
+      // Never uses the ingestion's own (null) store_id — every accepted row
+      // reached sales-service under a store resolved from its own Cliente.
+      const salesMessages = publishedFinal.filter(call => call.queueName === 'ingestion.sales-rows')
+      expect(salesMessages.length).toBeGreaterThan(1)
+      expect(salesMessages.every(call => typeof (call.message as { storeId: number }).storeId === 'number')).toBe(
+        true,
+      )
+    }, 30000)
+
+    it('sums the same store+SKU across several transaction rows, rather than the last one winning', async () => {
+      const id = await ingest('sales', 'real-network-sales.xlsx', { period: '2026-08' })
+
+      // Plena Saude - Taipas / SKU 1070 appears on 3 real transaction rows in
+      // the fixture, each Quantidade 1, Valor Pago 7,90 — the exact shape
+      // the old, pre-aggregated per-SKU export never produced, and the case
+      // that would previously have violated sales-service's
+      // (store_id, period, sku) uniqueness on the 2nd row for the same SKU.
+      const taipas = publishedFinal.find(
+        call => call.queueName === 'ingestion.sales-rows' && (call.message as { storeId: number }).storeId === 201,
+      )!.message as { rows: { sku: string; quantitySold: number; revenueCents: number }[] }
+
+      expect(taipas.rows).toEqual(
+        expect.arrayContaining([{ sku: '1070', quantitySold: 3, revenueCents: 2370 }]),
+      )
+
+      expect((await ingestions.findById(id)).rejected_rows).toBe(2)
+    }, 30000)
+
+    it('stages transaction detail for every resolvable row, including the non-OK one — never only the aggregate-eligible ones (add-sales-transaction-detail)', async () => {
+      await ingest('sales', 'real-network-sales.xlsx', { period: '2026-08' })
+
+      const transactionMessages = publishedFinal.filter(call => call.queueName === 'ingestion.sales-transactions')
+      const allRows = transactionMessages.flatMap(
+        call => (call.message as { rows: { sku: string; result: string }[] }).rows,
+      )
+
+      // 22 accepted to the aggregate + the 1 non-OK-but-resolvable row = 23.
+      // The unresolvable-Cliente row contributes to neither.
+      expect(allRows).toHaveLength(23)
+      expect(allRows.some(row => row.result.toUpperCase() !== 'OK')).toBe(true)
+
+      // Every store that received an aggregate job also received a
+      // transaction-detail job — same per-store grouping, two tables.
+      const aggregateStoreIds = new Set(
+        publishedFinal
+          .filter(call => call.queueName === 'ingestion.sales-rows')
+          .map(call => (call.message as { storeId: number }).storeId),
+      )
+      const transactionStoreIds = new Set(
+        transactionMessages.map(call => (call.message as { storeId: number }).storeId),
+      )
+      for (const storeId of aggregateStoreIds) expect(transactionStoreIds.has(storeId)).toBe(true)
     }, 30000)
   })
 

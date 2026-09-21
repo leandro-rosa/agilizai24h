@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common'
 import { SalesController } from './controllers/sales.controller'
 import { PeriodEventsPublisher } from './services/period-events.publisher'
 import { SalesService } from './services/sales.service'
+import { SalesTransactionsService } from './services/sales-transactions.service'
 
 /**
  * Global because HoldItModule.registerWorker builds workers in a dynamic module
@@ -11,7 +12,7 @@ import { SalesService } from './services/sales.service'
 @Global()
 @Module({
   controllers: [SalesController],
-  providers: [SalesService, PeriodEventsPublisher],
-  exports: [SalesService, PeriodEventsPublisher],
+  providers: [SalesService, PeriodEventsPublisher, SalesTransactionsService],
+  exports: [SalesService, PeriodEventsPublisher, SalesTransactionsService],
 })
 export class SalesModule {}
