@@ -114,4 +114,15 @@ describe('parseItauStatement', () => {
     expect(result.rejections).toEqual([expect.objectContaining({ rowReference: 'p1L1', reason: 'unparseable_amount' })])
     expect(result.rows).toEqual([expect.objectContaining({ occurredOn: '2026-08-04', amountCents: 10000 })])
   })
+
+  // Regression: real data (checked 2026-09-17) has exactly one distinct
+  // "JUROS" line, and it's the interest on "Conta Garantida" — the same
+  // overdraft product C6 calls "Cheque especial". Unified under one
+  // category (operator request) so "quanto de juros paguei pelo limite"
+  // is one number across banks, not split into a generic tax bucket.
+  it('classifies a "JUROS" line as overdraft interest', () => {
+    const result = parseItauStatement([{ pageNumber: 1, lines: ['03/08/2026 JUROS       2059.11180-3 -396,80'] }])
+
+    expect(result.rows[0].structuralHint).toEqual({ kind: 'expense', category: 'Juros - Limite Garantido' })
+  })
 })

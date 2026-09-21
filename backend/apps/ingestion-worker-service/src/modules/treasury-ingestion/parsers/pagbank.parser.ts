@@ -7,9 +7,36 @@ import { parseStatementLines, type ParseStatementLinesResult, type StructuralPat
  * treasury-service's mapping rules decide); only the fatura line is
  * structurally always a movement, regardless of how its text varies
  * (Anexo A §3, task 3.4).
+ *
+ * The three recurring self-fees ("Cobrança PagBank Saúde" R$24,90/mês on
+ * day 10, "Cobrança Seguro Cartão Protegido" R$7,90 and "Mensalidade Seguro
+ * Conta" R$6,90 both on day 17) are PagBank's own account fees, same
+ * standing as C6's "SEGURO CONTA C6" — never a favorecido to resolve via
+ * mapping rules. Found live: these three always spill their amount onto a
+ * continuation line with no date of its own, so before `parseStatementLines`
+ * learned to join continuation lines they were silently rejected every
+ * month (24 rejections across a real jan-ago/2026 backfill, R$317,60 never
+ * imported) — root cause fixed there; these patterns are what classifies
+ * them correctly once they DO become rows.
+ *
+ * jan-fev/2026 label these same three fees differently: "Pagamento com QR
+ * Code - Para: PAGSEGURO INTERNET INSTITUICAO DE" / "PAGAMENTO", with no
+ * text distinguishing which of the three it is — the payee is PagBank's own
+ * institution, not a third-party merchant (a real QR-code payment to a
+ * merchant names that merchant, e.g. "Lalamove Tecnologia Brasil Ltda."),
+ * so matching on the payee alone is safe and catches all three under this
+ * older wording.
  */
 const PATTERNS: StructuralPattern[] = [
   { matchText: 'Cartão PagBank', kind: 'movement', category: 'Pagamento de fatura' },
+  { matchText: 'Cobrança PagBank Saúde', kind: 'expense', category: 'Financeiro/Tributos' },
+  { matchText: 'Cobrança Seguro Cartão Protegido', kind: 'expense', category: 'Financeiro/Tributos' },
+  { matchText: 'Mensalidade Seguro Conta', kind: 'expense', category: 'Financeiro/Tributos' },
+  {
+    matchText: 'Pagamento com QR Code - Para: PAGSEGURO INTERNET INSTITUICAO DE',
+    kind: 'expense',
+    category: 'Financeiro/Tributos',
+  },
 ]
 
 /**

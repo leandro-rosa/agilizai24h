@@ -197,6 +197,19 @@ export class TreasuryController {
     return result.data
   }
 
+  @Get('entry-types')
+  @RequiresPermission(PERMISSIONS.TREASURY_READ)
+  @ApiOperation({ summary: 'Entry types in use' })
+  async getEntryTypes(@Req() request: FastifyRequest) {
+    const result = await this.domains.treasury({
+      method: 'get',
+      path: '/treasury/entry-types',
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
   @Get('transactions/summary')
   @RequiresPermission(PERMISSIONS.TREASURY_READ)
   @ApiOperation({ summary: 'Totals by nature and category' })

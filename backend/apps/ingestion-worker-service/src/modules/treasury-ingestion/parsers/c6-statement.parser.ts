@@ -29,8 +29,12 @@ const PATTERNS: StructuralPattern[] = [
   { matchText: 'EMISSAO DE CDB', kind: 'movement', category: 'CDB' },
   { matchText: 'RESGATE DE CDB', kind: 'movement', category: 'CDB' },
   { matchText: 'SEGURO CONTA C6', kind: 'expense', category: 'Financeiro/Tributos' },
-  { matchText: 'JUROS CHEQUE ESP', kind: 'expense', category: 'Juros de conta' },
-  { matchText: 'IOF CHEQUE ESPECIAL', kind: 'expense', category: 'Financeiro/Tributos' },
+  // "Cheque especial" is C6's name for the same overdraft product Itaú
+  // calls "Conta Garantida" — unified under one category (operator request,
+  // 2026-09-17) so "quanto de juros paguei pelo limite" reads as one number
+  // across banks instead of being split into two generic tax/fee buckets.
+  { matchText: 'JUROS CHEQUE ESP', kind: 'expense', category: 'Juros - Limite Garantido' },
+  { matchText: 'IOF CHEQUE ESPECIAL', kind: 'expense', category: 'Juros - Limite Garantido' },
   { matchText: 'SIMPLES NACIONAL', kind: 'expense', category: 'Financeiro/Tributos' },
   { matchText: 'RECEITA FEDERAL', kind: 'expense', category: 'Financeiro/Tributos' },
 ]

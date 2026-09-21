@@ -117,6 +117,12 @@ export class TreasuryController {
     return this.treasury.listCategories()
   }
 
+  @Get('entry-types')
+  @ApiOperation({ summary: 'Entry types in use (seeded + anything a mapping rule introduced)' })
+  listEntryTypes() {
+    return this.treasury.listEntryTypes()
+  }
+
   // lançamentos
   @Get('transactions/summary')
   @ApiOperation({

@@ -242,3 +242,33 @@ duas vezes que fica desatualizado antes do conteúdo.
   o restante é mensalidade). Seedado com a categoria mais comum
   (mensalidade); o caso do valor específico precisa de correção manual por
   lançamento.
+- **Fatura de cartão (C6 Cartão, conta 16) está incompleta pra jan-mai/2026
+  — arquivo fonte não existe** (2026-09-17, confirmado por busca exaustiva
+  em toda a árvore do Drive). O cartão já estava em uso e sendo pago desde
+  janeiro (confirmado via `PGTO FAT CARTAO C6` na conta corrente C6, todo
+  mês desde 28/01), então não é "cartão não existia" — é documento que
+  nunca foi salvo. **Não afeta saldo em conta**: o pagamento da fatura já
+  está lançado corretamente na conta corrente; o gap é só o detalhe
+  categorizado (o que foi comprado) dentro da fatura desses 5 meses.
+  PagSeguro Cartão (conta 20) NÃO tem esse gap apesar de só ter jan/fev
+  importado — confirmado com a área financeira que o cartão PagSeguro
+  parou de ser usado em fevereiro (a operação migrou pro cartão C6), então
+  jan/fev é a cobertura completa, não um gap.
+- **Bradesco (conta 18) tem saldo potencialmente obsoleto a partir de
+  05/06/2026** (2026-09-17). O único extrato que existe (`Bradesco
+  jan-junho.xlsx`) termina de verdade em 05/06 — confirmado lendo o
+  arquivo real, a própria linha "Total" do arquivo fecha em R$25.905,21
+  nessa data, não é um corte deste código. A área financeira confirmou que
+  esse saldo foi transferido pro Itaú em algum momento depois disso, mas
+  **não foi possível localizar a transação de saída correspondente em
+  nenhum documento disponível** (procurado no extrato do Itaú abr-ago,
+  nenhuma entrada bate com R$25.905,21 nem perto disso). Até que o
+  extrato/comprovante real apareça, `bank_transaction` da conta 18
+  continua com esse saldo "congelado" em 05/06 — **qualquer soma
+  consolidada de saldo que inclua o Bradesco para uma data depois de
+  05/06/2026 pode estar contando dinheiro que já não está mais lá**.
+  Gap conhecido, não escondido — resolver assim que a área financeira
+  trouxer o extrato de julho/agosto do Bradesco (ou o comprovante da
+  transferência).
+  parou de ser usado em fevereiro (a operação migrou pro cartão C6), então
+  jan/fev é a cobertura completa, não um gap.

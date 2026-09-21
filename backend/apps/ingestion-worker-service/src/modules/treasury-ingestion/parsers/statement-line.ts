@@ -102,23 +102,42 @@ export function parseStatementLines(
       return
     }
 
-    const [, day, month, year, rest] = dateMatch
+    const [, day, month, year, firstRest] = dateMatch
     const occurredOn = parseBrDate(day, month, year)
     if (!occurredOn) {
       rejections.push({ rowReference, reason: 'unparseable_date', detail: `"${day}/${month}/${year}" is not a valid date` })
       return
     }
 
-    const money = findMoneyInText(rest)
+    // A description can spill onto the next physical line(s) with no date
+    // of its own before the amount appears — measured against a real
+    // PagBank statement: "Pagamento com QR Code - Para: PAGSEGURO INTERNET
+    // INSTITUICAO DE" / "PAGAMENTO -R$ 24,90" (the recurring "Cobrança
+    // PagBank Saúde"/"Cobrança Seguro Cartão Protegido"/"Mensalidade Seguro
+    // Conta" self-fees — previously silently rejected every month, 24
+    // rejections across jan-ago/2026 real data, R$317,60 never imported).
+    // Joins lines one at a time, bounded by whichever comes first: an
+    // amount is found, or the next line starts its own date — same pattern
+    // the Itaú parser already uses for its multi-line continuations.
+    const parts = [firstRest]
+    let money = findMoneyInText(firstRest)
+    let ahead = 0
+    while (!money && lineIndex + 1 + ahead < lines.length && !LINE_DATE_PATTERN.test(lines[lineIndex + 1 + ahead])) {
+      parts.push(lines[lineIndex + 1 + ahead])
+      money = findMoneyInText(parts.join(' '))
+      ahead += 1
+    }
+
     if (!money) {
       rejections.push({
         rowReference,
         reason: 'unparseable_amount',
-        detail: `Line has a date but no recognisable R$ amount: "${line}"`,
+        detail: `Line has a date but no recognisable R$ amount, including its continuation lines: "${line}"`,
       })
       return
     }
 
+    const rest = parts.join(' ')
     const description = rest.replace(/-?\s*R\$\s*[\d.,]+/, '').trim()
     const normalizedDescription = normalizeForMatch(description)
     const structural = structuralPatterns.find(pattern =>

@@ -89,9 +89,11 @@ export class TreasuryService {
       await this.assertNeutralizationTarget(dto.neutralized_with_id, dto.period)
     }
 
-    return this.prisma.bankTransaction.create({
+    const created = await this.prisma.bankTransaction.create({
       data: { ...dto, nature: this.natureFor(dto.kind, dto.nature), occurred_on: new Date(dto.occurred_on) },
     })
+    await this.upsertRuleFromClassification(created)
+    return created
   }
 
   async updateTransaction(id: number, dto: UpdateTransactionDto) {
@@ -107,7 +109,7 @@ export class TreasuryService {
     }
 
     const kind = dto.kind ?? existing.kind
-    return this.prisma.bankTransaction.update({
+    const updated = await this.prisma.bankTransaction.update({
       where: { id },
       data: {
         ...dto,
@@ -118,6 +120,68 @@ export class TreasuryService {
         ...(dto.occurred_on ? { occurred_on: new Date(dto.occurred_on) } : {}),
       },
     })
+    // Só quando a edição de fato tocou a classificação — um ajuste de
+    // valor/data isolado não deve virar regra nem reclassificar nada.
+    if ('kind' in dto || 'category' in dto) {
+      await this.upsertRuleFromClassification(updated)
+    }
+    return updated
+  }
+
+  /**
+   * Toda classificação manual (Novo lançamento / Editar lançamento) também
+   * vira regra de-para — pedido explícito do operador: classificar um
+   * lançamento uma vez deve valer para os outros meses do mesmo
+   * favorecido, sem precisar duplicar o trabalho na tela De-Para. `exact`
+   * sobre `counterparty_raw` normalizado (mesma forma das regras que já
+   * funcionam), upsert por `match_text` (chave única — nunca duplica regra
+   * do mesmo favorecido). Depois de upsertar, reaplica em TODOS os
+   * períodos com pendente, não só no período deste lançamento — é o
+   * "considerar para os outros meses" do pedido. `applyMappings` já só
+   * toca `kind: pending`, então isto nunca sobrescreve um lançamento já
+   * confirmado de outro mês.
+   */
+  private async upsertRuleFromClassification(transaction: {
+    counterparty_raw: string
+    kind: string
+    category: string
+    nature: string | null
+    entry_type: string
+    supplier_id: number | null
+  }): Promise<void> {
+    // Uma regra nunca é `kind: pending` (schema: "não resolvido" é a
+    // ausência de regra, não um valor dela) — nada para propagar ainda.
+    if (transaction.kind === 'pending') return
+
+    const matchText = normalizeCounterparty(transaction.counterparty_raw)
+    if (!matchText) return
+
+    const ruleData = {
+      match_text: matchText,
+      match_type: 'exact',
+      display_name: transaction.counterparty_raw,
+      kind: transaction.kind,
+      category: transaction.category,
+      entry_type: transaction.entry_type,
+      nature: this.natureFor(transaction.kind, transaction.nature ?? undefined),
+      supplier_id: transaction.supplier_id,
+    }
+
+    const existingRule = await this.prisma.counterpartyMapping.findUnique({ where: { match_text: matchText } })
+    if (existingRule) {
+      await this.prisma.counterpartyMapping.update({ where: { id: existingRule.id }, data: ruleData })
+    } else {
+      await this.prisma.counterpartyMapping.create({ data: ruleData })
+    }
+
+    const pendingPeriods = await this.prisma.bankTransaction.findMany({
+      where: { kind: 'pending' },
+      distinct: ['period'],
+      select: { period: true },
+    })
+    for (const { period } of pendingPeriods) {
+      await this.applyMappings(period)
+    }
   }
 
   /**
@@ -271,18 +335,27 @@ export class TreasuryService {
    * lacunas conhecidas no CLAUDE.md deste serviço) vêm com saldo inicial
    * incorreto — não há como resolver sem o extrato que falta ou uma âncora
    * de saldo manual, que não existe nesta fase.
+   *
+   * Consolidado ("todas as contas", `accountId: null`) soma só
+   * `kind: 'checking'` — cartão de crédito (`kind: 'credit_card'`) é
+   * ledger de gasto/fatura, não caixa; somado junto ao saldo bancário ele
+   * infla/reduz "quanto sobrou" por um valor que nunca existiu como
+   * dinheiro disponível. Uma conta de cartão específica continua
+   * consultável normalmente — o filtro por `kind` só entra quando
+   * `accountId` é nulo.
    */
   async cashFlow(filter: CashFlowQueryDto): Promise<CashFlowSummary> {
     const from = new Date(filter.occurred_from)
     const to = new Date(filter.occurred_to)
     const accountId = filter.account_id ?? null
+    const accountScope = accountId !== null ? { account_id: accountId } : { account: { kind: 'checking' } }
 
     const openingRows = await this.prisma.bankTransaction.groupBy({
       by: ['direction'],
       where: {
         occurred_on: { lt: from },
         neutralized_with_id: null,
-        ...(accountId !== null ? { account_id: accountId } : {}),
+        ...accountScope,
       },
       _sum: { amount_cents: true },
     })
@@ -293,7 +366,7 @@ export class TreasuryService {
       where: {
         occurred_on: { gte: from, lte: to },
         neutralized_with_id: null,
-        ...(accountId !== null ? { account_id: accountId } : {}),
+        ...accountScope,
       },
       select: { occurred_on: true, direction: true, amount_cents: true, category: true },
     })
@@ -346,6 +419,16 @@ export class TreasuryService {
     ])
 
     return [...new Set([...fromTransactions, ...fromMappings].map(row => row.category))].sort()
+  }
+
+  /** Mesmo raciocínio de `listCategories`, para `entry_type` — texto livre, sem tabela fechada. */
+  async listEntryTypes(): Promise<string[]> {
+    const [fromTransactions, fromMappings] = await Promise.all([
+      this.prisma.bankTransaction.findMany({ distinct: ['entry_type'], select: { entry_type: true } }),
+      this.prisma.counterpartyMapping.findMany({ distinct: ['entry_type'], select: { entry_type: true } }),
+    ])
+
+    return [...new Set([...fromTransactions, ...fromMappings].map(row => row.entry_type))].sort()
   }
 
   /**
@@ -537,6 +620,13 @@ export class TreasuryService {
           entry_type: rule.entry_type,
           category: rule.category,
           nature: this.natureFor(rule.kind, rule.nature ?? undefined),
+          // Sem isto a linha fica classificada mas sem proveniência — o
+          // tooltip "Sem fornecedor"/regra da tela de Lançamentos não teria
+          // como dizer qual regra decidiu, mesmo a decisão tendo vindo de
+          // uma regra real (achado testando add-treasury-auto-de-para: toda
+          // linha reclassificada por este método ficava com
+          // `mapping_rule_id: null`, igual a uma nunca resolvida).
+          mapping_rule_id: rule.id,
         },
       })
       classified += 1

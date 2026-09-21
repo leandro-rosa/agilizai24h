@@ -103,4 +103,59 @@ describe('parseStatementLines', () => {
 
     expect(result.rows[0].counterpartyRaw).toBe('Pix enviado AMBEV')
   })
+
+  // Regression: real PagBank text (measured on a jan-ago/2026 backfill) has
+  // three recurring self-fees whose amount spills onto a continuation line
+  // with no date of its own — "Pagamento com QR Code - Para: PAGSEGURO
+  // INTERNET INSTITUICAO DE" / "PAGAMENTO -R$ 24,90". Before this, the
+  // date-line had no amount and was rejected outright, 24 times across 8
+  // real months (R$317,60 never imported, and never even surfaced as a
+  // reviewable rejection with the right detail — a bare "unparseable_amount"
+  // on the description line alone).
+  it('joins a continuation line with no date of its own to find the amount', () => {
+    const result = parseStatementLines(
+      1,
+      [
+        '10/01/2026 Pagamento com QR Code - Para: PAGSEGURO INTERNET INSTITUICAO DE',
+        'PAGAMENTO -R$ 24,90',
+      ],
+      [],
+    )
+
+    expect(result.rejections).toEqual([])
+    expect(result.rows).toEqual([
+      {
+        occurredOn: '2026-01-10',
+        amountCents: 2490,
+        direction: 'outflow',
+        counterpartyRaw: 'Pagamento com QR Code - Para: PAGSEGURO INTERNET INSTITUICAO DE PAGAMENTO',
+        sourceRef: 'p1L1',
+      },
+    ])
+  })
+
+  it('stops joining continuation lines at the next dated line, and rejects if no amount was found', () => {
+    const result = parseStatementLines(
+      1,
+      ['15/07/2026 Pix enviado sem valor nenhum', '16/07/2026 Pix enviado B R$20,00'],
+      [],
+    )
+
+    expect(result.rows).toEqual([
+      {
+        occurredOn: '2026-07-16',
+        amountCents: 2000,
+        direction: 'inflow',
+        counterpartyRaw: 'Pix enviado B',
+        sourceRef: 'p1L2',
+      },
+    ])
+    expect(result.rejections).toEqual([
+      {
+        rowReference: 'p1L1',
+        reason: 'unparseable_amount',
+        detail: expect.stringContaining('15/07/2026 Pix enviado sem valor nenhum'),
+      },
+    ])
+  })
 })

@@ -71,4 +71,20 @@ describe('parseC6Statement', () => {
 
     expect(result.rows[0].occurredOn).toBe('2026-01-19')
   })
+
+  // Regression: "Cheque especial" is C6's name for the same overdraft
+  // product Itaú calls "Conta Garantida" — both unified under one category
+  // (operator request, 2026-09-17) so "quanto de juros paguei pelo limite"
+  // is one number across banks, not split into two generic tax buckets.
+  it('classifies "JUROS CHEQUE ESP" and "IOF CHEQUE ESPECIAL" under the same overdraft-interest category', () => {
+    const result = parseC6Statement([
+      {
+        pageNumber: 1,
+        lines: [HEADER, '04/08 \t04/08 \tOutros gastos \tJUROS CHEQUE ESP \t-R$ 199,28', '04/08 \t04/08 \tOutros gastos \tIOF CHEQUE ESPECIAL \t-R$ 30,97'],
+      },
+    ])
+
+    expect(result.rows[0].structuralHint).toEqual({ kind: 'expense', category: 'Juros - Limite Garantido' })
+    expect(result.rows[1].structuralHint).toEqual({ kind: 'expense', category: 'Juros - Limite Garantido' })
+  })
 })

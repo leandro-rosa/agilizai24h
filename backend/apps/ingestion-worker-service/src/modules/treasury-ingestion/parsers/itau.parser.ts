@@ -22,7 +22,11 @@ import type { ParseStatementLinesResult, StructuralPattern } from './statement-l
 const PATTERNS: StructuralPattern[] = [
   { matchText: 'SISPAG PAGAMENTO DE FORNECEDOR', kind: 'pending' },
   { matchText: 'SISPAG FORNECEDORES', kind: 'pending' },
-  { matchText: 'JUROS', kind: 'expense', category: 'Juros de conta' },
+  // Real data (checked 2026-09-17): the only "JUROS" line ever seen here is
+  // the interest on "Conta Garantida" (the same overdraft product C6 calls
+  // "Cheque especial") — unified under one category across banks (operator
+  // request) so "quanto de juros paguei pelo limite" reads as one number.
+  { matchText: 'JUROS', kind: 'expense', category: 'Juros - Limite Garantido' },
 ]
 
 /** Balance/limit snapshot lines, not movements — share the exact `DD/MM/YYYY <text> <bare
