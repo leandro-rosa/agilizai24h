@@ -244,6 +244,54 @@ preenchimento sólido.
   distinguem como séries categóricas. Proibidas em chrome de UI, e sem
   carga semântica — perda usa `--destructive`, não um slot do ramp.
 
+### Proveniência, confiança e sugestão (Inteligência Comercial)
+
+- **Observado × Estimado** (`ProvenanceBadge`, sobre `StatusBadge`): "Observado"
+  (`neutral`) é fato ou métrica derivada sem premissa; "Estimado" (`attention`) é
+  projeção ou qualquer valor que dependa de premissa da empresa ou do modelo.
+  O tooltip — que abre também com o foco do teclado — traz o rótulo que a
+  memória financeira do projeto usa para a mesma distinção: FATO, MÉTRICA
+  DERIVADA, PREMISSA, ESTIMATIVA.
+- **Confiança** (`ConfidenceBadge`): texto **e** ícone (`ShieldCheck`, `Shield`,
+  `ShieldAlert`, `ShieldQuestion`), nunca só cor. Alta `positive`, Média
+  `attention`, Baixa `critical`, "Dados insuficientes" `neutral`.
+- **✦ Sugestão IA** (`SuggestionTag`): `Sparkles` em `text-primary` **só no
+  ícone**; o rótulo fica em `text-foreground text-xs font-medium`. `text-primary`
+  pequeno sobre o card escuro mede ~3,4:1 e reprova os 4,5:1 do texto, enquanto o
+  ícone, objeto gráfico, cai na regra de 3:1 que `pnpm contrast` já cobre. O bloco
+  de uma recomendação leva `border-l-2 border-l-primary`, o mesmo acento do item
+  ativo da sidebar (a aplicar quando as recomendações saírem de "em espera").
+  Sem mudança de token. O tooltip diz o que ele é: regra estatística sobre dado
+  observado, sem modelo de linguagem e sem aplicar nada.
+- **Aviso de qualidade dos dados** (`DataQualityBanner`): a severidade é dita por
+  palavra e ícone (Crítico `OctagonAlert`, Atenção `AlertTriangle`, Informação
+  `Info`), e cada item termina em "Efeito: …" — o que aquele problema faz com os
+  números. Abre sozinho quando há crítico ou atenção; depois que quem lê escolhe,
+  a escolha vale.
+- **Disponibilidade da análise** (aba "Qualidade dos dados", `quality-tab.tsx`):
+  três estados, sempre texto **e** ícone — "Análise disponível" (`positive`,
+  `CheckCircle2`), "Disponível com ressalvas" (`attention`, `AlertTriangle`) e
+  "Dados insuficientes" (`critical`, `OctagonAlert`). Só o que torna a análise
+  impossível ou enganosa bloqueia; o que apenas a enfraquece continua disponível,
+  com a ressalva escrita e a confiança menor. Os limites que separam os estados
+  aparecem como indicadores ("cobertura 92,1%, libera a partir de 95%"), nunca
+  como campo editável.
+- **Estimativa de impacto** (`ImpactEstimateCard`): três cenários lado a lado —
+  conservador, esperado, otimista — e, sempre junto, a frase de que é premissa de
+  potencial, não resultado medido nem garantido. O impacto aparece como faixa em
+  R$/mês com o selo "Estimado" ao lado do valor "Observado" de que ele parte.
+- **Três tipos de regra, três lugares** (nunca misturados): **regra de negócio**
+  (o que a empresa decide, ex.: margem mínima do combo) na folha "Regras de
+  negócio" — somente leitura enquanto o registro oficial não existir, com o aviso
+  dizendo isso; **critério de qualidade** como indicador e bloqueio na aba
+  "Qualidade dos dados"; **modelo analítico** só na página avançada
+  `/commercial-intelligence/calibration` ("Configurações avançadas /
+  calibração"). Todo valor leva o selo "provisório" até a calibração com os
+  meses reais, e cada linha da página avançada abre a documentação do
+  parâmetro (finalidade, fórmula, unidade, valor, motivo do padrão, onde é
+  usado, efeito de subir e de descer, variável de ambiente). Nenhuma regra fica
+  só no navegador: só o tema é lembrado localmente.
+
 ### Vazio honesto
 
 Um número que o sistema não sabe **nunca** é renderizado como `0`. Zero é

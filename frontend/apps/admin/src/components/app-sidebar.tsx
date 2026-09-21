@@ -2,6 +2,7 @@
 
 import {
   Banknote,
+  BarChart3,
   Boxes,
   Building2,
   FileText,
@@ -14,11 +15,11 @@ import {
   Receipt,
   Scale,
   ShoppingCart,
+  Sparkles,
   Store as StoreIcon,
   Truck,
   Upload,
   Users,
-  Wallet,
   Warehouse,
 } from "lucide-react";
 import Link from "next/link";
@@ -73,6 +74,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { title: "Visão geral", href: "/", icon: LayoutDashboard },
       { title: "Vendas", href: "/sales", icon: ShoppingCart, permission: "sales:read" },
+      { title: "Inteligência Comercial", href: "/commercial-intelligence", icon: Sparkles, permission: "sales:read" },
       { title: "Abastecimento", href: "/supply", icon: Truck, permission: "supply:read" },
       { title: "Estoque", href: "/inventory", icon: Boxes, permission: "inventory:read" },
       { title: "Estoque central", href: "/inventory/central", icon: Warehouse, permission: "inventory:read" },
@@ -81,8 +83,8 @@ export const navGroups: NavGroup[] = [
   {
     label: "Financeiro",
     items: [
-      { title: "Reconciliação", href: "/finance", icon: Wallet, permission: "finance:read" },
       { title: "DRE", href: "/finance/pnl", icon: Scale, permission: "accounting:read" },
+      { title: "Resultado por loja", href: "/finance/stores", icon: BarChart3, permission: "accounting:read" },
       { title: "Fluxo de caixa", href: "/finance/cash-flow", icon: Banknote, permission: "treasury:read" },
     ],
   },
