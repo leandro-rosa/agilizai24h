@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import { DriveFilesSection } from "@/components/ingestion/drive-files-section";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { Badge } from "@/components/ui/badge";
@@ -51,7 +52,14 @@ const ingestionSchema = z
     file: z.instanceof(File).optional(),
   })
   .superRefine((values, ctx) => {
-    if (values.file_type !== "supply" && !values.store_id) {
+    // Cost still has no store identity of its own in the file, so it always
+    // needs one at upload. Sales no longer always does: the old, per-store
+    // export still does (applied to every row), but the network-wide,
+    // per-transaction export (Aug 2026) resolves each row's store from its
+    // own Cliente column — and the browser cannot tell which one a file is
+    // before it is parsed server-side. Left optional for sales rather than
+    // forcing a choice the operator may not be able to make correctly.
+    if (values.file_type === "cost" && !values.store_id) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["store_id"], message: "Selecione a loja" });
     }
     if (!values.file) {
@@ -154,7 +162,7 @@ function UploadCard() {
                   name="store_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Loja</FormLabel>
+                      <FormLabel>Loja {fileType === "sales" ? "(opcional)" : ""}</FormLabel>
                       <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger>
@@ -169,6 +177,12 @@ function UploadCard() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {fileType === "sales" && (
+                        <p className="text-xs text-muted-foreground">
+                          Deixe em branco para o relatório de vendas por rede (todas as lojas, um arquivo só).
+                          Selecione a loja apenas para o formato antigo, por SKU.
+                        </p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -317,6 +331,7 @@ export default function IngestionPage() {
     <div className="flex flex-col gap-6">
       <PageHeader title="Ingestão" description="Envio de planilhas de vendas, abastecimento e custos, e histórico de processamento." />
       <UploadCard />
+      <DriveFilesSection />
       <div>
         <h2 className="mb-2 text-sm font-medium">Histórico</h2>
         <IngestionHistory />
