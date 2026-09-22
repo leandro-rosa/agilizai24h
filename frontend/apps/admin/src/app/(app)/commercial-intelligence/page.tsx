@@ -9,9 +9,9 @@ import { FiltersBar, type Comparison, type PeriodOption } from "@/components/com
 import { HeldTab } from "@/components/commercial-intelligence/held-tab";
 import { NoTransactionDetail } from "@/components/commercial-intelligence/no-transaction-detail";
 import { OverviewTab } from "@/components/commercial-intelligence/overview-tab";
-import { BusinessRulesSheet } from "@/components/commercial-intelligence/business-rules-sheet";
 import { QualityTab } from "@/components/commercial-intelligence/quality-tab";
 import { RUNTIME_PARAMETERS } from "@/components/commercial-intelligence/runtime-parameters";
+import { BusinessRulesSheet } from "@/components/business-rules-sheet";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,7 @@ import {
   type SourceStatus,
 } from "@/lib/commercial-intelligence";
 import { ALLOW_SYNTHETIC } from "@/lib/commercial-intelligence/env";
+import { commercialBusinessRuleRows } from "@/lib/commercial-intelligence/parameter-rows";
 import { addMonths, lastCompleteMonth, monthsInRange } from "@/lib/period-range";
 import { onlyOk } from "@/lib/sales-insights";
 
@@ -236,7 +237,11 @@ export default function CommercialIntelligencePage() {
         description="O que a rede vende junto, o que falta no carrinho, quais produtos rendem de verdade e onde as lojas se comportam diferente — sempre com a evidência, a confiança e o que não se sabe. Só sugere: nada é aplicado sozinho."
         actions={
           <>
-            <BusinessRulesSheet parameters={parameters} />
+            <BusinessRulesSheet
+              description="Decisões da empresa que mudam o que a inteligência recomenda. Valem para toda a operação: não são ajustes deste navegador."
+              rows={commercialBusinessRuleRows(parameters)}
+              calibrationHref="/commercial-intelligence/calibration"
+            />
             <Button asChild variant="ghost" size="sm">
               <Link href="/commercial-intelligence/calibration">Configurações avançadas / calibração</Link>
             </Button>
