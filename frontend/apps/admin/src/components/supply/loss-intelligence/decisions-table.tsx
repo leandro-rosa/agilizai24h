@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { Level } from "@/lib/commercial-intelligence/types";
 import type { Confidence, LossAction, LossIntelligenceRecommendation, LossReason, Priority } from "@/lib/loss-intelligence/types";
 
-const ACTION_LABELS: Record<LossAction, string> = {
+export const ACTION_LABELS: Record<LossAction, string> = {
   manter: "Manter",
   manter_monitorar: "Manter e monitorar",
   reduzir_abastecimento: "Reduzir",
@@ -22,7 +22,7 @@ const ACTION_LABELS: Record<LossAction, string> = {
   dados_insuficientes: "Dados insuficientes",
 };
 
-const ACTION_TONE: Record<LossAction, "neutral" | "positive" | "attention" | "critical"> = {
+export const ACTION_TONE: Record<LossAction, "neutral" | "positive" | "attention" | "critical"> = {
   manter: "positive",
   manter_monitorar: "positive",
   reduzir_abastecimento: "attention",
@@ -45,7 +45,7 @@ const REASON_LABELS: Record<LossReason, string> = { expired: "Validade", damaged
  * this table still reuses the badge (rather than inventing a second confidence badge) by
  * translating at the boundary.
  */
-const CONFIDENCE_TO_LEVEL: Record<Confidence, Level> = {
+export const CONFIDENCE_TO_LEVEL: Record<Confidence, Level> = {
   alta: "high",
   media: "medium",
   baixa: "low",

@@ -860,3 +860,78 @@ describe("analyzeLossIntelligence — comparacaoRede.damaged_product is always d
     assertNoNaNOrInfinity(result);
   });
 });
+
+// =================================================================================================
+// Passo 0 (Task 20): historico — one entry per recurrenceLookbackPeriods period (6 periods, per
+// DEFAULT_PARAMETERS.window.recurrenceLookbackMonths), each with genuinely per-period numbers —
+// never the primary-window aggregate that metricasObservadas already exposes. Every one of the 6
+// periods gets a distinct qtyRestocked/qtySold, and a distinct single LossReason with loss, so a
+// bug that summed across periods or mixed up which reason belongs to which period would be caught.
+// =================================================================================================
+describe("analyzeLossIntelligence — historico (Passo 0): one entry per recurrence-lookback period, genuinely per-period", () => {
+  const SKU = "SKU-HISTORICO";
+  const STORE_ID = 1;
+
+  function buildInput(): LossIntelligenceInput {
+    return {
+      stores: [store(STORE_ID, "Loja Histórico")],
+      today: TODAY,
+      parameters: DEFAULT_PARAMETERS,
+      costsBySkuAsOf: flatCost,
+      supplyByStorePeriodSku: [
+        supply(STORE_ID, "2026-03", SKU, 5),
+        supply(STORE_ID, "2026-04", SKU, 6),
+        supply(STORE_ID, "2026-05", SKU, 7),
+        supply(STORE_ID, "2026-06", SKU, 8),
+        supply(STORE_ID, "2026-07", SKU, 9),
+        supply(STORE_ID, "2026-08", SKU, 10),
+      ],
+      salesByStorePeriodSku: [
+        sale(STORE_ID, "2026-03", SKU, 1, 1000),
+        sale(STORE_ID, "2026-04", SKU, 2, 2000),
+        sale(STORE_ID, "2026-05", SKU, 3, 3000),
+        sale(STORE_ID, "2026-06", SKU, 4, 4000),
+        sale(STORE_ID, "2026-07", SKU, 5, 5000),
+        sale(STORE_ID, "2026-08", SKU, 6, 6000),
+      ],
+      reconciliations: [
+        reconciliation(STORE_ID, "2026-03", [loss("expired", SKU, 1, 100)]),
+        reconciliation(STORE_ID, "2026-04", [loss("damaged_product", SKU, 2, 200)]),
+        reconciliation(STORE_ID, "2026-05", [loss("other_reason", SKU, 3, 300)]),
+        reconciliation(STORE_ID, "2026-06", [loss("expired", SKU, 4, 400)]),
+        reconciliation(STORE_ID, "2026-07", [loss("damaged_product", SKU, 5, 500)]),
+        reconciliation(STORE_ID, "2026-08", [loss("other_reason", SKU, 6, 600)]),
+      ],
+    };
+  }
+
+  it("historico has exactly 6 entries, chronological, each with that period's own restock/sold/loss numbers — not the primary-window sum", () => {
+    const result = analyzeLossIntelligence(buildInput());
+    const rec = result.recommendations.find((r) => r.storeId === STORE_ID && r.sku === SKU)!;
+
+    // Sanity: recurrenceLookbackPeriods is the 6-period window this test targets.
+    expect(rec.janelaAnalisada.recurrenceLookbackMonths).toEqual(["2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08"]);
+
+    expect(rec.historico).toHaveLength(6);
+    expect(rec.historico.map((entry) => entry.period)).toEqual(["2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08"]);
+
+    expect(rec.historico).toEqual([
+      { period: "2026-03", qtyRestocked: 5, qtySold: 1, qtyLostByReason: { expired: 1, damaged_product: 0, other_reason: 0 } },
+      { period: "2026-04", qtyRestocked: 6, qtySold: 2, qtyLostByReason: { expired: 0, damaged_product: 2, other_reason: 0 } },
+      { period: "2026-05", qtyRestocked: 7, qtySold: 3, qtyLostByReason: { expired: 0, damaged_product: 0, other_reason: 3 } },
+      { period: "2026-06", qtyRestocked: 8, qtySold: 4, qtyLostByReason: { expired: 4, damaged_product: 0, other_reason: 0 } },
+      { period: "2026-07", qtyRestocked: 9, qtySold: 5, qtyLostByReason: { expired: 0, damaged_product: 5, other_reason: 0 } },
+      { period: "2026-08", qtyRestocked: 10, qtySold: 6, qtyLostByReason: { expired: 0, damaged_product: 0, other_reason: 6 } },
+    ]);
+
+    // Not the primary-window aggregate: metricasObservadas.qtyRestocked sums only the 3 primary
+    // months (2026-06..08) = 8+9+10 = 27 — none of historico's per-period entries equal that sum,
+    // proving these are genuinely per-period figures, not a repeated aggregate.
+    expect(rec.metricasObservadas.qtyRestocked).toBe(27);
+    for (const entry of rec.historico) {
+      expect(entry.qtyRestocked).not.toBe(rec.metricasObservadas.qtyRestocked);
+    }
+
+    assertNoNaNOrInfinity(result);
+  });
+});

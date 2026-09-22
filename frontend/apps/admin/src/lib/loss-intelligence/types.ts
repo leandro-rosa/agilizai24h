@@ -171,6 +171,9 @@ export interface LossIntelligenceRecommendation {
   metricasObservadas: LossMetrics;
   diagnosticosPorMotivo: ReasonDiagnosis[];
 
+  /** Uma entrada por período do lookback de recorrência, do mais antigo ao mais recente — spec §15.3. */
+  historico: { period: Period; qtyRestocked: number; qtySold: number; qtyLostByReason: Record<LossReason, number> }[];
+
   maiorImpactoFinanceiroMotivo: LossReason | null;
   maiorImpactoFinanceiroValueCents: number;
 

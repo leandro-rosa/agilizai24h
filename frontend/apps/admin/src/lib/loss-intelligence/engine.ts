@@ -193,11 +193,29 @@ function computePairAnalysis(storeId: number, sku: string, input: LossIntelligen
   if (metrics.grossMarginCents === null) limitacoesDosDados.push("margem_desconhecida");
   if (guard.firstSeenRecently) limitacoesDosDados.push("historico_recente");
 
+  // Uma entrada por período do lookback de recorrência (não a janela principal) — cada número é
+  // real para aquele período específico, nunca a soma agregada que `metrics` já expõe. Spec §15.3.
+  const historico = window.recurrenceLookbackPeriods.map((period) => ({
+    period,
+    qtyRestocked: supplyRows.filter((r) => r.period === period).reduce((total, r) => total + r.quantity_restocked, 0),
+    qtySold: salesRows.filter((r) => r.period === period).reduce((total, r) => total + r.quantity_sold, 0),
+    qtyLostByReason: Object.fromEntries(
+      LOSS_REASONS.map((reason) => [
+        reason,
+        reconciliationsForStore
+          .filter((r) => r.period === period)
+          .flatMap((r) => r.loss_by_reason_sku.filter((row) => row.sku === sku && row.reason === reason))
+          .reduce((total, row) => total + row.quantity, 0),
+      ]),
+    ) as Record<LossReason, number>,
+  }));
+
   return {
     sku, storeId,
     janelaAnalisada: { primaryMonths: window.primaryClosedPeriods, recurrenceLookbackMonths: window.recurrenceLookbackPeriods },
     metricasObservadas: metrics,
     diagnosticosPorMotivo: diagnoses,
+    historico,
     maiorImpactoFinanceiroMotivo: consolidated.maiorImpactoFinanceiroMotivo,
     maiorImpactoFinanceiroValueCents: consolidated.maiorImpactoFinanceiroValueCents,
     motivoDiagnosticoPrioritario: consolidated.motivoDiagnosticoPrioritario,

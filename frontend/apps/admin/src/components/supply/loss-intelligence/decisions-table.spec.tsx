@@ -74,6 +74,7 @@ function buildRecommendation(opts: {
       byReason: byReasonMetrics(opts.reason, opts.qtyLost),
     },
     diagnosticosPorMotivo: [],
+    historico: [],
     maiorImpactoFinanceiroMotivo: opts.maiorImpacto,
     maiorImpactoFinanceiroValueCents: opts.maiorImpacto ? opts.qtyLost * 500 : 0,
     motivoDiagnosticoPrioritario: opts.reason,
