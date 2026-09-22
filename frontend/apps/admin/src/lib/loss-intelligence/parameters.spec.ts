@@ -21,6 +21,55 @@ describe("parameters", () => {
       }
     });
 
+    it("should roundtrip all 20 paths via parametersFromEnv (getParameter read + withParameter write)", () => {
+      // Define override values for each path that differ from defaults and respect all constraints
+      const overrideValues: Record<ParameterPath, string> = {
+        "window.primaryWindowMonths": "5",
+        "window.recurrenceLookbackMonths": "9",
+        "validity.minRepeatedSupplyMonths": "3",
+        "validity.lowSaleRatio": "0.4",
+        "validity.localOutlierMaxShare": "0.2", // must be ≤ networkWideMinShare (0.8)
+        "validity.networkWideMinShare": "0.8", // must be ≥ localOutlierMaxShare (0.2)
+        "network.minStoresForNetworkVerdict": "7",
+        "otherReason.minHealthyUnits": "30",
+        "otherReason.viabilityMaxRatio": "0.4",
+        "otherReason.negligibleValueCents": "3000",
+        "otherReason.localConcentrationMin": "0.6",
+        "otherReason.minRecurringPeriods": "4",
+        "damage.localConcentrationMin": "0.6",
+        "damage.minStoresCarryingForConcentration": "2", // must be ≤ minStoresForSystemic (5)
+        "damage.minStoresForSystemic": "5", // must be ≥ minStoresCarryingForConcentration (2)
+        "unnecessarySupply.verylowSaleRatio": "0.12",
+        "recentHistory.minClosedMonths": "3",
+        "recentHistory.minUnits": "20",
+        "priority.criticalValueCents": "25000",
+        "confidence.minMonthsForHigh": "4",
+      };
+
+      // Build environment object with all overrides
+      const env: Record<string, string> = {};
+      for (const path of PARAMETER_PATHS) {
+        const envName = envNameOf(path);
+        env[envName] = overrideValues[path];
+      }
+
+      // Apply overrides through parametersFromEnv (internally uses withParameter)
+      const result = parametersFromEnv(env);
+
+      // Verify all 20 paths were applied correctly via getParameter
+      for (const path of PARAMETER_PATHS) {
+        const appliedValue = getParameter(result.parameters, path);
+        const expectedValue = Number(overrideValues[path]);
+        expect(appliedValue).toBe(
+          expectedValue,
+          `Path ${path}: expected ${expectedValue}, got ${appliedValue}`
+        );
+      }
+
+      // Verify no warnings (all values within bounds and respecting constraints)
+      expect(result.warnings).toHaveLength(0);
+    });
+
     it("window.primaryWindowMonths can be read", () => {
       const value = getParameter(DEFAULT_PARAMETERS, "window.primaryWindowMonths");
       expect(value).toBe(3);
