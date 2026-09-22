@@ -677,3 +677,186 @@ describe("analyzeLossIntelligence — all-zero-denominators store (only losses, 
     assertNoNaNOrInfinity(result);
   });
 });
+
+// =================================================================================================
+// Review fix #1: recurrencePeriodsWithAnyLoss must be deduplicated. A single period with losses
+// from 2+ reasons (e.g. expired AND other_reason both in the same month) must count once, not once
+// per reason, in unnecessary-supply.ts's OVERSUPPLY_WITH_RECURRING_LOSS check
+// (recurrencePeriodsWithAnyLoss.length >= 2), which also feeds computePriority's Crítica
+// escalation via sinaisTransversais.
+// =================================================================================================
+describe("analyzeLossIntelligence — anyReasonRecurrencePeriods dedup (review fix #1)", () => {
+  const SKU_SINGLE = "SKU-DEDUP-SINGLE";
+  const SKU_GENUINE = "SKU-DEDUP-GENUINE";
+
+  function buildInput(): LossIntelligenceInput {
+    return {
+      stores: [store(1, "Loja Single Período"), store(2, "Loja Dois Períodos")],
+      today: TODAY,
+      parameters: DEFAULT_PARAMETERS,
+      costsBySkuAsOf: flatCost,
+      supplyByStorePeriodSku: [
+        supply(1, "2026-06", SKU_SINGLE, 8),
+        supply(1, "2026-07", SKU_SINGLE, 6),
+        supply(1, "2026-08", SKU_SINGLE, 6), // 20 total
+        supply(2, "2026-06", SKU_GENUINE, 8),
+        supply(2, "2026-07", SKU_GENUINE, 6),
+        supply(2, "2026-08", SKU_GENUINE, 6), // 20 total
+      ],
+      salesByStorePeriodSku: [
+        sale(1, "2026-08", SKU_SINGLE, 5, 7500), // qtySold=5, ratio=5/20=0.25 < validity.lowSaleRatio(0.5)
+        sale(2, "2026-08", SKU_GENUINE, 5, 7500), // same ratio, for a clean contrast
+      ],
+      reconciliations: [
+        // Store 1: ONE period ("2026-08") with losses from TWO different reasons — a naive
+        // flatMap-without-dedup would count this single month twice.
+        reconciliation(1, "2026-08", [loss("expired", SKU_SINGLE, 2, 2000), loss("other_reason", SKU_SINGLE, 1, 1000)]),
+        // Store 2: TWO genuinely different months, one reason (expired) each — the fix must NOT
+        // suppress this real recurrence.
+        reconciliation(2, "2026-07", [loss("expired", SKU_GENUINE, 1, 1000)]),
+        reconciliation(2, "2026-08", [loss("expired", SKU_GENUINE, 1, 1000)]),
+      ],
+    };
+  }
+
+  it("single period with two reasons does NOT count as 2 recurring periods (no false OVERSUPPLY_WITH_RECURRING_LOSS); two genuinely different months still correctly trigger it", () => {
+    const result = analyzeLossIntelligence(buildInput());
+    const single = result.recommendations.find((r) => r.storeId === 1)!;
+    const genuine = result.recommendations.find((r) => r.storeId === 2)!;
+
+    // Pre-condition: saleToSupplyRatio < validity.lowSaleRatio(0.5) for both, so the
+    // OVERSUPPLY_WITH_RECURRING_LOSS branch is actually reachable — otherwise this test wouldn't
+    // exercise the bug at all.
+    expect(single.metricasObservadas.saleToSupplyRatio).toBeCloseTo(0.25);
+    expect(genuine.metricasObservadas.saleToSupplyRatio).toBeCloseTo(0.25);
+
+    // Before the fix: flatMap over reasons gives ["2026-08"] (expired) + ["2026-08"]
+    // (other_reason) = ["2026-08","2026-08"], length 2 → would have wrongly fired. After the fix:
+    // new Set(["2026-08","2026-08"]) = {"2026-08"}, length 1 → correctly does not fire.
+    expect(single.sinaisTransversais).not.toContain("OVERSUPPLY_WITH_RECURRING_LOSS");
+
+    // Contrast: two genuinely different months (2026-07, 2026-08), one reason each → length 2 even
+    // after dedup → still correctly fires. Proves the fix doesn't over-correct into never firing.
+    expect(genuine.sinaisTransversais).toContain("OVERSUPPLY_WITH_RECURRING_LOSS");
+
+    assertNoNaNOrInfinity(result);
+  });
+});
+
+// =================================================================================================
+// Review fix #2: isBadSignalFor("other_reason", ...) must read whether isOtherReasonSevereSignal
+// fired (via the OTHER_REASON_SEVERE_RECURRING signal, set once and only ever appended to
+// afterwards — see diagnosis/other-reason.ts), not the post-cap `acao`. A genuinely severe case
+// that firstSeenRecently capped down to "investigar" is still a bad signal for the network's
+// purposes; reading `acao` alone would wrongly count it as healthy, deflating affectedShare
+// elsewhere in the network.
+// =================================================================================================
+describe("analyzeLossIntelligence — isBadSignalFor(other_reason) reads severity signal, not the capped acao (review fix #2)", () => {
+  const SKU = "SKU-CAPADA-SEVERA";
+  const CAPPED_STORE_ID = 1;
+  const HEALTHY_STORE_IDS = [2, 3, 4, 5];
+
+  function buildInput(): LossIntelligenceInput {
+    const stores = [store(CAPPED_STORE_ID, "Loja Capada Severa"), ...HEALTHY_STORE_IDS.map((id) => store(id, `Loja ${id}`))];
+    const salesRows: SalesRecordInput[] = [
+      // Brand-new SKU at the capped store: no history before 2026-07 anywhere → firstSeenPeriod =
+      // "2026-07", monthsSinceFirstSeen(asOf="2026-08") = 1 < recentHistory.minClosedMonths(2) →
+      // firstSeenRecently = true.
+      sale(CAPPED_STORE_ID, "2026-07", SKU, 6, 15000),
+      sale(CAPPED_STORE_ID, "2026-08", SKU, 4, 10000), // qtySold=10, revenue=25000
+    ];
+    const supplyRows: SupplyRecordInput[] = [supply(CAPPED_STORE_ID, "2026-07", SKU, 15), supply(CAPPED_STORE_ID, "2026-08", SKU, 15)]; // 30 total
+    for (const id of HEALTHY_STORE_IDS) {
+      salesRows.push(sale(id, "2026-08", SKU, 5, 7500)); // just enough to count as "carrying" the SKU; zero other_reason loss at all
+    }
+    const reconciliations: ReconciliationInput[] = [
+      // Severe: lossToMarginRatio = 6000/15000 = 0.4 >= otherReason.viabilityMaxRatio(0.3),
+      // recurrent in 3 lookback periods >= otherReason.minRecurringPeriods(3).
+      reconciliation(CAPPED_STORE_ID, "2026-06", [loss("other_reason", SKU, 2, 2000)]),
+      reconciliation(CAPPED_STORE_ID, "2026-07", [loss("other_reason", SKU, 2, 2000)]),
+      reconciliation(CAPPED_STORE_ID, "2026-08", [loss("other_reason", SKU, 2, 2000)]),
+    ];
+    return { stores, today: TODAY, parameters: DEFAULT_PARAMETERS, costsBySkuAsOf: flatCost, salesByStorePeriodSku: salesRows, supplyByStorePeriodSku: supplyRows, reconciliations };
+  }
+
+  it("severe other_reason (native avaliar_permanencia_loja) capped to investigar by firstSeenRecently still counts as a bad signal in comparacaoRede.other_reason — never read as healthy", () => {
+    const result = analyzeLossIntelligence(buildInput());
+    const capped = result.recommendations.find((r) => r.storeId === CAPPED_STORE_ID)!;
+
+    // Confirm the setup: genuinely severe, but capped down by firstSeenRecently — exactly the case
+    // that previously fooled isBadSignalFor.
+    expect(capped.firstSeenRecently).toBe(true);
+    expect(capped.metricasObservadas.grossMarginCents).toBe(15000);
+    const otherDiag = capped.diagnosticosPorMotivo.find((d) => d.reason === "other_reason")!;
+    expect(otherDiag.metrics.lossToMarginRatio).toBeCloseTo(0.4);
+    expect(otherDiag.sinaisDetectados).toContain("OTHER_REASON_SEVERE_RECURRING");
+    expect(otherDiag.sinaisDetectados).toContain("CAPPED_RECENT_HISTORY");
+    expect(otherDiag.acao).toBe("investigar"); // NOT avaliar_permanencia_loja — capped down
+
+    // The network must still see this store as the bad signal it genuinely is: 5 stores carry the
+    // SKU (>= network.minStoresForNetworkVerdict=5) → a resolved comparison, with exactly this
+    // store (1 of 5) counted as the bad signal — never folded into storesHealthy.
+    expect(capped.comparacaoRede.other_reason).not.toBe("dado_insuficiente");
+    if (capped.comparacaoRede.other_reason !== "dado_insuficiente") {
+      expect(capped.comparacaoRede.other_reason.storesCarryingSku).toBe(5);
+      expect(capped.comparacaoRede.other_reason.storesWithSameSignal).toBe(1);
+      expect(capped.comparacaoRede.other_reason.affectedShare).toBeCloseTo(0.2);
+      expect(capped.comparacaoRede.other_reason.storesHealthy).not.toContain("Loja Capada Severa");
+      expect(capped.comparacaoRede.other_reason.storesHealthy).toHaveLength(4);
+    }
+
+    assertNoNaNOrInfinity(result);
+  });
+});
+
+// =================================================================================================
+// Review fix #3: comparacaoRede.damaged_product must never be a fabricated NetworkComparisonResult.
+// diagnosis/damage.ts never consumes network comparison (it computes its own concentration inline
+// from qtyLostByStoreForSkuReason), and isBadSignalFor always returns false for it — so before this
+// fix, every recommendation's comparacaoRede.damaged_product silently showed a "real-looking" 0%
+// affected / everyone-healthy result whenever >= 5 stores carried the SKU, which is a fabricated
+// artifact, not a measurement — a direct conflict with the root CLAUDE.md rule that every number
+// must be labeled FATO/MÉTRICA DERIVADA/PREMISSA/ESTIMATIVA and a premise/artifact must never be
+// presented as a fact.
+// =================================================================================================
+describe("analyzeLossIntelligence — comparacaoRede.damaged_product is always dado_insuficiente (review fix #3)", () => {
+  const SKU = "SKU-DAMAGE-FABRICATED";
+  const CONCENTRATED_STORE_ID = 1;
+
+  function buildInput(): LossIntelligenceInput {
+    const stores = [1, 2, 3, 4, 5].map((id) => store(id, `Loja ${id}`));
+    const salesRows: SalesRecordInput[] = stores.map((s) => sale(s.id, "2026-08", SKU, 5, 7500)); // every store "carries" the SKU (qtySold > 0)
+    const reconciliations: ReconciliationInput[] = [
+      // Store 1: 8 of 10 network units damaged → concentrationShare = 0.8 >=
+      // damage.localConcentrationMin(0.7) — a REAL local concentration finding (diagnoseDamage
+      // correctly returns "investigar"/DAMAGE_CONCENTRATED_LOCAL for it). This is exactly the kind
+      // of finding a fabricated comparacaoRede.damaged_product would have misrepresented as "0% of
+      // the network affected, every store healthy including this one".
+      reconciliation(CONCENTRATED_STORE_ID, "2026-08", [loss("damaged_product", SKU, 8, 40000)]),
+      reconciliation(2, "2026-08", [loss("damaged_product", SKU, 1, 5000)]),
+      reconciliation(3, "2026-08", [loss("damaged_product", SKU, 1, 5000)]),
+    ];
+    return { stores, today: TODAY, parameters: DEFAULT_PARAMETERS, costsBySkuAsOf: flatCost, salesByStorePeriodSku: salesRows, supplyByStorePeriodSku: [], reconciliations };
+  }
+
+  it("even with 5 stores carrying the SKU (>= network.minStoresForNetworkVerdict) and a genuine 80% local damage concentration, comparacaoRede.damaged_product is dado_insuficiente for every recommendation — never a fabricated result", () => {
+    const result = analyzeLossIntelligence(buildInput());
+
+    // Confirm the setup is real, not vacuous: store 1's OWN damage diagnosis found genuine local
+    // concentration — proving there WAS a real finding that a fabricated network comparison would
+    // have misrepresented.
+    const concentratedStore = result.recommendations.find((r) => r.storeId === CONCENTRATED_STORE_ID)!;
+    const damagedDiag = concentratedStore.diagnosticosPorMotivo.find((d) => d.reason === "damaged_product")!;
+    expect(damagedDiag.acao).toBe("investigar");
+    expect(damagedDiag.sinaisDetectados).toContain("DAMAGE_CONCENTRATED_LOCAL");
+
+    // No recommendation — including the one for the store that WAS flagged 80% concentrated — ever
+    // shows a fabricated network comparison for damaged_product.
+    expect(result.recommendations).toHaveLength(5);
+    for (const rec of result.recommendations) {
+      expect(rec.comparacaoRede.damaged_product).toBe("dado_insuficiente");
+    }
+
+    assertNoNaNOrInfinity(result);
+  });
+});

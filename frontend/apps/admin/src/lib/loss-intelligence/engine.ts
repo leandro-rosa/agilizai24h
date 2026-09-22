@@ -166,7 +166,11 @@ function computePairAnalysis(storeId: number, sku: string, input: LossIntelligen
 
   const expiryPeriods = periodsWithLoss(reconciliationsForStore, sku, "expired", window.primaryClosedPeriods);
   const restockPeriods = [...new Set(supplyRows.filter((r) => window.primaryClosedPeriods.includes(r.period) && r.quantity_restocked > 0).map((r) => r.period))];
-  const anyReasonRecurrencePeriods = LOSS_REASONS.flatMap((reason) => periodsWithLoss(reconciliationsForStore, sku, reason, window.recurrenceLookbackPeriods));
+  // Deduped: a single period with losses from 2+ reasons (e.g. expired AND damaged_product in the
+  // same month) must count once, not once per reason — otherwise it inflates unnecessary-supply.ts's
+  // OVERSUPPLY_WITH_RECURRING_LOSS check (>=2 periods) with a single calendar month, which also
+  // feeds computePriority's Crítica escalation via sinaisTransversais (found in review).
+  const anyReasonRecurrencePeriods = [...new Set(LOSS_REASONS.flatMap((reason) => periodsWithLoss(reconciliationsForStore, sku, reason, window.recurrenceLookbackPeriods)))];
 
   const unnecessary = detectUnnecessarySupply({
     qtySold: metrics.qtySold, monthsWithRestock: metrics.monthsWithRestock, saleToSupplyRatio: metrics.saleToSupplyRatio,
@@ -215,7 +219,12 @@ function isBadSignalFor(reason: LossReason, rec: LossIntelligenceRecommendation)
   const diagnosis = rec.diagnosticosPorMotivo.find((d) => d.reason === reason);
   if (!diagnosis) return false;
   if (reason === "expired") return isValidityBadSignal(diagnosis.acao);
-  if (reason === "other_reason") return diagnosis.acao === "avaliar_permanencia_loja" || diagnosis.acao === "avaliar_permanencia_rede";
+  // Reads whether isOtherReasonSevereSignal fired (the OTHER_REASON_SEVERE_RECURRING signal is
+  // set once in that branch and only ever appended to afterwards, never removed — see
+  // diagnosis/other-reason.ts), not the final `acao`: a genuinely severe case that
+  // firstSeenRecently later capped down to "investigar" is still a bad signal for the network's
+  // purposes (found in review — checking `acao` alone wrongly read a capped-down store as healthy).
+  if (reason === "other_reason") return diagnosis.sinaisDetectados.includes("OTHER_REASON_SEVERE_RECURRING");
   return false; // damaged_product não usa network-comparison.ts — calcula concentração inline.
 }
 
@@ -224,7 +233,14 @@ function computeAllNetworkComparisons(pass1: LossIntelligenceRecommendation[], i
   const skus = [...new Set(pass1.map((r) => r.sku))];
 
   for (const sku of skus) {
-    for (const reason of LOSS_REASONS) {
+    // damaged_product is deliberately skipped: diagnosis/damage.ts never consumes
+    // NetworkComparison (it computes its own concentration inline from
+    // qtyLostByStoreForSkuReason), and isBadSignalFor always returns false for it — computing a
+    // "real" NetworkComparisonResult here would fabricate a misleading "0% of the network has
+    // this problem" figure that engine.ts's fallback (`?? "dado_insuficiente"`) is supposed to
+    // prevent (found in review — this conflicts with the project's FATO/MÉTRICA
+    // DERIVADA/PREMISSA/ESTIMATIVA labeling rule: an artifact must never be presented as measured).
+    for (const reason of LOSS_REASONS.filter((r) => r !== "damaged_product")) {
       const perStore: StoreSignal[] = input.stores.map((store) => {
         const rec = pass1.find((r) => r.sku === sku && r.storeId === store.id);
         return {
