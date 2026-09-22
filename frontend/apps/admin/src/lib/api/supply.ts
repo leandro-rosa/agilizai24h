@@ -83,6 +83,21 @@ function sumSupply(storeId: number, range: PeriodRange, perMonth: (SupplyPeriod 
   };
 }
 
+/**
+ * One store, one month, un-summed — `getNetworkSupplyRange` collapses every
+ * month in the range into a single per-SKU restock total (see `sumSupply`),
+ * the right shape for the Reposição tab but the wrong one for the Loss
+ * Intelligence engine (`add-loss-intelligence-agent-phase-1`), which needs a
+ * real `Period` per row to resolve its analysis window (§8) and recurrence
+ * (§10). Same REST endpoint and fan-out as `getNetworkSupplyRange` — only
+ * `restocks` is kept (removals/adjustments aren't part of `SupplyRecordInput`).
+ */
+export interface StoreMonthSupply {
+  storeId: number;
+  period: string;
+  restocks: RestockRow[];
+}
+
 export const supplyApi = createApi({
   reducerPath: "supplyApi",
   baseQuery: gatewayBaseQuery,
@@ -120,7 +135,29 @@ export const supplyApi = createApi({
         return { data: rows };
       },
     }),
+    /** See `StoreMonthSupply` — same fan-out as `getNetworkSupplyRange`, without the final sum-across-months step. */
+    getNetworkSupplyByStoreMonth: builder.query<StoreMonthSupply[], { stores: Store[]; range: PeriodRange }>({
+      async queryFn({ stores, range }, _api, _extra, fetchWithBQ) {
+        const months = monthsInRange(range);
+        const perStorePerMonth = await Promise.all(
+          stores.map((store) =>
+            Promise.all(months.map((period) => fetchOr404<SupplyPeriod>(fetchWithBQ, `/supply/${store.id}?period=${encodeURIComponent(period)}`))),
+          ),
+        );
+        const error = firstError(perStorePerMonth.flat());
+        if (error) return { error };
+
+        const rows: StoreMonthSupply[] = [];
+        stores.forEach((store, storeIndex) => {
+          months.forEach((period, monthIndex) => {
+            const data = perStorePerMonth[storeIndex][monthIndex].data;
+            if (data) rows.push({ storeId: store.id, period, restocks: data.restocks });
+          });
+        });
+        return { data: rows };
+      },
+    }),
   }),
 });
 
-export const { useGetSupplyRangeQuery, useGetNetworkSupplyRangeQuery } = supplyApi;
+export const { useGetSupplyRangeQuery, useGetNetworkSupplyRangeQuery, useGetNetworkSupplyByStoreMonthQuery } = supplyApi;
