@@ -94,7 +94,7 @@ describe("temporal", () => {
       expect(result.qualifyingRestockPeriods).toEqual(["2026-06", "2026-07", "2026-08"]);
     });
 
-    it("returns empty qualifyingRestockPeriods with 1-month window when only period is most recent", () => {
+    it("returns empty qualifyingRestockPeriods with 1-month window when only period is most recent and not an exception", () => {
       const params = {
         ...defaultParameters,
         window: { primaryWindowMonths: 1, recurrenceLookbackMonths: 6 },
@@ -104,12 +104,12 @@ describe("temporal", () => {
         storeId: 1,
         sku: "SKU-123",
         today: "2026-09-15",
-        allKnownRestockPeriods: ["2026-08"],
+        allKnownRestockPeriods: ["2026-07", "2026-08"], // Multiple restocks, so NOT the exception
         parameters: params,
       });
 
       expect(result.primaryClosedPeriods).toEqual(["2026-08"]);
-      expect(result.qualifyingRestockPeriods).toEqual([]);
+      expect(result.qualifyingRestockPeriods).toEqual([]); // slice(0, -1) on 1-element array is []
     });
 
     it("includes recurrenceLookbackPeriods based on lookback months parameter", () => {
@@ -179,31 +179,34 @@ describe("temporal", () => {
       expect(result.qualifyingRestockPeriods).toEqual(["2026-06", "2026-07"]);
     });
 
-    it("applies exception rule only when the only restock is in the most recent period", () => {
-      // Only restock in June (the most recent period)
+    it("excludes most recent closed period even when restock is in in-progress period", () => {
+      // Only restock is in the in-progress period (2026-06), not in a closed period
       const result = resolveAnalysisWindow({
         storeId: 1,
         sku: "SKU-123",
         today: "2026-06-30",
-        allKnownRestockPeriods: ["2026-06"],
+        allKnownRestockPeriods: ["2026-06"], // Only restock is in the in-progress period
         parameters: defaultParameters,
       });
 
-      // Should include all 3 periods because the only restock is in the most recent period
-      expect(result.qualifyingRestockPeriods).toEqual(["2026-04", "2026-05", "2026-06"]);
+      // primaryClosedPeriods are [2026-03, 2026-04, 2026-05]; mostRecent is 2026-05
+      // isOnlyRestockEver = false (2026-06 !== 2026-05), so exclude most recent closed period
+      expect(result.primaryClosedPeriods).toEqual(["2026-03", "2026-04", "2026-05"]);
+      expect(result.qualifyingRestockPeriods).toEqual(["2026-03", "2026-04"]);
     });
 
-    it("handles empty restock history", () => {
+    it("handles empty restock history by excluding most recent period", () => {
       const result = resolveAnalysisWindow({
         storeId: 1,
         sku: "SKU-123",
         today: "2026-09-15",
-        allKnownRestockPeriods: [],
+        allKnownRestockPeriods: [], // No restocks recorded
         parameters: defaultParameters,
       });
 
+      // Empty restock history means isOnlyRestockEver = false, so exclude most recent period
       expect(result.primaryClosedPeriods).toEqual(["2026-06", "2026-07", "2026-08"]);
-      expect(result.qualifyingRestockPeriods).toEqual(["2026-06", "2026-07", "2026-08"]);
+      expect(result.qualifyingRestockPeriods).toEqual(["2026-06", "2026-07"]); // Excludes most recent
       expect(result.currentInProgressPeriod).toBe("2026-09");
     });
   });
