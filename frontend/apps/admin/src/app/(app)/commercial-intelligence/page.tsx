@@ -26,8 +26,8 @@ import type { LossIntelligenceInput } from "@/lib/loss-intelligence/types";
 import { addMonths, lastCompleteMonth, type PeriodRange } from "@/lib/period-range";
 
 export default function CommercialIntelligencePage() {
-  const { data: stores } = useGetStoresQuery();
-  const { data: products } = useGetProductsQuery();
+  const { data: stores, error: storesError } = useGetStoresQuery();
+  const { data: products, error: productsError } = useGetProductsQuery();
   const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
 
   const scopedStores = useMemo(() => stores ?? [], [stores]);
@@ -45,8 +45,8 @@ export default function CommercialIntelligencePage() {
     error,
     refetch,
   } = useGetNetworkReconciliationRangeQuery({ stores: scopedStores, range: engineRange }, { skip });
-  const { data: salesByStoreMonth, isLoading: loadingSales } = useGetNetworkSalesByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
-  const { data: supplyByStoreMonth, isLoading: loadingSupply } = useGetNetworkSupplyByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
+  const { data: salesByStoreMonth, isLoading: loadingSales, error: salesError } = useGetNetworkSalesByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
+  const { data: supplyByStoreMonth, isLoading: loadingSupply, error: supplyError } = useGetNetworkSupplyByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
 
   const allSkusForCost = useMemo(() => [...new Set((salesByStoreMonth ?? []).flatMap((month) => month.bySku.map((row) => row.sku)))], [salesByStoreMonth]);
   const { data: costsResult } = useGetCostsAsOfQuery({ skus: allSkusForCost, asOf: `${engineAsOfPeriod}-01` }, { skip: allSkusForCost.length === 0 });
@@ -125,8 +125,9 @@ export default function CommercialIntelligencePage() {
   const [selectedRestockRow, setSelectedRestockRow] = useState<RestockDisplayRow | null>(null);
   const [selectedMixRow, setSelectedMixRow] = useState<MixDrawerRow | null>(null);
 
+  const combinedError = error ?? storesError ?? productsError ?? salesError ?? supplyError;
   const isLoading = loadingReconciliation || loadingSales || loadingSupply;
-  const isEmpty = !isLoading && !error && selectedStoreId !== null && restockDisplayRows.length === 0 && mixDisplayRows.length === 0;
+  const isEmpty = !isLoading && !combinedError && selectedStoreId !== null && restockDisplayRows.length === 0 && mixDisplayRows.length === 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -151,7 +152,7 @@ export default function CommercialIntelligencePage() {
       {selectedStoreId === null ? (
         <p className="text-sm text-muted-foreground">Selecione uma loja para ver as recomendações de abastecimento e mix.</p>
       ) : (
-        <RequestState isLoading={isLoading} error={error} isEmpty={isEmpty} emptyMessage="Sem dados suficientes nesta loja para calcular recomendações." onRetry={refetch}>
+        <RequestState isLoading={isLoading} error={combinedError} isEmpty={isEmpty} emptyMessage="Sem dados suficientes nesta loja para calcular recomendações." onRetry={refetch}>
           <Tabs defaultValue="abastecimento" className="gap-6">
             <TabsList>
               <TabsTrigger value="abastecimento">Abastecimento Inteligente</TabsTrigger>
