@@ -131,4 +131,39 @@ describe("computeRestockRecommendations", () => {
     const result = computeRestockRecommendations(baseInput());
     expect(result[0].faixaEstimada.min).toBeLessThanOrEqual(result[0].faixaEstimada.max);
   });
+
+  it("suspender_abastecimento from Loss Intelligence overrides evidence gate, even with insufficient months of sales", () => {
+    // Sparse sales (only 1 month with sales, below the minimum threshold)
+    const result = computeRestockRecommendations(
+      baseInput({
+        salesByStoreMonth: salesFor([0, 0, 0, 0, 0, 10]),
+        lossResult: lossResult([buildLossRecommendation({ acaoPrioritaria: "suspender_abastecimento", confianca: "media" })]),
+      }),
+    );
+    expect(result[0].acao).toBe("nao_abastecer");
+    expect(result[0].quantidadeSugeridaIA).toBe(0);
+    expect(result[0].confianca).toBe("media"); // Inherited from Loss Intelligence, not "insuficiente"
+    expect(result[0].motivo).toMatch(/Inteligência de Perdas/);
+  });
+
+  it("reduzir_abastecimento from Loss Intelligence overrides evidence gate, even with insufficient months of sales", () => {
+    // Sparse sales (only 1 month with sales, below the minimum threshold)
+    const withoutSignal = computeRestockRecommendations(
+      baseInput({
+        salesByStoreMonth: salesFor([0, 0, 0, 0, 0, 10]),
+      }),
+    );
+    const withSignal = computeRestockRecommendations(
+      baseInput({
+        salesByStoreMonth: salesFor([0, 0, 0, 0, 0, 10]),
+        lossResult: lossResult([buildLossRecommendation({ acaoPrioritaria: "reduzir_abastecimento", confianca: "baixa" })]),
+      }),
+    );
+    // reduzir should compute trend and scale by factor, not return dados_insuficientes
+    expect(withSignal[0].acao).toBe("reduzir");
+    expect(withSignal[0].confianca).toBe("baixa"); // Inherited from Loss Intelligence, not "insuficiente"
+    expect(withSignal[0].motivo).toMatch(/Inteligência de Perdas/);
+    // The recommendation should not be the default "no evidence" quantity
+    expect(withSignal[0].quantidadeSugeridaIA).not.toBe(0); // Should be some scaled value, not 0
+  });
 });
