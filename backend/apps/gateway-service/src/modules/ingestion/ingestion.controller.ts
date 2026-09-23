@@ -84,7 +84,7 @@ export class IngestionController {
       throw new BadRequestException(`Unsupported format. Expected one of: ${ALLOWED_EXTENSIONS.join(', ')}`)
     }
 
-    const body = await uploaded.toBuffer()
+    const body = await this.readWithinLimit(uploaded)
     const ingestionId = randomUUID()
     const objectKey = `ingestions/${period}/${storeId ?? 'network'}/${ingestionId}-${filename}`
 
@@ -112,6 +112,25 @@ export class IngestionController {
     })
 
     return result.data
+  }
+
+  /**
+   * `@fastify/multipart`'s `fileSize` limit rejects an oversized file by throwing
+   * a plain `FST_REQ_FILE_TOO_LARGE` error out of `toBuffer()` — not a
+   * `HttpException`, so left uncaught it becomes an opaque 500 instead of telling
+   * the operator their file is too big.
+   */
+  private async readWithinLimit(uploaded: MultipartFile): Promise<Buffer> {
+    try {
+      return await uploaded.toBuffer()
+    } catch (error) {
+      if ((error as { code?: string })?.code === 'FST_REQ_FILE_TOO_LARGE') {
+        const maxBytes = Number(process.env.MAX_UPLOAD_BYTES ?? 25 * 1024 * 1024)
+        const maxMebibytes = Math.floor(maxBytes / (1024 * 1024))
+        throw new BadRequestException(`File exceeds the ${maxMebibytes} MiB upload limit`)
+      }
+      throw error
+    }
   }
 
   @Get()
