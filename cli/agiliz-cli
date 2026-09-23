@@ -947,10 +947,16 @@ run_compose() {
   local project="$1"
   local project_directory
   local compose_file="${PROJECT_FILES[${project}]}"
+  local -a env_file_args=()
   shift
 
   project_directory="${PROJECT_ROOT}/${PROJECT_DIRECTORIES[${project}]}"
-  (cd -- "${project_directory}" && docker compose -f "${compose_file}" "$@")
+  # Compose's automatic .env discovery is tied to the compose file's own
+  # directory, not the invocation's cwd — without this, a real (non-default)
+  # value in the repo-root .env silently never reaches any service's
+  # container, since no per-service .env exists (only .env.example).
+  [[ -f "${PROJECT_ROOT}/.env" ]] && env_file_args=(--env-file "${PROJECT_ROOT}/.env")
+  (cd -- "${project_directory}" && docker compose "${env_file_args[@]}" -f "${compose_file}" "$@")
 }
 
 #######################################
