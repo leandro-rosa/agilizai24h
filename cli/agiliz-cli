@@ -954,8 +954,14 @@ run_compose() {
   # Compose's automatic .env discovery is tied to the compose file's own
   # directory, not the invocation's cwd — without this, a real (non-default)
   # value in the repo-root .env silently never reaches any service's
-  # container, since no per-service .env exists (only .env.example).
-  [[ -f "${PROJECT_ROOT}/.env" ]] && env_file_args=(--env-file "${PROJECT_ROOT}/.env")
+  # container. Layered in this order, root first: most services only have
+  # the root .env, but a few (frontend/apps/admin, backend/apps/gateway-
+  # service) also carry their own .env for a LAN-IP override documented in
+  # .env.example's "Acesso via rede local" section — repeating --env-file
+  # merges the two, later file wins per key, so that override still applies
+  # on top of the shared root values instead of being silently skipped.
+  [[ -f "${PROJECT_ROOT}/.env" ]] && env_file_args+=(--env-file "${PROJECT_ROOT}/.env")
+  [[ -f "${project_directory}/.env" ]] && env_file_args+=(--env-file "${project_directory}/.env")
   (cd -- "${project_directory}" && docker compose "${env_file_args[@]}" -f "${compose_file}" "$@")
 }
 
