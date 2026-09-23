@@ -1,5 +1,5 @@
 import { describe, it, expect, jest } from "@jest/globals";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { LossDecisionDrawer } from "./decision-drawer";
 import type { LossIntelligenceRecommendation, NetworkComparison } from "@/lib/loss-intelligence/types";
@@ -53,6 +53,7 @@ function buildRecommendation(overrides: Partial<LossIntelligenceRecommendation> 
         acao: "suspender_abastecimento",
         potencialIntervencao: "alto",
         hipoteses: [],
+        escopoProblema: "local",
       },
       {
         reason: "damaged_product",
@@ -62,6 +63,7 @@ function buildRecommendation(overrides: Partial<LossIntelligenceRecommendation> 
         acao: "investigar",
         potencialIntervencao: "medio",
         hipoteses: ["possível manuseio inadequado no transporte até a loja"],
+        escopoProblema: "local",
       },
       {
         reason: "other_reason",
@@ -71,6 +73,7 @@ function buildRecommendation(overrides: Partial<LossIntelligenceRecommendation> 
         acao: "manter",
         potencialIntervencao: null,
         hipoteses: [],
+        escopoProblema: "indeterminado",
       },
     ],
     historico: [
@@ -103,7 +106,7 @@ function buildRecommendation(overrides: Partial<LossIntelligenceRecommendation> 
 const DEFAULT_PROPS = { productLabel: "Refrigerante Cola 350ml", storeName: "Loja Centro", open: true, onOpenChange: jest.fn() };
 
 describe("LossDecisionDrawer", () => {
-  it("renders every section with the fixture's exact numbers when given a complete recommendation", () => {
+  it("renders every section, in order, with the fixture's exact numbers when given a complete recommendation", () => {
     render(<LossDecisionDrawer recommendation={buildRecommendation()} {...DEFAULT_PROPS} />);
 
     // Header
@@ -115,17 +118,46 @@ describe("LossDecisionDrawer", () => {
     expect(screen.getByText("Prioridade: alta")).toBeInTheDocument();
     expect(screen.getByText(/Confiança alta/i)).toBeInTheDocument();
 
-    // Evidências
-    expect(screen.getByText("Evidências (3 meses)")).toBeInTheDocument();
-    expect(screen.getByText("27")).toBeInTheDocument(); // qtyRestocked
-    expect(screen.getByText("15")).toBeInTheDocument(); // qtySold
-    expect(screen.getByText("3")).toBeInTheDocument(); // monthsWithRestock
-    expect(screen.getByText(money(45000))).toBeInTheDocument(); // grossMarginCents
+    // Section order — "Por que está aqui?" promoted to the top (adenda 2026-09-23 §23.4).
+    // "Limitações" is deliberately not an <h3> (it's the warning box's own <p class="font-medium">),
+    // so it's checked separately below rather than through this heading list.
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(headings).toEqual([
+      "Por que está aqui?",
+      expect.stringContaining("Evidências — Janela usada na decisão:"),
+      expect.stringContaining("Evolução — Histórico ampliado:"),
+      "Comparação com a rede",
+      "Diagnóstico",
+      "Recomendação",
+    ]);
 
-    // Histórico — one line per period, chronological, with the period's own numbers
-    expect(screen.getByText("2026-06: abastecido 10 / vendido 6 / perdido 3")).toBeInTheDocument();
-    expect(screen.getByText("2026-07: abastecido 8 / vendido 5 / perdido 2")).toBeInTheDocument();
-    expect(screen.getByText("2026-08: abastecido 9 / vendido 4 / perdido 3")).toBeInTheDocument();
+    // Por que está aqui? — explainRecommendation's deterministic template, plain-language, at the top
+    expect(screen.getByText(/27 abastecidos, 15 vendidos, 5 perdidos por validade/)).toBeInTheDocument();
+
+    // Evidências — window explicitly named, correcting the production inconsistency (jun/2026 – ago/2026).
+    // Scoped to the section: the Evolução table below repeats bare digits (e.g. "3") in its own cells.
+    expect(screen.getByText("Evidências — Janela usada na decisão: 3 meses (jun/2026 – ago/2026)")).toBeInTheDocument();
+    const evidenciasSection = screen.getByText(/Evidências — Janela usada na decisão/).closest("section");
+    if (!evidenciasSection) throw new Error("expected the Evidências heading to be inside a <section>");
+    expect(within(evidenciasSection).getByText("27")).toBeInTheDocument(); // qtyRestocked
+    expect(within(evidenciasSection).getByText("15")).toBeInTheDocument(); // qtySold
+    expect(within(evidenciasSection).getByText("3")).toBeInTheDocument(); // monthsWithRestock
+    expect(within(evidenciasSection).getByText(money(45000))).toBeInTheDocument(); // grossMarginCents
+    expect(within(evidenciasSection).getByText("Perda atribuída (Validade)")).toBeInTheDocument();
+    expect(within(evidenciasSection).getByText(money(20000))).toBeInTheDocument(); // prioritario.metrics.valueLostCents
+    expect(within(evidenciasSection).getByText("Resultado após perda")).toBeInTheDocument();
+    expect(within(evidenciasSection).getByText(money(25000))).toBeInTheDocument(); // netMarginAfterLossCents
+
+    // Evolução — histórico ampliado (6 meses, mar/2026 – ago/2026), now a table, one row per period
+    expect(screen.getByText("Evolução — Histórico ampliado: 6 meses (mar/2026 – ago/2026)")).toBeInTheDocument();
+    const evolucaoSection = screen.getByText(/Evolução — Histórico ampliado/).closest("section");
+    if (!evolucaoSection) throw new Error("expected the Evolução heading to be inside a <section>");
+    const dataRows = within(evolucaoSection).getAllByRole("row").slice(1); // drop the header row
+    expect(dataRows.map((row) => within(row).getAllByRole("cell").map((c) => c.textContent))).toEqual([
+      ["jun/2026", "10", "6", "3"],
+      ["jul/2026", "8", "5", "2"],
+      ["ago/2026", "9", "4", "3"],
+    ]);
 
     // Comparação com a rede: prioritário reason ("expired") has a real comparison → healthy count shown
     expect(screen.getByText("O SKU tem desempenho saudável em 7 outras lojas.")).toBeInTheDocument();
@@ -135,8 +167,10 @@ describe("LossDecisionDrawer", () => {
     expect(screen.getByText("Diagnóstico prioritário: Validade")).toBeInTheDocument();
     expect(screen.getByText("Também presente: Danificado, Outro motivo.")).toBeInTheDocument();
 
-    // Recomendação — explainRecommendation's deterministic template
-    expect(screen.getByText(/27 abastecidos, 15 vendidos, 5 perdidos por validade/)).toBeInTheDocument();
+    // Recomendação — short, the action alone (the full explanation now lives in "Por que está aqui?")
+    const recomendacaoSection = screen.getByText("Recomendação").closest("section");
+    if (!recomendacaoSection) throw new Error("expected the Recomendação heading to be inside a <section>");
+    expect(within(recomendacaoSection).getByText("Suspender.")).toBeInTheDocument();
 
     // Regras acionadas toggle is present (collapsed by default) — full behavior of the technical
     // detail panel is its own component's concern, not re-tested exhaustively here.
@@ -145,6 +179,11 @@ describe("LossDecisionDrawer", () => {
     // Limitações — visible without any extra click
     expect(screen.getByText("Limitações")).toBeInTheDocument();
     expect(screen.getByText("margem_desconhecida")).toBeInTheDocument();
+
+    // Fase 2 (adenda 2026-09-23 §23.4): visual only, disabled, no persistence
+    expect(screen.getByRole("button", { name: "Aceitar recomendação" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Monitorar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Discordar" })).toBeDisabled();
   });
 
   it("renders nothing and does not throw when recommendation is null", () => {
@@ -162,8 +201,9 @@ describe("LossDecisionDrawer", () => {
     expect(screen.queryByText(/desempenho saudável/)).not.toBeInTheDocument();
   });
 
-  it("renders one Histórico row per period, in the fixture's chronological order", () => {
+  it("renders one Evolução row per period, in the fixture's chronological order, with the janela's month count and range in the heading", () => {
     const recommendation = buildRecommendation({
+      janelaAnalisada: { primaryMonths: ["2026-01"], recurrenceLookbackMonths: ["2026-01", "2026-02", "2026-03", "2026-04"] },
       historico: [
         { period: "2026-01", qtyRestocked: 1, qtySold: 0, qtyLostByReason: { expired: 0, damaged_product: 0, other_reason: 0 } },
         { period: "2026-02", qtyRestocked: 2, qtySold: 1, qtyLostByReason: { expired: 1, damaged_product: 0, other_reason: 0 } },
@@ -173,18 +213,17 @@ describe("LossDecisionDrawer", () => {
     });
     render(<LossDecisionDrawer recommendation={recommendation} {...DEFAULT_PROPS} />);
 
-    // Sheet content is rendered via a Radix portal, outside RTL's `container` — and the fixture's
-    // default limitacoesDosDados also renders its own <li> list, so scope strictly to the
-    // "Histórico" <section> rather than querying every <li> in the document.
-    const historicoSection = screen.getByText("Histórico").closest("section");
-    if (!historicoSection) throw new Error("expected the Histórico heading to be inside a <section>");
+    expect(screen.getByText("Evidências — Janela usada na decisão: 1 mês (jan/2026)")).toBeInTheDocument();
+    expect(screen.getByText("Evolução — Histórico ampliado: 4 meses (jan/2026 – abr/2026)")).toBeInTheDocument();
 
-    const items = Array.from(historicoSection.querySelectorAll("li")).map((li) => li.textContent);
-    expect(items).toEqual([
-      "2026-01: abastecido 1 / vendido 0 / perdido 0",
-      "2026-02: abastecido 2 / vendido 1 / perdido 1",
-      "2026-03: abastecido 3 / vendido 2 / perdido 1",
-      "2026-04: abastecido 4 / vendido 3 / perdido 1",
+    const evolucaoSection = screen.getByText(/Evolução — Histórico ampliado/).closest("section");
+    if (!evolucaoSection) throw new Error("expected the Evolução heading to be inside a <section>");
+    const dataRows = within(evolucaoSection).getAllByRole("row").slice(1);
+    expect(dataRows.map((row) => within(row).getAllByRole("cell").map((c) => c.textContent))).toEqual([
+      ["jan/2026", "1", "0", "0"],
+      ["fev/2026", "2", "1", "1"],
+      ["mar/2026", "3", "2", "1"],
+      ["abr/2026", "4", "3", "1"],
     ]);
   });
 
@@ -199,5 +238,41 @@ describe("LossDecisionDrawer", () => {
     const withoutLimitations = buildRecommendation({ limitacoesDosDados: [] });
     render(<LossDecisionDrawer recommendation={withoutLimitations} {...DEFAULT_PROPS} />);
     expect(screen.queryByText("Limitações")).not.toBeInTheDocument();
+  });
+
+  it("shows margem/resultado após perda as 'desconhecida' and hides Resultado após perda when grossMarginCents is null (mesma condição, nunca mostra 0)", () => {
+    const recommendation = buildRecommendation({
+      metricasObservadas: {
+        qtyRestocked: 27,
+        qtySold: 15,
+        revenueCents: 60000,
+        grossMarginCents: null,
+        netMarginAfterLossCents: null,
+        saleToSupplyRatio: 15 / 27,
+        monthsWithRestock: 3,
+        monthsWithSales: 3,
+        monthsAnalyzed: 3,
+        firstSeenPeriod: "2025-01",
+        monthsSinceFirstSeen: 19,
+        byReason: {
+          expired: { qtyLost: 5, valueLostCents: 20000, lossToSupplyRatio: 5 / 27, lossToRevenueRatio: null, lossToMarginRatio: null },
+          damaged_product: { qtyLost: 4, valueLostCents: 40000, lossToSupplyRatio: null, lossToRevenueRatio: null, lossToMarginRatio: null },
+          other_reason: { qtyLost: 1, valueLostCents: 1000, lossToSupplyRatio: null, lossToRevenueRatio: null, lossToMarginRatio: null },
+        },
+      },
+    });
+    render(<LossDecisionDrawer recommendation={recommendation} {...DEFAULT_PROPS} />);
+
+    expect(screen.getByText("desconhecida")).toBeInTheDocument();
+    expect(screen.queryByText("Resultado após perda")).not.toBeInTheDocument();
+    // Perda atribuída is a fact from finance, independent of margin/cost resolution — still shown.
+    expect(screen.getByText("Perda atribuída (Validade)")).toBeInTheDocument();
+    expect(screen.getByText(money(20000))).toBeInTheDocument();
+  });
+
+  it("clicking 'Ver regras acionadas' still expands the existing rules panel unchanged", () => {
+    render(<LossDecisionDrawer recommendation={buildRecommendation()} {...DEFAULT_PROPS} />);
+    fireEvent.click(screen.getByRole("button", { name: /ver regras acionadas/i }));
+    expect(screen.getByText("validity.casoA")).toBeInTheDocument();
   });
 });

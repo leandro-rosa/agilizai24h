@@ -6,8 +6,9 @@ import { ConfidenceBadge } from "@/components/commercial-intelligence/confidence
 import { StatusBadge } from "@/components/status-badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Level } from "@/lib/commercial-intelligence/types";
-import type { Confidence, LossAction, LossIntelligenceRecommendation, LossReason, Priority } from "@/lib/loss-intelligence/types";
+import type { Confidence, EscopoProblema, LossAction, LossIntelligenceRecommendation, LossReason, Priority, ReasonDiagnosis } from "@/lib/loss-intelligence/types";
 
 export const ACTION_LABELS: Record<LossAction, string> = {
   manter: "Manter",
@@ -52,6 +53,50 @@ export const CONFIDENCE_TO_LEVEL: Record<Confidence, Level> = {
   insuficiente: "insufficient",
 };
 
+/** Rótulo curto por código de sinal/regra, cobrindo tudo que as 3 árvores emitem (§10.1-10.4, adenda 2026-09-23 §23.3). Nenhuma regra nova, só a tradução pra leitura na tabela. */
+export const SIGNAL_LABELS: Record<string, string> = {
+  ZERO_SALES_REPEATED_SUPPLY_EXPIRY_LOSS: "Zero vendas com abastecimento repetido",
+  LOW_SALE_RATIO_RECURRING_EXPIRY: "Vendas baixas recorrentes por validade",
+  HEALTHY_SALE_RATIO_ISOLATED_EXPIRY: "Vendas saudáveis, perda isolada por validade",
+  LOCAL_OUTLIER_VS_HEALTHY_NETWORK: "Loja discrepante numa rede saudável",
+  NETWORK_WIDE_LOW_PERFORMANCE_EXPIRY: "Baixo desempenho por validade em toda a rede",
+  CAPPED_RECENT_HISTORY: "Histórico recente — ação contida",
+  DAMAGE_CONCENTRATED_LOCAL: "Dano concentrado nesta loja",
+  DAMAGE_SYSTEMIC_NETWORK: "Dano distribuído na rede",
+  INSUFFICIENT_STORES_FOR_DAMAGE_PATTERN: "Poucas lojas para avaliar padrão de dano",
+  OTHER_REASON_NEGLIGIBLE: "Perda de Outro motivo irrelevante",
+  OTHER_REASON_MARGIN_UNKNOWN: "Margem desconhecida em Outro motivo",
+  OTHER_REASON_SEVERE_RECURRING: "Perda recorrente e severa em Outro motivo",
+  OTHER_REASON_NETWORK_WIDE: "Padrão de Outro motivo distribuído na rede",
+  OTHER_REASON_HEALTHY_ISOLATED: "Produto saudável, perda isolada em Outro motivo",
+  OTHER_REASON_RECURRING_OR_CONCENTRATED: "Perda recorrente ou concentrada em Outro motivo",
+  INSUFFICIENT_EVIDENCE: "Evidência insuficiente",
+};
+
+const ESCOPO_LABELS: Record<EscopoProblema, string> = {
+  local: "Local",
+  multiplas_lojas: "Múltiplas lojas",
+  rede: "Rede",
+  indeterminado: "Indeterminado",
+};
+
+/** Quatro visões da tabela, não mais um filtro de Ação livre (adenda 2026-09-23 §23.3). */
+export type DecisionsView = "requer_decisao" | "monitoramento" | "dados_insuficientes" | "todos";
+
+const VIEW_FILTERS: Record<DecisionsView, (action: LossAction) => boolean> = {
+  requer_decisao: (action) => action !== "manter" && action !== "manter_monitorar" && action !== "dados_insuficientes",
+  monitoramento: (action) => action === "manter" || action === "manter_monitorar",
+  dados_insuficientes: (action) => action === "dados_insuficientes",
+  todos: () => true,
+};
+
+const VIEW_LABELS: Record<DecisionsView, string> = {
+  requer_decisao: "Requer decisão",
+  monitoramento: "Monitoramento",
+  dados_insuficientes: "Dados insuficientes",
+  todos: "Todos",
+};
+
 export interface DecisionRowData {
   recommendation: LossIntelligenceRecommendation;
   productLabel: string;
@@ -60,7 +105,24 @@ export interface DecisionRowData {
   diagnosticoResumo: string;
 }
 
+function primaryDiagnosis(recommendation: LossIntelligenceRecommendation): ReasonDiagnosis | null {
+  if (!recommendation.motivoDiagnosticoPrioritario) return null;
+  return recommendation.diagnosticosPorMotivo.find((d) => d.reason === recommendation.motivoDiagnosticoPrioritario) ?? null;
+}
+
+function signalLabel(recommendation: LossIntelligenceRecommendation): string {
+  const diagnosis = primaryDiagnosis(recommendation);
+  if (!diagnosis || diagnosis.sinaisDetectados.length === 0) return "—";
+  return diagnosis.sinaisDetectados.map((code) => SIGNAL_LABELS[code] ?? code).join(" + ");
+}
+
+function escopoLabel(recommendation: LossIntelligenceRecommendation): string {
+  const diagnosis = primaryDiagnosis(recommendation);
+  return diagnosis ? ESCOPO_LABELS[diagnosis.escopoProblema] : "—";
+}
+
 export function LossDecisionsTable({ rows, onSelect }: { rows: DecisionRowData[]; onSelect: (recommendation: LossIntelligenceRecommendation) => void }) {
+  const [view, setView] = useState<DecisionsView>("requer_decisao");
   const [reasonFilter, setReasonFilter] = useState<LossReason | "all">("all");
   const [actionFilter, setActionFilter] = useState<LossAction | "all">("all");
   const [priorityFilter, setPriorityFilter] = useState<Priority | "all">("all");
@@ -70,11 +132,13 @@ export function LossDecisionsTable({ rows, onSelect }: { rows: DecisionRowData[]
 
   const stores = useMemo(() => [...new Set(rows.map((row) => row.storeName))].sort(), [rows]);
   const categories = useMemo(() => [...new Set(rows.map((row) => row.category).filter((c): c is string => c !== null))].sort(), [rows]);
+  const insufficientCount = useMemo(() => rows.filter((row) => row.recommendation.acaoPrioritaria === "dados_insuficientes").length, [rows]);
 
   const filtered = useMemo(
     () =>
       rows.filter((row) => {
         const r = row.recommendation;
+        if (!VIEW_FILTERS[view](r.acaoPrioritaria)) return false;
         if (reasonFilter !== "all" && r.motivoDiagnosticoPrioritario !== reasonFilter) return false;
         if (actionFilter !== "all" && r.acaoPrioritaria !== actionFilter) return false;
         if (priorityFilter !== "all" && r.prioridade !== priorityFilter) return false;
@@ -83,11 +147,32 @@ export function LossDecisionsTable({ rows, onSelect }: { rows: DecisionRowData[]
         if (categoryFilter !== "all" && row.category !== categoryFilter) return false;
         return true;
       }),
-    [rows, reasonFilter, actionFilter, priorityFilter, confidenceFilter, storeFilter, categoryFilter],
+    [rows, view, reasonFilter, actionFilter, priorityFilter, confidenceFilter, storeFilter, categoryFilter],
   );
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Tabs value={view} onValueChange={(v) => setView(v as DecisionsView)}>
+          <TabsList>
+            {(Object.entries(VIEW_LABELS) as [DecisionsView, string][]).map(([value, label]) => (
+              <TabsTrigger key={value} value={value}>
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        {insufficientCount > 0 && view !== "dados_insuficientes" && (
+          <button
+            type="button"
+            onClick={() => setView("dados_insuficientes")}
+            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          >
+            {insufficientCount} {insufficientCount === 1 ? "produto" : "produtos"} com dados insuficientes
+          </button>
+        )}
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <FilterSelect label="Motivo" value={reasonFilter} onChange={setReasonFilter} options={[["expired", "Validade"], ["damaged_product", "Danificado"], ["other_reason", "Outro motivo"]]} />
         <FilterSelect label="Ação" value={actionFilter} onChange={setActionFilter} options={(Object.entries(ACTION_LABELS) as [LossAction, string][])} />
@@ -107,6 +192,8 @@ export function LossDecisionsTable({ rows, onSelect }: { rows: DecisionRowData[]
             <TableHead className="text-right">Perda</TableHead>
             <TableHead>Maior impacto</TableHead>
             <TableHead>Ação prioritária</TableHead>
+            <TableHead>Sinal detectado</TableHead>
+            <TableHead>Escopo do problema</TableHead>
             <TableHead>Diagnóstico</TableHead>
             <TableHead>Prioridade</TableHead>
             <TableHead>Confiança</TableHead>
@@ -130,6 +217,8 @@ export function LossDecisionsTable({ rows, onSelect }: { rows: DecisionRowData[]
                 <TableCell>
                   <StatusBadge tone={ACTION_TONE[r.acaoPrioritaria]}>{ACTION_LABELS[r.acaoPrioritaria]}</StatusBadge>
                 </TableCell>
+                <TableCell className="max-w-xs truncate text-sm text-muted-foreground">{signalLabel(r)}</TableCell>
+                <TableCell>{escopoLabel(r)}</TableCell>
                 <TableCell className="max-w-xs truncate text-sm text-muted-foreground">{row.diagnosticoResumo}</TableCell>
                 <TableCell className="capitalize">{r.prioridade ?? "—"}</TableCell>
                 <TableCell>

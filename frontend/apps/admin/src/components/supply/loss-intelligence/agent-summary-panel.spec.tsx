@@ -2,7 +2,7 @@ import { describe, it, expect, jest } from "@jest/globals";
 import { fireEvent, render, screen } from "@testing-library/react";
 
 import { AgentSummaryPanel, type AgentSummaryScope } from "./agent-summary-panel";
-import type { LossAction, LossIntelligenceRecommendation, LossIntelligenceResult } from "@/lib/loss-intelligence/types";
+import type { LossAction, LossIntelligenceRecommendation, LossIntelligenceResult, Priority } from "@/lib/loss-intelligence/types";
 
 const ZERO_COUNTS: Record<LossAction, number> = {
   manter: 0,
@@ -20,17 +20,17 @@ const ZERO_COUNTS: Record<LossAction, number> = {
 const NETWORK_SCOPE: AgentSummaryScope = { kind: "network" };
 const STORE_SCOPE: AgentSummaryScope = { kind: "store", storeName: "Ascenty - SUM01" };
 
-function buildRecommendation(storeId: number, acaoPrioritaria: LossAction): LossIntelligenceRecommendation {
-  return { storeId, acaoPrioritaria } as LossIntelligenceRecommendation;
+function buildRecommendation(storeId: number, acaoPrioritaria: LossAction, prioridade: Priority | null = null): LossIntelligenceRecommendation {
+  return { storeId, acaoPrioritaria, prioridade } as LossIntelligenceRecommendation;
 }
 
 function buildResult(
-  countsOverrides: Partial<Record<LossAction, number>>,
-  overrides: Partial<Pick<LossIntelligenceResult, "recommendations" | "valueLostInPrioritizedCasesCents" | "impactEstimateCents">> = {},
+  recommendations: LossIntelligenceRecommendation[],
+  overrides: Partial<Pick<LossIntelligenceResult, "valueLostInPrioritizedCasesCents" | "impactEstimateCents">> = {},
 ): LossIntelligenceResult {
   return {
-    recommendations: [],
-    countsByAction: { ...ZERO_COUNTS, ...countsOverrides },
+    recommendations,
+    countsByAction: ZERO_COUNTS,
     valueLostInPrioritizedCasesCents: 90_000,
     impactEstimateCents: { conservative: 120_000, expected: 180_000, optimistic: 240_000 },
     ...overrides,
@@ -38,115 +38,99 @@ function buildResult(
 }
 
 describe("AgentSummaryPanel", () => {
-  it("renders exactly the rows for the 3 actions with non-zero counts, with the right numbers, and no row for any zero-count action (even ones in ACTION_ROWS)", () => {
-    const result = buildResult({
-      suspender_abastecimento: 5,
-      investigar: 3,
-      avaliar_retirada_rede: 1,
-      // excluded from ACTION_ROWS entirely — must never influence rows or the total
-      manter: 40,
-      dados_insuficientes: 7,
-    });
+  it("agrupa por prioridade primeiro (Crítica/Alta/Média, nessa ordem), ação como detalhe secundário dentro de cada uma (adenda 2026-09-23 §23.2)", () => {
+    const result = buildResult([
+      buildRecommendation(1, "suspender_abastecimento", "critica"),
+      buildRecommendation(2, "investigar", "media"),
+      buildRecommendation(3, "reduzir_abastecimento", "alta"),
+      buildRecommendation(4, "avaliar_retirada_loja", "alta"),
+      buildRecommendation(5, "manter", "baixa"), // nunca acionável, nunca aparece
+    ]);
 
     render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={jest.fn()} />);
 
-    const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(3);
+    const headings = screen.getAllByText(/^(Crítica|Alta|Média) — \d+ caso/);
+    expect(headings.map((h) => h.textContent)).toEqual(["Crítica — 1 caso", "Alta — 2 casos", "Média — 1 caso"]);
 
-    expect(screen.getByText(/5\s+suspender abastecimento/)).toBeInTheDocument();
-    expect(screen.getByText(/3\s+investigar/)).toBeInTheDocument();
-    expect(screen.getByText(/1\s+avaliar retirada da rede/)).toBeInTheDocument();
-
-    // Zero-count actions from the fixed ACTION_ROWS list must not render, even though they exist in that list.
-    expect(screen.queryByText(/reduzir abastecimento/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/avaliar retirada da loja/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/avaliar permanência na rede/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/avaliar permanência na loja/)).not.toBeInTheDocument();
-
-    // Total only sums the 3 rendered rows (5 + 3 + 1), never manter/dados_insuficientes.
-    expect(screen.getByText("9 decisões recomendadas nesta loja")).toBeInTheDocument();
+    expect(screen.getByText(/1\s+suspender abastecimento/)).toBeInTheDocument();
+    expect(screen.getByText(/1\s+investigar/)).toBeInTheDocument();
+    expect(screen.getByText(/1\s+reduzir abastecimento/)).toBeInTheDocument();
+    expect(screen.getByText(/1\s+avaliar retirada da loja/)).toBeInTheDocument();
+    expect(screen.queryByText(/manter\b/)).not.toBeInTheDocument();
   });
 
-  it('shows "Nenhuma recomendação de atenção neste período." and renders neither the row list nor the "Ver todas as recomendações" button when totalActionable is 0', () => {
-    // Only manter/dados_insuficientes have counts — both intentionally excluded from ACTION_ROWS.
-    const result = buildResult({ manter: 12, dados_insuficientes: 4 });
+  it('mostra "Nenhum caso requer decisão neste período." e não renderiza nem a lista nem o botão quando não há caso acionável', () => {
+    const result = buildResult([buildRecommendation(1, "manter", "baixa"), buildRecommendation(1, "dados_insuficientes", null)]);
     const onSeeAll = jest.fn();
 
     render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={onSeeAll} />);
 
-    expect(screen.getByText("Nenhuma recomendação de atenção neste período.")).toBeInTheDocument();
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(screen.getByText("Nenhum caso requer decisão neste período.")).toBeInTheDocument();
     expect(screen.queryAllByRole("listitem")).toHaveLength(0);
-    expect(screen.queryByRole("button", { name: /ver todas as recomendações/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ver todos os casos/i })).not.toBeInTheDocument();
     expect(onSeeAll).not.toHaveBeenCalled();
   });
 
-  it('never renders the resguardo-violating substring "garantid" in the impact estimate text (never "economia garantida")', () => {
-    const result = buildResult({ investigar: 2 });
+  it('"Impacto potencial estimado" nunca aparece — cenário não calibrado, escondido por completo (adenda 2026-09-23 §23.2)', () => {
+    const result = buildResult([buildRecommendation(1, "investigar", "media")]);
 
     render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={jest.fn()} />);
 
-    const impactParagraph = screen.getByText(/Impacto potencial estimado/i);
-    expect(impactParagraph.textContent).toBeTruthy();
-    expect(impactParagraph.textContent?.toLowerCase()).not.toMatch(/garantid/);
-    // Belt-and-suspenders: no element anywhere in the rendered panel contains that substring.
+    expect(screen.queryByText(/impacto potencial estimado/i)).not.toBeInTheDocument();
     expect(document.body.textContent?.toLowerCase()).not.toMatch(/garantid/);
   });
 
-  it('calls onSeeAll exactly once when "Ver todas as recomendações" is clicked', () => {
+  it('chama onSeeAll uma vez ao clicar em "Ver todos os casos"', () => {
     const onSeeAll = jest.fn();
-    const result = buildResult({ investigar: 2 });
+    const result = buildResult([buildRecommendation(1, "investigar", "media")]);
 
     render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={onSeeAll} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /ver todas as recomendações/i }));
+    fireEvent.click(screen.getByRole("button", { name: /ver todos os casos/i }));
 
     expect(onSeeAll).toHaveBeenCalledTimes(1);
   });
 
-  it('shows "R$ em perdas nos casos priorizados" as a fact, separate from and above the impact estimate (adenda 2026-09-23, §15.1)', () => {
-    const result = buildResult({ investigar: 2 }, { valueLostInPrioritizedCasesCents: 45_000 });
+  it('mostra "R$ em perdas associadas aos casos priorizados" como fato — nova redação (adenda 2026-09-23 §23.2, era "nos casos priorizados")', () => {
+    const result = buildResult([buildRecommendation(1, "investigar", "media")], { valueLostInPrioritizedCasesCents: 45_000 });
 
     render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={jest.fn()} />);
 
-    expect(screen.getByText("R$ 450,00 em perdas nos casos priorizados.")).toBeInTheDocument();
+    expect(screen.getByText("R$ 450,00 em perdas associadas aos casos priorizados.")).toBeInTheDocument();
   });
 
-  it("escopo Rede: subtítulo mostra a contagem de decisões e de lojas distintas afetadas, contando só linhas com ação acionável (§15.1.1)", () => {
-    const result = buildResult(
-      { suspender_abastecimento: 2, investigar: 1 },
-      {
-        recommendations: [
-          buildRecommendation(1, "suspender_abastecimento"),
-          buildRecommendation(1, "investigar"), // mesma loja da linha acima — não deve contar duas vezes
-          buildRecommendation(2, "suspender_abastecimento"),
-          buildRecommendation(3, "manter"), // ação não-acionável — nunca conta como loja afetada
-        ],
-      },
-    );
+  it("escopo Rede: subtítulo mostra a contagem de casos e de lojas distintas afetadas, contando só linhas com ação acionável (§15.1.1)", () => {
+    const result = buildResult([
+      buildRecommendation(1, "suspender_abastecimento", "critica"),
+      buildRecommendation(1, "investigar", "media"), // mesma loja da linha acima — não deve contar duas vezes
+      buildRecommendation(2, "suspender_abastecimento", "critica"),
+      buildRecommendation(3, "manter", "baixa"), // ação não-acionável — nunca conta como loja afetada
+    ]);
 
     render(<AgentSummaryPanel result={result} scope={NETWORK_SCOPE} onSeeAll={jest.fn()} />);
 
-    expect(screen.getByText("3 decisões recomendadas na operação · 2 lojas afetadas")).toBeInTheDocument();
+    expect(screen.getByText("3 casos requerem decisão na operação · 2 lojas afetadas")).toBeInTheDocument();
   });
 
   it("escopo Rede com 1 loja afetada usa singular (§15.1.1)", () => {
-    const result = buildResult(
-      { investigar: 1 },
-      { recommendations: [buildRecommendation(5, "investigar")] },
-    );
+    const result = buildResult([buildRecommendation(5, "investigar", "media")]);
 
     render(<AgentSummaryPanel result={result} scope={NETWORK_SCOPE} onSeeAll={jest.fn()} />);
 
-    expect(screen.getByText("1 decisões recomendadas na operação · 1 loja afetada")).toBeInTheDocument();
+    expect(screen.getByText("1 casos requerem decisão na operação · 1 loja afetada")).toBeInTheDocument();
   });
 
   it("escopo Loja: subtítulo nunca mostra contagem de lojas afetadas (§15.1.1)", () => {
-    const result = buildResult({ investigar: 4 });
+    const result = buildResult([
+      buildRecommendation(1, "investigar", "media"),
+      buildRecommendation(1, "investigar", "media"),
+      buildRecommendation(1, "investigar", "media"),
+      buildRecommendation(1, "investigar", "media"),
+    ]);
 
     render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={jest.fn()} />);
 
-    expect(screen.getByText("4 decisões recomendadas nesta loja")).toBeInTheDocument();
+    expect(screen.getByText("4 casos requerem decisão nesta loja")).toBeInTheDocument();
     expect(screen.queryByText(/lojas? afetada/)).not.toBeInTheDocument();
   });
 });

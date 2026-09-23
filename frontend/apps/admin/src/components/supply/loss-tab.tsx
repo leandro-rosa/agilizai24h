@@ -15,10 +15,9 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AgentSummaryPanel } from "./loss-intelligence/agent-summary-panel";
-import { ACTION_LABELS, LossDecisionsTable, type DecisionRowData } from "./loss-intelligence/decisions-table";
+import { LossDecisionsTable, type DecisionRowData } from "./loss-intelligence/decisions-table";
 import { LossDecisionDrawer } from "./loss-intelligence/decision-drawer";
 import {
   useGetNetworkReconciliationRangeQuery,
@@ -30,6 +29,7 @@ import { useGetNetworkSalesByStoreMonthQuery, useGetNetworkSalesRangeQuery } fro
 import { useGetNetworkSupplyByStoreMonthQuery, useGetNetworkSupplyRangeQuery } from "@/lib/api/supply";
 import { useGetStoresQuery, type Store } from "@/lib/api/stores";
 import { formatPct } from "@/lib/financial-kpis";
+import { period as formatMonthLabel } from "@/lib/format";
 import {
   aggregateSalesBySku,
   computeLossKpis,
@@ -49,7 +49,7 @@ import { analyzeLossIntelligence } from "@/lib/loss-intelligence/engine";
 import { explainRecommendation } from "@/lib/loss-intelligence/explain";
 import { lossBusinessRuleRows } from "@/lib/loss-intelligence/parameter-rows";
 import { RUNTIME_PARAMETERS } from "@/lib/loss-intelligence/parameters";
-import type { LossAction, LossIntelligenceInput, LossIntelligenceRecommendation } from "@/lib/loss-intelligence/types";
+import type { LossIntelligenceInput, LossIntelligenceRecommendation } from "@/lib/loss-intelligence/types";
 import { addMonths, lastCompleteMonth, monthsInRange, type PeriodRange } from "@/lib/period-range";
 import { aggregateAcrossStores } from "@/lib/reconciliation-aggregate";
 import { reasonLabel } from "@/lib/removal-reasons";
@@ -306,10 +306,13 @@ const SEVERITY_TONE: Record<InsightSeverity, "critical" | "attention" | "neutral
 };
 const SEVERITY_LABEL: Record<InsightSeverity, string> = { critical: "Atenção", warning: "Observação", info: "Contexto" };
 
-function InsightsCard({ insights }: { insights: ReturnType<typeof generateLossInsights> }) {
+function InsightsCard({ insights, period }: { insights: ReturnType<typeof generateLossInsights>; period: string }) {
   return (
     <div>
-      <h3 className="mb-3 text-sm font-medium">Principais insights</h3>
+      {/* Janela própria de 1 mês, deliberadamente diferente dos 3 meses fechados da Inteligência de
+          Perdas — dito em voz alta na própria tela pra parar de parecer inconsistência quando a
+          mesma linha tem números diferentes nas duas seções (adenda 2026-09-23 §23.5). */}
+      <h3 className="mb-3 text-sm font-medium">Principais insights — {formatMonthLabel(period)}</h3>
       <div className="flex flex-col gap-3">
         {insights.map((insight) => (
           <div key={insight.key} className="rounded-lg border p-3">
@@ -463,32 +466,14 @@ function SkuLossTable({
   );
 }
 
-/** Ícone por ação — mesmo vocabulário visual do painel do Agente (`AgentSummaryPanel`'s ACTION_ROWS), §15.5 adenda 2026-09-23. */
-const MATRIX_ACTION_ICON: Record<LossAction, string> = {
-  manter: "🟢",
-  manter_monitorar: "🟢",
-  reduzir_abastecimento: "🟡",
-  investigar: "🟠",
-  suspender_abastecimento: "🔴",
-  avaliar_retirada_loja: "🔴",
-  avaliar_retirada_rede: "⚫",
-  avaliar_permanencia_loja: "🔴",
-  avaliar_permanencia_rede: "⚫",
-  dados_insuficientes: "—",
-};
-
-function ProductStoreMatrixView({
-  matrix,
-  recommendations,
-  onSelectRecommendation,
-}: {
-  matrix: ReturnType<typeof productStoreMatrix>;
-  /** Undefined enquanto o motor ainda não calculou — o modo "Decisão IA" fica desabilitado até então. */
-  recommendations: LossIntelligenceRecommendation[] | undefined;
-  onSelectRecommendation: (recommendation: LossIntelligenceRecommendation) => void;
-}) {
-  const [mode, setMode] = useState<"perdas" | "decisao">("perdas");
-
+/**
+ * De volta ao seu estado descritivo original — o toggle `[Perdas] [Decisão IA]` (§15.5) foi
+ * removido (adenda 2026-09-23 §23.1): a subaba dedicada Inteligência de Perdas expõe Sinal
+ * detectado e Escopo do problema por linha, informação mais rica do que uma célula colorida
+ * conseguia mostrar, e o toggle tinha voltado a misturar descritivo com decisão. A matriz é
+ * exclusivamente da subaba "Visão das perdas".
+ */
+function ProductStoreMatrixView({ matrix }: { matrix: ReturnType<typeof productStoreMatrix> }) {
   const stores = useMemo(() => {
     const map = new Map<number, string>();
     for (const row of matrix) for (const cell of row.cells) map.set(cell.storeId, cell.storeName);
@@ -497,34 +482,16 @@ function ProductStoreMatrixView({
 
   const maxQuantity = Math.max(1, ...matrix.flatMap((row) => row.cells.map((c) => c.quantity)));
 
-  // §15.5 — troca o que a célula codifica (nunca os dois ao mesmo tempo, para não prejudicar a legibilidade da matriz de Perdas).
-  const recommendationByKey = useMemo(() => {
-    const map = new Map<string, LossIntelligenceRecommendation>();
-    for (const rec of recommendations ?? []) map.set(`${rec.storeId}:${rec.sku}`, rec);
-    return map;
-  }, [recommendations]);
-
   if (matrix.length === 0 || stores.length === 0) {
     return <p className="text-sm text-muted-foreground">Sem produtos com perda em mais de uma loja para comparar.</p>;
   }
 
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium">Produto × Loja</h3>
-        <Tabs value={mode} onValueChange={(v) => setMode(v as "perdas" | "decisao")}>
-          <TabsList>
-            <TabsTrigger value="perdas">Perdas</TabsTrigger>
-            <TabsTrigger value="decisao" disabled={!recommendations}>
-              Decisão IA
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      <h3 className="mb-1 text-sm font-medium">Produto × Loja</h3>
       <p className="mb-3 text-xs text-muted-foreground">
-        {mode === "perdas"
-          ? "Unidades perdidas. Um produto que some em toda loja é um problema do produto; vários produtos sumindo só numa loja é um problema daquela loja."
-          : "Status da recomendação do Agente de Perdas por produto e loja. Clique numa célula para ver a análise completa."}
+        Unidades perdidas. Um produto que some em toda loja é um problema do produto; vários produtos sumindo só numa
+        loja é um problema daquela loja.
       </p>
       <div className="overflow-x-auto rounded-lg border">
         <Table>
@@ -544,40 +511,16 @@ function ProductStoreMatrixView({
                 <TableCell className="max-w-[180px] truncate font-medium">{row.name}</TableCell>
                 {stores.map((s) => {
                   const cell = row.cells.find((c) => c.storeId === s.id);
-                  if (mode === "perdas") {
-                    const intensity = cell ? Math.max(0.12, cell.quantity / maxQuantity) : 0;
-                    return (
-                      <TableCell key={s.id} className="tabular text-center text-xs">
-                        {cell ? (
-                          <span
-                            className="inline-flex min-w-8 justify-center rounded px-1.5 py-0.5"
-                            style={{ backgroundColor: `color-mix(in oklch, var(--destructive) ${intensity * 100}%, transparent)` }}
-                          >
-                            {cell.quantity}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                    );
-                  }
-
-                  const rec = recommendationByKey.get(`${s.id}:${row.sku}`);
+                  const intensity = cell ? Math.max(0.12, cell.quantity / maxQuantity) : 0;
                   return (
                     <TableCell key={s.id} className="tabular text-center text-xs">
-                      {rec ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              className="inline-flex min-w-8 cursor-pointer justify-center rounded px-1.5 py-0.5 hover:bg-muted"
-                              onClick={() => onSelectRecommendation(rec)}
-                            >
-                              {MATRIX_ACTION_ICON[rec.acaoPrioritaria]}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>{ACTION_LABELS[rec.acaoPrioritaria]}</TooltipContent>
-                        </Tooltip>
+                      {cell ? (
+                        <span
+                          className="inline-flex min-w-8 justify-center rounded px-1.5 py-0.5"
+                          style={{ backgroundColor: `color-mix(in oklch, var(--destructive) ${intensity * 100}%, transparent)` }}
+                        >
+                          {cell.quantity}
+                        </span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
@@ -908,17 +851,18 @@ export function LossTab({ storeId, range }: { storeId: StoreSelection; range: Pe
     [lossIntelligenceInput],
   );
 
+  // Todas as linhas, sem filtrar "manter"/"dados_insuficientes" aqui — a tabela agora tem suas
+  // próprias 4 visões (Requer decisão/Monitoramento/Dados insuficientes/Todos, adenda 2026-09-23
+  // §23.3) e precisa do universo completo pra elas fazerem sentido, sobretudo o contador discreto.
   const decisionRows = useMemo<DecisionRowData[]>(() => {
     if (!lossIntelligenceResult) return [];
-    return lossIntelligenceResult.recommendations
-      .filter((r) => r.acaoPrioritaria !== "manter") // tabela de decisão não precisa listar "sem problema" — mantém o foco em quem exige atenção
-      .map((r) => ({
-        recommendation: r,
-        productLabel: nameBySku.get(r.sku) ?? r.sku,
-        storeName: storeById.get(r.storeId)?.name ?? String(r.storeId),
-        category: categoryBySku.get(r.sku) ?? null,
-        diagnosticoResumo: explainRecommendation(r).split(".")[0] + ".", // primeira frase só, para a célula da tabela
-      }));
+    return lossIntelligenceResult.recommendations.map((r) => ({
+      recommendation: r,
+      productLabel: nameBySku.get(r.sku) ?? r.sku,
+      storeName: storeById.get(r.storeId)?.name ?? String(r.storeId),
+      category: categoryBySku.get(r.sku) ?? null,
+      diagnosticoResumo: explainRecommendation(r).split(".")[0] + ".", // primeira frase só, para a célula da tabela
+    }));
   }, [lossIntelligenceResult, nameBySku, storeById, categoryBySku]);
 
   const selectedProductLabel = selectedRecommendation ? (nameBySku.get(selectedRecommendation.sku) ?? selectedRecommendation.sku) : "";
@@ -962,50 +906,66 @@ export function LossTab({ storeId, range }: { storeId: StoreSelection; range: Pe
         emptyMessage="Sem reconciliação no período selecionado para calcular perdas."
         onRetry={refetch}
       >
-        <div className="flex flex-col gap-8">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {kpis.map((kpi) => (
-              <LossKpiCard
-                key={kpi.key}
-                label={kpi.label}
-                valueLabel={kpi.displayValue ?? currency.format(kpi.valueCents / 100)}
-                secondaryLabel={kpi.secondaryLabel}
-                hint={kpi.hint}
-                deltaPct={kpi.deltaPct}
-                deltaIsBad={kpi.deltaIsBad}
-              />
-            ))}
-          </div>
+        {/* Duas subvisões — nenhuma rota nova, nenhum item novo na sidebar (adenda 2026-09-23
+            §23.1): "Visão das perdas" é o dashboard descritivo de sempre, sem mudança nenhuma;
+            "Inteligência de Perdas ✦" é exclusivamente a camada prescritiva (painel, tabela, drawer). */}
+        <Tabs defaultValue="visao" className="gap-6">
+          <TabsList>
+            <TabsTrigger value="visao">Visão das perdas</TabsTrigger>
+            <TabsTrigger value="inteligencia">Inteligência de Perdas ✦</TabsTrigger>
+          </TabsList>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            {storeRows.length > 1 ? (
-              <StoreLossChart rows={storeRows} metric={metric} onMetricChange={setMetric} />
-            ) : (
-              <div className="text-sm text-muted-foreground">Comparação entre lojas exige mais de uma loja no escopo.</div>
-            )}
-            <ReasonDonut slices={reasonSlices} />
-          </div>
+          <TabsContent value="visao" className="flex flex-col gap-8">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              {kpis.map((kpi) => (
+                <LossKpiCard
+                  key={kpi.key}
+                  label={kpi.label}
+                  valueLabel={kpi.displayValue ?? currency.format(kpi.valueCents / 100)}
+                  secondaryLabel={kpi.secondaryLabel}
+                  hint={kpi.hint}
+                  deltaPct={kpi.deltaPct}
+                  deltaIsBad={kpi.deltaIsBad}
+                />
+              ))}
+            </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            {trend && trend.monthlyLossByReason.length > 0 && (
-              <LossTrendChart monthlyLossByReason={trend.monthlyLossByReason} months={monthsInRange(trendRange)} />
-            )}
-            <InsightsCard insights={insights} />
-          </div>
+            <div className="grid gap-6 lg:grid-cols-2">
+              {storeRows.length > 1 ? (
+                <StoreLossChart rows={storeRows} metric={metric} onMetricChange={setMetric} />
+              ) : (
+                <div className="text-sm text-muted-foreground">Comparação entre lojas exige mais de uma loja no escopo.</div>
+              )}
+              <ReasonDonut slices={reasonSlices} />
+            </div>
 
-          <SkuLossTable
-            rows={skuRows}
-            reasonTab={reasonTab}
-            onReasonTabChange={setReasonTab}
-            expandedSku={expandedSku}
-            onToggleExpand={(sku) => setExpandedSku((prev) => (prev === sku ? null : sku))}
-            expandedBreakdown={expandedBreakdown}
-          />
+            <div className="grid gap-6 lg:grid-cols-2">
+              {trend && trend.monthlyLossByReason.length > 0 && (
+                <LossTrendChart monthlyLossByReason={trend.monthlyLossByReason} months={monthsInRange(trendRange)} />
+              )}
+              <InsightsCard insights={insights} period={period} />
+            </div>
 
-          <div className="flex flex-col gap-4">
+            <SkuLossTable
+              rows={skuRows}
+              reasonTab={reasonTab}
+              onReasonTabChange={setReasonTab}
+              expandedSku={expandedSku}
+              onToggleExpand={(sku) => setExpandedSku((prev) => (prev === sku ? null : sku))}
+              expandedBreakdown={expandedBreakdown}
+            />
+
+            {isNetworkScope && <ProductStoreMatrixView matrix={matrix} />}
+
+            <RestockSoldLostTable rows={restockSoldLost} />
+          </TabsContent>
+
+          <TabsContent value="inteligencia" className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-medium">Agente de Perdas</h3>
+                {/* Janela própria de 3 meses fechados, deliberadamente diferente do "Período" de 1
+                    mês escolhido acima — dito em voz alta pra não parecer inconsistência (§23.5). */}
+                <h3 className="text-sm font-medium">✦ Inteligência de Perdas — análise dos últimos 3 meses fechados</h3>
                 <p className="text-xs text-muted-foreground">
                   Recomendações automáticas por produto e loja, com evidência e confiança — nunca aplicadas sozinhas.
                 </p>
@@ -1034,26 +994,16 @@ export function LossTab({ storeId, range }: { storeId: StoreSelection; range: Pe
                 </div>
               </>
             )}
-          </div>
 
-          <LossDecisionDrawer
-            recommendation={selectedRecommendation}
-            productLabel={selectedProductLabel}
-            storeName={selectedStoreName}
-            open={selectedRecommendation !== null}
-            onOpenChange={(open) => !open && setSelectedRecommendation(null)}
-          />
-
-          {isNetworkScope && (
-            <ProductStoreMatrixView
-              matrix={matrix}
-              recommendations={lossIntelligenceResult?.recommendations}
-              onSelectRecommendation={setSelectedRecommendation}
+            <LossDecisionDrawer
+              recommendation={selectedRecommendation}
+              productLabel={selectedProductLabel}
+              storeName={selectedStoreName}
+              open={selectedRecommendation !== null}
+              onOpenChange={(open) => !open && setSelectedRecommendation(null)}
             />
-          )}
-
-          <RestockSoldLostTable rows={restockSoldLost} />
-        </div>
+          </TabsContent>
+        </Tabs>
       </RequestState>
     </div>
   );
