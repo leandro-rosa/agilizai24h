@@ -11,8 +11,8 @@ export interface MixParameters {
 
 export const DEFAULT_MIX_PARAMETERS: MixParameters = {
   evidence: { minMonthsWithSales: 2 },
-  trend: { recentMonthsCount: 3, recentWeightMultiplier: 2, upThresholdPct: 0.2, downThresholdPct: 0.2, adjustPct: 0.1, volatilityThreshold: 0.4 },
-  classification: { affinityExploreMin: 1.2, affinityHealthyMin: 0.8, marginHealthyMinPct: 0.15 },
+  trend: { recentMonthsCount: 3, recentWeightMultiplier: 2, upThresholdPct: 0.2, downThresholdPct: 0.2, adjustPct: 0.1, volatilityThreshold: 0.5 },
+  classification: { affinityExploreMin: 1.0, affinityHealthyMin: 0.8, marginHealthyMinPct: 0.15 },
   opportunity: { minNetworkStores: 5, testQuantity: 4 },
   confidence: { highMin: 70, mediumMin: 40 },
 };
