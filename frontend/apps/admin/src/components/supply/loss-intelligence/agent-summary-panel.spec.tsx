@@ -1,8 +1,8 @@
 import { describe, it, expect, jest } from "@jest/globals";
 import { fireEvent, render, screen } from "@testing-library/react";
 
-import { AgentSummaryPanel } from "./agent-summary-panel";
-import type { LossAction, LossIntelligenceResult } from "@/lib/loss-intelligence/types";
+import { AgentSummaryPanel, type AgentSummaryScope } from "./agent-summary-panel";
+import type { LossAction, LossIntelligenceRecommendation, LossIntelligenceResult } from "@/lib/loss-intelligence/types";
 
 const ZERO_COUNTS: Record<LossAction, number> = {
   manter: 0,
@@ -17,14 +17,23 @@ const ZERO_COUNTS: Record<LossAction, number> = {
   dados_insuficientes: 0,
 };
 
+const NETWORK_SCOPE: AgentSummaryScope = { kind: "network" };
+const STORE_SCOPE: AgentSummaryScope = { kind: "store", storeName: "Ascenty - SUM01" };
+
+function buildRecommendation(storeId: number, acaoPrioritaria: LossAction): LossIntelligenceRecommendation {
+  return { storeId, acaoPrioritaria } as LossIntelligenceRecommendation;
+}
+
 function buildResult(
   countsOverrides: Partial<Record<LossAction, number>>,
-  impactEstimateCents: LossIntelligenceResult["impactEstimateCents"] = { conservative: 120_000, expected: 180_000, optimistic: 240_000 },
+  overrides: Partial<Pick<LossIntelligenceResult, "recommendations" | "valueLostInPrioritizedCasesCents" | "impactEstimateCents">> = {},
 ): LossIntelligenceResult {
   return {
     recommendations: [],
     countsByAction: { ...ZERO_COUNTS, ...countsOverrides },
-    impactEstimateCents,
+    valueLostInPrioritizedCasesCents: 90_000,
+    impactEstimateCents: { conservative: 120_000, expected: 180_000, optimistic: 240_000 },
+    ...overrides,
   };
 }
 
@@ -39,7 +48,7 @@ describe("AgentSummaryPanel", () => {
       dados_insuficientes: 7,
     });
 
-    render(<AgentSummaryPanel result={result} onSeeAll={jest.fn()} />);
+    render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={jest.fn()} />);
 
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(3);
@@ -55,7 +64,7 @@ describe("AgentSummaryPanel", () => {
     expect(screen.queryByText(/avaliar permanência na loja/)).not.toBeInTheDocument();
 
     // Total only sums the 3 rendered rows (5 + 3 + 1), never manter/dados_insuficientes.
-    expect(screen.getByText("9 decisões recomendadas")).toBeInTheDocument();
+    expect(screen.getByText("9 decisões recomendadas nesta loja")).toBeInTheDocument();
   });
 
   it('shows "Nenhuma recomendação de atenção neste período." and renders neither the row list nor the "Ver todas as recomendações" button when totalActionable is 0', () => {
@@ -63,7 +72,7 @@ describe("AgentSummaryPanel", () => {
     const result = buildResult({ manter: 12, dados_insuficientes: 4 });
     const onSeeAll = jest.fn();
 
-    render(<AgentSummaryPanel result={result} onSeeAll={onSeeAll} />);
+    render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={onSeeAll} />);
 
     expect(screen.getByText("Nenhuma recomendação de atenção neste período.")).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
@@ -75,7 +84,7 @@ describe("AgentSummaryPanel", () => {
   it('never renders the resguardo-violating substring "garantid" in the impact estimate text (never "economia garantida")', () => {
     const result = buildResult({ investigar: 2 });
 
-    render(<AgentSummaryPanel result={result} onSeeAll={jest.fn()} />);
+    render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={jest.fn()} />);
 
     const impactParagraph = screen.getByText(/Impacto potencial estimado/i);
     expect(impactParagraph.textContent).toBeTruthy();
@@ -88,10 +97,56 @@ describe("AgentSummaryPanel", () => {
     const onSeeAll = jest.fn();
     const result = buildResult({ investigar: 2 });
 
-    render(<AgentSummaryPanel result={result} onSeeAll={onSeeAll} />);
+    render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={onSeeAll} />);
 
     fireEvent.click(screen.getByRole("button", { name: /ver todas as recomendações/i }));
 
     expect(onSeeAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows "R$ em perdas nos casos priorizados" as a fact, separate from and above the impact estimate (adenda 2026-09-23, §15.1)', () => {
+    const result = buildResult({ investigar: 2 }, { valueLostInPrioritizedCasesCents: 45_000 });
+
+    render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={jest.fn()} />);
+
+    expect(screen.getByText("R$ 450,00 em perdas nos casos priorizados.")).toBeInTheDocument();
+  });
+
+  it("escopo Rede: subtítulo mostra a contagem de decisões e de lojas distintas afetadas, contando só linhas com ação acionável (§15.1.1)", () => {
+    const result = buildResult(
+      { suspender_abastecimento: 2, investigar: 1 },
+      {
+        recommendations: [
+          buildRecommendation(1, "suspender_abastecimento"),
+          buildRecommendation(1, "investigar"), // mesma loja da linha acima — não deve contar duas vezes
+          buildRecommendation(2, "suspender_abastecimento"),
+          buildRecommendation(3, "manter"), // ação não-acionável — nunca conta como loja afetada
+        ],
+      },
+    );
+
+    render(<AgentSummaryPanel result={result} scope={NETWORK_SCOPE} onSeeAll={jest.fn()} />);
+
+    expect(screen.getByText("3 decisões recomendadas na operação · 2 lojas afetadas")).toBeInTheDocument();
+  });
+
+  it("escopo Rede com 1 loja afetada usa singular (§15.1.1)", () => {
+    const result = buildResult(
+      { investigar: 1 },
+      { recommendations: [buildRecommendation(5, "investigar")] },
+    );
+
+    render(<AgentSummaryPanel result={result} scope={NETWORK_SCOPE} onSeeAll={jest.fn()} />);
+
+    expect(screen.getByText("1 decisões recomendadas na operação · 1 loja afetada")).toBeInTheDocument();
+  });
+
+  it("escopo Loja: subtítulo nunca mostra contagem de lojas afetadas (§15.1.1)", () => {
+    const result = buildResult({ investigar: 4 });
+
+    render(<AgentSummaryPanel result={result} scope={STORE_SCOPE} onSeeAll={jest.fn()} />);
+
+    expect(screen.getByText("4 decisões recomendadas nesta loja")).toBeInTheDocument();
+    expect(screen.queryByText(/lojas? afetada/)).not.toBeInTheDocument();
   });
 });

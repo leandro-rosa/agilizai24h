@@ -16,8 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StatusBadge } from "@/components/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentSummaryPanel } from "./loss-intelligence/agent-summary-panel";
-import { LossDecisionsTable, type DecisionRowData } from "./loss-intelligence/decisions-table";
+import { ACTION_LABELS, LossDecisionsTable, type DecisionRowData } from "./loss-intelligence/decisions-table";
 import { LossDecisionDrawer } from "./loss-intelligence/decision-drawer";
 import {
   useGetNetworkReconciliationRangeQuery,
@@ -48,7 +49,7 @@ import { analyzeLossIntelligence } from "@/lib/loss-intelligence/engine";
 import { explainRecommendation } from "@/lib/loss-intelligence/explain";
 import { lossBusinessRuleRows } from "@/lib/loss-intelligence/parameter-rows";
 import { RUNTIME_PARAMETERS } from "@/lib/loss-intelligence/parameters";
-import type { LossIntelligenceInput, LossIntelligenceRecommendation } from "@/lib/loss-intelligence/types";
+import type { LossAction, LossIntelligenceInput, LossIntelligenceRecommendation } from "@/lib/loss-intelligence/types";
 import { addMonths, lastCompleteMonth, monthsInRange, type PeriodRange } from "@/lib/period-range";
 import { aggregateAcrossStores } from "@/lib/reconciliation-aggregate";
 import { reasonLabel } from "@/lib/removal-reasons";
@@ -462,7 +463,32 @@ function SkuLossTable({
   );
 }
 
-function ProductStoreMatrixView({ matrix }: { matrix: ReturnType<typeof productStoreMatrix> }) {
+/** Ícone por ação — mesmo vocabulário visual do painel do Agente (`AgentSummaryPanel`'s ACTION_ROWS), §15.5 adenda 2026-09-23. */
+const MATRIX_ACTION_ICON: Record<LossAction, string> = {
+  manter: "🟢",
+  manter_monitorar: "🟢",
+  reduzir_abastecimento: "🟡",
+  investigar: "🟠",
+  suspender_abastecimento: "🔴",
+  avaliar_retirada_loja: "🔴",
+  avaliar_retirada_rede: "⚫",
+  avaliar_permanencia_loja: "🔴",
+  avaliar_permanencia_rede: "⚫",
+  dados_insuficientes: "—",
+};
+
+function ProductStoreMatrixView({
+  matrix,
+  recommendations,
+  onSelectRecommendation,
+}: {
+  matrix: ReturnType<typeof productStoreMatrix>;
+  /** Undefined enquanto o motor ainda não calculou — o modo "Decisão IA" fica desabilitado até então. */
+  recommendations: LossIntelligenceRecommendation[] | undefined;
+  onSelectRecommendation: (recommendation: LossIntelligenceRecommendation) => void;
+}) {
+  const [mode, setMode] = useState<"perdas" | "decisao">("perdas");
+
   const stores = useMemo(() => {
     const map = new Map<number, string>();
     for (const row of matrix) for (const cell of row.cells) map.set(cell.storeId, cell.storeName);
@@ -471,16 +497,34 @@ function ProductStoreMatrixView({ matrix }: { matrix: ReturnType<typeof productS
 
   const maxQuantity = Math.max(1, ...matrix.flatMap((row) => row.cells.map((c) => c.quantity)));
 
+  // §15.5 — troca o que a célula codifica (nunca os dois ao mesmo tempo, para não prejudicar a legibilidade da matriz de Perdas).
+  const recommendationByKey = useMemo(() => {
+    const map = new Map<string, LossIntelligenceRecommendation>();
+    for (const rec of recommendations ?? []) map.set(`${rec.storeId}:${rec.sku}`, rec);
+    return map;
+  }, [recommendations]);
+
   if (matrix.length === 0 || stores.length === 0) {
     return <p className="text-sm text-muted-foreground">Sem produtos com perda em mais de uma loja para comparar.</p>;
   }
 
   return (
     <div>
-      <h3 className="mb-1 text-sm font-medium">Produto × Loja</h3>
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-medium">Produto × Loja</h3>
+        <Tabs value={mode} onValueChange={(v) => setMode(v as "perdas" | "decisao")}>
+          <TabsList>
+            <TabsTrigger value="perdas">Perdas</TabsTrigger>
+            <TabsTrigger value="decisao" disabled={!recommendations}>
+              Decisão IA
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
       <p className="mb-3 text-xs text-muted-foreground">
-        Unidades perdidas. Um produto que some em toda loja é um problema do produto; vários produtos sumindo só numa loja é um
-        problema daquela loja.
+        {mode === "perdas"
+          ? "Unidades perdidas. Um produto que some em toda loja é um problema do produto; vários produtos sumindo só numa loja é um problema daquela loja."
+          : "Status da recomendação do Agente de Perdas por produto e loja. Clique numa célula para ver a análise completa."}
       </p>
       <div className="overflow-x-auto rounded-lg border">
         <Table>
@@ -500,16 +544,40 @@ function ProductStoreMatrixView({ matrix }: { matrix: ReturnType<typeof productS
                 <TableCell className="max-w-[180px] truncate font-medium">{row.name}</TableCell>
                 {stores.map((s) => {
                   const cell = row.cells.find((c) => c.storeId === s.id);
-                  const intensity = cell ? Math.max(0.12, cell.quantity / maxQuantity) : 0;
+                  if (mode === "perdas") {
+                    const intensity = cell ? Math.max(0.12, cell.quantity / maxQuantity) : 0;
+                    return (
+                      <TableCell key={s.id} className="tabular text-center text-xs">
+                        {cell ? (
+                          <span
+                            className="inline-flex min-w-8 justify-center rounded px-1.5 py-0.5"
+                            style={{ backgroundColor: `color-mix(in oklch, var(--destructive) ${intensity * 100}%, transparent)` }}
+                          >
+                            {cell.quantity}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    );
+                  }
+
+                  const rec = recommendationByKey.get(`${s.id}:${row.sku}`);
                   return (
                     <TableCell key={s.id} className="tabular text-center text-xs">
-                      {cell ? (
-                        <span
-                          className="inline-flex min-w-8 justify-center rounded px-1.5 py-0.5"
-                          style={{ backgroundColor: `color-mix(in oklch, var(--destructive) ${intensity * 100}%, transparent)` }}
-                        >
-                          {cell.quantity}
-                        </span>
+                      {rec ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex min-w-8 cursor-pointer justify-center rounded px-1.5 py-0.5 hover:bg-muted"
+                              onClick={() => onSelectRecommendation(rec)}
+                            >
+                              {MATRIX_ACTION_ICON[rec.acaoPrioritaria]}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>{ACTION_LABELS[rec.acaoPrioritaria]}</TooltipContent>
+                        </Tooltip>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
@@ -958,6 +1026,7 @@ export function LossTab({ storeId, range }: { storeId: StoreSelection; range: Pe
               <>
                 <AgentSummaryPanel
                   result={lossIntelligenceResult}
+                  scope={isNetworkScope ? { kind: "network" } : { kind: "store", storeName: scopedStores[0]?.name ?? String(storeId) }}
                   onSeeAll={() => document.getElementById("loss-intelligence-table")?.scrollIntoView({ behavior: "smooth" })}
                 />
                 <div id="loss-intelligence-table">
@@ -975,7 +1044,13 @@ export function LossTab({ storeId, range }: { storeId: StoreSelection; range: Pe
             onOpenChange={(open) => !open && setSelectedRecommendation(null)}
           />
 
-          {isNetworkScope && <ProductStoreMatrixView matrix={matrix} />}
+          {isNetworkScope && (
+            <ProductStoreMatrixView
+              matrix={matrix}
+              recommendations={lossIntelligenceResult?.recommendations}
+              onSelectRecommendation={setSelectedRecommendation}
+            />
+          )}
 
           <RestockSoldLostTable rows={restockSoldLost} />
         </div>

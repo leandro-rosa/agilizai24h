@@ -43,7 +43,14 @@ export function analyzeLossIntelligence(input: LossIntelligenceInput): LossIntel
   const countsByAction = {} as Record<LossAction, number>;
   for (const rec of pass2) countsByAction[rec.acaoPrioritaria] = (countsByAction[rec.acaoPrioritaria] ?? 0) + 1;
 
-  return { recommendations: pass2, countsByAction, impactEstimateCents: computeImpactEstimate(pass2) };
+  const valueLostInPrioritizedCasesCents = sumValueLostInPrioritizedCases(pass2);
+
+  return {
+    recommendations: pass2,
+    countsByAction,
+    valueLostInPrioritizedCasesCents,
+    impactEstimateCents: computeImpactEstimate(valueLostInPrioritizedCasesCents),
+  };
 }
 
 function uniqueStoreSkuPairs(input: LossIntelligenceInput): { storeId: number; sku: string }[] {
@@ -275,12 +282,16 @@ function computeAllNetworkComparisons(pass1: LossIntelligenceRecommendation[], i
   return map;
 }
 
-function computeImpactEstimate(recommendations: LossIntelligenceRecommendation[]): { conservative: number; expected: number; optimistic: number } {
+/** Soma de valueLostCents[motivoDiagnosticoPrioritario] das linhas com ação ≠ manter/dados_insuficientes — o FATO por trás da estimativa de impacto (§15.1, adenda 2026-09-23). */
+function sumValueLostInPrioritizedCases(recommendations: LossIntelligenceRecommendation[]): number {
   const eligible = recommendations.filter((r) => r.acaoPrioritaria !== "manter" && r.acaoPrioritaria !== "dados_insuficientes");
-  const totalValueLostCents = eligible.reduce((sum, r) => {
+  return eligible.reduce((sum, r) => {
     const reason = r.motivoDiagnosticoPrioritario;
     return sum + (reason ? r.metricasObservadas.byReason[reason].valueLostCents : 0);
   }, 0);
+}
+
+function computeImpactEstimate(totalValueLostCents: number): { conservative: number; expected: number; optimistic: number } {
   return {
     conservative: Math.round(totalValueLostCents * IMPACT_SCENARIOS.conservative),
     expected: Math.round(totalValueLostCents * IMPACT_SCENARIOS.expected),

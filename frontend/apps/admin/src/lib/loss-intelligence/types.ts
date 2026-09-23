@@ -201,5 +201,12 @@ export interface LossIntelligenceResult {
   recommendations: LossIntelligenceRecommendation[];
   /** Contagem por acaoPrioritaria — base do painel §15.1. */
   countsByAction: Record<LossAction, number>;
+  /**
+   * FATO: soma de valueLostCents[motivoDiagnosticoPrioritario] das linhas com ação diferente de
+   * manter/dados_insuficientes — o mesmo conjunto que alimenta impactEstimateCents, mas sem
+   * escalar por cenário. Distinto da estimativa: isto já ocorreu, já valorado por finance (§15.1,
+   * adenda 2026-09-23).
+   */
+  valueLostInPrioritizedCasesCents: number;
   impactEstimateCents: { conservative: number; expected: number; optimistic: number };
 }
