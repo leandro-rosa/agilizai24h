@@ -1,4 +1,5 @@
-import type { Confidence, LossIntelligenceParameters, LossIntelligenceResult } from "@/lib/loss-intelligence/types";
+import type { Confidence, LossIntelligenceResult } from "@/lib/loss-intelligence/types";
+import type { LossIntelligenceParameters } from "@/lib/loss-intelligence/parameters";
 import { resolveAnalysisWindow } from "@/lib/loss-intelligence/temporal";
 import type { Product } from "@/lib/api/products";
 import type { Store } from "@/lib/api/stores";

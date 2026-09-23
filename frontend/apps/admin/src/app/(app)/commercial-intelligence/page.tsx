@@ -1,323 +1,181 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 
-import { CombosTab } from "@/components/commercial-intelligence/combos-tab";
-import { DataQualityBanner } from "@/components/commercial-intelligence/data-quality-banner";
-import { FiltersBar, type Comparison, type PeriodOption } from "@/components/commercial-intelligence/filters-bar";
-import { HeldTab } from "@/components/commercial-intelligence/held-tab";
-import { NoTransactionDetail } from "@/components/commercial-intelligence/no-transaction-detail";
-import { OverviewTab } from "@/components/commercial-intelligence/overview-tab";
-import { QualityTab } from "@/components/commercial-intelligence/quality-tab";
-import { RUNTIME_PARAMETERS } from "@/components/commercial-intelligence/runtime-parameters";
-import { BusinessRulesSheet } from "@/components/business-rules-sheet";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
-import { Button } from "@/components/ui/button";
-import { NETWORK, type StoreSelection } from "@/components/store-period-picker";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MixDrawer, type MixDrawerRow } from "@/components/commercial-intelligence/mix/mix-drawer";
+import { MixTable, type MixDisplayRow, type MixOpportunityRow } from "@/components/commercial-intelligence/mix/mix-table";
+import { RestockDrawer } from "@/components/commercial-intelligence/restock/restock-drawer";
+import { RestockPanel } from "@/components/commercial-intelligence/restock/restock-panel";
+import { RestockTable, type RestockDisplayRow } from "@/components/commercial-intelligence/restock/restock-table";
 import { useGetCostsAsOfQuery, useGetProductsQuery } from "@/lib/api/products";
 import { useGetNetworkReconciliationRangeQuery } from "@/lib/api/finance";
-import { useGetNetworkSalesTransactionsQuery, type SalesTransaction, type StoreSalesTransactions } from "@/lib/api/sales";
+import { useGetNetworkSalesByStoreMonthQuery } from "@/lib/api/sales";
+import { useGetNetworkSupplyByStoreMonthQuery } from "@/lib/api/supply";
 import { useGetStoresQuery } from "@/lib/api/stores";
-import { useGetNetworkSupplyRangeQuery } from "@/lib/api/supply";
-import { useHasPermission } from "@/lib/auth/use-permission";
-import {
-  assessAvailability,
-  assessCouponGate,
-  buildDataset,
-  buildLossIndex,
-  buildQualityItems,
-  catalogVocabulary,
-  computeMarginBreakdown,
-  computeScopeKpis,
-  costBySkuFrom,
-  couponBiasDiagnostic,
-  lossFigures,
-  marginAfterLoss,
-  marginByStore,
-  partitionSynthetic,
-  type SourceStatus,
-} from "@/lib/commercial-intelligence";
-import { ALLOW_SYNTHETIC } from "@/lib/commercial-intelligence/env";
-import { commercialBusinessRuleRows } from "@/lib/commercial-intelligence/parameter-rows";
-import { addMonths, lastCompleteMonth, monthsInRange } from "@/lib/period-range";
-import { onlyOk } from "@/lib/sales-insights";
-
-/** Where a secondary source stands, from what the query says and whether the viewer may read it. */
-function sourceStatus(permitted: boolean, query: { isUninitialized: boolean; isLoading: boolean; isFetching: boolean; data?: unknown; error?: unknown }): SourceStatus {
-  if (!permitted) return "no_permission";
-  const status = query.error && typeof query.error === "object" && "status" in query.error ? (query.error as { status: unknown }).status : undefined;
-  if (query.error) return status === 403 ? "no_permission" : "error";
-  if (query.isUninitialized || query.isLoading || (query.isFetching && query.data === undefined)) return "loading";
-  return "ok";
-}
-
-/** The transaction rows of the stores and products that may be analysed; synthetic ones never pass on the real gateway. */
-function usableRows(data: StoreSalesTransactions[] | undefined, storeIds: ReadonlySet<number>, blockedSkus: ReadonlySet<string>): StoreSalesTransactions[] {
-  if (!data) return [];
-  return data
-    .filter((row) => storeIds.has(row.storeId))
-    .map((row) => (blockedSkus.size === 0 ? row : { ...row, transactions: row.transactions.filter((t) => !blockedSkus.has(t.sku)) }));
-}
-
-const inScope = (ok: SalesTransaction[], storeId: StoreSelection): SalesTransaction[] => (storeId === NETWORK || storeId === null ? ok : ok.filter((t) => t.store_id === storeId));
+import { computeMixOpportunities, computeMixRecommendations, type MixEngineInput } from "@/lib/commercial-intelligence/restock-mix/mix/engine";
+import { RUNTIME_MIX_PARAMETERS } from "@/lib/commercial-intelligence/restock-mix/mix/parameters";
+import { computeRestockRecommendations, type RestockEngineInput } from "@/lib/commercial-intelligence/restock-mix/restock/engine";
+import { RUNTIME_RESTOCK_PARAMETERS } from "@/lib/commercial-intelligence/restock-mix/restock/parameters";
+import { analyzeLossIntelligence } from "@/lib/loss-intelligence/engine";
+import { RUNTIME_PARAMETERS } from "@/lib/loss-intelligence/parameters";
+import type { LossIntelligenceInput } from "@/lib/loss-intelligence/types";
+import { addMonths, lastCompleteMonth, type PeriodRange } from "@/lib/period-range";
 
 export default function CommercialIntelligencePage() {
-  const [storeId, setStoreId] = useState<StoreSelection>(NETWORK);
-  const [period, setPeriod] = useState<string>(() => lastCompleteMonth());
-  const [comparison, setComparison] = useState<Comparison>("previous");
+  const { data: stores } = useGetStoresQuery();
+  const { data: products } = useGetProductsQuery();
+  const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
 
-  // One set of parameters for everyone: the deployment's. Nothing that shapes a recommendation is chosen in a browser.
-  const { parameters } = RUNTIME_PARAMETERS;
+  const scopedStores = useMemo(() => stores ?? [], [stores]);
+  const skip = scopedStores.length === 0;
 
-  const canProducts = useHasPermission("products:read");
-  const canFinance = useHasPermission("finance:read");
-  const canSupply = useHasPermission("supply:read");
+  // Mesma janela do Loss Intelligence (Global Constraint) — nunca uma janela própria.
+  const engineAsOfPeriod = lastCompleteMonth();
+  const lookbackMonths = RUNTIME_PARAMETERS.parameters.window.recurrenceLookbackMonths;
+  const engineRange = useMemo<PeriodRange>(() => ({ start: addMonths(engineAsOfPeriod, -(lookbackMonths - 1)), end: engineAsOfPeriod }), [engineAsOfPeriod, lookbackMonths]);
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
-  /* Period: the last 24 complete months plus the running one, labelled as such. */
-  const currentMonth = useMemo(() => addMonths(lastCompleteMonth(), 1), []);
-  const periodOptions = useMemo<PeriodOption[]>(() => {
-    const complete = lastCompleteMonth();
-    const past = monthsInRange({ start: addMonths(complete, -23), end: complete }).reverse();
-    return [{ value: addMonths(complete, 1), inProgress: true }, ...past.map((value) => ({ value, inProgress: false }))];
-  }, []);
-  const periodInProgress = period === currentMonth;
-  const comparePeriod = addMonths(period, -1);
+  const {
+    data: reconciliationRange,
+    isLoading: loadingReconciliation,
+    error,
+    refetch,
+  } = useGetNetworkReconciliationRangeQuery({ stores: scopedStores, range: engineRange }, { skip });
+  const { data: salesByStoreMonth, isLoading: loadingSales } = useGetNetworkSalesByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
+  const { data: supplyByStoreMonth, isLoading: loadingSupply } = useGetNetworkSupplyByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
 
-  /* First wave: what the page cannot render without. */
-  const stores = useGetStoresQuery();
-  const products = useGetProductsQuery();
-  const allStores = useMemo(() => stores.data ?? [], [stores.data]);
+  const allSkusForCost = useMemo(() => [...new Set((salesByStoreMonth ?? []).flatMap((month) => month.bySku.map((row) => row.sku)))], [salesByStoreMonth]);
+  const { data: costsResult } = useGetCostsAsOfQuery({ skus: allSkusForCost, asOf: `${engineAsOfPeriod}-01` }, { skip: allSkusForCost.length === 0 });
+  const costsBySkuAsOf = useMemo(() => {
+    if (!costsResult) return null;
+    const bySku = new Map(costsResult.resolved.map((r) => [r.sku, r.cost_cents]));
+    return (sku: string) => bySku.get(sku) ?? null;
+  }, [costsResult]);
 
-  // The transactions are always fetched at network width and filtered here, so switching the store issues no request.
-  const current = useGetNetworkSalesTransactionsQuery({ stores: allStores, period }, { skip: allStores.length === 0 });
-  const transactionsResolved = current.data !== undefined;
+  const reconciliationByStoreMonth = reconciliationRange?.perStoreMonthly;
 
-  /* Synthetic guard: on the real gateway a marked store or product takes part in nothing. */
-  const storePartition = useMemo(() => partitionSynthetic(allStores, ALLOW_SYNTHETIC), [allStores]);
-  const productPartition = useMemo(() => partitionSynthetic(products.data ?? [], ALLOW_SYNTHETIC), [products.data]);
-  const keptStoreIds = useMemo(() => new Set(storePartition.kept.map((store) => store.id)), [storePartition]);
-  const blockedSkus = useMemo(() => new Set(productPartition.excluded.map((product) => product.sku)), [productPartition]);
-  const productBySku = useMemo(() => new Map(productPartition.kept.map((product) => [product.sku, product])), [productPartition]);
-  const storeNameById = useMemo(() => new Map(allStores.map((store) => [store.id, store.name])), [allStores]);
-  const storeName = useCallback((id: number) => storeNameById.get(id) ?? `Loja ${id}`, [storeNameById]);
-  const categoryOf = useCallback((sku: string) => productBySku.get(sku)?.category ?? "sem categoria", [productBySku]);
+  const lossIntelligenceInput = useMemo<LossIntelligenceInput | null>(() => {
+    if (!reconciliationByStoreMonth || !salesByStoreMonth || !supplyByStoreMonth || !costsBySkuAsOf || scopedStores.length === 0) return null;
+    return {
+      reconciliations: reconciliationByStoreMonth.map((row) => ({
+        store_id: row.storeId,
+        period: row.period,
+        loss_by_reason_sku: row.totals.loss_by_reason_sku.map((entry) => ({ reason: entry.reason, sku: entry.sku, quantity: entry.quantity, value_cents: entry.value_cents })),
+      })),
+      salesByStorePeriodSku: salesByStoreMonth.flatMap((month) => month.bySku.map((row) => ({ store_id: month.storeId, period: month.period, sku: row.sku, quantity_sold: row.quantity_sold, revenue_cents: row.revenue_cents }))),
+      supplyByStorePeriodSku: supplyByStoreMonth.flatMap((month) => month.restocks.map((row) => ({ store_id: month.storeId, period: month.period, sku: row.sku, quantity_restocked: row.quantity_restocked }))),
+      costsBySkuAsOf,
+      stores: scopedStores.map((s) => ({ id: s.id, name: s.name })),
+      today,
+      parameters: RUNTIME_PARAMETERS.parameters,
+    };
+  }, [reconciliationByStoreMonth, salesByStoreMonth, supplyByStoreMonth, costsBySkuAsOf, scopedStores, today]);
 
-  const currentRows = useMemo(() => usableRows(current.data, keptStoreIds, blockedSkus), [current.data, keptStoreIds, blockedSkus]);
-  const okAll = useMemo(() => onlyOk(currentRows.flatMap((row) => row.transactions)), [currentRows]);
-  const networkSkus = useMemo(() => [...new Set(okAll.map((t) => t.sku))].sort(), [okAll]);
+  const lossResult = useMemo(() => (lossIntelligenceInput ? analyzeLossIntelligence(lossIntelligenceInput) : null), [lossIntelligenceInput]);
 
-  /* Second wave: only after the transactions resolve, to keep the first visit from opening ~100 requests at once. */
-  const previous = useGetNetworkSalesTransactionsQuery({ stores: allStores, period: comparePeriod }, { skip: !transactionsResolved || comparison === "none" });
-  const previousRows = useMemo(() => usableRows(previous.data, keptStoreIds, blockedSkus), [previous.data, keptStoreIds, blockedSkus]);
-  const okPrevious = useMemo(() => onlyOk(previousRows.flatMap((row) => row.transactions)), [previousRows]);
-  const previousSkus = useMemo(() => [...new Set(okPrevious.map((t) => t.sku))].sort(), [okPrevious]);
+  const restockRecommendations = useMemo(() => {
+    if (!lossResult || !products || !salesByStoreMonth || !supplyByStoreMonth || !reconciliationByStoreMonth) return [];
+    const input: RestockEngineInput = {
+      stores: scopedStores, products, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, lossResult, today,
+      lossParameters: RUNTIME_PARAMETERS.parameters, restockParameters: RUNTIME_RESTOCK_PARAMETERS.parameters,
+    };
+    return computeRestockRecommendations(input);
+  }, [lossResult, products, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, scopedStores, today]);
 
-  // Costs are dated: the margin of each period uses the cost as it stood then. Keyed on the network's SKUs, so a store switch never refetches.
-  const costs = useGetCostsAsOfQuery({ skus: networkSkus, asOf: `${period}-01` }, { skip: !canProducts || networkSkus.length === 0 });
-  const costsPrevious = useGetCostsAsOfQuery({ skus: previousSkus, asOf: `${comparePeriod}-01` }, { skip: !canProducts || previousSkus.length === 0 || comparison === "none" });
-  const reconciliation = useGetNetworkReconciliationRangeQuery(
-    { stores: allStores, range: { start: addMonths(period, -5), end: period } },
-    { skip: !transactionsResolved || !canFinance },
-  );
-  const supply = useGetNetworkSupplyRangeQuery({ stores: allStores, range: { start: period, end: period } }, { skip: !transactionsResolved || !canSupply });
+  const mixEngineInput = useMemo<MixEngineInput | null>(() => {
+    if (!lossResult || !products || !salesByStoreMonth || !supplyByStoreMonth || !reconciliationByStoreMonth || !costsBySkuAsOf) return null;
+    return {
+      stores: scopedStores, products, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, lossResult, today,
+      lossParameters: RUNTIME_PARAMETERS.parameters, mixParameters: RUNTIME_MIX_PARAMETERS.parameters, costsBySkuAsOf,
+    };
+  }, [lossResult, products, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, costsBySkuAsOf, scopedStores, today]);
 
-  const costsStatus = sourceStatus(canProducts, costs);
-  const reconciliationStatus = sourceStatus(canFinance, reconciliation);
-  const supplyStatus = sourceStatus(canSupply, supply);
+  const mixRecommendations = useMemo(() => (mixEngineInput ? computeMixRecommendations(mixEngineInput) : []), [mixEngineInput]);
+  const mixOpportunities = useMemo(() => (mixEngineInput ? computeMixOpportunities(mixEngineInput) : []), [mixEngineInput]);
 
-  /* The measurement layer. */
-  const dataset = useMemo(() => buildDataset(currentRows, parameters), [currentRows, parameters]);
-  const gate = useMemo(() => assessCouponGate(dataset, parameters), [dataset, parameters]);
-  const diagnostic = useMemo(() => couponBiasDiagnostic(dataset.lines, categoryOf), [dataset, categoryOf]);
+  const nameBySku = useMemo(() => new Map((products ?? []).map((p) => [p.sku, p.name])), [products]);
+  const storeById = useMemo(() => new Map(scopedStores.map((s) => [s.id, s])), [scopedStores]);
+  const storeName = useCallback((id: number) => storeById.get(id)?.name ?? String(id), [storeById]);
 
-  const okScope = useMemo(() => inScope(okAll, storeId), [okAll, storeId]);
-  const okPreviousScope = useMemo(() => inScope(okPrevious, storeId), [okPrevious, storeId]);
-  const scopeStoreIds = useMemo(() => [...new Set(okScope.map((t) => t.store_id))].sort((a, b) => a - b), [okScope]);
-  const previousScopeStoreIds = useMemo(() => [...new Set(okPreviousScope.map((t) => t.store_id))].sort((a, b) => a - b), [okPreviousScope]);
+  const restockDisplayRows: RestockDisplayRow[] = useMemo(() => {
+    if (selectedStoreId === null) return [];
+    const recomendacoes: RestockDisplayRow[] = restockRecommendations
+      .filter((r) => r.storeId === selectedStoreId)
+      .map((r) => ({ kind: "recomendacao", productLabel: nameBySku.get(r.sku) ?? r.sku, storeName: storeName(r.storeId), data: r }));
+    const oportunidades: RestockDisplayRow[] = mixOpportunities
+      .filter((o) => o.storeId === selectedStoreId)
+      .map((o) => ({ kind: "oportunidade", productLabel: nameBySku.get(o.sku) ?? o.sku, storeName: storeName(o.storeId), data: o }));
+    return [...recomendacoes, ...oportunidades];
+  }, [restockRecommendations, mixOpportunities, selectedStoreId, nameBySku, storeName]);
 
-  const costBySku = useMemo(() => costBySkuFrom(costs.data?.resolved), [costs.data]);
-  const costBySkuPrevious = useMemo(() => costBySkuFrom(costsPrevious.data?.resolved), [costsPrevious.data]);
-  const kpis = useMemo(() => computeScopeKpis(okScope, costBySku), [okScope, costBySku]);
+  const mixDisplayRows: MixDisplayRow[] = useMemo(() => {
+    if (selectedStoreId === null) return [];
+    return mixRecommendations.filter((r) => r.storeId === selectedStoreId).map((r) => ({ productLabel: nameBySku.get(r.sku) ?? r.sku, storeName: storeName(r.storeId), data: r }));
+  }, [mixRecommendations, selectedStoreId, nameBySku, storeName]);
 
-  // A comparison month with no rows is "Sem comparação", the same as one that failed: neither blocks the current period.
-  const comparisonUsable = comparison === "previous" && previous.data !== undefined && okPrevious.length > 0;
-  const kpisPrevious = useMemo(() => (comparisonUsable ? computeScopeKpis(okPreviousScope, costBySkuPrevious) : null), [comparisonUsable, okPreviousScope, costBySkuPrevious]);
-  const comparisonMissing = comparison === "previous" && !previous.isLoading && !previous.isUninitialized && !comparisonUsable;
+  const mixOpportunityRows: MixOpportunityRow[] = useMemo(() => {
+    if (selectedStoreId === null) return [];
+    return mixOpportunities.filter((o) => o.storeId === selectedStoreId).map((o) => ({ productLabel: nameBySku.get(o.sku) ?? o.sku, storeName: storeName(o.storeId), data: o }));
+  }, [mixOpportunities, selectedStoreId, nameBySku, storeName]);
 
-  const lossIndex = useMemo(() => buildLossIndex(reconciliation.data?.perStoreMonthly ?? [], period), [reconciliation.data, period]);
-  const lossIndexPrevious = useMemo(() => buildLossIndex(reconciliation.data?.perStoreMonthly ?? [], comparePeriod), [reconciliation.data, comparePeriod]);
-  const afterLossCurrent = useMemo(
-    () => marginAfterLoss(scopeStoreIds, marginByStore(okScope, costBySku), lossFigures(lossIndex)),
-    [scopeStoreIds, okScope, costBySku, lossIndex],
-  );
-  const afterLossPrevious = useMemo(
-    () => (comparisonUsable ? marginAfterLoss(previousScopeStoreIds, marginByStore(okPreviousScope, costBySkuPrevious), lossFigures(lossIndexPrevious)) : null),
-    [comparisonUsable, previousScopeStoreIds, okPreviousScope, costBySkuPrevious, lossIndexPrevious],
-  );
+  const [selectedRestockRow, setSelectedRestockRow] = useState<RestockDisplayRow | null>(null);
+  const [selectedMixRow, setSelectedMixRow] = useState<MixDrawerRow | null>(null);
 
-  const vocabulary = useMemo(() => catalogVocabulary(okScope.map((t) => t.sku), categoryOf, parameters), [okScope, categoryOf, parameters]);
-  const storesWithoutDetail = useMemo(
-    () => storePartition.kept.filter((store) => (dataset.stores.get(store.id)?.okLines ?? 0) === 0).map((store) => store.name),
-    [storePartition, dataset],
-  );
-
-  /* Availability: whether each analysis can run on the network's data, and why (D19). */
-  const networkMargin = useMemo(() => computeMarginBreakdown(okAll, costBySku), [okAll, costBySku]);
-  const networkStoreIds = useMemo(() => [...dataset.stores.values()].filter((store) => store.okLines > 0).map((store) => store.storeId), [dataset]);
-  const monthsWithDetail = dataset.lines.length > 0 ? 1 + (comparisonUsable ? 1 : 0) : 0;
-  const selectedStoreForAvailability = storeId === NETWORK || storeId === null ? null : storeId;
-  const availability = useMemo(
-    () =>
-      assessAvailability(
-        {
-          gate,
-          dataset,
-          margin: networkMargin,
-          costs: costsStatus,
-          reconciliation: reconciliationStatus,
-          lossIndex,
-          scopeStoreIds: networkStoreIds,
-          monthsWithDetail,
-          selectedStoreId: selectedStoreForAvailability,
-        },
-        parameters,
-      ),
-    [gate, dataset, networkMargin, costsStatus, reconciliationStatus, lossIndex, networkStoreIds, monthsWithDetail, selectedStoreForAvailability, parameters],
-  );
-
-  const qualityItems = useMemo(
-    () =>
-      buildQualityItems(
-        {
-          gate,
-          margin: kpis.margin,
-          costs: costsStatus,
-          reconciliation: reconciliationStatus,
-          supply: supplyStatus,
-          lossIndex,
-          scopeStoreIds,
-          storesWithoutDetail,
-          storeName,
-          vocabulary,
-          periodInProgress,
-          comparisonMissing,
-          synthetic: {
-            excludedStores: storePartition.excluded.map((store) => store.name),
-            excludedProducts: productPartition.excluded.map((product) => product.name),
-            allowed: ALLOW_SYNTHETIC,
-          },
-          parameterWarnings: RUNTIME_PARAMETERS.warnings,
-        },
-        parameters,
-      ),
-    [gate, kpis.margin, costsStatus, reconciliationStatus, supplyStatus, lossIndex, scopeStoreIds, storesWithoutDetail, storeName, vocabulary, periodInProgress, comparisonMissing, storePartition, productPartition, parameters],
-  );
-
-  /* Page-level state. Losing the transactions (or the catalog they are read against) is the only thing that stops the page. */
-  const isLoading = stores.isLoading || products.isLoading || current.isLoading;
-  const error = current.error ?? stores.error ?? products.error;
-  // No completed line at all — a period before the per-store network format, or no store — reads as an explained empty state, never as zeros.
-  const isEmpty = !isLoading && !error && dataset.lines.length === 0;
-  const retry = () => {
-    if (stores.error) void stores.refetch();
-    if (products.error) void products.refetch();
-    if (current.error) void current.refetch();
-  };
-
-  const selectedStoreId = storeId === NETWORK || storeId === null ? null : storeId;
-  const scopeLabel = selectedStoreId === null ? "Rede" : storeName(selectedStoreId);
+  const isLoading = loadingReconciliation || loadingSales || loadingSupply;
+  const isEmpty = !isLoading && !error && selectedStoreId !== null && restockDisplayRows.length === 0 && mixDisplayRows.length === 0;
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Inteligência Comercial"
-        description="O que a rede vende junto, o que falta no carrinho, quais produtos rendem de verdade e onde as lojas se comportam diferente — sempre com a evidência, a confiança e o que não se sabe. Só sugere: nada é aplicado sozinho."
-        actions={
-          <>
-            <BusinessRulesSheet
-              description="Decisões da empresa que mudam o que a inteligência recomenda. Valem para toda a operação: não são ajustes deste navegador."
-              rows={commercialBusinessRuleRows(parameters)}
-              calibrationHref="/commercial-intelligence/calibration"
-            />
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/commercial-intelligence/calibration">Configurações avançadas / calibração</Link>
-            </Button>
-          </>
-        }
+        description="A IA analisa vendas, abastecimentos, margem e perdas para sugerir o que levar para cada loja e quais produtos deveriam existir nela."
       />
 
-      <FiltersBar
-        stores={storePartition.kept}
-        storeId={storeId}
-        onStoreChange={setStoreId}
-        periodOptions={periodOptions}
-        period={period}
-        onPeriodChange={setPeriod}
-        comparison={comparison}
-        onComparisonChange={setComparison}
-      />
+      <Select value={selectedStoreId === null ? undefined : String(selectedStoreId)} onValueChange={(value) => setSelectedStoreId(Number(value))}>
+        <SelectTrigger className="w-64">
+          <SelectValue placeholder="Selecione a loja" />
+        </SelectTrigger>
+        <SelectContent>
+          {scopedStores.map((s) => (
+            <SelectItem key={s.id} value={String(s.id)}>
+              {s.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
-      {/* When nothing is left to analyse, the reason still has to be visible: excluded synthetic data must not read as "no data". */}
-      {isEmpty && <DataQualityBanner items={qualityItems.filter((item) => item.id.startsWith("synthetic") || item.id === "parameter-warnings")} />}
-
-      {isEmpty ? (
-        <NoTransactionDetail periodInProgress={periodInProgress} />
+      {selectedStoreId === null ? (
+        <p className="text-sm text-muted-foreground">Selecione uma loja para ver as recomendações de abastecimento e mix.</p>
       ) : (
-        <RequestState
-          isLoading={isLoading}
-          error={error}
-          onRetry={retry}
-          loadingRows={6}
-        >
-          <div className="flex flex-col gap-4">
-            <p className="text-xs text-muted-foreground">
-              Escopo: <strong className="font-medium text-foreground">{scopeLabel}</strong> · {scopeStoreIds.length} {scopeStoreIds.length === 1 ? "loja" : "lojas"} com detalhe de transação
-            </p>
+        <RequestState isLoading={isLoading} error={error} isEmpty={isEmpty} emptyMessage="Sem dados suficientes nesta loja para calcular recomendações." onRetry={refetch}>
+          <Tabs defaultValue="abastecimento" className="gap-6">
+            <TabsList>
+              <TabsTrigger value="abastecimento">Abastecimento Inteligente</TabsTrigger>
+              <TabsTrigger value="mix">Mix das Lojas</TabsTrigger>
+            </TabsList>
 
-            <DataQualityBanner items={qualityItems} />
+            <TabsContent value="abastecimento" className="flex flex-col gap-4">
+              <p className="text-sm text-muted-foreground">A IA analisa vendas, abastecimentos, margem e perdas para sugerir o que levar para cada loja.</p>
+              <RestockPanel rows={restockDisplayRows} />
+              <RestockTable rows={restockDisplayRows} onSelect={setSelectedRestockRow} />
+              <RestockDrawer row={selectedRestockRow} open={selectedRestockRow !== null} onOpenChange={(open) => !open && setSelectedRestockRow(null)} />
+            </TabsContent>
 
-            <Tabs defaultValue="overview" className="gap-4">
-              <TabsList className="h-auto flex-wrap justify-start">
-                <TabsTrigger value="overview">Visão geral</TabsTrigger>
-                <TabsTrigger value="combos">Combos &amp; Cross-sell</TabsTrigger>
-                <TabsTrigger value="products">Produtos</TabsTrigger>
-                <TabsTrigger value="behavior">Comportamento</TabsTrigger>
-                <TabsTrigger value="stores">Lojas</TabsTrigger>
-                <TabsTrigger value="quality">Qualidade dos dados</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="overview">
-                <OverviewTab
-                  parameters={parameters}
-                  scopeEmpty={okScope.length === 0}
-                  scopeLabel={scopeLabel}
-                  comparisonRequested={comparison === "previous"}
-                  current={kpis}
-                  previous={kpisPrevious}
-                  costs={costsStatus}
-                  afterLoss={{ status: reconciliationStatus, current: afterLossCurrent, previous: afterLossPrevious }}
-                />
-              </TabsContent>
-              <TabsContent value="combos">
-                <CombosTab gate={gate} diagnostic={diagnostic} parameters={parameters} storeName={storeName} selectedStoreId={selectedStoreId} />
-              </TabsContent>
-              <TabsContent value="products">
-                <HeldTab title="Produtos com maior retorno financeiro" what="A classificação dos produtos pelo retorno depois das perdas — estrelas, motores de resultado, volume sem retorno, potencial subexplorado —, sempre relativa ao escopo." />
-              </TabsContent>
-              <TabsContent value="behavior">
-                <HeldTab title="Comportamento por horário" what="O mapa de dia da semana × hora, as faixas do dia por categoria e as regras de concentração e de adesão por faixa." />
-              </TabsContent>
-              <TabsContent value="quality">
-                <QualityTab availability={availability} />
-              </TabsContent>
-              <TabsContent value="stores">
-                <HeldTab title="Lojas e lojas parecidas" what="O perfil de cada loja, comparada com as lojas de padrão de demanda parecido e com a referência da rede." />
-              </TabsContent>
-            </Tabs>
-          </div>
+            <TabsContent value="mix" className="flex flex-col gap-4">
+              <p className="text-sm text-muted-foreground">Quais produtos deveriam existir nesta loja, com base em tendência, participação na rede e margem.</p>
+              <MixTable
+                rows={mixDisplayRows}
+                opportunities={mixOpportunityRows}
+                onSelect={(row) => setSelectedMixRow({ variant: "recomendacao", ...row })}
+                onSelectOpportunity={(row) => setSelectedMixRow({ variant: "oportunidade", ...row })}
+              />
+              <MixDrawer row={selectedMixRow} open={selectedMixRow !== null} onOpenChange={(open) => !open && setSelectedMixRow(null)} />
+            </TabsContent>
+          </Tabs>
         </RequestState>
       )}
     </div>
