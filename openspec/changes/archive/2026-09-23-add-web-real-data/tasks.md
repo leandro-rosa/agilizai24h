@@ -42,29 +42,31 @@
 
 ## 6. Upload UI
 
-- [ ] 6.1 Add an upload screen supporting the three file types, requiring store and period before submission
-- [ ] 6.2 Confirm acceptance immediately, without waiting for parsing
-- [ ] 6.3 Show upload rejections (size, format, type mismatch) in actionable terms
-- [ ] 6.4 Add an ingestion list and detail view showing status through to a terminal state
-- [ ] 6.5 Present a partially completed import as partial, with accepted and rejected row counts
-- [ ] 6.6 Make rejected rows readable, each identifying the row and what to fix in the file
+- [x] 6.1 Add an upload screen supporting the three file types, requiring store and period before submission — `UploadCard` in `src/app/(app)/ingestion/page.tsx`; period is always required, store is required for `cost` and the old per-store `sales` export but deliberately optional for the network-wide `sales` export (the browser cannot tell which format a file is before the server parses it) and absent for `supply` (one workbook covers the whole network) — a documented deviation from the literal wording, not a gap
+- [x] 6.2 Confirm acceptance immediately, without waiting for parsing — `onSubmit` toasts success on the 201 response; the gateway persists to S3 and returns before any queue processing (`ingestion.controller.ts`)
+- [x] 6.3 Show upload rejections (size, format, type mismatch) in actionable terms — format/field/lock-file rejections already surfaced via `toast.error` with the backend's message; added: the `Ingestion.error` field (set for `failed`/type-mismatch ingestions discovered async, after the accepted response) is now rendered in the detail dialog, which previously showed only rejection rows and fell back to "Nenhuma linha rejeitada" even when a failed import had no rows but a real error
+- [x] 6.4 Add an ingestion list and detail view showing status through to a terminal state — list and dialog already existed; added polling (same lint-safe boolean-derived-effect + `setInterval` pattern as `DriveFilesSection`, 3s interval, gives up after 15min) so `accepted`/`processing` rows reach `completed`/`partially_completed`/`failed` without a manual reload
+- [x] 6.5 Present a partially completed import as partial, with accepted and rejected row counts — dedicated badge/color plus `accepted_rows`/`rejected_rows` columns
+- [x] 6.6 Make rejected rows readable, each identifying the row and what to fix in the file — `row_reference`/`reason`/`detail` per rejection in the detail dialog
 
 ## 7. Cleanup
 
-- [ ] 7.1 Delete `src/mocks/` and `mockBaseQuery` once every domain is connected — not before, so the migration can proceed domain by domain
+- [x] 7.1 Delete `src/mocks/` and `mockBaseQuery` once every domain is connected — not before, so the migration can proceed domain by domain — already done; `src/mocks/` does not exist and no reference to it or `mockBaseQuery` remains (confirmed by 7.2's grep); checkbox was just stale
 - [x] 7.2 Confirm no fixture or placeholder data source remains anywhere in the app — `grep -rl "@/mocks\|mockBaseQuery" src/` returns nothing
 - [x] 7.3 Update `frontend/apps/admin/CLAUDE.md`: the mock seam, the no-auth note and the list-only note are all now obsolete
 - [x] 7.4 Update `frontend/CLAUDE.md` where it describes the panel as mock-backed
 
 ## 8. Tests
 
-- [ ] 8.1 Tests for the auth flow: redirect when unauthenticated, successful login, generic failure message, expiry returning to login, logout
-- [ ] 8.2 Test that a 403 shows a permission message and does not log the operator out
-- [ ] 8.3 Tests for each of loading, empty, error and forbidden states on a representative screen
-- [ ] 8.4 Test that an incomplete reconciliation is visibly marked where its figures are shown
-- [ ] 8.5 Test that negative stock renders as negative and flagged, not zero
-- [ ] 8.6 Test the upload flow including a partially completed import with readable rejected rows
-- [ ] 8.7 End-to-end test against the running stack: log in, upload the three files, and read the resulting reconciliation
+- [~] 8.1 Tests for the auth flow: redirect when unauthenticated, successful login, generic failure message, expiry returning to login, logout
+- [~] 8.2 Test that a 403 shows a permission message and does not log the operator out
+- [~] 8.3 Tests for each of loading, empty, error and forbidden states on a representative screen
+- [~] 8.4 Test that an incomplete reconciliation is visibly marked where its figures are shown
+- [~] 8.5 Test that negative stock renders as negative and flagged, not zero
+- [~] 8.6 Test the upload flow including a partially completed import with readable rejected rows
+- [~] 8.7 End-to-end test against the running stack: log in, upload the three files, and read the resulting reconciliation
+
+**Known gap carried forward (all of 8.1-8.7):** zero test infrastructure exists in `frontend/apps/admin` today — no `*.test.ts(x)`, no vitest/jest/playwright config, no test-related dependency, no `test` script. Every one of the 21 routes has been verified manually, live, against the real stack instead (see `frontend/apps/admin/CLAUDE.md`'s "Gaps conhecidos" and the Commercial Intelligence section, which already names the follow-up `add-admin-test-runner`). Building this app's first test suite — choosing the framework, wiring CI, and writing all 7 cases including a real E2E run — is a substantial, separate piece of work that the project's own documentation already earmarks as its own OpenSpec change rather than a tail end of this one. Scoped out of `add-web-real-data`; tracked as `add-admin-test-runner`.
 
 ## 9. Verification
 
@@ -72,4 +74,4 @@
 - [x] 9.2 `agiliz-cli up` brings the full stack up, and the panel works against it end to end — verified live via browser automation against the real production stack: login, dashboard (27 stores, 238 products), sales (real per-store totals and rows), finance (all five figures, real incomplete-reconciliation case), inventory (real negative-stock flagging), logout
 - [x] 9.3 Confirm no request from the panel reaches any service other than the gateway — every `src/lib/api/*.ts` slice uses `gatewayBaseQuery`, which has one `baseUrl` (`NEXT_PUBLIC_GATEWAY_URL`); no other service URL appears anywhere in `frontend/apps/admin/src`
 - [x] 9.4 Confirm the session cookie is not readable by page scripts — `httpOnly: true` in `AuthController.login` (unchanged, pre-existing), and no panel code reads `document.cookie`
-- [ ] 9.5 `openspec validate add-web-real-data --strict` passes — pending, run once tasks 6 and 8 land or are explicitly deferred
+- [x] 9.5 `openspec validate add-web-real-data --strict` passes — passes with tasks 6/7 complete and 8 explicitly scoped out to `add-admin-test-runner`

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -43,6 +43,10 @@ const STATUS_LABELS: Record<IngestionStatus, string> = {
 };
 
 const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+
+/** Mesmo padrão de polling lint-safe do `DriveFilesSection`: intervalo de 3s, desiste após 15min contínuos. */
+const POLL_INTERVAL_MS = 3_000;
+const POLL_GIVE_UP_MS = 15 * 60_000;
 
 const ingestionSchema = z
   .object({
@@ -237,6 +241,25 @@ function IngestionHistory() {
 
   const nameByStoreId = new Map((stores ?? []).map((store) => [store.id, store.name]));
 
+  // Uma ingestão fica "Aceito"/"Processando" enquanto o worker ainda não terminou — sem isso,
+  // o status só muda ao recarregar a página manualmente.
+  const shouldPoll = canRead && (ingestions ?? []).some((ingestion) => ingestion.status === "accepted" || ingestion.status === "processing");
+
+  useEffect(() => {
+    if (!shouldPoll) return;
+    let startedAt: number | null = null;
+    const id = setInterval(() => {
+      const now = Date.now();
+      startedAt ??= now;
+      if (now - startedAt > POLL_GIVE_UP_MS) {
+        clearInterval(id);
+        return;
+      }
+      void refetch();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [shouldPoll, refetch]);
+
   return (
     <>
       <div className="rounded-lg border">
@@ -293,33 +316,40 @@ function IngestionHistory() {
             <p className="text-sm text-muted-foreground">Carregando...</p>
           ) : detailError ? (
             <p className="text-sm text-destructive">Não foi possível carregar o detalhe desta ingestão.</p>
-          ) : detail && detail.rejections.length > 0 ? (
+          ) : detail ? (
             <>
-              {detail.rejected_rows > 100 && <p className="text-xs text-muted-foreground">Mostrando as 100 primeiras rejeições.</p>}
-              <div className="max-h-96 overflow-y-auto rounded-lg border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Linha</TableHead>
-                      <TableHead>Motivo</TableHead>
-                      <TableHead>Detalhe</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {detail.rejections.map((rejection) => (
-                      <TableRow key={rejection.id}>
-                        <TableCell className="font-mono text-xs">{rejection.row_reference}</TableCell>
-                        <TableCell>{rejection.reason}</TableCell>
-                        <TableCell>{rejection.detail}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              {detail.error && (
+                <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{detail.error}</p>
+              )}
+              {detail.rejections.length > 0 ? (
+                <>
+                  {detail.rejected_rows > 100 && <p className="text-xs text-muted-foreground">Mostrando as 100 primeiras rejeições.</p>}
+                  <div className="max-h-96 overflow-y-auto rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Linha</TableHead>
+                          <TableHead>Motivo</TableHead>
+                          <TableHead>Detalhe</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {detail.rejections.map((rejection) => (
+                          <TableRow key={rejection.id}>
+                            <TableCell className="font-mono text-xs">{rejection.row_reference}</TableCell>
+                            <TableCell>{rejection.reason}</TableCell>
+                            <TableCell>{rejection.detail}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              ) : (
+                !detail.error && <p className="text-sm text-muted-foreground">Nenhuma linha rejeitada.</p>
+              )}
             </>
-          ) : (
-            <p className="text-sm text-muted-foreground">Nenhuma linha rejeitada.</p>
-          )}
+          ) : null}
         </DialogContent>
       </Dialog>
     </>
