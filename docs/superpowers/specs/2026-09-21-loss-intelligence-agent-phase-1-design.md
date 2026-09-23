@@ -357,7 +357,7 @@ Todos com `isProvisional: true` — mesma bandeira de `commercial-intelligence`,
 
 ```
 ✦ Agente de Perdas
-N decisões recomendadas
+N decisões recomendadas [ · M lojas afetadas, só quando o escopo é Rede — §15.1.1 ]
 
 🔴 X suspender abastecimento
 🟡 X reduzir abastecimento
@@ -367,6 +367,9 @@ N decisões recomendadas
 ⚫ X avaliar permanência na rede (Outro motivo)
 🔴 X avaliar permanência na loja (Outro motivo)
 
+R$ Z em perdas nos casos priorizados (soma de valueLostCents[motivoDiagnosticoPrioritario] das
+linhas com ação ≠ manter/dados_insuficientes — FATO observado, já valorado por finance)
+
 Impacto potencial estimado: R$ X–Y/mês em perdas potencialmente evitáveis
 (nunca "economia garantida" — mesmo texto de resguardo do "Estimativa de impacto" da Inteligência Comercial)
 
@@ -374,6 +377,17 @@ Impacto potencial estimado: R$ X–Y/mês em perdas potencialmente evitáveis
 ```
 
 Contagens vêm de `acaoPrioritaria` de cada linha (não conta ações secundárias, para não inflar o total). O intervalo de impacto usa os mesmos três cenários (conservador/esperado/otimista) já com precedente em `commercial-intelligence` — aplicados sobre a soma de `valueLostCents` das linhas com ação diferente de "manter"/"dados insuficientes".
+
+**Adenda 2026-09-23 (pedido do operador — dois campos que estavam faltando):** o painel original só mostrava a estimativa de impacto (uma projeção). Falta um segundo número, distinto e rotulado como FATO: quanto já foi perdido, de verdade, nas linhas que entraram nas decisões priorizadas — não é o mesmo conceito que a estimativa (que é potencial futuro evitável) e não substitui nenhum KPI existente (que soma por motivo/loja, não por "caso priorizado pelo agente"). Adicionado como linha própria acima da estimativa, rotulado explicitamente como valor já ocorrido.
+
+#### 15.1.1 Copy adaptativa por escopo Rede × Loja (adenda 2026-09-23)
+
+O painel deve responder à pergunta certa para o escopo selecionado — mesmo princípio que já vale para o resto da aba (`frontend/apps/admin/CLAUDE.md`, "Loja vs rede é comparação de primeira classe"):
+
+- **Escopo Rede** ("Rede — todas as lojas" selecionado): título/subtítulo reforça "quais decisões precisam de atenção na operação", e o subtítulo ganha a contagem de lojas distintas afetadas (`storeId` distintos entre as linhas com `acaoPrioritaria ≠ manter/dados_insuficientes`) ao lado do total de decisões — ex. "17 decisões · 8 lojas afetadas".
+- **Escopo Loja** (uma loja específica selecionada): título/subtítulo reforça "quais decisões preciso tomar nesta loja" — sem a contagem de lojas (é sempre 1, não informativo).
+- Implementação: o componente já recebe `result` pronto (calculado sobre `scopedStores`, task 21); só precisa de uma prop nova, `scope: "network" | { storeId: number; storeName: string }`, para escolher o texto — **nenhum novo cálculo no motor**, é formatação de UI sobre o mesmo `result`.
+- Filtros que a Inteligência de Perdas usa continuam sendo os mesmos filtros já existentes da aba (Rede/Loja no topo da página) — nunca um filtro paralelo (mesma regra que já vale para toda a aba Perdas).
 
 ### 15.2 Tabela "Produtos que exigem decisão"
 
@@ -398,6 +412,20 @@ em {monthsWithRestock} meses com abastecimento nos últimos {primaryWindowMonths
 ```
 
 Isso cumpre o §21 do pedido ("motor primeiro, texto depois") sem esperar por uma integração de LLM — a Fase 3 (chat) é quem eventualmente troca o template por geração real, consultando os mesmos campos estruturados, nunca inventando um número que não esteja em `metricasObservadas`.
+
+### 15.5 Modo "Decisão IA" na matriz Produto × Loja (adenda 2026-09-23)
+
+Pedido do operador: reaproveitar a matriz Produto×Loja existente (`ProductStoreMatrixView`) em vez de criar uma segunda matriz, com um seletor de modo:
+
+```
+[Perdas] [Decisão IA]
+```
+
+- **Modo Perdas**: comportamento atual, sem nenhuma mudança — é o padrão selecionado ao abrir a aba.
+- **Modo Decisão IA**: cada célula Produto×Loja passa a mostrar o status da recomendação daquele par (cor/ícone, não necessariamente o texto inteiro dentro da célula — tooltip com o resumo): 🟢 Manter, 🟡 Reduzir, 🟠 Investigar, 🔴 Suspender, ⚫ Avaliar (retirada ou permanência, o tooltip distingue), `—` Sem sinal relevante (célula sem diagnóstico, ex. motivo sem perda no período). O mapeamento de `LossAction` → cor/ícone é o mesmo do painel do Agente (§15.1) e da tabela de decisões (§15.2) — vocabulário visual único em toda a seção.
+- Clicar numa célula em modo Decisão IA abre o mesmo drawer de drill-down do §15.3 (reaproveita `LossDecisionDrawer`, não cria um segundo).
+- **Condição explícita do pedido**: só entra na implementação se não prejudicar a legibilidade/usabilidade da matriz existente — a matriz atual (`ProductStoreMatrixView`) já codifica informação por cor/intensidade (motivo predominante, ver `product-store-matrix.tsx`); o modo novo troca o que a célula codifica, não empilha os dois ao mesmo tempo. Decisão de implementação (não de design): confirmar visualmente, ao construir, que a legenda e o contraste do modo novo não colidem com o modo existente antes de considerar a tarefa concluída — se colidir, a alternativa é a mesma matriz com uma coluna/indicador extra em vez de recolorir a célula inteira, a decidir na hora com uma captura de tela das duas opções.
+- **Não substitui a matriz de Perdas** — o seletor troca o que é mostrado, nunca remove a opção "Perdas".
 
 ## 16. Cálculo de prioridade
 

@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
-import { ParameterCatalog } from "@/components/commercial-intelligence/parameter-catalog";
 import { RUNTIME_PARAMETERS } from "@/components/commercial-intelligence/runtime-parameters";
+import { ParameterCatalog } from "@/components/parameter-catalog";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LOGIC_VERSION } from "@/lib/commercial-intelligence/logic-version";
-import { DEFAULT_PARAMETERS, PARAMETER_PATHS } from "@/lib/commercial-intelligence/parameters";
+import { PARAMETER_PATHS } from "@/lib/commercial-intelligence/parameters";
+import { commercialParameterCatalogSections } from "@/lib/commercial-intelligence/parameter-rows";
 
 const REPORT_ITEMS = [
   "a distribuição da cobertura de cupom por loja e por mês, dos tamanhos de amostra e da resolução de custos",
@@ -90,7 +91,7 @@ export default function CalibrationPage() {
         </CardContent>
       </Card>
 
-      <ParameterCatalog parameters={parameters} defaults={DEFAULT_PARAMETERS} />
+      <ParameterCatalog sections={commercialParameterCatalogSections(parameters)} />
     </div>
   );
 }

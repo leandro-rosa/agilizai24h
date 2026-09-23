@@ -101,6 +101,23 @@ export interface StoreSalesTransactions {
   transactions: SalesTransaction[];
 }
 
+/**
+ * One store, one month, un-summed — `getNetworkSalesRange` collapses every
+ * month in the range into a single per-SKU total (see `sumSales`), which is
+ * exactly what the Perdas tab's own KPIs want but the wrong shape for the
+ * Loss Intelligence engine (`add-loss-intelligence-agent-phase-1`): it needs
+ * a real `Period` per row to resolve its analysis window (§8) and detect
+ * recurrence (§10) across several distinct months, not one row whose
+ * `period` is a "start..end" range string. Same REST endpoint and same
+ * fan-out as `getNetworkSalesRange` — this only keeps the per-month
+ * breakdown instead of reducing it away.
+ */
+export interface StoreMonthSales {
+  storeId: number;
+  period: string;
+  bySku: SalesRecord[];
+}
+
 export const salesApi = createApi({
   reducerPath: "salesApi",
   baseQuery: gatewayBaseQuery,
@@ -177,6 +194,30 @@ export const salesApi = createApi({
         return { data: rows };
       },
     }),
+    /** See `StoreMonthSales` — same fan-out as `getNetworkSalesRange`, without the final sum-across-months step. */
+    getNetworkSalesByStoreMonth: builder.query<StoreMonthSales[], { stores: Store[]; range: PeriodRange }>({
+      async queryFn({ stores, range }, _api, _extra, fetchWithBQ) {
+        const months = monthsInRange(range);
+        const perStorePerMonth = await Promise.all(
+          stores.map((store) =>
+            Promise.all(
+              months.map((period) => fetchOr404<SalesRecord[]>(fetchWithBQ, `/sales/${store.id}?period=${encodeURIComponent(period)}`)),
+            ),
+          ),
+        );
+        const error = firstError(perStorePerMonth.flat());
+        if (error) return { error };
+
+        const rows: StoreMonthSales[] = [];
+        stores.forEach((store, storeIndex) => {
+          months.forEach((period, monthIndex) => {
+            const bySku = perStorePerMonth[storeIndex][monthIndex].data;
+            if (bySku) rows.push({ storeId: store.id, period, bySku });
+          });
+        });
+        return { data: rows };
+      },
+    }),
   }),
 });
 
@@ -185,4 +226,5 @@ export const {
   useGetNetworkSalesRangeQuery,
   useGetSalesTransactionsQuery,
   useGetNetworkSalesTransactionsQuery,
+  useGetNetworkSalesByStoreMonthQuery,
 } = salesApi;

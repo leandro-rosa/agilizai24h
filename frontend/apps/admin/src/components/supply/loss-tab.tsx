@@ -1,26 +1,33 @@
 "use client";
 
+import Link from "next/link";
 import { AlertTriangle, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, XAxis, YAxis } from "recharts";
 
+import { BusinessRulesSheet } from "@/components/business-rules-sheet";
 import { ColumnValueFilter } from "@/components/column-value-filter";
 import { RequestState } from "@/components/request-state";
 import { NETWORK, type StoreSelection } from "@/components/store-period-picker";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { AgentSummaryPanel } from "./loss-intelligence/agent-summary-panel";
+import { ACTION_LABELS, LossDecisionsTable, type DecisionRowData } from "./loss-intelligence/decisions-table";
+import { LossDecisionDrawer } from "./loss-intelligence/decision-drawer";
 import {
   useGetNetworkReconciliationRangeQuery,
   type NetworkReconciliationRangeRow,
   type PerStoreMonthlyTotal,
 } from "@/lib/api/finance";
-import { useGetProductsQuery } from "@/lib/api/products";
-import { useGetNetworkSalesRangeQuery } from "@/lib/api/sales";
-import { useGetNetworkSupplyRangeQuery } from "@/lib/api/supply";
+import { useGetCostsAsOfQuery, useGetProductsQuery } from "@/lib/api/products";
+import { useGetNetworkSalesByStoreMonthQuery, useGetNetworkSalesRangeQuery } from "@/lib/api/sales";
+import { useGetNetworkSupplyByStoreMonthQuery, useGetNetworkSupplyRangeQuery } from "@/lib/api/supply";
 import { useGetStoresQuery, type Store } from "@/lib/api/stores";
 import { formatPct } from "@/lib/financial-kpis";
 import {
@@ -38,6 +45,11 @@ import {
   type SkuLossRow,
   type SkuStoreBreakdownRow,
 } from "@/lib/loss-insights";
+import { analyzeLossIntelligence } from "@/lib/loss-intelligence/engine";
+import { explainRecommendation } from "@/lib/loss-intelligence/explain";
+import { lossBusinessRuleRows } from "@/lib/loss-intelligence/parameter-rows";
+import { RUNTIME_PARAMETERS } from "@/lib/loss-intelligence/parameters";
+import type { LossAction, LossIntelligenceInput, LossIntelligenceRecommendation } from "@/lib/loss-intelligence/types";
 import { addMonths, lastCompleteMonth, monthsInRange, type PeriodRange } from "@/lib/period-range";
 import { aggregateAcrossStores } from "@/lib/reconciliation-aggregate";
 import { reasonLabel } from "@/lib/removal-reasons";
@@ -451,7 +463,32 @@ function SkuLossTable({
   );
 }
 
-function ProductStoreMatrixView({ matrix }: { matrix: ReturnType<typeof productStoreMatrix> }) {
+/** Ícone por ação — mesmo vocabulário visual do painel do Agente (`AgentSummaryPanel`'s ACTION_ROWS), §15.5 adenda 2026-09-23. */
+const MATRIX_ACTION_ICON: Record<LossAction, string> = {
+  manter: "🟢",
+  manter_monitorar: "🟢",
+  reduzir_abastecimento: "🟡",
+  investigar: "🟠",
+  suspender_abastecimento: "🔴",
+  avaliar_retirada_loja: "🔴",
+  avaliar_retirada_rede: "⚫",
+  avaliar_permanencia_loja: "🔴",
+  avaliar_permanencia_rede: "⚫",
+  dados_insuficientes: "—",
+};
+
+function ProductStoreMatrixView({
+  matrix,
+  recommendations,
+  onSelectRecommendation,
+}: {
+  matrix: ReturnType<typeof productStoreMatrix>;
+  /** Undefined enquanto o motor ainda não calculou — o modo "Decisão IA" fica desabilitado até então. */
+  recommendations: LossIntelligenceRecommendation[] | undefined;
+  onSelectRecommendation: (recommendation: LossIntelligenceRecommendation) => void;
+}) {
+  const [mode, setMode] = useState<"perdas" | "decisao">("perdas");
+
   const stores = useMemo(() => {
     const map = new Map<number, string>();
     for (const row of matrix) for (const cell of row.cells) map.set(cell.storeId, cell.storeName);
@@ -460,16 +497,34 @@ function ProductStoreMatrixView({ matrix }: { matrix: ReturnType<typeof productS
 
   const maxQuantity = Math.max(1, ...matrix.flatMap((row) => row.cells.map((c) => c.quantity)));
 
+  // §15.5 — troca o que a célula codifica (nunca os dois ao mesmo tempo, para não prejudicar a legibilidade da matriz de Perdas).
+  const recommendationByKey = useMemo(() => {
+    const map = new Map<string, LossIntelligenceRecommendation>();
+    for (const rec of recommendations ?? []) map.set(`${rec.storeId}:${rec.sku}`, rec);
+    return map;
+  }, [recommendations]);
+
   if (matrix.length === 0 || stores.length === 0) {
     return <p className="text-sm text-muted-foreground">Sem produtos com perda em mais de uma loja para comparar.</p>;
   }
 
   return (
     <div>
-      <h3 className="mb-1 text-sm font-medium">Produto × Loja</h3>
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-medium">Produto × Loja</h3>
+        <Tabs value={mode} onValueChange={(v) => setMode(v as "perdas" | "decisao")}>
+          <TabsList>
+            <TabsTrigger value="perdas">Perdas</TabsTrigger>
+            <TabsTrigger value="decisao" disabled={!recommendations}>
+              Decisão IA
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
       <p className="mb-3 text-xs text-muted-foreground">
-        Unidades perdidas. Um produto que some em toda loja é um problema do produto; vários produtos sumindo só numa loja é um
-        problema daquela loja.
+        {mode === "perdas"
+          ? "Unidades perdidas. Um produto que some em toda loja é um problema do produto; vários produtos sumindo só numa loja é um problema daquela loja."
+          : "Status da recomendação do Agente de Perdas por produto e loja. Clique numa célula para ver a análise completa."}
       </p>
       <div className="overflow-x-auto rounded-lg border">
         <Table>
@@ -489,16 +544,40 @@ function ProductStoreMatrixView({ matrix }: { matrix: ReturnType<typeof productS
                 <TableCell className="max-w-[180px] truncate font-medium">{row.name}</TableCell>
                 {stores.map((s) => {
                   const cell = row.cells.find((c) => c.storeId === s.id);
-                  const intensity = cell ? Math.max(0.12, cell.quantity / maxQuantity) : 0;
+                  if (mode === "perdas") {
+                    const intensity = cell ? Math.max(0.12, cell.quantity / maxQuantity) : 0;
+                    return (
+                      <TableCell key={s.id} className="tabular text-center text-xs">
+                        {cell ? (
+                          <span
+                            className="inline-flex min-w-8 justify-center rounded px-1.5 py-0.5"
+                            style={{ backgroundColor: `color-mix(in oklch, var(--destructive) ${intensity * 100}%, transparent)` }}
+                          >
+                            {cell.quantity}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    );
+                  }
+
+                  const rec = recommendationByKey.get(`${s.id}:${row.sku}`);
                   return (
                     <TableCell key={s.id} className="tabular text-center text-xs">
-                      {cell ? (
-                        <span
-                          className="inline-flex min-w-8 justify-center rounded px-1.5 py-0.5"
-                          style={{ backgroundColor: `color-mix(in oklch, var(--destructive) ${intensity * 100}%, transparent)` }}
-                        >
-                          {cell.quantity}
-                        </span>
+                      {rec ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex min-w-8 cursor-pointer justify-center rounded px-1.5 py-0.5 hover:bg-muted"
+                              onClick={() => onSelectRecommendation(rec)}
+                            >
+                              {MATRIX_ACTION_ICON[rec.acaoPrioritaria]}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>{ACTION_LABELS[rec.acaoPrioritaria]}</TooltipContent>
+                        </Tooltip>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
@@ -728,6 +807,125 @@ export function LossTab({ storeId, range }: { storeId: StoreSelection; range: Pe
   const isLoading = loadingTrend || loadingSales || loadingSupply;
   const isEmpty = !isLoading && !error && currentRows.length === 0;
 
+  // ---- Agente de Perdas (Fase 1, spec §15) ----
+  // A janela do motor é fixa a partir de hoje, não do "Período" escolhido acima:
+  // resolveAnalysisWindow (temporal.ts) calcula primaryClosedPeriods/recurrenceLookbackPeriods
+  // só a partir de `today`, então existe uma única janela de análise por carregamento de tela,
+  // independente do período que o operador está navegando manualmente nos widgets acima.
+  // A largura da busca acompanha window.recurrenceLookbackMonths (6 por padrão) para cobrir
+  // tanto a janela principal quanto o lookback de recorrência com uma única busca.
+  const [selectedRecommendation, setSelectedRecommendation] = useState<LossIntelligenceRecommendation | null>(null);
+
+  const engineAsOfPeriod = lastCompleteMonth();
+  const lookbackMonths = RUNTIME_PARAMETERS.parameters.window.recurrenceLookbackMonths;
+  const engineRange = useMemo<PeriodRange>(
+    () => ({ start: addMonths(engineAsOfPeriod, -(lookbackMonths - 1)), end: engineAsOfPeriod }),
+    [engineAsOfPeriod, lookbackMonths],
+  );
+
+  // perStoreMonthly já existe em getNetworkReconciliationRange (mesmo padrão usado para
+  // currentRows/previousRows acima) — reaproveitado aqui, só com um range próprio (engineRange,
+  // não trendRange) porque a janela do motor não depende do período escolhido no dropdown.
+  const { data: agentReconciliation } = useGetNetworkReconciliationRangeQuery({ stores: scopedStores, range: engineRange }, { skip });
+  // getNetworkSalesRange/getNetworkSupplyRange somam todos os meses do range num total só por
+  // SKU (sumSales/sumSupply) — útil pros widgets acima, mas o motor precisa do período real por
+  // linha para resolver janela e recorrência. Os hooks *ByStoreMonth (novos, mesmos endpoints
+  // REST) devolvem o mesmo fan-out sem essa soma final.
+  const { data: salesByStoreMonth } = useGetNetworkSalesByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
+  const { data: supplyByStoreMonth } = useGetNetworkSupplyByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
+
+  // computeLossMetrics (metrics.ts) só resolve custo para um SKU que aparece em vendas
+  // (grossMarginCents soma só sobre salesInWindow) — o universo certo de SKUs para o custo
+  // datado é o das vendas buscadas acima para a janela do motor, não o de reposição/reconciliação.
+  const allSkusForCost = useMemo(
+    () => [...new Set((salesByStoreMonth ?? []).flatMap((month) => month.bySku.map((row) => row.sku)))],
+    [salesByStoreMonth],
+  );
+  const { data: costsResult } = useGetCostsAsOfQuery(
+    { skus: allSkusForCost, asOf: `${engineAsOfPeriod}-01` },
+    { skip: allSkusForCost.length === 0 },
+  );
+  const costsBySkuAsOf = useMemo(() => {
+    if (!costsResult) return null;
+    const bySku = new Map(costsResult.resolved.map((r) => [r.sku, r.cost_cents]));
+    return (sku: string) => bySku.get(sku) ?? null;
+  }, [costsResult]);
+
+  const categoryBySku = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const product of products ?? []) map.set(product.sku, product.category);
+    return map;
+  }, [products]);
+
+  const lossIntelligenceInput = useMemo<LossIntelligenceInput | null>(() => {
+    if (!agentReconciliation || !salesByStoreMonth || !supplyByStoreMonth || !costsBySkuAsOf || scopedStores.length === 0) return null;
+
+    const reconciliations: LossIntelligenceInput["reconciliations"] = agentReconciliation.perStoreMonthly.map((row) => ({
+      store_id: row.storeId,
+      period: row.period,
+      loss_by_reason_sku: row.totals.loss_by_reason_sku.map((entry) => ({
+        reason: entry.reason,
+        sku: entry.sku,
+        quantity: entry.quantity,
+        value_cents: entry.value_cents,
+      })),
+    }));
+
+    const salesByStorePeriodSku: LossIntelligenceInput["salesByStorePeriodSku"] = salesByStoreMonth.flatMap((month) =>
+      month.bySku.map((row) => ({
+        store_id: month.storeId,
+        period: month.period,
+        sku: row.sku,
+        quantity_sold: row.quantity_sold,
+        revenue_cents: row.revenue_cents,
+      })),
+    );
+
+    // store_id/period vêm de `month` (StoreMonthSupply, do hook *ByStoreMonth), nunca de
+    // RestockRow — que só tem sku/quantity_restocked (supply.ts).
+    const supplyByStorePeriodSku: LossIntelligenceInput["supplyByStorePeriodSku"] = supplyByStoreMonth.flatMap((month) =>
+      month.restocks.map((row) => ({
+        store_id: month.storeId,
+        period: month.period,
+        sku: row.sku,
+        quantity_restocked: row.quantity_restocked,
+      })),
+    );
+
+    return {
+      reconciliations,
+      salesByStorePeriodSku,
+      supplyByStorePeriodSku,
+      costsBySkuAsOf,
+      stores: scopedStores.map((s) => ({ id: s.id, name: s.name })),
+      today: new Date().toISOString().slice(0, 10),
+      parameters: RUNTIME_PARAMETERS.parameters,
+    };
+  }, [agentReconciliation, salesByStoreMonth, supplyByStoreMonth, costsBySkuAsOf, scopedStores]);
+
+  const lossIntelligenceResult = useMemo(
+    () => (lossIntelligenceInput ? analyzeLossIntelligence(lossIntelligenceInput) : null),
+    [lossIntelligenceInput],
+  );
+
+  const decisionRows = useMemo<DecisionRowData[]>(() => {
+    if (!lossIntelligenceResult) return [];
+    return lossIntelligenceResult.recommendations
+      .filter((r) => r.acaoPrioritaria !== "manter") // tabela de decisão não precisa listar "sem problema" — mantém o foco em quem exige atenção
+      .map((r) => ({
+        recommendation: r,
+        productLabel: nameBySku.get(r.sku) ?? r.sku,
+        storeName: storeById.get(r.storeId)?.name ?? String(r.storeId),
+        category: categoryBySku.get(r.sku) ?? null,
+        diagnosticoResumo: explainRecommendation(r).split(".")[0] + ".", // primeira frase só, para a célula da tabela
+      }));
+  }, [lossIntelligenceResult, nameBySku, storeById, categoryBySku]);
+
+  const selectedProductLabel = selectedRecommendation ? (nameBySku.get(selectedRecommendation.sku) ?? selectedRecommendation.sku) : "";
+  const selectedStoreName = selectedRecommendation
+    ? (storeById.get(selectedRecommendation.storeId)?.name ?? String(selectedRecommendation.storeId))
+    : "";
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end gap-3">
@@ -804,7 +1002,55 @@ export function LossTab({ storeId, range }: { storeId: StoreSelection; range: Pe
             expandedBreakdown={expandedBreakdown}
           />
 
-          {isNetworkScope && <ProductStoreMatrixView matrix={matrix} />}
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-medium">Agente de Perdas</h3>
+                <p className="text-xs text-muted-foreground">
+                  Recomendações automáticas por produto e loja, com evidência e confiança — nunca aplicadas sozinhas.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <BusinessRulesSheet
+                  description="Decisões da empresa que mudam o que o Agente de Perdas recomenda. Valem para toda a operação: não são ajustes deste navegador."
+                  rows={lossBusinessRuleRows(RUNTIME_PARAMETERS.parameters)}
+                  calibrationHref="/supply/loss-intelligence/calibration"
+                />
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/supply/loss-intelligence/calibration">Configurações avançadas / calibração</Link>
+                </Button>
+              </div>
+            </div>
+
+            {lossIntelligenceResult && (
+              <>
+                <AgentSummaryPanel
+                  result={lossIntelligenceResult}
+                  scope={isNetworkScope ? { kind: "network" } : { kind: "store", storeName: scopedStores[0]?.name ?? String(storeId) }}
+                  onSeeAll={() => document.getElementById("loss-intelligence-table")?.scrollIntoView({ behavior: "smooth" })}
+                />
+                <div id="loss-intelligence-table">
+                  <LossDecisionsTable rows={decisionRows} onSelect={setSelectedRecommendation} />
+                </div>
+              </>
+            )}
+          </div>
+
+          <LossDecisionDrawer
+            recommendation={selectedRecommendation}
+            productLabel={selectedProductLabel}
+            storeName={selectedStoreName}
+            open={selectedRecommendation !== null}
+            onOpenChange={(open) => !open && setSelectedRecommendation(null)}
+          />
+
+          {isNetworkScope && (
+            <ProductStoreMatrixView
+              matrix={matrix}
+              recommendations={lossIntelligenceResult?.recommendations}
+              onSelectRecommendation={setSelectedRecommendation}
+            />
+          )}
 
           <RestockSoldLostTable rows={restockSoldLost} />
         </div>

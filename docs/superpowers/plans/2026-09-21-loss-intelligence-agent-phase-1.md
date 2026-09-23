@@ -26,7 +26,132 @@
 
 ---
 
-## Task 0: Generalizar `BusinessRulesSheet` e `ParameterCatalog` para aceitar qualquer domínio de parâmetros
+## Task 0: Configurar Jest (`next/jest`) no admin
+
+**Por quê primeiro:** toda task seguinte deste plano (Task 1 a 21) termina com
+`pnpm --filter @agiliz/admin typecheck lint test` e cria pelo menos um
+arquivo `.spec.ts`/`.spec.tsx`. Hoje `frontend/apps/admin/package.json` não
+tem script `test`, nem Jest/Vitest/Testing Library em `devDependencies`, e
+não existe nenhum arquivo `.spec.ts*` no app — a verificação é manual (ver
+`frontend/apps/admin/CLAUDE.md`, "Sem suíte de testes automatizados"). Sem
+esta task, a Task 1 já falharia no próprio critério de verificação que ela
+define. Adicionado como pré-requisito descoberto na revisão do plano contra
+o estado atual do código (2026-09-21/22), não fazia parte da spec original —
+decisão do operador: Jest via `next/jest` (preset oficial do Next.js,
+zero-config), não Vitest.
+
+**Files:**
+- Modify: `frontend/apps/admin/package.json` (script `test`, devDependencies)
+- Create: `frontend/apps/admin/jest.config.ts`
+- Create: `frontend/apps/admin/jest.setup.ts`
+- Create: `frontend/apps/admin/src/lib/sanity.spec.ts` (smoke test)
+
+**Interfaces:**
+- Produces: o comando `pnpm --filter @agiliz/admin test` funcionando —
+  usado literalmente por todas as Tasks 1-21 seguintes como gate de
+  verificação.
+
+- [ ] **Passo 1: instalar as dependências de teste.**
+
+```bash
+pnpm --filter @agiliz/admin add -D jest jest-environment-jsdom @testing-library/react @testing-library/jest-dom @types/jest
+```
+
+- [ ] **Passo 2: ler `frontend/apps/admin/tsconfig.json`** antes de escrever
+  `jest.config.ts` — o preset `next/jest` já lê os `paths` (`@/*`) desse
+  arquivo sozinho; não duplicar um `moduleNameMapper` manual para `@/*`.
+
+- [ ] **Passo 3: escrever `jest.config.ts`.**
+
+```ts
+import type { Config } from "jest";
+import nextJest from "next/jest.js";
+
+const createJestConfig = nextJest({ dir: "./" });
+
+const config: Config = {
+  testEnvironment: "jsdom",
+  setupFilesAfterEach: ["<rootDir>/jest.setup.ts"],
+  testPathIgnorePatterns: ["<rootDir>/.next/", "<rootDir>/node_modules/"],
+};
+
+export default createJestConfig(config);
+```
+
+(Confirmar o nome exato da opção de setup — `next/jest` usa
+`setupFilesAfterEach` em algumas versões e `setupFilesAfterEach` foi
+depreciado a favor de `setupFilesAfterEach`/`setupFiles` conforme a versão
+do Jest instalada; usar o que a versão resolvida por `pnpm add` documentar
+— checar `node_modules/jest/package.json` version e a doc correspondente
+antes de finalizar, em vez de assumir.)
+
+- [ ] **Passo 4: escrever `jest.setup.ts`.**
+
+```ts
+import "@testing-library/jest-dom";
+```
+
+- [ ] **Passo 5: adicionar o script `test` a `package.json`.**
+
+```json
+"scripts": {
+  "dev": "next dev",
+  "build": "next build",
+  "start": "next start",
+  "lint": "eslint",
+  "typecheck": "tsc --noEmit",
+  "test": "jest",
+  "contrast": "node scripts/contrast.mjs"
+}
+```
+
+- [ ] **Passo 6: escrever o smoke test** `frontend/apps/admin/src/lib/sanity.spec.ts`:
+
+```ts
+import { formatCurrency } from "@/lib/format";
+
+describe("jest setup", () => {
+  it("runs TypeScript and resolves @/* imports", () => {
+    expect(typeof formatCurrency).toBe("function");
+  });
+});
+```
+
+(Confirmar que `formatCurrency` — ou outra função trivial e já exportada de
+`src/lib/format.ts` — existe com esse nome antes de referenciá-la; usar
+qualquer export real e simples desse módulo só para provar a resolução de
+`@/*` e execução de TypeScript, o conteúdo do teste em si não importa.)
+
+- [ ] **Passo 7: rodar os quatro juntos, pela primeira vez.**
+
+```bash
+pnpm --filter @agiliz/admin typecheck lint test build
+```
+
+Essa é a primeira vez que `test` existe — confirmar que `build`/`typecheck`
+não quebraram (Next.js às vezes exige excluir `**/*.spec.ts`/`**/*.spec.tsx`
+do `tsconfig.json` de build; checar se já há um `exclude` adequado ou se
+precisa adicionar).
+
+- [ ] **Passo 8: commit.**
+
+```bash
+git add frontend/apps/admin/package.json frontend/apps/admin/jest.config.ts frontend/apps/admin/jest.setup.ts frontend/apps/admin/src/lib/sanity.spec.ts
+git commit -m "chore(admin): add Jest via next/jest, no test runner existed before
+
+Prerequisite for the Loss Intelligence engine plan (Fase 1), which
+ships ~40 new .spec.ts/.spec.tsx files and gates every task on
+pnpm --filter @agiliz/admin test.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+```
+
+**Critério de aceite:** `pnpm --filter @agiliz/admin test` roda e passa com
+o smoke test; `typecheck`/`lint`/`build` continuam passando.
+
+---
+
+## Task 1: Generalizar `BusinessRulesSheet` e `ParameterCatalog` para aceitar qualquer domínio de parâmetros
 
 **Por quê primeiro:** a Fase 1 do motor de perdas precisa da mesma infraestrutura visual de parâmetros/calibração já construída para `commercial-intelligence`, mas sem acoplar o novo motor ao tipo `CommercialParameters` (spec §4, §26 do pedido original). Isso é um refactor mecânico — os dois componentes atuais calculam tudo a partir de `CommercialParameters` importado direto; passam a receber os dados já resolvidos como props. Nenhuma mudança de comportamento visual.
 
@@ -42,7 +167,7 @@
 - Test: `frontend/apps/admin/src/components/business-rules-sheet.spec.tsx`, `frontend/apps/admin/src/components/parameter-catalog.spec.tsx`, `frontend/apps/admin/src/lib/commercial-intelligence/parameter-rows.spec.ts`
 
 **Interfaces:**
-- Produces (usado por todas as tasks de UI da Fase 1, Tasks 16-19): `ParameterRuleRow`, `ParameterKindSection`, `BusinessRulesSheet`, `ParameterCatalog` — assinaturas exatas abaixo.
+- Produces (usado por todas as tasks de UI da Fase 1, Tasks 17-20): `ParameterRuleRow`, `ParameterKindSection`, `BusinessRulesSheet`, `ParameterCatalog` — assinaturas exatas abaixo.
 
 - [ ] **Passo 1: ler os 4 arquivos listados acima por completo, sem pular nenhum, antes de escrever qualquer código.** Confirmar a assinatura exata de `getParameter(parameters, path)`, `formatParameterValue(path, value)`, `envNameOf(path)`, `isProvisional(path)`, `PARAMETER_KINDS: Record<ParameterKind, ParameterPath[]>`, `PARAMETER_GROUP_LABELS: Record<string, string>`, `KIND_LABELS: Record<ParameterKind, {title, description}>`, `PARAMETER_DOCS[path]: {label, controls, unit, min, max}`, `PARAMETER_EXTRA[path]: {kind, formula, why, usedIn, up, down}`. Esses nomes são os que existiam no momento em que esta spec foi escrita — se algo divergir, seguir o que o código real disser, não este plano.
 
@@ -371,14 +496,14 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 1: `types.ts` — contratos de entrada e saída do motor
+## Task 2: `types.ts` — contratos de entrada e saída do motor
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/types.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/types.smoke.spec.ts` (typecheck-only smoke test — não há lógica para testar em runtime, só confirma que os tipos compõem sem erro)
 
 **Interfaces:**
-- Produces: todo tipo usado pelas Tasks 2-19. Este é o único arquivo que as outras tasks importam para tipos — nenhuma delas redeclara nada aqui.
+- Produces: todo tipo usado pelas Tasks 3-20. Este é o único arquivo que as outras tasks importam para tipos — nenhuma delas redeclara nada aqui.
 
 - [ ] **Passo 1: escrever `types.ts` por completo.**
 
@@ -632,7 +757,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 2: `parameters.ts` + `parameter-docs.ts` + `env.ts` — os 20 thresholds provisórios (spec §14)
+## Task 3: `parameters.ts` + `parameter-docs.ts` + `env.ts` — os 20 thresholds provisórios (spec §14)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/parameters.ts`
@@ -642,7 +767,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: nada (folha da árvore de dependências, junto com `types.ts`).
-- Produces: `LossIntelligenceParameters`, `parametersFromEnv`, `getParameter`, `formatParameterValue`, `envNameOf`, `isProvisional`, `PARAMETER_DOCS`, `PARAMETER_PATHS`, `DEFAULT_PARAMETERS` — usado por toda árvore de diagnóstico (Tasks 6-10) e pela UI de calibração (Task 19).
+- Produces: `LossIntelligenceParameters`, `parametersFromEnv`, `getParameter`, `formatParameterValue`, `envNameOf`, `isProvisional`, `PARAMETER_DOCS`, `PARAMETER_PATHS`, `DEFAULT_PARAMETERS` — usado por toda árvore de diagnóstico (Tasks 7-11) e pela UI de calibração (Task 20).
 
 - [ ] **Passo 1: escrever `parameter-docs.ts`** com os 20 parâmetros do spec §14, cada um com kind/formula/numerador/denominador/unidade/janela/motivo/controla/efeitos/comportamento-se-ausente/limites.
 
@@ -1206,15 +1331,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 3: `temporal.ts` — janela, período fechado/em andamento, borda (spec §8)
+## Task 4: `temporal.ts` — janela, período fechado/em andamento, borda (spec §8)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/temporal.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/temporal.spec.ts`
 
 **Interfaces:**
-- Consumes: `Period`, `AnalysisWindow`, `LossIntelligenceParameters` (Tasks 1-2).
-- Produces: `resolveAnalysisWindow`, `periodOf`, `addMonths` — usado por `metrics.ts` (Task 4) e `engine.ts` (Task 15).
+- Consumes: `Period`, `AnalysisWindow`, `LossIntelligenceParameters` (Tasks 2-3).
+- Produces: `resolveAnalysisWindow`, `periodOf`, `addMonths` — usado por `metrics.ts` (Task 5) e `engine.ts` (Task 16).
 
 - [ ] **Passo 1: escrever `temporal.ts`.**
 
@@ -1254,7 +1379,7 @@ export interface ResolveWindowInput {
  * Resolve a janela de análise (spec §8). O mês corrente nunca entra em
  * qualifyingRestockPeriods e nunca sozinho decide uma ação estrutural — ver
  * a Global Constraint correspondente e o uso em unnecessary-supply.ts /
- * diagnosis/*.ts (Tasks 7-10), que devem consumir qualifyingRestockPeriods
+ * diagnosis/*.ts (Tasks 8-11), que devem consumir qualifyingRestockPeriods
  * para qualquer condição de "abasteceu e não vendeu", nunca primaryClosedPeriods
  * direto.
  */
@@ -1293,15 +1418,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 4: `metrics.ts` — as métricas observadas (spec §7)
+## Task 5: `metrics.ts` — as métricas observadas (spec §7)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/metrics.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/metrics.spec.ts`
 
 **Interfaces:**
-- Consumes: `LossMetrics`, `PerReasonMetrics`, `LOSS_REASONS`, `Period` (Task 1).
-- Produces: `computeLossMetrics` — usado por `engine.ts` (Task 15) e por todas as árvores de diagnóstico (Tasks 7-10) via o `LossMetrics` que ele produz.
+- Consumes: `LossMetrics`, `PerReasonMetrics`, `LOSS_REASONS`, `Period` (Task 2).
+- Produces: `computeLossMetrics` — usado por `engine.ts` (Task 16) e por todas as árvores de diagnóstico (Tasks 8-11) via o `LossMetrics` que ele produz.
 
 - [ ] **Passo 1: escrever `metrics.ts`.**
 
@@ -1418,15 +1543,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 5: `recent-history-guard.ts` — histórico recente/insuficiente (spec §9)
+## Task 6: `recent-history-guard.ts` — histórico recente/insuficiente (spec §9)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/recent-history-guard.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/recent-history-guard.spec.ts`
 
 **Interfaces:**
-- Consumes: `Period`, `SupplyRecordInput`, `LossIntelligenceParameters` (Tasks 1-2).
-- Produces: `evaluateRecentHistory` — consumido por `diagnosis/validity.ts` (Task 7) e `diagnosis/other-reason.ts` (Task 9) para capar a severidade da ação; `diagnosis/damage.ts` (Task 8) não precisa (nunca produz ação estrutural). Também por `confidence.ts` (Task 13) e `unnecessary-supply.ts` (Task 10).
+- Consumes: `Period`, `SupplyRecordInput`, `LossIntelligenceParameters` (Tasks 2-3).
+- Produces: `evaluateRecentHistory` — consumido por `diagnosis/validity.ts` (Task 8) e `diagnosis/other-reason.ts` (Task 10) para capar a severidade da ação; `diagnosis/damage.ts` (Task 9) não precisa (nunca produz ação estrutural). Também por `confidence.ts` (Task 14) e `unnecessary-supply.ts` (Task 11).
 
 **Nota de nomenclatura obrigatória**: o campo de saída chama-se `firstSeenRecently`, nunca `isTestProduct`. "Histórico recente" é um indício observável (tempo desde a primeira aparição), não uma afirmação de que o produto está em teste deliberado — spec §9.
 
@@ -1499,17 +1624,17 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 6: `network-comparison.ts` — comparação com a rede (spec §12)
+## Task 7: `network-comparison.ts` — comparação com a rede (spec §12)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/network-comparison.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/network-comparison.spec.ts`
 
 **Interfaces:**
-- Consumes: `NetworkComparison`, `NetworkComparisonResult`, `LossIntelligenceParameters` (Tasks 1-2).
-- Produces: `computeNetworkComparison` — consumido por `engine.ts` (Task 15) numa segunda passada (ver nota abaixo), e o resultado é repassado como entrada para `diagnosis/validity.ts` (Task 7) e `diagnosis/other-reason.ts` (Task 9).
+- Consumes: `NetworkComparison`, `NetworkComparisonResult`, `LossIntelligenceParameters` (Tasks 2-3).
+- Produces: `computeNetworkComparison` — consumido por `engine.ts` (Task 16) numa segunda passada (ver nota abaixo), e o resultado é repassado como entrada para `diagnosis/validity.ts` (Task 8) e `diagnosis/other-reason.ts` (Task 10).
 
-**Nota de orquestração (importante para a Task 15):** este módulo não decide sozinho o que é "sinal ruim" — quem chama (`engine.ts`) já rodou uma primeira passada de diagnóstico por loja (casos A/B/C de validade, caso base de Outro motivo) e informa, por loja, se o resultado caiu no lado ruim daquele motivo. Só depois desta função rodar é que `engine.ts` roda uma segunda passada das duas árvores, agora com `NetworkComparison` disponível para decidir escalada (casos D/E de validade, "avaliar permanência" de Outro motivo).
+**Nota de orquestração (importante para a Task 16):** este módulo não decide sozinho o que é "sinal ruim" — quem chama (`engine.ts`) já rodou uma primeira passada de diagnóstico por loja (casos A/B/C de validade, caso base de Outro motivo) e informa, por loja, se o resultado caiu no lado ruim daquele motivo. Só depois desta função rodar é que `engine.ts` roda uma segunda passada das duas árvores, agora com `NetworkComparison` disponível para decidir escalada (casos D/E de validade, "avaliar permanência" de Outro motivo).
 
 - [ ] **Passo 1: escrever `network-comparison.ts`.**
 
@@ -1565,9 +1690,9 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 7: `recurrence.ts` + `severity.ts` — utilitários compartilhados pelas 3 árvores
+## Task 8: `recurrence.ts` + `severity.ts` — utilitários compartilhados pelas 3 árvores
 
-**Por quê antes das árvores:** `diagnosis/validity.ts` e `diagnosis/other-reason.ts` (Tasks 8-9) precisam da mesma lógica de "quais períodos do lookback tiveram perda" e do mesmo mecanismo de "nunca passar de X de severidade" (o teto do histórico recente, spec §9). Escrever uma vez aqui evita duplicar em duas árvores.
+**Por quê antes das árvores:** `diagnosis/validity.ts` e `diagnosis/other-reason.ts` (Tasks 9-10) precisam da mesma lógica de "quais períodos do lookback tiveram perda" e do mesmo mecanismo de "nunca passar de X de severidade" (o teto do histórico recente, spec §9). Escrever uma vez aqui evita duplicar em duas árvores.
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/recurrence.ts`
@@ -1575,8 +1700,8 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/recurrence.spec.ts`, `frontend/apps/admin/src/lib/loss-intelligence/severity.spec.ts`
 
 **Interfaces:**
-- Consumes: `Period`, `LossReason`, `LossAction`, `ACTION_SEVERITY_ORDER`, `ReconciliationInput` (Task 1).
-- Produces: `periodsWithLoss`, `clampSeverity` — consumidos por `diagnosis/validity.ts` (Task 8) e `diagnosis/other-reason.ts` (Task 10).
+- Consumes: `Period`, `LossReason`, `LossAction`, `ACTION_SEVERITY_ORDER`, `ReconciliationInput` (Task 2).
+- Produces: `periodsWithLoss`, `clampSeverity` — consumidos por `diagnosis/validity.ts` (Task 9) e `diagnosis/other-reason.ts` (Task 11).
 
 - [ ] **Passo 1: escrever `recurrence.ts`.**
 
@@ -1610,7 +1735,7 @@ export function clampSeverity(action: LossAction, ceiling: LossAction): LossActi
   return severityRank(action) < severityRank(ceiling) ? ceiling : action;
 }
 
-/** A mais severa dentre as ações dadas (usado pela consolidação, Task 12). */
+/** A mais severa dentre as ações dadas (usado pela consolidação, Task 13). */
 export function mostSevere(actions: LossAction[]): LossAction {
   return [...actions].sort((a, b) => severityRank(a) - severityRank(b))[0];
 }
@@ -1631,15 +1756,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 8: `diagnosis/validity.ts` — árvore de validade (spec §10.1)
+## Task 9: `diagnosis/validity.ts` — árvore de validade (spec §10.1)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/diagnosis/validity.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/diagnosis/validity.spec.ts`
 
 **Interfaces:**
-- Consumes: `ReasonDiagnosis`, `PerReasonMetrics`, `NetworkComparison`, `LossIntelligenceParameters` (Tasks 1-2), `periodsWithLoss`/`clampSeverity` (Task 7), `RecentHistoryGuardResult`/`hasOverwhelmingEvidence` (Task 5).
-- Produces: `diagnoseValidity` — chamado duas vezes por `engine.ts` (Task 15): passe 1 sem `networkComparison` (para alimentar os `hasBadSignal` do Task 6), passe 2 com `networkComparison` resolvido (para decidir escalada D/E).
+- Consumes: `ReasonDiagnosis`, `PerReasonMetrics`, `NetworkComparison`, `LossIntelligenceParameters` (Tasks 2-3), `periodsWithLoss`/`clampSeverity` (Task 8), `RecentHistoryGuardResult`/`hasOverwhelmingEvidence` (Task 6).
+- Produces: `diagnoseValidity` — chamado duas vezes por `engine.ts` (Task 16): passe 1 sem `networkComparison` (para alimentar os `hasBadSignal` do Task 7), passe 2 com `networkComparison` resolvido (para decidir escalada D/E).
 
 - [ ] **Passo 1: escrever `diagnosis/validity.ts`.**
 
@@ -1663,7 +1788,7 @@ export interface ValidityDiagnosisInput {
   parameters: LossIntelligenceParameters;
 }
 
-/** true quando o diagnóstico local (sem escalada de rede) caiu no "lado ruim" — usado por engine.ts para alimentar network-comparison.ts (Task 6) com `hasBadSignal`. */
+/** true quando o diagnóstico local (sem escalada de rede) caiu no "lado ruim" — usado por engine.ts para alimentar network-comparison.ts (Task 7) com `hasBadSignal`. */
 export function isValidityBadSignal(action: LossAction): boolean {
   return action === "suspender_abastecimento" || action === "reduzir_abastecimento";
 }
@@ -1746,14 +1871,14 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 9: `diagnosis/damage.ts` — árvore de danificado (spec §10.3)
+## Task 10: `diagnosis/damage.ts` — árvore de danificado (spec §10.3)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/diagnosis/damage.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/diagnosis/damage.spec.ts`
 
 **Interfaces:**
-- Consumes: `ReasonDiagnosis`, `PerReasonMetrics`, `LossIntelligenceParameters` (Tasks 1-2).
+- Consumes: `ReasonDiagnosis`, `PerReasonMetrics`, `LossIntelligenceParameters` (Tasks 2-3).
 - Produces: `diagnoseDamage` — chamado uma vez por `engine.ts` (não precisa de duas passadas: calcula sua própria concentração inline, não usa `network-comparison.ts`).
 
 **Nota:** esta árvore nunca produz ação estrutural (suspender/retirada/permanência) — só `investigar` ou `dados_insuficientes` — então não precisa do teto de histórico recente nem de `firstSeenRecently` como entrada.
@@ -1830,15 +1955,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 10: `diagnosis/other-reason.ts` — análise neutra de Outro motivo (spec §10.2)
+## Task 11: `diagnosis/other-reason.ts` — análise neutra de Outro motivo (spec §10.2)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/diagnosis/other-reason.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/diagnosis/other-reason.spec.ts`
 
 **Interfaces:**
-- Consumes: `ReasonDiagnosis`, `PerReasonMetrics`, `NetworkComparison`, `LossIntelligenceParameters` (Tasks 1-2), `clampSeverity` (Task 7).
-- Produces: `diagnoseOtherReason`, `isOtherReasonSevereSignal` — chamado duas vezes por `engine.ts` (mesma orquestração de duas passadas de `diagnosis/validity.ts`, Task 8).
+- Consumes: `ReasonDiagnosis`, `PerReasonMetrics`, `NetworkComparison`, `LossIntelligenceParameters` (Tasks 2-3), `clampSeverity` (Task 8).
+- Produces: `diagnoseOtherReason`, `isOtherReasonSevereSignal` — chamado duas vezes por `engine.ts` (mesma orquestração de duas passadas de `diagnosis/validity.ts`, Task 9).
 
 **Regra obrigatória, verificada estruturalmente**: esta função nunca deve atribuir `"avaliar_retirada_loja"` nem `"avaliar_retirada_rede"` a `action` em nenhum ramo — só `"avaliar_permanencia_loja"`/`"avaliar_permanencia_rede"`. Nenhuma string de regra, sinal ou hipótese neste arquivo menciona roubo/furto/theft.
 
@@ -1849,7 +1974,7 @@ import type { InterventionPotential, LossAction, NetworkComparison, PerReasonMet
 import type { LossIntelligenceParameters } from "../parameters";
 import { clampSeverity } from "../severity";
 
-/** true quando o critério "severo e recorrente" (spec §10.2) já está satisfeito, ANTES de decidir loja vs rede — usado por engine.ts como `hasBadSignal` na passe 1 de network-comparison.ts (Task 6). */
+/** true quando o critério "severo e recorrente" (spec §10.2) já está satisfeito, ANTES de decidir loja vs rede — usado por engine.ts como `hasBadSignal` na passe 1 de network-comparison.ts (Task 7). */
 export function isOtherReasonSevereSignal(input: { lossToMarginRatio: number | null; recurrencePeriodsWithLoss: Period[]; parameters: LossIntelligenceParameters }): boolean {
   return (
     input.lossToMarginRatio !== null &&
@@ -1963,15 +2088,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 11: `unnecessary-supply.ts` — detector transversal (spec §10.4)
+## Task 12: `unnecessary-supply.ts` — detector transversal (spec §10.4)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/unnecessary-supply.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/unnecessary-supply.spec.ts`
 
 **Interfaces:**
-- Consumes: `Period`, `LossIntelligenceParameters` (Tasks 1-2).
-- Produces: `detectUnnecessarySupply` — usado por `engine.ts` (Task 16) para preencher `sinaisTransversais` na saída consolidada; o teto de prioridade por histórico recente é aplicado em `priority.ts` (Task 13), não aqui.
+- Consumes: `Period`, `LossIntelligenceParameters` (Tasks 2-3).
+- Produces: `detectUnnecessarySupply` — usado por `engine.ts` (Task 17) para preencher `sinaisTransversais` na saída consolidada; o teto de prioridade por histórico recente é aplicado em `priority.ts` (Task 14), não aqui.
 
 - [ ] **Passo 1: escrever `unnecessary-supply.ts`.**
 
@@ -1999,7 +2124,7 @@ export interface UnnecessarySupplyResult {
 /**
  * Detector transversal — roda sobre o Produto×Loja consolidado, não por
  * motivo isolado (spec §10.4). O teto de prioridade para SKU com histórico
- * recente é responsabilidade de priority.ts (Task 13), que recebe
+ * recente é responsabilidade de priority.ts (Task 14), que recebe
  * `firstSeenRecently` separadamente — este módulo só relata os sinais.
  */
 export function detectUnnecessarySupply(input: UnnecessarySupplyInput): UnnecessarySupplyResult {
@@ -2042,15 +2167,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 12: `consolidate.ts` — consolidação Produto × Loja (spec §11)
+## Task 13: `consolidate.ts` — consolidação Produto × Loja (spec §11)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/consolidate.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/consolidate.spec.ts`
 
 **Interfaces:**
-- Consumes: `ReasonDiagnosis`, `LossReason`, `LossAction`, `Confidence`, `INTERVENTION_POTENTIAL_ORDER` (Task 1), `severityRank` (Task 7).
-- Produces: `consolidate` — chamado por `engine.ts` (Task 16) uma vez por Produto×Loja, depois que os diagnósticos por motivo (Tasks 8-10) e a confiança por motivo (Task 14) já foram calculados.
+- Consumes: `ReasonDiagnosis`, `LossReason`, `LossAction`, `Confidence`, `INTERVENTION_POTENTIAL_ORDER` (Task 2), `severityRank` (Task 8).
+- Produces: `consolidate` — chamado por `engine.ts` (Task 17) uma vez por Produto×Loja, depois que os diagnósticos por motivo (Tasks 9-11) e a confiança por motivo (Task 15) já foram calculados.
 
 **Nota de design — a "exceção de segurança" (spec §11.2 item 5) não precisa de código extra**: como a saída inclui TODO diagnóstico presente, seja como prioritário ou dentro de `motivosSecundarios`/`acoesSecundarias`, nenhum diagnóstico é descartado pela ordenação — um sinal grave secundário nunca desaparece, só não vira o principal. A função abaixo garante isso por construção (`slice(1)`, nunca um filtro).
 
@@ -2155,15 +2280,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 13: `priority.ts` — cálculo de prioridade (spec §16)
+## Task 14: `priority.ts` — cálculo de prioridade (spec §16)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/priority.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/priority.spec.ts`
 
 **Interfaces:**
-- Consumes: `LossAction`, `Confidence`, `Priority`, `LossIntelligenceParameters` (Tasks 1-2).
-- Produces: `computePriority` — chamado por `engine.ts` (Task 16) uma vez por Produto×Loja, depois de `consolidate.ts` (Task 12) e `confidence.ts` (Task 14).
+- Consumes: `LossAction`, `Confidence`, `Priority`, `LossIntelligenceParameters` (Tasks 2-3).
+- Produces: `computePriority` — chamado por `engine.ts` (Task 17) uma vez por Produto×Loja, depois de `consolidate.ts` (Task 13) e `confidence.ts` (Task 15).
 
 - [ ] **Passo 1: escrever `priority.ts`.**
 
@@ -2231,15 +2356,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 14: `confidence.ts` — cálculo de confiança (spec §17)
+## Task 15: `confidence.ts` — cálculo de confiança (spec §17)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/confidence.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/confidence.spec.ts`
 
 **Interfaces:**
-- Consumes: `Confidence`, `LossIntelligenceParameters` (Tasks 1-2).
-- Produces: `computeConfidence` — chamado por `engine.ts` (Task 16) uma vez por motivo, antes de `consolidate.ts` (Task 12) e `priority.ts` (Task 13), que dependem do resultado.
+- Consumes: `Confidence`, `LossIntelligenceParameters` (Tasks 2-3).
+- Produces: `computeConfidence` — chamado por `engine.ts` (Task 17) uma vez por motivo, antes de `consolidate.ts` (Task 13) e `priority.ts` (Task 14), que dependem do resultado.
 
 - [ ] **Passo 1: escrever `confidence.ts`.**
 
@@ -2300,15 +2425,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 15: `explain.ts` — texto determinístico (spec §15.4)
+## Task 16: `explain.ts` — texto determinístico (spec §15.4)
 
 **Files:**
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/explain.ts`
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/explain.spec.ts`
 
 **Interfaces:**
-- Consumes: `LossIntelligenceRecommendation`, `LossReason`, `LossAction` (Task 1).
-- Produces: `explainRecommendation` — usado pelo drill-down (Task 19) e por `engine.ts` (Task 16) se quiser anexar o texto à saída (opcional — a UI também pode chamar direto).
+- Consumes: `LossIntelligenceRecommendation`, `LossReason`, `LossAction` (Task 2).
+- Produces: `explainRecommendation` — usado pelo drill-down (Task 20) e por `engine.ts` (Task 17) se quiser anexar o texto à saída (opcional — a UI também pode chamar direto).
 
 - [ ] **Passo 1: escrever `explain.ts`.**
 
@@ -2374,7 +2499,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 16: `engine.ts` — orquestração completa (integra Tasks 1-15)
+## Task 17: `engine.ts` — orquestração completa (integra Tasks 2-16)
 
 **Por quê é a task mais delicada do plano:** é a única peça que sabe a ordem certa de chamar tudo — inclusive as duas passadas exigidas pela comparação de rede (§12): passe 1 roda `diagnosis/validity.ts` e `diagnosis/other-reason.ts` sem `networkComparison` só para saber quem tem "sinal ruim"; `network-comparison.ts` consome esse resultado; passe 2 roda as duas árvores de novo, agora com `networkComparison` resolvido, para decidir escalada. `diagnosis/damage.ts` não participa dessas duas passadas — calcula sua própria concentração inline e roda uma vez só.
 
@@ -2383,8 +2508,8 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/engine.spec.ts`
 
 **Interfaces:**
-- Consumes: tudo das Tasks 1-15.
-- Produces: `analyzeLossIntelligence(input: LossIntelligenceInput): LossIntelligenceResult` — a única função pública que `loss-tab.tsx` chama (Task 20).
+- Consumes: tudo das Tasks 2-16.
+- Produces: `analyzeLossIntelligence(input: LossIntelligenceInput): LossIntelligenceResult` — a única função pública que `loss-tab.tsx` chama (Task 21).
 
 **Duas decisões de implementação que a spec deixou em aberto, resolvidas aqui e documentadas no código (não um novo parâmetro — a spec aprovada tem exatamente 20 em §14):**
 1. Os três cenários de impacto (§15.1) usam os mesmos 20%/40%/60% já em uso em `commercial-intelligence` — constantes fixas, não um parâmetro configurável.
@@ -2660,7 +2785,7 @@ function computeImpactEstimate(recommendations: LossIntelligenceRecommendation[]
   - `impactEstimateCents.conservative ≤ expected ≤ optimistic`, e a soma exclui explicitamente linhas com `acaoPrioritaria` igual a `"manter"` ou `"dados_insuficientes"` (fixture com uma linha "manter" de valor alto, confirmando que não entra na soma).
   - Nenhum objeto de saída lança exceção nem produz `NaN`/`Infinity` em nenhum campo numérico, para uma fixture com todos os denominadores em zero (loja sem nenhum abastecimento nem venda, só perda registrada — caso extremo do spec §19).
 
-- [ ] **Passo 3: `pnpm --filter @agiliz/admin typecheck lint test`.** Este é o ponto de verificação mais importante do motor — toda a suíte das Tasks 1-16 deve passar junto.
+- [ ] **Passo 3: `pnpm --filter @agiliz/admin typecheck lint test`.** Este é o ponto de verificação mais importante do motor — toda a suíte das Tasks 2-17 deve passar junto.
 
 - [ ] **Passo 4: commit.**
 
@@ -2678,15 +2803,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 17: `agent-summary-panel.tsx` — painel do topo (spec §15.1)
+## Task 18: `agent-summary-panel.tsx` — painel do topo (spec §15.1)
 
 **Files:**
 - Create: `frontend/apps/admin/src/components/supply/loss-intelligence/agent-summary-panel.tsx`
 - Test: `frontend/apps/admin/src/components/supply/loss-intelligence/agent-summary-panel.spec.tsx`
 
 **Interfaces:**
-- Consumes: `LossIntelligenceResult`, `LossAction` (Task 1).
-- Produces: `AgentSummaryPanel` — usado por `loss-tab.tsx` (Task 20).
+- Consumes: `LossIntelligenceResult`, `LossAction` (Task 2).
+- Produces: `AgentSummaryPanel` — usado por `loss-tab.tsx` (Task 21).
 
 - [ ] **Passo 1: escrever `agent-summary-panel.tsx`.**
 
@@ -2768,15 +2893,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 18: `decisions-table.tsx` — tabela "Produtos que exigem decisão" (spec §15.2)
+## Task 19: `decisions-table.tsx` — tabela "Produtos que exigem decisão" (spec §15.2)
 
 **Files:**
 - Create: `frontend/apps/admin/src/components/supply/loss-intelligence/decisions-table.tsx`
 - Test: `frontend/apps/admin/src/components/supply/loss-intelligence/decisions-table.spec.tsx`
 
 **Interfaces:**
-- Consumes: `LossIntelligenceRecommendation`, `LossAction`, `LossReason`, `Priority`, `Confidence` (Task 1).
-- Produces: `LossDecisionsTable` — usado por `loss-tab.tsx` (Task 20); emite `onSelect(recommendation)` para abrir o drawer (Task 19).
+- Consumes: `LossIntelligenceRecommendation`, `LossAction`, `LossReason`, `Priority`, `Confidence` (Task 2).
+- Produces: `LossDecisionsTable` — usado por `loss-tab.tsx` (Task 21); emite `onSelect(recommendation)` para abrir o drawer (Task 20).
 
 - [ ] **Passo 1: ler `frontend/apps/admin/src/components/supply/loss-tab.tsx` primeiro**, especificamente como ele já implementa filtro de coluna hoje (`ColumnValueFilter`, mencionado no cabeçalho do arquivo), para decidir se reaproveita o mesmo componente de filtro ou usa `Select` do shadcn diretamente — usar o padrão já estabelecido no arquivo, não inventar um novo.
 
@@ -2787,7 +2912,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 import { useMemo, useState } from "react";
 
-import { ConfidenceBadge } from "@/components/confidence-badge";
+import { ConfidenceBadge } from "@/components/commercial-intelligence/confidence-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -2932,7 +3057,7 @@ function FilterSelect<T extends string>({ label, value, onChange, options }: { l
 }
 ```
 
-**Nota**: se `ConfidenceBadge`/`StatusBadge` tiverem uma prop diferente de `level`/`tone` do que o assumido aqui, ajustar para a assinatura real — confirmar lendo `frontend/apps/admin/src/components/confidence-badge.tsx` e `status-badge.tsx` antes de finalizar (mesma cautela do Passo 1 do Task 0).
+**Nota**: se `ConfidenceBadge`/`StatusBadge` tiverem uma prop diferente de `level`/`tone` do que o assumido aqui, ajustar para a assinatura real — confirmar lendo `frontend/apps/admin/src/components/commercial-intelligence/confidence-badge.tsx` e `frontend/apps/admin/src/components/status-badge.tsx` (StatusBadge é top-level; ConfidenceBadge/ProvenanceBadge ficam em components/commercial-intelligence/) antes de finalizar (mesma cautela do Passo 1 do Task 1).
 
 - [ ] **Passo 3: escrever `decisions-table.spec.tsx`.** Render com 5 linhas sintéticas cobrindo os 3 motivos e pelo menos 3 ações diferentes; cada filtro isolado reduz a lista para exatamente as linhas esperadas; combinação de 2 filtros simultâneos; clique numa linha chama `onSelect` com a recomendação certa; linha com `maiorImpactoFinanceiroMotivo !== motivoDiagnosticoPrioritario` mostra o aviso de divergência, linha sem divergência não mostra.
 
@@ -2949,7 +3074,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 19: `decision-drawer.tsx` + `rules-fired-detail.tsx` — drill-down (spec §15.3)
+## Task 20: `decision-drawer.tsx` + `rules-fired-detail.tsx` — drill-down (spec §15.3)
 
 **Files:**
 - Modify: `frontend/apps/admin/src/lib/loss-intelligence/types.ts` (campo `historico` — ver Passo 0)
@@ -2960,10 +3085,10 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Test: `frontend/apps/admin/src/components/supply/loss-intelligence/decision-drawer.spec.tsx`
 
 **Interfaces:**
-- Consumes: `LossIntelligenceRecommendation` (Task 1, estendido), `explainRecommendation` (Task 15).
-- Produces: `LossDecisionDrawer` — usado por `loss-tab.tsx` (Task 20).
+- Consumes: `LossIntelligenceRecommendation` (Task 2, estendido), `explainRecommendation` (Task 16).
+- Produces: `LossDecisionDrawer` — usado por `loss-tab.tsx` (Task 21).
 
-**Passo 0 — gap descoberto ao desenhar o drill-down: falta histórico por período.** O contrato de saída original (Task 1) não tem uma quebra por período dentro do lookback de recorrência, que a seção "Histórico" do spec §15.3/§24 do pedido exige ("Junho: X / Julho: X / Agosto: X"). Adicionar:
+**Passo 0 — gap descoberto ao desenhar o drill-down: falta histórico por período.** O contrato de saída original (Task 2) não tem uma quebra por período dentro do lookback de recorrência, que a seção "Histórico" do spec §15.3/§24 do pedido exige ("Junho: X / Julho: X / Agosto: X"). Adicionar:
 
 - [ ] Em `types.ts`, dentro de `LossIntelligenceRecommendation`, adicionar o campo:
 
@@ -2995,7 +3120,7 @@ const historico = window.recurrenceLookbackPeriods.map((period) => ({
 
 - [ ] Em `engine.spec.ts`, adicionar um caso: fixture com valores diferentes de abastecido/vendido em cada um dos 6 períodos do lookback padrão → `historico` tem 6 entradas, em ordem cronológica, cada uma batendo com os números da fixture daquele período especificamente (não confundir com a soma da janela principal).
 
-- [ ] **Passo 1: `pnpm --filter @agiliz/admin typecheck lint test` antes de seguir**, confirmando que a extensão não quebrou nada das Tasks 1-16.
+- [ ] **Passo 1: `pnpm --filter @agiliz/admin typecheck lint test` antes de seguir**, confirmando que a extensão não quebrou nada das Tasks 2-17.
 
 - [ ] **Passo 2: escrever `rules-fired-detail.tsx`.**
 
@@ -3047,7 +3172,7 @@ export function RulesFiredDetail({ diagnoses }: { diagnoses: ReasonDiagnosis[] }
 ```tsx
 "use client";
 
-import { ConfidenceBadge } from "@/components/confidence-badge";
+import { ConfidenceBadge } from "@/components/commercial-intelligence/confidence-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { explainRecommendation } from "@/lib/loss-intelligence/explain";
@@ -3161,7 +3286,7 @@ export function LossDecisionDrawer({
 }
 ```
 
-**Nota**: verificar a assinatura real de `StatusBadge`/`ConfidenceBadge` (mesma ressalva do Task 18) e trocar o texto cru de `r.acaoPrioritaria` por um label amigável (reaproveitar `ACTION_LABELS` de `decisions-table.tsx` — exportar de lá em vez de duplicar).
+**Nota**: verificar a assinatura real de `StatusBadge`/`ConfidenceBadge` (mesma ressalva do Task 19) e trocar o texto cru de `r.acaoPrioritaria` por um label amigável (reaproveitar `ACTION_LABELS` de `decisions-table.tsx` — exportar de lá em vez de duplicar).
 
 - [ ] **Passo 4: escrever `decision-drawer.spec.tsx`.** Render com uma recomendação sintética completa → cada seção mostra os números certos; `recommendation=null` → não renderiza nada (sem erro); seção "Comparação com a rede" mostra a mensagem de dado insuficiente quando `comparacaoRede[motivo]==="dado_insuficiente"`; `historico` renderiza uma linha por período, na ordem cronológica da fixture; limitações só aparecem quando `limitacoesDosDados` não está vazio.
 
@@ -3181,12 +3306,12 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 20: Ligar tudo em `loss-tab.tsx` + página de calibração do Agente de Perdas
+## Task 21: Ligar tudo em `loss-tab.tsx` + página de calibração do Agente de Perdas
 
-**Última task — integra as Tasks 0-19 na tela real.**
+**Última task — integra as Tasks 1-20 na tela real.**
 
 **Files:**
-- Read first (confirmar assinaturas exatas antes de escrever qualquer linha): `frontend/apps/admin/src/components/supply/loss-tab.tsx` (estrutura completa, hooks já usados, onde a matriz Produto×Loja e o ranking já são renderizados — a nova seção entra ANTES ou DEPOIS deles, nunca no meio, e nunca duplica o que já existe ali, per spec §15.2), `frontend/apps/admin/src/lib/api/finance.ts` (`Reconciliation`, `NetworkReconciliationRangeRow`, `useGetNetworkReconciliationRangeQuery`), `frontend/apps/admin/src/lib/api/sales.ts` (`SalesRecord`, `useGetNetworkSalesRangeQuery`), `frontend/apps/admin/src/lib/api/supply.ts` (`useGetNetworkSupplyRangeQuery`), `frontend/apps/admin/src/lib/api/products.ts` (procurar o hook de custo datado — `GET /costs` per `products-service/CLAUDE.md`; se não existir um hook RTK Query pronto, criar um pequeno, seguindo o padrão dos demais em `lib/api/products.ts`), `frontend/apps/admin/src/lib/api/stores.ts` (`Store`, lista de lojas já carregada em algum nível de `/supply`).
+- Read first (confirmar assinaturas exatas antes de escrever qualquer linha): `frontend/apps/admin/src/components/supply/loss-tab.tsx` (estrutura completa, hooks já usados, onde a matriz Produto×Loja e o ranking já são renderizados — a nova seção entra ANTES ou DEPOIS deles, nunca no meio, e nunca duplica o que já existe ali, per spec §15.2), `frontend/apps/admin/src/lib/api/finance.ts` (`Reconciliation`, `NetworkReconciliationRangeRow`, `useGetNetworkReconciliationRangeQuery`), `frontend/apps/admin/src/lib/api/sales.ts` (`SalesRecord`, `useGetNetworkSalesRangeQuery`), `frontend/apps/admin/src/lib/api/supply.ts` (`useGetNetworkSupplyRangeQuery`), `frontend/apps/admin/src/lib/api/products.ts` (o hook de custo datado já existe: `useGetCostsAsOfQuery({ skus, asOf })` → `POST /products/costs/bulk`, devolve `{ as_of, resolved: ResolvedCost[], unresolved, complete }` — bulk por design, igual ao que `/sales` já usa pro cálculo de margem; não é um `GET /costs` simples nem precisa ser criado), `frontend/apps/admin/src/lib/api/stores.ts` (`Store`, lista de lojas já carregada em algum nível de `/supply`).
 
 - Create: `frontend/apps/admin/src/lib/loss-intelligence/parameter-rows.ts`
 - Create: `frontend/apps/admin/src/app/(app)/supply/loss-intelligence/calibration/page.tsx`
@@ -3194,10 +3319,10 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 - Test: `frontend/apps/admin/src/lib/loss-intelligence/parameter-rows.spec.ts`
 
 **Interfaces:**
-- Consumes: tudo das Tasks 0-19.
+- Consumes: tudo das Tasks 1-20.
 - Produces: a seção "Agente de Perdas" visível na aba Perdas real.
 
-- [ ] **Passo 1: escrever `parameter-rows.ts`** (mesmo padrão do Task 0, agora para `loss.*`):
+- [ ] **Passo 1: escrever `parameter-rows.ts`** (mesmo padrão do Task 1, agora para `loss.*`):
 
 ```ts
 import { KIND_LABELS, PARAMETER_DOCS, PARAMETER_GROUP_LABELS, PARAMETER_KINDS, PARAMETER_PATHS, type ParameterPath } from "./parameter-docs";
@@ -3261,7 +3386,7 @@ export function lossBusinessRuleRows(parameters: LossIntelligenceParameters, def
 }
 ```
 
-- [ ] **Passo 2: escrever `parameter-rows.spec.ts`** — mesma cobertura do equivalente em `commercial-intelligence` (Task 0, Passo 7): todo path de `PARAMETER_PATHS` aparece em exatamente uma seção; todo path `kind==="business"` também aparece em `lossBusinessRuleRows`.
+- [ ] **Passo 2: escrever `parameter-rows.spec.ts`** — mesma cobertura do equivalente em `commercial-intelligence` (Task 1, Passo 7): todo path de `PARAMETER_PATHS` aparece em exatamente uma seção; todo path `kind==="business"` também aparece em `lossBusinessRuleRows`.
 
 - [ ] **Passo 3: escrever a página de calibração** `frontend/apps/admin/src/app/(app)/supply/loss-intelligence/calibration/page.tsx`:
 
@@ -3335,20 +3460,42 @@ import { AgentSummaryPanel } from "./loss-intelligence/agent-summary-panel";
 import { LossDecisionsTable, type DecisionRowData } from "./loss-intelligence/decisions-table";
 import { LossDecisionDrawer } from "./loss-intelligence/decision-drawer";
 import type { LossIntelligenceInput, LossIntelligenceRecommendation } from "@/lib/loss-intelligence/types";
+import { skipToken } from "@reduxjs/toolkit/query/react";
+import { useGetCostsAsOfQuery } from "@/lib/api/products";
 
 // Dentro do componente LossTab, junto dos hooks já existentes:
 const [selectedRecommendation, setSelectedRecommendation] = useState<LossIntelligenceRecommendation | null>(null);
 
+// costsBySkuAsOf: resolveAnalysisWindow calcula primaryClosedPeriods só a partir de `today`
+// (não varia por par Produto×Loja), então existe um único asOfPeriod por carregamento de
+// tela — chamar useGetCostsAsOfQuery uma vez com todos os SKUs visíveis e esse período.
+const allSkus = useMemo(() => [...new Set(salesRange?.map((r) => r.sku) ?? [])], [salesRange]);
+const asOfPeriod = lastCompleteMonth(); // mesma função já usada pelo restante de loss-tab.tsx
+const { data: costsResult } = useGetCostsAsOfQuery(
+  allSkus.length > 0 ? { skus: allSkus, asOf: `${asOfPeriod}-01` } : skipToken,
+);
+const costsBySkuAsOf = useMemo(() => {
+  if (!costsResult) return null;
+  // CONFIRMAR o nome exato do campo de custo em ResolvedCost (lendo products.ts no
+  // Passo "Read first") antes de escrever — usado aqui como placeholder ilustrativo.
+  const bySku = new Map(costsResult.resolved.map((r) => [r.sku, r.cost_cents]));
+  return (sku: string) => bySku.get(sku) ?? null;
+}, [costsResult]);
+
 const lossIntelligenceInput = useMemo<LossIntelligenceInput | null>(() => {
-  // CONFIRMAR contra o shape real de reconciliationRange/salesRange/supplyRange/costsData
+  // CONFIRMAR contra o shape real de reconciliationRange/salesRange/supplyRange
   // encontrado no Passo "Read first" — os nomes de campo abaixo são o contrato de
-  // types.ts (Task 1), não o shape das respostas RTK Query, que precisa ser adaptado aqui.
+  // types.ts (Task 2), não o shape das respostas RTK Query, que precisa ser adaptado aqui.
   if (!reconciliationRange || !salesRange || !supplyRange || !costsBySkuAsOf || !stores) return null;
 
   return {
     reconciliations: /* adaptar reconciliationRange para ReconciliationInput[] */,
     salesByStorePeriodSku: /* adaptar salesRange para SalesRecordInput[] */,
-    supplyByStorePeriodSku: /* adaptar supplyRange para SupplyRecordInput[] */,
+    // supplyRange é SupplyPeriod[] com quantity_restocked aninhado em restocks[]
+    // (RestockRow), não plano — confirmar no Passo "Read first" onde store_id/period
+    // ficam (em SupplyPeriod ou replicados em RestockRow) antes de escrever o flatten:
+    // supplyRange.flatMap((period) => period.restocks.map((r) => ({ store_id: ..., period: period.period, sku: r.sku, quantity_restocked: r.quantity_restocked })))
+    supplyByStorePeriodSku: /* adaptar supplyRange (nested restocks[]) para SupplyRecordInput[] flat, via flatMap acima */,
     costsBySkuAsOf,
     stores: stores.map((s) => ({ id: s.id, name: s.name })),
     today: new Date().toISOString().slice(0, 10),
@@ -3417,7 +3564,7 @@ git commit -m "feat(admin): wire the Loss Intelligence Agent into the Perdas tab
 Adds the agent summary panel, decisions table and drill-down drawer
 inside the existing loss-tab.tsx — no existing widget touched — plus
 a calibration page for the 20 provisional thresholds and a business
-rules sheet, both reusing the generic components from Task 0. This
+rules sheet, both reusing the generic components from Task 1. This
 closes out Fase 1 of docs/superpowers/specs/2026-09-21-loss-intelligence-agent-phase-1-design.md.
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
@@ -3427,11 +3574,11 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ## Final Self-Review (performed before handing this plan to the user)
 
-- **Spec coverage**: every numbered section of the design spec (§2-§22) maps to at least one task — restrições em Global Constraints; §3/§4 → Task 0; §6/§7/§13 → Tasks 1, 4; §8 → Task 3; §9 → Task 5; §10.1-§10.4 → Tasks 7-11; §11 → Task 12; §12 → Task 6; §14 → Task 2; §15 → Tasks 17-20; §16 → Task 13; §17 → Task 14; §18/§19/§22 → os testes de cada task, mais os critérios de aceite revisitados no Passo 6 do Task 20.
+- **Spec coverage**: every numbered section of the design spec (§2-§22) maps to at least one task — restrições em Global Constraints; §3/§4 → Task 1; §6/§7/§13 → Tasks 2, 5; §8 → Task 4; §9 → Task 6; §10.1-§10.4 → Tasks 8-12; §11 → Task 13; §12 → Task 7; §14 → Task 3; §15 → Tasks 18-21; §16 → Task 14; §17 → Task 15; §18/§19/§22 → os testes de cada task, mais os critérios de aceite revisitados no Passo 6 do Task 21.
 - **Placeholder scan**: nenhum "TODO"/"implementar depois" restante. Os dois pontos genuinamente incertos (assinatura exata de `StatusBadge`/`ConfidenceBadge`, shape exato dos hooks RTK Query consumidos por `loss-tab.tsx`) estão marcados como "ler primeiro" / "CONFIRMAR", nunca como código fictício assumido correto.
-- **Consistência de tipos**: `LossAction`, `LossReason`, `InterventionPotential`, `Confidence`, `Priority` são declarados uma vez (Task 1) e usados literalmente em todas as tasks seguintes — nenhuma task redeclara ou diverge do nome de campo.
-- **Duas decisões de implementação fora da spec aprovada, ambas documentadas explicitamente no código onde aparecem** (nunca como um 21º parâmetro silencioso): o multiplicador de "evidência esmagadora" (Task 5) e os cenários de impacto 20/40/60% (Task 16).
-- **Gap descoberto durante o desenho**: o campo `historico` (Task 19) não estava no contrato original da spec §13 — foi adicionado como extensão explícita de `types.ts`/`engine.ts`, com nota própria no plano, não escondido.
+- **Consistência de tipos**: `LossAction`, `LossReason`, `InterventionPotential`, `Confidence`, `Priority` são declarados uma vez (Task 2) e usados literalmente em todas as tasks seguintes — nenhuma task redeclara ou diverge do nome de campo.
+- **Duas decisões de implementação fora da spec aprovada, ambas documentadas explicitamente no código onde aparecem** (nunca como um 21º parâmetro silencioso): o multiplicador de "evidência esmagadora" (Task 6) e os cenários de impacto 20/40/60% (Task 17).
+- **Gap descoberto durante o desenho**: o campo `historico` (Task 20) não estava no contrato original da spec §13 — foi adicionado como extensão explícita de `types.ts`/`engine.ts`, com nota própria no plano, não escondido.
 - **Escopo**: as 20 tasks cobrem exatamente a Fase 1 aprovada — nada de persistência, decisão humana ou chat (Fases 2/3, fora de escopo aqui).
 
 ---
