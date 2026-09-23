@@ -98,14 +98,18 @@ describe("computeMixRecommendations", () => {
   });
 
   it("classifies explorar for a growing, high-affinity, margin-healthy product with no loss signal", () => {
-    // única loja da rede -> affinity = 1 (storeShare = networkShare sempre); ajustado no teste seguinte para >1
-    const result = computeMixRecommendations(baseInput({ salesByStoreMonth: salesFor(1, "SKU-1", [10, 12, 14, 20, 24, 28]) }));
-    expect(result[0].tendencia).toBe("crescendo");
-    expect(result[0].classificacao).toBe("explorar");
+    // 2 lojas: SKU-1 é 100% da receita da Loja A, mas só ~31% da receita da rede (Loja B vende SKU-2) -> affinity ~3.2, acima do piso de 1.2
+    const stores: Store[] = [{ id: 1, name: "Loja A" } as Store, { id: 2, name: "Loja B" } as Store];
+    const sales = mergeSales(salesFor(1, "SKU-1", [10, 12, 14, 20, 24, 28]), salesFor(2, "SKU-2", [20, 20, 20, 20, 20, 20], 1000));
+    const result = computeMixRecommendations(baseInput({ stores, salesByStoreMonth: sales }));
+    const row = result.find((r) => r.storeId === 1 && r.sku === "SKU-1");
+    expect(row).toBeDefined();
+    expect(row!.tendencia).toBe("crescendo");
+    expect(row!.classificacao).toBe("explorar");
   });
 
   it("classifies reduzir for a declining product with no loss signal", () => {
-    const result = computeMixRecommendations(baseInput({ salesByStoreMonth: salesFor(1, "SKU-1", [10, 8, 6, 4, 3, 2]) }));
+    const result = computeMixRecommendations(baseInput({ salesByStoreMonth: salesFor(1, "SKU-1", [30, 28, 25, 20, 16, 12]) }));
     expect(result[0].classificacao).toBe("reduzir");
   });
 
