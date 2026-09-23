@@ -64,6 +64,7 @@ describe("diagnoseOtherReason — impacto desprezível", () => {
       acao: "manter",
       potencialIntervencao: "baixo",
       hipoteses: [],
+      escopoProblema: "indeterminado",
     });
   });
 
@@ -89,6 +90,7 @@ describe("diagnoseOtherReason — margem desconhecida", () => {
       acao: "dados_insuficientes",
       potencialIntervencao: null,
       hipoteses: [],
+      escopoProblema: "indeterminado",
     });
   });
 });
@@ -111,6 +113,7 @@ describe("diagnoseOtherReason — saudável e pontual", () => {
       acao: "manter_monitorar",
       potencialIntervencao: "baixo",
       hipoteses: [],
+      escopoProblema: "indeterminado",
     });
   });
 });
@@ -178,6 +181,7 @@ describe("diagnoseOtherReason — severo e recorrente (loja vs. rede)", () => {
       acao: "avaliar_permanencia_loja",
       potencialIntervencao: "alto",
       hipoteses: [],
+      escopoProblema: "local",
     });
   });
 

@@ -102,6 +102,7 @@ describe("diagnoseValidity — Caso A (zero vendas, abastecimento repetido)", ()
       acao: "suspender_abastecimento",
       potencialIntervencao: "alto",
       hipoteses: [],
+      escopoProblema: "indeterminado",
     });
   });
 
@@ -139,6 +140,7 @@ describe("diagnoseValidity — Caso B (venda baixa em relação ao abastecido, r
       acao: "reduzir_abastecimento",
       potencialIntervencao: "alto",
       hipoteses: [],
+      escopoProblema: "indeterminado",
     });
   });
 
@@ -183,6 +185,7 @@ describe("diagnoseValidity — Caso C (venda saudável, perda pontual)", () => {
       acao: "manter_monitorar",
       potencialIntervencao: "baixo",
       hipoteses: [],
+      escopoProblema: "indeterminado",
     });
   });
 });

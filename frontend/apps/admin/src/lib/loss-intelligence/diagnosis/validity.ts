@@ -1,5 +1,6 @@
 import type { InterventionPotential, LossAction, NetworkComparison, PerReasonMetrics, Period, ReasonDiagnosis } from "../types";
 import type { LossIntelligenceParameters } from "../parameters";
+import { deriveEscopoProblemaFromNetworkComparison } from "../network-comparison";
 import { clampSeverity } from "../severity";
 
 export interface ValidityDiagnosisInput {
@@ -45,7 +46,10 @@ export function diagnoseValidity(input: ValidityDiagnosisInput): ReasonDiagnosis
     potencialIntervencao = "baixo";
     signals = ["HEALTHY_SALE_RATIO_ISOLATED_EXPIRY"];
   } else {
-    return { reason: "expired", metrics, sinaisDetectados: ["INSUFFICIENT_EVIDENCE"], regrasAcionadas: ["INSUFFICIENT_EVIDENCE"], acao: "dados_insuficientes", potencialIntervencao: null, hipoteses: [] };
+    return {
+      reason: "expired", metrics, sinaisDetectados: ["INSUFFICIENT_EVIDENCE"], regrasAcionadas: ["INSUFFICIENT_EVIDENCE"],
+      acao: "dados_insuficientes", potencialIntervencao: null, hipoteses: [], escopoProblema: "indeterminado",
+    };
   }
 
   // Escalada por rede (casos D/E) — só na passe 2, e só refina suspender/reduzir.
@@ -69,5 +73,9 @@ export function diagnoseValidity(input: ValidityDiagnosisInput): ReasonDiagnosis
     action = capped;
   }
 
-  return { reason: "expired", metrics, sinaisDetectados: signals, regrasAcionadas: signals, acao: action, potencialIntervencao, hipoteses: [] };
+  const escopoProblema = input.networkComparison
+    ? deriveEscopoProblemaFromNetworkComparison(input.networkComparison, p)
+    : "indeterminado";
+
+  return { reason: "expired", metrics, sinaisDetectados: signals, regrasAcionadas: signals, acao: action, potencialIntervencao, hipoteses: [], escopoProblema };
 }

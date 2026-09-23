@@ -502,3 +502,127 @@ Fixtures sintéticas — nunca dado real do banco de dev nos testes (regra de is
 5. Toda ação 🔴/⚫ tem pelo menos um `sinalDetectado`/`regraAcionada` nomeado na saída — nunca aparece sem explicação auditável.
 6. `pnpm --filter @agiliz/admin typecheck lint` e a suíte de testes do motor passam limpos.
 7. Revisão manual no browser (mock ou dados reais já importados) confirmando que os textos de diagnóstico soam como os exemplos do pedido original, sem eu precisar caçar a informação manualmente.
+
+## 23. Adenda 2026-09-23 (segunda rodada) — reestruturação da tela e correção da árvore de Outro motivo
+
+Pedido do operador após a primeira verificação ao vivo (§15.1/§15.1.1/§15.5 já implementadas e mescladas): a Inteligência de Perdas não deve ficar empilhada como uma segunda tela extensa abaixo da análise tradicional, e a concentração de 15 recomendações "Avaliar permanência" por Outro motivo revelou uma falha estrutural na árvore (um único threshold financeiro decidia sozinho), não um problema de calibração.
+
+### 23.1 Estrutura: duas subvisões dentro de Perdas, sem item novo no menu
+
+`Abastecimento → Perdas` ganha um seletor `[Visão das perdas] [Inteligência de Perdas ✦]` — nenhuma rota nova, nenhum item novo na sidebar.
+
+- **Visão das perdas**: o dashboard já existente, sem nenhuma mudança — KPIs, Perda por loja, donut, evolução, Principais insights, ranking, Abastecido×Vendido×Perdido, e a matriz Produto×Loja **de volta ao seu estado descritivo original**.
+- **Inteligência de Perdas ✦**: exclusivamente a camada prescritiva — painel, tabela, drawer.
+
+**O modo `[Perdas] [Decisão IA]` da matriz (§15.5) é removido.** Com a nova subaba dedicada — que expõe Sinal detectado e Escopo do problema por linha, informação mais rica do que uma célula colorida consegue mostrar — o toggle ficou redundante e voltava a misturar descritivo com decisão. A matriz volta a ser só a ferramenta analítica de "Visão das perdas".
+
+### 23.2 Painel do Agente: só o observado, nunca a estimativa (revisa §15.1)
+
+**"Impacto potencial estimado" fica oculto**, não só reescrito com aviso — os cenários 20/40/60% são constantes fixas nunca calibradas contra resultado real de intervenção (`IMPACT_SCENARIOS` em `engine.ts`), e mostrar uma faixa em R$ passa segurança que o sistema não tem. O painel mostra só o fato:
+
+```
+R$ X em perdas associadas aos casos priorizados
+```
+
+(substitui a redação anterior "R$ X em perdas nos casos priorizados" — mesmo campo `valueLostInPrioritizedCasesCents`, só o texto muda.) `impactEstimateCents` continua calculado no motor (não é removido do contrato de saída — a Fase 2, com decisão+resultado registrados, é quando a redução potencial estimada volta a aparecer, agora baseada em desempenho real, não em premissa de captura).
+
+**O resumo prioriza urgência, não tipo de ação**: agrupamento primário passa a ser por Prioridade (Crítica/Alta/Média), com o detalhe por ação secundário/expandível — hoje é o inverso.
+
+**Terminologia**: "N decisões recomendadas" é impreciso quando parte das linhas é "Investigar" (uma indicação de olhar, não uma decisão sobre manter/retirar o produto). Título do painel destaca **"N casos requerem decisão"** — dado que os itens Investigar/Reduzir/Suspender/Avaliar_* são coletivamente "requerem decisão" no sentido de "saem do piloto automático", o texto não separa Investigar do resto aqui (essa separação vive na tabela, §23.3); só troca "decisões recomendadas" por uma frase que não implica que toda linha já é uma decisão de manter-ou-retirar.
+
+### 23.3 Tabela: abre em "Requer decisão", com um contador discreto para Dados insuficientes (revisa §15.2)
+
+Quatro visões, não mais um filtro só de Ação livre:
+
+| Visão | Filtro |
+|---|---|
+| **Requer decisão** (padrão) | `acaoPrioritaria` ∉ {manter, manter_monitorar, dados_insuficientes} |
+| Monitoramento | `acaoPrioritaria` ∈ {manter, manter_monitorar} |
+| Dados insuficientes | `acaoPrioritaria` = dados_insuficientes |
+| Todos | sem filtro |
+
+`dados_insuficientes` nunca aparece na fila padrão, mas nunca fica invisível: um contador discreto ("N produtos com dados insuficientes") ao lado do seletor de visão, clicável, leva direto pra essa visão — dado insuficiente é sinal de qualidade/cobertura, não deve poluir a fila de decisão, mas também não deve ser escondido.
+
+Duas colunas novas:
+
+- **Sinal detectado**: rótulo curto por regra acionada (`OTHER_REASON_SEVERE_RECURRING` → "Perda recorrente e severa em Outro motivo", `ZERO_SALES_REPEATED_SUPPLY_EXPIRY_LOSS` → "Zero vendas com abastecimento repetido", etc.) — dicionário `SIGNAL_LABELS: Record<string, string>`, cobrindo todo `sinaisDetectados`/`regrasAcionadas` que as árvores já emitem (§10.1-10.4). Nenhuma regra nova, só o rótulo.
+- **Escopo do problema**: Local / Múltiplas lojas / Rede / Indeterminado, lida direto de `diagnosticosPorMotivo[motivoDiagnosticoPrioritario].escopoProblema` (novo campo do contrato, §23.6).
+
+### 23.4 Drawer reestruturado (revisa §15.3)
+
+Ordem: **Por que está aqui?** (a frase de `explain.ts`, promovida pro topo, plain-language) → **Evidências** (métricas da janela de decisão, só) → **Evolução** (histórico ampliado, tabular) → **Comparação com a rede** → **Diagnóstico** → **Recomendação** (a ação, curta) → **Regras acionadas** (mantém o botão existente) → **Limitações**.
+
+**Evolução vira tabela** (Período | Abastecido | Vendido | Perdido), nunca mais `<ul><li>` de texto.
+
+**Janela explícita, corrigindo a inconsistência achada em produção** (auditoria 2026-09-23: o drawer dizia "Evidências (3 meses)" mas a lista de baixo já mostrava 6 meses, março a agosto, sem aviso): os dois títulos passam a nomear os meses de cada janela —
+
+```
+Janela usada na decisão: 3 meses (jun/26 – ago/26)
+Histórico ampliado: 6 meses (mar/26 – ago/26)
+```
+
+`janelaAnalisada.primaryMonths`/`recurrenceLookbackMonths` já existem no contrato (§13) com essa exata informação — é só formatar, nenhum campo novo.
+
+**Margem × perda × resultado após perdas**: `netMarginAfterLossCents` (já existe no motor, `metrics.ts`, testado, nunca reentra como denominador — §7) passa a ser exibido na seção Evidências, junto de margem gerada e perda atribuída — "quando contabilmente válido" = quando `grossMarginCents !== null` (mesma condição que já existe pra não mostrar margem "desconhecida" como zero).
+
+**Botões Fase 2** (Aceitar recomendação / Monitorar / Discordar), desabilitados, sem persistência — só a estrutura visual, no rodapé do drawer, abaixo de Limitações.
+
+### 23.5 Duas janelas diferentes, dito em voz alta (revisa §15, não muda cálculo nenhum)
+
+"Principais insights" (Visão das perdas, dado de 1 mês, `loss-insights.ts`) e "Inteligência de Perdas" (3 meses fechados, motor novo) respondem perguntas diferentes de propósito e continuam em janelas diferentes — não vão ser forçadas a coincidir. O que muda é deixar isso dito na própria tela, pra a mesma linha (ex. Paçoquita/SUM01) com números diferentes em cada seção parar de parecer inconsistência:
+
+```
+Principais insights — ago/2026
+```
+```
+✦ Inteligência de Perdas — análise dos últimos 3 meses fechados
+```
+
+### 23.6 Árvore de Outro motivo — correção estrutural, não recalibração (revisa §10.2)
+
+**Achado em produção (auditoria 2026-09-23)**: as 15 recomendações `avaliar_permanencia_loja` de Outro motivo eram todas de produtos saudáveis (12 a 96 unidades vendidas em 3 meses, nenhum "parado") — o que empurrava a ação não era o produto ir mal, era margem absoluta baixa (ex.: refrigerante, margem trimestral R$398) fazendo uma perda modesta em R$ (R$136, 34%) cruzar `viabilityMaxRatio` (30%) com folga pequena. **O `viabilityMaxRatio` não muda** (pedido explícito do operador: o problema não é o número, é a lógica depender de um único número sozinho).
+
+**Antes**: `isSevere` (perda/margem ≥ 30% **e** recorrente ≥3 períodos) já ia direto para `avaliar_permanencia_loja` — o teto de histórico recente (§9) existia, mas como correção *depois* da decisão (um `clampSeverity` pós-hoc), não como parte da combinação de evidência em si.
+
+**Agora, 3 sinais somados, nenhum sozinho decide**:
+
+1. `economicamente desfavorável` — perda/margem ≥ `viabilityMaxRatio` (inalterado)
+2. `persistente` — recorrência ≥ `minRecurringPeriods` no lookback de 6 meses (inalterado)
+3. **novo como condição de primeira classe** (não mais um cap aplicado depois): `histórico suficiente` — produto não é recém-visto, ou a evidência é esmagadora (`overwhelmingEvidence`, já existia em §9)
+
+`avaliar_permanencia_loja`/`_rede` só dispara com os **3 juntos**. Com apenas (1)+(2) — economicamente desfavorável e persistente, mas histórico curto — a ação fica em `investigar` (nível 1), com o sinal nativo preservado (`OTHER_REASON_SEVERE_RECURRING` continua na saída, mais `CAPPED_RECENT_HISTORY`) para auditoria: o dado mostra que já bateria o critério financeiro+recorrência, só falta tempo de observação.
+
+**A escalada loja→rede** (`OTHER_REASON_NETWORK_WIDE`, contra `validity.networkWideMinShare`) é avaliada e registrada no sinal independente do teto de histórico — descreve o padrão observado na rede, que o teto de histórico não invalida, mesmo quando ele impede a ação de escalar nesta rodada.
+
+**Nível 1 (Investigar) continua sendo o piso de qualquer perda relevante sem a combinação completa** — recorrente OU concentrado, sem os 3 sinais do nível 2 — exatamente como já era antes desta adenda (`OTHER_REASON_RECURRING_OR_CONCENTRATED`), só que agora é estruturalmente o único caminho de entrada: nada pula de "sem diagnóstico" direto pra "avaliar permanência" sem primeiro passar pelas condições que também cobririam Investigar.
+
+**Verificado contra dado real (2026-09-23)**: os mesmos 15 casos continuam 15 após a mudança — todos já tinham histórico suficiente (produtos estabelecidos, perda recorrente nos 6 meses inteiros do lookback), então o teto de histórico não muda nenhum deles hoje. O efeito da correção é estrutural (impede um produto recém-chegado de pular pra permanência só pelo threshold financeiro) e coberto por teste dedicado (`other-reason.spec.ts`, casos "teto de histórico recente"); não é uma promessa de que o número de casos vai cair.
+
+### 23.7 Escopo do problema para Danificado (revisa §10.3)
+
+**Antes**: `diagnoseDamage` já calculava `concentrationShare` (valor de dano nesta loja ÷ total da rede) internamente, mas descartava o número depois de decidir a ação — a UI não tinha como mostrar onde o dano se concentra, só a ação (investigar local/sistêmico).
+
+**Agora**: o mesmo cálculo já existente também produz `escopoProblema`, com os mesmos dois limiares que já decidiam a ação (`damage.localConcentrationMin`, `damage.minStoresForSystemic` — nenhum parâmetro novo):
+
+| `escopoProblema` | Condição | Ação (inalterada) |
+|---|---|---|
+| `local` | `concentrationShare ≥ localConcentrationMin` (0.7) | investigar, potencial alto |
+| `rede` | concentração < 0.7 **e** `storesCarrying.length ≥ minStoresForSystemic` (4) | investigar, potencial médio |
+| `multiplas_lojas` | concentração < 0.7 **e** 3 ≤ lojas carregando < 4 (o "meio-termo" que antes caía direto em dados insuficientes sem rótulo próprio) | dados_insuficientes (inalterada) |
+| `indeterminado` | menos de 3 lojas carregam o SKU (`minStoresCarryingForConcentration`) | dados_insuficientes (inalterada) |
+
+**Nenhuma ação de Danificado muda** — só o rótulo de distribuição fica visível. E, como pedido explicitamente: isso descreve onde a perda se concentra, nunca por que — as hipóteses (manuseio/armazenamento/exposição/embalagem/transporte) continuam em `hipoteses`, marcadas como hipótese, nunca afirmadas.
+
+### 23.8 Contrato de saída — um campo novo (revisa §13)
+
+```ts
+type EscopoProblema = "local" | "multiplas_lojas" | "rede" | "indeterminado";
+```
+
+Adicionado a `diagnosticosPorMotivo[].escopoProblema` — cada motivo deriva o seu (validade e Outro motivo reaproveitam `comparacaoRede`/`affectedShare`; Danificado deriva da própria concentração de valor, §23.7). `"indeterminado"` nunca é omitido nem vira `—` silencioso.
+
+### 23.9 O que já foi verificado, o que ainda falta
+
+**Já implementado, testado (325 testes verdes, incluindo os novos) e verificado contra dado real** (§23.6, §23.7): as duas árvores de decisão (`other-reason.ts`, `damage.ts`), o tipo `EscopoProblema` e o helper compartilhado `deriveEscopoProblemaFromNetworkComparison` (`network-comparison.ts`). Zero parâmetro novo, zero mudança de ação em `damage.ts`, zero mudança na regra de decisão em `validity.ts`.
+
+**Ainda não implementado, aguardando aprovação desta adenda antes de começar**: a reestruturação de tela em si (§23.1), o painel revisado (§23.2), a tabela com as 4 visões e as 2 colunas novas (§23.3), o drawer reestruturado (§23.4), os rótulos de janela dupla nas duas telas (§23.5), e a remoção do toggle Decisão IA da matriz (§23.1).

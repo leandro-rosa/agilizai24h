@@ -37,6 +37,7 @@ describe("diagnoseDamage — concentração local (spec §10.3)", () => {
       metrics: input.metrics,
       sinaisDetectados: ["DAMAGE_CONCENTRATED_LOCAL"],
       regrasAcionadas: ["DAMAGE_CONCENTRATED_LOCAL"],
+      escopoProblema: "local",
       acao: "investigar",
       potencialIntervencao: "alto",
       hipoteses: ["manuseio", "armazenamento", "exposição"],
@@ -125,6 +126,7 @@ describe("diagnoseDamage — dano sistêmico na rede (spec §10.3)", () => {
       acao: "investigar",
       potencialIntervencao: "medio",
       hipoteses: ["embalagem", "transporte", "característica do produto"],
+      escopoProblema: "rede",
     });
 
     // The required distinction: both diagnoses reach the SAME acao ("investigar"), but their
@@ -185,6 +187,7 @@ describe("diagnoseDamage — dados insuficientes (spec §10.3)", () => {
       acao: "dados_insuficientes",
       potencialIntervencao: null,
       hipoteses: [],
+      escopoProblema: "indeterminado",
     });
   });
 
@@ -282,5 +285,44 @@ describe("regra: toda ação investigar (🟠) carrega pelo menos um sinal", () 
       expect(result.sinaisDetectados.length).toBeGreaterThan(0);
       expect(result.regrasAcionadas.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("diagnoseDamage — escopoProblema (adenda 2026-09-23 §A)", () => {
+  it("3 lojas carregam o SKU (no piso, não no sistêmico), nenhuma domina (concentração 0.4 < 0.7) → escopoProblema='multiplas_lojas', ação continua dados_insuficientes (não é pedido do operador mudar quando a ação dispara)", () => {
+    const input: DamageDiagnosisInput = {
+      metrics: metricsFixture(4),
+      qtyLostDamagedByStore: [
+        { storeId: THIS_STORE_ID, qtyLost: 4 },
+        { storeId: 2, qtyLost: 3 },
+        { storeId: 3, qtyLost: 3 },
+      ],
+      thisStoreId: THIS_STORE_ID,
+      parameters,
+    };
+    const result = diagnoseDamage(input);
+
+    // storesCarrying.length=3, not < minStoresCarryingForConcentration(3) → passes first guard.
+    // concentrationShare = 4/10 = 0.4, not >= 0.7 → not local. storesCarrying.length(3) not >=
+    // minStoresForSystemic(4) → not rede by the action-deciding branches either. Falls to the
+    // final return: acao stays dados_insuficientes (unchanged from before this adenda), but
+    // escopoProblema is now 'multiplas_lojas' instead of the old undifferentiated "—"/indeterminado.
+    expect(result.acao).toBe("dados_insuficientes");
+    expect(result.escopoProblema).toBe("multiplas_lojas");
+  });
+
+  it("menos de 3 lojas carregando o SKU → escopoProblema='indeterminado', nunca 'local' mesmo com 100% de concentração aparente numa loja só", () => {
+    const input: DamageDiagnosisInput = {
+      metrics: metricsFixture(10),
+      qtyLostDamagedByStore: [
+        { storeId: THIS_STORE_ID, qtyLost: 10 },
+        { storeId: 2, qtyLost: 0 },
+      ],
+      thisStoreId: THIS_STORE_ID,
+      parameters,
+    };
+    const result = diagnoseDamage(input);
+
+    expect(result.escopoProblema).toBe("indeterminado");
   });
 });

@@ -147,6 +147,13 @@ export interface NetworkComparisonResult {
 
 export type NetworkComparison = NetworkComparisonResult | "dado_insuficiente";
 
+/**
+ * Distribuição observada do problema entre lojas — nunca uma causa (adenda 2026-09-23, pedido
+ * do operador §A: "isso NÃO significa inferir a causa", só descreve onde a perda se concentra).
+ * "indeterminado" quando não há lojas suficientes comparáveis para dizer — nunca "—" silencioso.
+ */
+export type EscopoProblema = "local" | "multiplas_lojas" | "rede" | "indeterminado";
+
 // ---- Diagnóstico por motivo (spec §10, §13) ----
 
 export interface ReasonDiagnosis {
@@ -159,6 +166,8 @@ export interface ReasonDiagnosis {
   potencialIntervencao: InterventionPotential | null;
   /** Só quando a árvore gera hipótese não-afirmada (hoje só danificado, §10.3). */
   hipoteses: string[];
+  /** Distribuição observada entre lojas — cada árvore deriva do seu próprio sinal de comparação (adenda 2026-09-23 §A). */
+  escopoProblema: EscopoProblema;
 }
 
 // ---- Saída consolidada (spec §11, §13) ----
