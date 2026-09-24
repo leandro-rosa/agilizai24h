@@ -27,6 +27,7 @@ export interface MixEngineInput {
 }
 
 const RETIRADA_ACTIONS = new Set(["avaliar_retirada_loja", "avaliar_retirada_rede", "avaliar_permanencia_loja", "avaliar_permanencia_rede"]);
+const OPPORTUNITY_DISQUALIFYING_ACTIONS = new Set([...RETIRADA_ACTIONS, "suspender_abastecimento", "reduzir_abastecimento"]);
 const LOSS_ACTION_LABEL: Record<string, string> = {
   suspender_abastecimento: "suspender abastecimento", avaliar_retirada_loja: "avaliar retirada da loja", avaliar_retirada_rede: "avaliar retirada da rede",
   avaliar_permanencia_loja: "avaliar permanência na loja", avaliar_permanencia_rede: "avaliar permanência na rede", reduzir_abastecimento: "reduzir abastecimento",
@@ -159,15 +160,20 @@ export function computeMixOpportunities(input: MixEngineInput): MixOpportunity[]
     presentByStore.get(s.storeId)!.add(s.sku);
   }
 
+  const skusUnderNetworkRetirada = new Set(input.lossResult.recommendations.filter((r) => r.acaoPrioritaria === "avaliar_retirada_rede").map((r) => r.sku));
+
   const opportunities: MixOpportunity[] = [];
   for (const store of input.stores) {
     const present = presentByStore.get(store.id) ?? new Set<string>();
     for (const sku of allSkus) {
       if (present.has(sku) || !productBySku.has(sku)) continue;
+      if (skusUnderNetworkRetirada.has(sku)) continue;
 
       let storesComBomDesempenho = 0;
       for (const s of seriesList) {
         if (s.sku !== sku || s.storeId === store.id) continue;
+        const signal = lossSignalFor(input.lossResult, s.storeId, s.sku);
+        if (signal && OPPORTUNITY_DISQUALIFYING_ACTIONS.has(signal.acao)) continue;
         const qtySeries = s.meses.map((m) => m.vendido);
         if (qtySeries.filter((q) => q > 0).length < input.mixParameters.evidence.minMonthsWithSales) continue;
         const trend = computeTrend(qtySeries, input.mixParameters.trend);

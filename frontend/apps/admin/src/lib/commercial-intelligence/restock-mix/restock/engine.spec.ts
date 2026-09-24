@@ -112,6 +112,24 @@ describe("computeRestockRecommendations", () => {
     expect(["media", "baixa", "insuficiente"]).toContain(result[0].confianca);
   });
 
+  it("avaliar_retirada_loja from Loss Intelligence also produces the hard-stop, zeroing quantity and inheriting confidence", () => {
+    const result = computeRestockRecommendations(
+      baseInput({ lossResult: lossResult([buildLossRecommendation({ acaoPrioritaria: "avaliar_retirada_loja", confianca: "baixa" })]) }),
+    );
+    expect(result[0].quantidadeSugeridaIA).toBe(0);
+    expect(result[0].acao).toBe("nao_abastecer");
+    expect(result[0].confianca).toBe("baixa");
+    expect(result[0].motivo).toMatch(/Inteligência de Perdas/);
+  });
+
+  it("avaliar_permanencia_loja adds the same caveat as investigar and caps confidence at media", () => {
+    const result = computeRestockRecommendations(
+      baseInput({ lossResult: lossResult([buildLossRecommendation({ acaoPrioritaria: "avaliar_permanencia_loja" })]) }),
+    );
+    expect(result[0].limitacoes.some((l) => l.includes("Inteligência de Perdas"))).toBe(true);
+    expect(["media", "baixa", "insuficiente"]).toContain(result[0].confianca);
+  });
+
   it("suggests aumentar when the formula's quantity clearly exceeds the last restock", () => {
     const result = computeRestockRecommendations(baseInput({ salesByStoreMonth: salesFor([10, 12, 14, 20, 24, 28]), supplyByStoreMonth: supplyFor([15, 15, 15, 15, 15, 15]) }));
     expect(result[0].acao).toBe("aumentar");

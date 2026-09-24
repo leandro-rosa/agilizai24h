@@ -113,6 +113,41 @@ describe("computeMixRecommendations", () => {
     expect(result[0].classificacao).toBe("reduzir");
   });
 
+  it("classifies manter when trend is neither growing-with-affinity nor declining/low-affinity", () => {
+    // Vendas constantes, loja única -> tendência estável e affinity = 1 (não cai em explorar nem em reduzir)
+    const result = computeMixRecommendations(baseInput());
+    expect(result[0].tendencia).toBe("estavel");
+    expect(result[0].affinity).toBe(1);
+    expect(result[0].classificacao).toBe("manter");
+  });
+
+  it("classifies reduzir for a low-affinity product even when its own trend is crescendo", () => {
+    // Loja A vende SKU-1 crescendo, mas SKU-3 domina a receita da própria loja (affinity baixa);
+    // Loja B só vende SKU-1, então a participação de SKU-1 na rede é alta -> affinity de A cai bem abaixo do piso 0.8
+    const stores: Store[] = [{ id: 1, name: "Loja A" } as Store, { id: 2, name: "Loja B" } as Store];
+    const sales = mergeSales(
+      salesFor(1, "SKU-1", [10, 12, 14, 20, 24, 28]),
+      salesFor(1, "SKU-3", [50, 50, 50, 50, 50, 50], 2000),
+      salesFor(2, "SKU-1", [100, 100, 100, 100, 100, 100]),
+    );
+    const result = computeMixRecommendations(baseInput({ stores, salesByStoreMonth: sales }));
+    const row = result.find((r) => r.storeId === 1 && r.sku === "SKU-1");
+    expect(row).toBeDefined();
+    expect(row!.tendencia).toBe("crescendo");
+    expect(row!.affinity).not.toBeNull();
+    expect(row!.affinity!).toBeLessThan(DEFAULT_MIX_PARAMETERS.classification.affinityHealthyMin);
+    expect(row!.classificacao).toBe("reduzir");
+  });
+
+  it("investigar adds a 'sob investigação' caveat and caps confidence at media when it would otherwise be alta", () => {
+    const withoutSignal = computeMixRecommendations(baseInput());
+    expect(withoutSignal[0].confianca).toBe("alta");
+
+    const result = computeMixRecommendations(baseInput({ lossResult: lossResult([buildLossRecommendation({ acaoPrioritaria: "investigar" })]) }));
+    expect(result[0].limitacoes.some((l) => l.includes("sob investigação"))).toBe(true);
+    expect(result[0].confianca).toBe("media");
+  });
+
   it("skips a sku with no matching product", () => {
     expect(computeMixRecommendations(baseInput({ products: [] }))).toHaveLength(0);
   });
@@ -144,5 +179,28 @@ describe("computeMixOpportunities", () => {
     const sales = mergeSales(salesFor(2, "SKU-1", [10, 12, 14, 20, 24, 28]), salesFor(3, "SKU-1", [10, 12, 14, 20, 24, 28]));
     const result = computeMixOpportunities(baseInput({ stores: MANY_STORES, salesByStoreMonth: sales, mixParameters: TIGHT_PARAMETERS }));
     expect(result.every((o) => o.confianca !== "alta")).toBe(true);
+  });
+
+  it("excludes a store with an active loss signal for that sku from the good-performance count", () => {
+    // Lojas 2 e 3 teriam bom desempenho, mas a loja 2 tem suspender_abastecimento ativo para SKU-1 ->
+    // só a loja 3 conta, e o mínimo de TIGHT_PARAMETERS é 2 -> nenhuma oportunidade.
+    const sales = mergeSales(salesFor(2, "SKU-1", [10, 12, 14, 20, 24, 28]), salesFor(3, "SKU-1", [10, 12, 14, 20, 24, 28]));
+    const lossRec = buildLossRecommendation({ storeId: 2, sku: "SKU-1", acaoPrioritaria: "suspender_abastecimento" });
+    const result = computeMixOpportunities(
+      baseInput({ stores: MANY_STORES, salesByStoreMonth: sales, mixParameters: TIGHT_PARAMETERS, lossResult: lossResult([lossRec]) }),
+    );
+    expect(result.some((o) => o.sku === "SKU-1")).toBe(false);
+  });
+
+  it("suppresses any opportunity for a sku under network-wide avaliar_retirada_rede review, even with enough good-performing stores", () => {
+    // Sem o sinal de rede, lojas 2 e 3 teriam bom desempenho e bastariam para o mínimo de 2 da TIGHT_PARAMETERS.
+    // A recomendação de avaliar_retirada_rede (aqui presa à loja 1, que nem vende o SKU) precisa suprimir a
+    // oportunidade mesmo assim, provando que a supressão de rede independe da contagem por loja.
+    const sales = mergeSales(salesFor(2, "SKU-1", [10, 12, 14, 20, 24, 28]), salesFor(3, "SKU-1", [10, 12, 14, 20, 24, 28]));
+    const lossRec = buildLossRecommendation({ storeId: 1, sku: "SKU-1", acaoPrioritaria: "avaliar_retirada_rede" });
+    const result = computeMixOpportunities(
+      baseInput({ stores: MANY_STORES, salesByStoreMonth: sales, mixParameters: TIGHT_PARAMETERS, lossResult: lossResult([lossRec]) }),
+    );
+    expect(result.some((o) => o.sku === "SKU-1")).toBe(false);
   });
 });
