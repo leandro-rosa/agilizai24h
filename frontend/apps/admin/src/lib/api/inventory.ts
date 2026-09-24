@@ -18,8 +18,11 @@ export interface StockItem {
   /** True when `closing_stock` is negative — a data problem, never rendered as zero. */
   inconsistent: boolean;
   recorded_closing_balance: number | null;
-  minimum?: number;
+  minimum?: number | null;
   below_minimum?: boolean;
+  par_level?: number | null;
+  current_quantity?: number | null;
+  current_quantity_as_of?: string | null;
 }
 
 export interface StoreStock {
@@ -147,6 +150,30 @@ export const inventoryApi = createApi({
       }),
       invalidatesTags: ["Minimum"],
     }),
+    setParLevel: builder.mutation<StockItem, { storeId: number; sku: string; parLevel: number }>({
+      query: ({ storeId, sku, parLevel }) => ({
+        url: `/inventory/${storeId}/${encodeURIComponent(sku)}/par-level`,
+        method: "PUT",
+        body: { parLevel },
+      }),
+      invalidatesTags: ["Minimum"],
+    }),
+    listMinimums: builder.query<StockItem[], { storeId: number }>({
+      query: ({ storeId }) => `/inventory/${storeId}/minimums`,
+      providesTags: ["Minimum"],
+    }),
+    /** No network-wide minimums endpoint exists — fans out one request per store, same pattern as getNetworkStockRange. */
+    getNetworkMinimums: builder.query<StockItem[], { stores: Store[] }>({
+      async queryFn({ stores }, _api, _extra, fetchWithBQ) {
+        const perStore = await Promise.all(
+          stores.map((store) => fetchOr404<StockItem[]>(fetchWithBQ, `/inventory/${store.id}/minimums`)),
+        );
+        const error = firstError(perStore);
+        if (error) return { error };
+        return { data: perStore.flatMap((r) => r.data ?? []) };
+      },
+      providesTags: ["Minimum"],
+    }),
     getCentralStock: builder.query<CentralStockLot[], { sku?: string; expiring_within_days?: number } | void>({
       query: (filter) => {
         const params = new URLSearchParams();
@@ -182,6 +209,9 @@ export const {
   useGetStockRangeQuery,
   useGetNetworkStockRangeQuery,
   useSetMinimumMutation,
+  useSetParLevelMutation,
+  useListMinimumsQuery,
+  useGetNetworkMinimumsQuery,
   useGetCentralStockQuery,
   useGetCentralStockSummaryQuery,
   useCreateLotMutation,

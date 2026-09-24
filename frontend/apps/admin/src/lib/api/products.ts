@@ -16,6 +16,10 @@ export interface Product {
   cest?: string | null;
   shelf_life_days?: number | null;
   status?: string;
+  /** Unidades por embalagem de compra (ex.: caixa de 24) — sempre presentes na resposta, null quando não cadastrado. */
+  units_per_package: number | null;
+  package_type: string | null;
+  fractionable: boolean | null;
 }
 
 export interface ResolvedCost {
@@ -71,6 +75,13 @@ export const productsApi = createApi({
       query: ({ sku, ...body }) => ({ url: `/products/${sku}/prices`, method: "POST", body }),
       invalidatesTags: ["Product"],
     }),
+    updateProduct: builder.mutation<
+      Product,
+      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number; packageType?: string; fractionable?: boolean } }
+    >({
+      query: ({ id, changes }) => ({ url: `/products/${id}`, method: "PATCH", body: changes }),
+      invalidatesTags: ["Product"],
+    }),
   }),
 });
 
@@ -79,4 +90,5 @@ export const {
   useGetCostsAsOfQuery,
   useGetPricesAsOfQuery,
   useRecordPriceMutation,
+  useUpdateProductMutation,
 } = productsApi;
