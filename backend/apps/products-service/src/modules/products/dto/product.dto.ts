@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Min, ArrayNotEmpty, IsArray } from 'class-validator'
+import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Min, ArrayNotEmpty, IsArray } from 'class-validator'
 import { PRODUCT_CATEGORY_VALUES, type ProductCategory } from '../constants/product-vocabulary'
 
 export class CreateProductDto {
@@ -16,6 +16,22 @@ export class CreateProductDto {
   @ApiProperty({ enum: PRODUCT_CATEGORY_VALUES })
   @IsIn(PRODUCT_CATEGORY_VALUES)
   category: ProductCategory
+
+  @ApiPropertyOptional({ description: 'Unidades por embalagem de compra (ex.: caixa de 24).' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  unitsPerPackage?: number
+
+  @ApiPropertyOptional({ example: 'caixa' })
+  @IsOptional()
+  @IsString()
+  packageType?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  fractionable?: boolean
 }
 
 export class UpdateProductDto {
@@ -29,6 +45,22 @@ export class UpdateProductDto {
   @IsOptional()
   @IsIn(PRODUCT_CATEGORY_VALUES)
   category?: ProductCategory
+
+  @ApiPropertyOptional({ description: 'Unidades por embalagem de compra (ex.: caixa de 24).' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  unitsPerPackage?: number
+
+  @ApiPropertyOptional({ example: 'caixa' })
+  @IsOptional()
+  @IsString()
+  packageType?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  fractionable?: boolean
 }
 
 export class RecordCostDto {

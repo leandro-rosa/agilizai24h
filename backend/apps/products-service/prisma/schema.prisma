@@ -42,6 +42,16 @@ model Product {
   /// active | discontinued
   status          String  @default("active")
 
+  /// Unidades por embalagem de compra (ex.: caixa de 24). Distinto do
+  /// "múltiplo operacional da loja" (não modelado ainda) — uma loja pode
+  /// receber em fração dessa embalagem mesmo quando fractionable é true.
+  units_per_package Int?
+  /// "caixa" | "fardo" | "pacote" | outro texto livre — sem vocabulário
+  /// fechado ainda.
+  package_type      String?
+  /// Se a embalagem de compra pode ser fracionada no abastecimento.
+  fractionable      Boolean?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 

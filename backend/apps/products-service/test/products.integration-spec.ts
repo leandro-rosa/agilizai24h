@@ -18,7 +18,7 @@ describe('products integration', () => {
   const createProduct = async (name: string) => {
     const sku = unique('SKU')
     createdSkus.push(sku)
-    return products.create(sku, name, 'beverage')
+    return products.create({ sku, name, category: 'beverage' })
   }
 
   beforeAll(async () => {
@@ -46,8 +46,60 @@ describe('products integration', () => {
     it('rejects a duplicate SKU and leaves the original unchanged', async () => {
       const product = await createProduct('Coca 350ml')
 
-      await expect(products.create(product.sku, 'Outro', 'snack')).rejects.toThrow(/already exists/)
+      await expect(products.create({ sku: product.sku, name: 'Outro', category: 'snack' })).rejects.toThrow(/already exists/)
       await expect(products.findById(product.id)).resolves.toMatchObject({ name: 'Coca 350ml' })
+    })
+  })
+
+  describe('packaging fields', () => {
+    it('create accepts and returns packaging fields', async () => {
+      const sku = unique('SKU')
+      createdSkus.push(sku)
+      const product = await products.create({
+        sku,
+        name: 'Produto embalado',
+        category: 'snack',
+        unitsPerPackage: 24,
+        packageType: 'caixa',
+        fractionable: true,
+      })
+      expect(product.units_per_package).toBe(24)
+      expect(product.package_type).toBe('caixa')
+      expect(product.fractionable).toBe(true)
+    })
+
+    it('create omits packaging fields as null when not provided', async () => {
+      const product = await createProduct(unique('Produto'))
+      expect(product.units_per_package).toBeNull()
+      expect(product.package_type).toBeNull()
+      expect(product.fractionable).toBeNull()
+    })
+
+    it('update sets packaging fields on an existing product without touching name/category', async () => {
+      const product = await createProduct('Produto original')
+      const updated = await products.update(product.id, { unitsPerPackage: 12, packageType: 'fardo', fractionable: false })
+      expect(updated.name).toBe('Produto original')
+      expect(updated.category).toBe('beverage')
+      expect(updated.units_per_package).toBe(12)
+      expect(updated.package_type).toBe('fardo')
+      expect(updated.fractionable).toBe(false)
+    })
+
+    it('list and findById also return packaging fields', async () => {
+      const sku = unique('SKU')
+      createdSkus.push(sku)
+      const created = await products.create({
+        sku,
+        name: 'Outro produto',
+        category: 'meal',
+        unitsPerPackage: 6,
+        packageType: 'pacote',
+        fractionable: true,
+      })
+      const found = await products.findById(created.id)
+      expect(found.units_per_package).toBe(6)
+      const listed = (await products.list('meal')).find(p => p.sku === sku)
+      expect(listed?.package_type).toBe('pacote')
     })
   })
 

@@ -42,7 +42,7 @@ export class ProductsController {
   @ApiOperation({ summary: 'Create a product' })
   @ApiResponse({ status: 409, description: 'SKU already exists' })
   create(@Body() dto: CreateProductDto) {
-    return this.products.create(dto.sku, dto.name, dto.category)
+    return this.products.create(dto)
   }
 
   @Patch('products/:id')
