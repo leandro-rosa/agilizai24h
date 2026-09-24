@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
 
+import { BusinessRulesSheet } from "@/components/business-rules-sheet";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MixDrawer, type MixDrawerRow } from "@/components/commercial-intelligence/mix/mix-drawer";
@@ -16,9 +19,13 @@ import { useGetNetworkReconciliationRangeQuery } from "@/lib/api/finance";
 import { useGetNetworkSalesByStoreMonthQuery } from "@/lib/api/sales";
 import { useGetNetworkSupplyByStoreMonthQuery } from "@/lib/api/supply";
 import { useGetStoresQuery } from "@/lib/api/stores";
+import { partitionSynthetic } from "@/lib/commercial-intelligence/synthetic";
+import { ALLOW_SYNTHETIC } from "@/lib/commercial-intelligence/env";
 import { computeMixOpportunities, computeMixRecommendations, type MixEngineInput } from "@/lib/commercial-intelligence/restock-mix/mix/engine";
+import { mixBusinessRuleRows } from "@/lib/commercial-intelligence/restock-mix/mix/parameter-rows";
 import { RUNTIME_MIX_PARAMETERS } from "@/lib/commercial-intelligence/restock-mix/mix/parameters";
 import { computeRestockRecommendations, type RestockEngineInput } from "@/lib/commercial-intelligence/restock-mix/restock/engine";
+import { restockBusinessRuleRows } from "@/lib/commercial-intelligence/restock-mix/restock/parameter-rows";
 import { RUNTIME_RESTOCK_PARAMETERS } from "@/lib/commercial-intelligence/restock-mix/restock/parameters";
 import { analyzeLossIntelligence } from "@/lib/loss-intelligence/engine";
 import { RUNTIME_PARAMETERS } from "@/lib/loss-intelligence/parameters";
@@ -26,11 +33,14 @@ import type { LossIntelligenceInput } from "@/lib/loss-intelligence/types";
 import { addMonths, lastCompleteMonth, type PeriodRange } from "@/lib/period-range";
 
 export default function CommercialIntelligencePage() {
-  const { data: stores, error: storesError } = useGetStoresQuery();
-  const { data: products, error: productsError } = useGetProductsQuery();
+  const { data: stores, error: storesError, refetch: refetchStores } = useGetStoresQuery();
+  const { data: products, error: productsError, refetch: refetchProducts } = useGetProductsQuery();
   const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
 
-  const scopedStores = useMemo(() => stores ?? [], [stores]);
+  const storePartition = useMemo(() => partitionSynthetic(stores ?? [], ALLOW_SYNTHETIC), [stores]);
+  const scopedStores = storePartition.kept;
+  const productPartition = useMemo(() => partitionSynthetic(products ?? [], ALLOW_SYNTHETIC), [products]);
+  const scopedProducts = productPartition.kept;
   const skip = scopedStores.length === 0;
 
   // Mesma janela do Loss Intelligence (Global Constraint) — nunca uma janela própria.
@@ -43,13 +53,28 @@ export default function CommercialIntelligencePage() {
     data: reconciliationRange,
     isLoading: loadingReconciliation,
     error,
-    refetch,
+    refetch: refetchReconciliation,
   } = useGetNetworkReconciliationRangeQuery({ stores: scopedStores, range: engineRange }, { skip });
-  const { data: salesByStoreMonth, isLoading: loadingSales, error: salesError } = useGetNetworkSalesByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
-  const { data: supplyByStoreMonth, isLoading: loadingSupply, error: supplyError } = useGetNetworkSupplyByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
+  const {
+    data: salesByStoreMonth,
+    isLoading: loadingSales,
+    error: salesError,
+    refetch: refetchSales,
+  } = useGetNetworkSalesByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
+  const {
+    data: supplyByStoreMonth,
+    isLoading: loadingSupply,
+    error: supplyError,
+    refetch: refetchSupply,
+  } = useGetNetworkSupplyByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
 
   const allSkusForCost = useMemo(() => [...new Set((salesByStoreMonth ?? []).flatMap((month) => month.bySku.map((row) => row.sku)))], [salesByStoreMonth]);
-  const { data: costsResult } = useGetCostsAsOfQuery({ skus: allSkusForCost, asOf: `${engineAsOfPeriod}-01` }, { skip: allSkusForCost.length === 0 });
+  const {
+    data: costsResult,
+    isLoading: loadingCosts,
+    error: costsError,
+    refetch: refetchCosts,
+  } = useGetCostsAsOfQuery({ skus: allSkusForCost, asOf: `${engineAsOfPeriod}-01` }, { skip: allSkusForCost.length === 0 });
   const costsBySkuAsOf = useMemo(() => {
     if (!costsResult) return null;
     const bySku = new Map(costsResult.resolved.map((r) => [r.sku, r.cost_cents]));
@@ -78,26 +103,26 @@ export default function CommercialIntelligencePage() {
   const lossResult = useMemo(() => (lossIntelligenceInput ? analyzeLossIntelligence(lossIntelligenceInput) : null), [lossIntelligenceInput]);
 
   const restockRecommendations = useMemo(() => {
-    if (!lossResult || !products || !salesByStoreMonth || !supplyByStoreMonth || !reconciliationByStoreMonth) return [];
+    if (!lossResult || !scopedProducts.length || !salesByStoreMonth || !supplyByStoreMonth || !reconciliationByStoreMonth) return [];
     const input: RestockEngineInput = {
-      stores: scopedStores, products, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, lossResult, today,
+      stores: scopedStores, products: scopedProducts, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, lossResult, today,
       lossParameters: RUNTIME_PARAMETERS.parameters, restockParameters: RUNTIME_RESTOCK_PARAMETERS.parameters,
     };
     return computeRestockRecommendations(input);
-  }, [lossResult, products, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, scopedStores, today]);
+  }, [lossResult, scopedProducts, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, scopedStores, today]);
 
   const mixEngineInput = useMemo<MixEngineInput | null>(() => {
-    if (!lossResult || !products || !salesByStoreMonth || !supplyByStoreMonth || !reconciliationByStoreMonth || !costsBySkuAsOf) return null;
+    if (!lossResult || !scopedProducts.length || !salesByStoreMonth || !supplyByStoreMonth || !reconciliationByStoreMonth || !costsBySkuAsOf) return null;
     return {
-      stores: scopedStores, products, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, lossResult, today,
+      stores: scopedStores, products: scopedProducts, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, lossResult, today,
       lossParameters: RUNTIME_PARAMETERS.parameters, mixParameters: RUNTIME_MIX_PARAMETERS.parameters, costsBySkuAsOf,
     };
-  }, [lossResult, products, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, costsBySkuAsOf, scopedStores, today]);
+  }, [lossResult, scopedProducts, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, costsBySkuAsOf, scopedStores, today]);
 
   const mixRecommendations = useMemo(() => (mixEngineInput ? computeMixRecommendations(mixEngineInput) : []), [mixEngineInput]);
   const mixOpportunities = useMemo(() => (mixEngineInput ? computeMixOpportunities(mixEngineInput) : []), [mixEngineInput]);
 
-  const nameBySku = useMemo(() => new Map((products ?? []).map((p) => [p.sku, p.name])), [products]);
+  const nameBySku = useMemo(() => new Map(scopedProducts.map((p) => [p.sku, p.name])), [scopedProducts]);
   const storeById = useMemo(() => new Map(scopedStores.map((s) => [s.id, s])), [scopedStores]);
   const storeName = useCallback((id: number) => storeById.get(id)?.name ?? String(id), [storeById]);
 
@@ -125,18 +150,51 @@ export default function CommercialIntelligencePage() {
   const [selectedRestockRow, setSelectedRestockRow] = useState<RestockDisplayRow | null>(null);
   const [selectedMixRow, setSelectedMixRow] = useState<MixDrawerRow | null>(null);
 
-  const combinedError = error ?? storesError ?? productsError ?? salesError ?? supplyError;
-  const isLoading = loadingReconciliation || loadingSales || loadingSupply;
+  const combinedError = error ?? storesError ?? productsError ?? salesError ?? supplyError ?? costsError;
+  const isLoading = loadingReconciliation || loadingSales || loadingSupply || loadingCosts;
   const isEmpty = !isLoading && !combinedError && selectedStoreId !== null && restockDisplayRows.length === 0 && mixDisplayRows.length === 0;
+
+  const retryAll = useCallback(() => {
+    refetchStores();
+    refetchProducts();
+    refetchReconciliation();
+    refetchSales();
+    refetchSupply();
+    refetchCosts();
+  }, [refetchStores, refetchProducts, refetchReconciliation, refetchSales, refetchSupply, refetchCosts]);
+
+  const businessRuleRows = useMemo(
+    () => [...restockBusinessRuleRows(RUNTIME_RESTOCK_PARAMETERS.parameters), ...mixBusinessRuleRows(RUNTIME_MIX_PARAMETERS.parameters)],
+    [],
+  );
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Inteligência Comercial"
         description="A IA analisa vendas, abastecimentos, margem e perdas para sugerir o que levar para cada loja e quais produtos deveriam existir nela."
+        actions={
+          <>
+            <BusinessRulesSheet
+              description="Decisões da empresa que mudam o que a inteligência recomenda para Abastecimento e Mix. Valem para toda a operação: não são ajustes deste navegador."
+              rows={businessRuleRows}
+              calibrationHref="/commercial-intelligence/calibration"
+            />
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/commercial-intelligence/calibration">Configurações avançadas / calibração</Link>
+            </Button>
+          </>
+        }
       />
 
-      <Select value={selectedStoreId === null ? undefined : String(selectedStoreId)} onValueChange={(value) => setSelectedStoreId(Number(value))}>
+      <Select
+        value={selectedStoreId === null ? undefined : String(selectedStoreId)}
+        onValueChange={(value) => {
+          setSelectedStoreId(Number(value));
+          setSelectedRestockRow(null);
+          setSelectedMixRow(null);
+        }}
+      >
         <SelectTrigger className="w-64">
           <SelectValue placeholder="Selecione a loja" />
         </SelectTrigger>
@@ -152,7 +210,7 @@ export default function CommercialIntelligencePage() {
       {selectedStoreId === null ? (
         <p className="text-sm text-muted-foreground">Selecione uma loja para ver as recomendações de abastecimento e mix.</p>
       ) : (
-        <RequestState isLoading={isLoading} error={combinedError} isEmpty={isEmpty} emptyMessage="Sem dados suficientes nesta loja para calcular recomendações." onRetry={refetch}>
+        <RequestState isLoading={isLoading} error={combinedError} isEmpty={isEmpty} emptyMessage="Sem dados suficientes nesta loja para calcular recomendações." onRetry={retryAll}>
           <Tabs defaultValue="abastecimento" className="gap-6">
             <TabsList>
               <TabsTrigger value="abastecimento">Abastecimento Inteligente</TabsTrigger>
