@@ -119,15 +119,13 @@ export function computeRestockRecommendations(input: RestockEngineInput): Restoc
     const trend = computeTrend(qtySeries, input.restockParameters.trend);
     const reconciliacaoLimpa = !sinalPerdas || sinalPerdas.limitacoesDosDados.length === 0;
 
-    let quantidadeSugeridaIA = trend.estimativaCentral;
-    let faixaEstimada = trend.faixaEstimada;
-    let acao: RestockAction;
-    let motivo: string;
+    const quantidadeSugeridaIA = trend.estimativaCentral;
+    const faixaEstimada = trend.faixaEstimada;
+    const acao = determineAction(quantidadeSugeridaIA, ultimoAbastecimento, input.restockParameters.action);
+    const motivo = `${vendasUltimoMes} vendidos no último mês analisado, tendência ${TREND_LABEL[trend.tendencia]} nos últimos ${mesesAnalisados} meses.`;
     let confianca: Confidence;
     const limitacoes = [...(sinalPerdas?.limitacoesDosDados ?? [])];
 
-    acao = determineAction(quantidadeSugeridaIA, ultimoAbastecimento, input.restockParameters.action);
-    motivo = `${vendasUltimoMes} vendidos no último mês analisado, tendência ${TREND_LABEL[trend.tendencia]} nos últimos ${mesesAnalisados} meses.`;
     confianca = computeRestockConfidence({ mesesComVenda, mesesAnalisados, tendencia: trend.tendencia, reconciliacaoLimpa }, input.restockParameters);
     if (sinalPerdas && CAVEAT_ACTIONS.includes(sinalPerdas.acao)) {
       limitacoes.push("Este produto está sob avaliação da Inteligência de Perdas — decisão estrutural pendente.");

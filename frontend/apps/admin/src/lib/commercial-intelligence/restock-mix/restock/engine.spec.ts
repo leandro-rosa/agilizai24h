@@ -159,6 +159,8 @@ describe("computeRestockRecommendations", () => {
         lossResult: lossResult([buildLossRecommendation({ acaoPrioritaria: "reduzir_abastecimento", confianca: "baixa" })]),
       }),
     );
+    // Without Loss Intelligence signal, sparse data falls back to "dados_insuficientes"
+    expect(withoutSignal[0].acao).toBe("dados_insuficientes");
     // reduzir should compute trend and scale by factor, not return dados_insuficientes
     expect(withSignal[0].acao).toBe("reduzir");
     expect(withSignal[0].confianca).toBe("baixa"); // Inherited from Loss Intelligence, not "insuficiente"

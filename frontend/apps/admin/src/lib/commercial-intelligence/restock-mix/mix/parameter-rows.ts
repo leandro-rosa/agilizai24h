@@ -1,4 +1,4 @@
-import { KIND_LABELS, PARAMETER_DOCS, PARAMETER_GROUP_LABELS, PARAMETER_KINDS, PARAMETER_PATHS, type ParameterPath } from "./parameter-docs";
+import { KIND_LABELS, PARAMETER_DOCS, PARAMETER_GROUP_LABELS, PARAMETER_KINDS, type ParameterPath } from "./parameter-docs";
 import { DEFAULT_MIX_PARAMETERS, envNameOf, formatMixParameterValue, getMixParameter, isProvisional, type MixParameters } from "./parameters";
 import type { ParameterKindSection, ParameterRuleRow } from "@/components/parameter-catalog";
 import type { BusinessRuleRow } from "@/components/business-rules-sheet";
