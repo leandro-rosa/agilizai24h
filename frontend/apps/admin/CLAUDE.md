@@ -439,40 +439,98 @@ clustering, não um filtro) e PDVs/máquinas com alerta automático de
 comportamento anômalo (seção 17's "criar alertas") — ambos exigiriam um
 modelo dedicado, não só leitura+agregação como o resto da tela.
 
-## `/commercial-intelligence` — Inteligência Comercial (`add-commercial-intelligence-page`)
+## `/commercial-intelligence` — Inteligência Comercial
 
-Página somente-leitura, item de Operação logo depois de Vendas (`sales:read`),
-que vai transformar o detalhe por transação em recomendações explicáveis
-(o que compra junto, o que falta no carrinho, quais produtos rendem depois das
-perdas, qual loja se comporta diferente). **Estado: a fundação está construída
-e as análises estão em espera de propósito** (pedido do operador, 2026-09-19):
-só começam depois que os meses reais forem importados pelo Drive e a qualidade
-do `Cupom` e do histórico for conferida (grupos 5–11 da change). Existe hoje: a
-casca (filtros, seis abas), o motor de medição, o aviso de qualidade dos dados,
-os KPIs e a "Estimativa de impacto" da Visão geral, a aba **Qualidade dos
-dados** (disponibilidade de cada análise), a folha **Regras de negócio**, a
-página avançada `/commercial-intelligence/calibration` ("Configurações
-avançadas / calibração", fora do menu, com o catálogo de parâmetros
-documentado) e o diagnóstico de cobertura de cupom na aba Combos. Produtos,
-Comportamento, Lojas e a Central de oportunidades dizem "Em espera" — nunca uma
-tabela vazia que pareça "nada encontrado". Nenhuma regra analítica foi
-congelada.
+Página somente-leitura, item de Operação logo depois de Vendas (`sales:read`).
+**Redesenhada em 2026-09-24** (`add-commercial-intelligence-restock-mix`,
+pedido explícito do operador) em torno de duas perguntas operacionais — "o que
+devo levar para esta loja?" e "estou com os produtos certos nesta loja?" —
+substituindo como experiência primária as seis abas antigas (Visão geral,
+Produtos, Comportamento, Lojas, Combos, Central de oportunidades), paradas
+desde 2026-09-19 aguardando meses reais importados e o `Cupom` conferido
+(`add-commercial-intelligence-page`).
 
-**Três tipos de regra, nunca misturados** (pedido do operador, 2026-09-19):
-**regra de negócio** (decisão da empresa: margem mínima do combo, maior desconto
-que vale testar, piso de impacto para listar e para priorizar, quantas
-oportunidades na tela principal — 5 parâmetros), **critério de qualidade** (decide
-se há dado para uma análise: aparece como indicador e bloqueio, nunca como
-ajuste) e **modelo analítico** (associação, tendência, similaridade, confiança —
-só na página avançada). **Nenhuma regra que muda a recomendação mora no
-navegador**: a primeira versão deixava a margem mínima e a captura em
-`localStorage` por visualizador e foi removida, porque duas pessoas receberiam
-recomendações diferentes. Hoje o valor vem do padrão da implantação (ambiente,
-lido em build) e a folha diz isso e não edita nada. O **registro oficial** — valor
-único, permissão, histórico de alteração, versão da lógica e registro de
-decisões — é a change `add-commercial-intelligence-governance` (proposta escrita,
-com um `intelligence-service` novo; aguarda aprovação do operador); até ela ser
-construída, a parte de regra de negócio **não está pronta**. Só o tema fica local.
+**O código antigo não foi apagado, só desligado da tela** — pedido explícito
+do operador para reaproveitar em fases futuras: `src/lib/
+commercial-intelligence/*` (motor de medição, 95 parâmetros, disponibilidade,
+qualidade) e `src/components/commercial-intelligence/{combos-tab,
+overview-tab,quality-tab,held-tab,...}` continuam completos, só não estão mais
+importados por `page.tsx`. `synthetic.ts` (`partitionSynthetic`/`isSynthetic`)
+é o único módulo do motor antigo reaproveitado diretamente pelo novo — ver
+abaixo.
+
+### Abastecimento Inteligente — "o que levar"
+
+Por loja × SKU: uma quantidade sugerida sempre como **faixa** (nunca um número
+solto — "faixa estimada 25–35, sugestão operacional 30"), uma ação (aumentar/
+manter/reduzir/não abastecer/testar/dados insuficientes) e uma confiança.
+**Nunca infere estoque atual** — nenhum cálculo de "estoque alvo − estoque
+atual" nem "abastecido − vendido − perdido"; o rótulo é sempre "quantidade
+recomendada de abastecimento", nunca "reposição necessária" (TouchPay
+continua sendo a lista de pick operacional; esta tela só sugere o número).
+"Gerar lista de abastecimento" separa as linhas em **quatro** grupos —
+Abastecer / Não abastecer / Sem dados suficientes / Testes — dados
+insuficientes nunca cai sob "não abastecer": são evidências diferentes
+(decisão vs. falta de dado), e misturá-las esconderia do operador que a IA
+não tem base para opinar.
+
+### Mix das Lojas — "são os produtos certos"
+
+Classifica cada SKU já presente na loja (manter/explorar/reduzir/suspender
+abastecimento/avaliar retirada/dados insuficientes) e separa "Oportunidades
+de novo mix" — SKUs ausentes na loja com bom desempenho em outras lojas da
+rede (`computeNetworkAffinity`, não o `productAffinity` de
+`sales-insights.ts`, que só teria 1 mês de `SalesTransaction` por vez).
+Confiança de oportunidade nunca chega a "alta" — teto estrutural. Uma loja só
+conta como "bom desempenho" se não tiver sinal ativo de perda (suspender/
+reduzir/avaliar retirada ou permanência) para aquele SKU; e um SKU sob
+`avaliar_retirada_rede` em qualquer loja nunca vira oportunidade em nenhuma
+outra — a Central de Perdas já está dizendo para reconsiderar esse produto na
+rede, recomendá-lo como "novo mix" em outro lugar contradiria isso.
+
+**As duas abas sempre consomem a Inteligência de Perdas como camada de
+precedência, nunca re-derivam a regra**: um sinal ativo de
+`suspender_abastecimento`/`avaliar_retirada_*` vence qualquer evidência de
+venda (inclusive `dados_insuficientes`); `reduzir_abastecimento` sempre
+escala a fórmula para baixo. A janela de análise é sempre a mesma da
+Inteligência de Perdas (`resolveAnalysisWindow`), nunca uma janela própria.
+
+### Motores puros
+
+`src/lib/commercial-intelligence/restock-mix/` (`types`, `series`, `trend`,
+`restock/*`, `mix/*`): mesmo padrão do `@/lib/loss-intelligence/` — sem
+React/fetch/storage, só `import type` de `lib/api/*`; cada motor com seu
+próprio `parameters`/`parameter-docs`/`env`/`parameter-rows`/`logic-version` e
+namespace de env var (`NEXT_PUBLIC_RESTOCK_*`/`NEXT_PUBLIC_MIX_*`, distinto de
+`NEXT_PUBLIC_LI_*`/`NEXT_PUBLIC_CI_*`). Todos os parâmetros são "provisório"
+(mesma filosofia do motor antigo — guardrail escrito antes de ver uso real,
+nunca ajustado para fazer aparecer resultado); calibração via
+`/commercial-intelligence/calibration` (2 abas, uma por motor), acessível pela
+folha "Regras de negócio" no cabeçalho (`BusinessRulesSheet`, mesmo componente
+do motor antigo, agora combinando as regras de negócio dos dois motores numa
+única folha).
+
+### Fluxo de dados e guarda de dado sintético
+
+Página sempre busca a rede inteira (nunca por loja) — trocar de loja no
+seletor é filtro client-side, nunca uma nova requisição, mesmo padrão do motor
+antigo; trocar de loja também fecha qualquer drawer aberto (nunca deixa o
+conteúdo de uma loja anterior visível sob o nome da nova). `partitionSynthetic`/
+`ALLOW_SYNTHETIC` (reaproveitados de `src/lib/commercial-intelligence/
+{synthetic,env}.ts`) excluem loja/produto marcado antes de qualquer motor
+rodar. Erro de qualquer fonte (lojas, produtos, vendas, abastecimento,
+reconciliação, custo datado) aparece no mesmo `RequestState`, com "Tentar
+novamente" reexecutando todas as consultas que falharam — nenhuma falha
+silenciosa vira "sem dados".
+
+### Gap conhecido
+
+`computeNetworkAffinity` (mix) e o scan de oportunidades são
+O(lojas×SKUs)² — seguro no tamanho de rede atual (~24 lojas), mas deve ser
+revisitado (indexação por `Map`, não recomputar tendência/margem por
+loja-alvo) antes da rede crescer bastante além disso.
+
+### Motor antigo — preservado, não usado pela tela (fases 2-5 futuras)
 
 - **Motor puro** em `src/lib/commercial-intelligence/` (`types`, `parameters`,
   `parameter-docs`, `logic-version`, `env`, `confidence`, `availability`,
