@@ -374,6 +374,72 @@ describe('inventory integration', () => {
     })
   })
 
+  describe('parametrização (par level, current quantity, bulk)', () => {
+    it('setParLevel creates a MinimumLevel row when none exists yet, with minimum left null', async () => {
+      const store = newStore()
+      const result = await inventory.setParLevel(store, 'SKU-PAR-1', 30)
+      expect(result.store_id).toBe(store)
+      expect(result.sku).toBe('SKU-PAR-1')
+      expect(result.par_level).toBe(30)
+      expect(result.minimum).toBeNull()
+    })
+
+    it('setParLevel updates only par_level on an existing row, leaving minimum untouched', async () => {
+      const store = newStore()
+      await inventory.setMinimum(store, 'SKU-PAR-2', 5)
+      const result = await inventory.setParLevel(store, 'SKU-PAR-2', 40)
+      expect(result.minimum).toBe(5)
+      expect(result.par_level).toBe(40)
+    })
+
+    it('bulkSetParametrizacao upserts multiple SKUs for a store in one call', async () => {
+      const store = newStore()
+      const { updated } = await inventory.bulkSetParametrizacao(store, [
+        { sku: 'SKU-BULK-1', minimum: 3, parLevel: 12, currentQuantity: 7, currentQuantityAsOf: '2026-09-24T00:00:00.000Z' },
+        { sku: 'SKU-BULK-2', minimum: 6 },
+      ])
+      expect(updated).toBe(2)
+      const row1 = await prisma.minimumLevel.findUnique({ where: { store_id_sku: { store_id: store, sku: 'SKU-BULK-1' } } })
+      expect(row1?.minimum).toBe(3)
+      expect(row1?.par_level).toBe(12)
+      expect(row1?.current_quantity).toBe(7)
+      expect(row1?.current_quantity_as_of?.toISOString()).toBe('2026-09-24T00:00:00.000Z')
+      const row2 = await prisma.minimumLevel.findUnique({ where: { store_id_sku: { store_id: store, sku: 'SKU-BULK-2' } } })
+      expect(row2?.minimum).toBe(6)
+      expect(row2?.par_level).toBeNull()
+    })
+
+    it('bulkSetParametrizacao re-run for the same store×sku overwrites cleanly, no duplicate rows', async () => {
+      const store = newStore()
+      await inventory.bulkSetParametrizacao(store, [{ sku: 'SKU-BULK-3', minimum: 1, parLevel: 10 }])
+      await inventory.bulkSetParametrizacao(store, [{ sku: 'SKU-BULK-3', minimum: 2, parLevel: 20 }])
+      const rows = await prisma.minimumLevel.findMany({ where: { store_id: store, sku: 'SKU-BULK-3' } })
+      expect(rows).toHaveLength(1)
+      expect(rows[0].minimum).toBe(2)
+      expect(rows[0].par_level).toBe(20)
+    })
+
+    it('listMinimums returns par_level and current_quantity alongside minimum', async () => {
+      const store = newStore()
+      await inventory.bulkSetParametrizacao(store, [
+        { sku: 'SKU-LIST-1', minimum: 4, parLevel: 15, currentQuantity: 9, currentQuantityAsOf: '2026-09-20T00:00:00.000Z' },
+      ])
+      const rows = await inventory.listMinimums(store)
+      expect(rows[0]).toMatchObject({ store_id: store, sku: 'SKU-LIST-1', minimum: 4, par_level: 15, current_quantity: 9 })
+      expect(rows[0].current_quantity_as_of?.toISOString()).toBe('2026-09-20T00:00:00.000Z')
+    })
+
+    it('below_minimum stays undefined when a MinimumLevel row exists but minimum itself is null', async () => {
+      const store = newStore()
+      given('2026-09', [{ sku: 'SKU-NULLMIN', restocked: 10, sold: 6 }])
+      await inventory.recomputeStore(store, '2026-09')
+      await inventory.setParLevel(store, 'SKU-NULLMIN', 25)
+
+      const view = await inventory.stockForSku(store, 'SKU-NULLMIN', '2026-09')
+      expect(view.below_minimum).toBeUndefined()
+    })
+  })
+
   describe('absence', () => {
     it('reports a store with no derived stock as not found, never as empty', async () => {
       const store = newStore()

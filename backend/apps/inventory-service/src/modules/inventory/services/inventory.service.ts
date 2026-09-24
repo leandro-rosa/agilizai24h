@@ -21,8 +21,16 @@ export interface StockView {
    * reversed: it is a visit-moment reading, not a month-end one).
    */
   recorded_closing_balance: number | null
-  minimum?: number
+  minimum?: number | null
   below_minimum?: boolean
+}
+
+export interface BulkParametrizacaoItem {
+  sku: string
+  minimum: number
+  parLevel?: number
+  currentQuantity?: number
+  currentQuantityAsOf?: string
 }
 
 export interface StoreStockView {
@@ -237,6 +245,39 @@ export class InventoryService {
     })
   }
 
+  async setParLevel(storeId: number, sku: string, parLevel: number) {
+    return this.prisma.minimumLevel.upsert({
+      where: { store_id_sku: { store_id: storeId, sku } },
+      create: { store_id: storeId, sku, par_level: parLevel },
+      update: { par_level: parLevel },
+    })
+  }
+
+  async bulkSetParametrizacao(storeId: number, items: BulkParametrizacaoItem[]): Promise<{ updated: number }> {
+    await this.prisma.$transaction(
+      items.map(item =>
+        this.prisma.minimumLevel.upsert({
+          where: { store_id_sku: { store_id: storeId, sku: item.sku } },
+          create: {
+            store_id: storeId,
+            sku: item.sku,
+            minimum: item.minimum,
+            par_level: item.parLevel ?? null,
+            current_quantity: item.currentQuantity ?? null,
+            current_quantity_as_of: item.currentQuantityAsOf ? new Date(item.currentQuantityAsOf) : null,
+          },
+          update: {
+            minimum: item.minimum,
+            par_level: item.parLevel ?? null,
+            current_quantity: item.currentQuantity ?? null,
+            current_quantity_as_of: item.currentQuantityAsOf ? new Date(item.currentQuantityAsOf) : null,
+          },
+        }),
+      ),
+    )
+    return { updated: items.length }
+  }
+
   listMinimums(storeId: number) {
     return this.prisma.minimumLevel.findMany({ where: { store_id: storeId }, orderBy: { sku: 'asc' } })
   }
@@ -276,7 +317,7 @@ export class InventoryService {
       closing_stock: number
       recorded_closing_balance: number | null
     },
-    minimum?: number,
+    minimum?: number | null,
   ): StockView {
     const closing = Number(row.closing_stock)
 
@@ -294,7 +335,10 @@ export class InventoryService {
       minimum,
       // Asserted only for SKUs that actually have a minimum: without one there
       // is no judgement to make, and defaulting would invent a threshold.
-      below_minimum: minimum === undefined ? undefined : closing <= minimum,
+      // `== null` deliberately covers both `undefined` (no MinimumLevel row at
+      // all) and `null` (a row exists, e.g. for par_level, but minimum itself
+      // was never configured) the same way.
+      below_minimum: minimum == null ? undefined : closing <= minimum,
     }
   }
 }

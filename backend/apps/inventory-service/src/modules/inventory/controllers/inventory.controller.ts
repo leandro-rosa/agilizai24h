@@ -1,9 +1,10 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { ApiProperty } from '@nestjs/swagger'
-import { IsInt, Min } from 'class-validator'
+import { Type } from 'class-transformer'
+import { ArrayMinSize, IsInt, IsISO8601, IsOptional, IsString, Min, ValidateNested } from 'class-validator'
 import { DerivedEventsPublisher } from '../services/derived-events.publisher'
-import { InventoryService } from '../services/inventory.service'
+import { InventoryService, type BulkParametrizacaoItem } from '../services/inventory.service'
 
 /** `YYYY-MM` — every period in this platform is a whole month, never finer. */
 const PERIOD_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/
@@ -13,6 +14,49 @@ export class SetMinimumDto {
   @IsInt()
   @Min(0)
   minimum: number
+}
+
+export class SetParLevelDto {
+  @ApiProperty({ description: 'Quantidade-alvo (nível de par) configurada para este Produto × Loja.' })
+  @IsInt()
+  @Min(0)
+  parLevel: number
+}
+
+export class BulkParametrizacaoItemDto implements BulkParametrizacaoItem {
+  @ApiProperty()
+  @IsString()
+  sku: string
+
+  @ApiProperty()
+  @IsInt()
+  @Min(0)
+  minimum: number
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  parLevel?: number
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  currentQuantity?: number
+
+  @ApiProperty({ required: false, description: 'ISO 8601 — quando a leitura de quantidade atual foi observada.' })
+  @IsOptional()
+  @IsISO8601()
+  currentQuantityAsOf?: string
+}
+
+export class BulkSetParametrizacaoDto {
+  @ApiProperty({ type: [BulkParametrizacaoItemDto] })
+  @ValidateNested({ each: true })
+  @Type(() => BulkParametrizacaoItemDto)
+  @ArrayMinSize(1)
+  items: BulkParametrizacaoItemDto[]
 }
 
 @ApiTags('inventory')
@@ -73,6 +117,25 @@ export class InventoryController {
     @Body() dto: SetMinimumDto,
   ) {
     return this.inventory.setMinimum(storeId, sku, dto.minimum)
+  }
+
+  @Put(':storeId/:sku/par-level')
+  @ApiOperation({ summary: 'Configure a par level (nível de par)' })
+  setParLevel(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Param('sku') sku: string,
+    @Body() dto: SetParLevelDto,
+  ) {
+    return this.inventory.setParLevel(storeId, sku, dto.parLevel)
+  }
+
+  @Put(':storeId/parametrizacao/bulk')
+  @ApiOperation({ summary: 'Bulk-upsert minimum/par level/current quantity for many SKUs at once' })
+  bulkSetParametrizacao(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Body() dto: BulkSetParametrizacaoDto,
+  ) {
+    return this.inventory.bulkSetParametrizacao(storeId, dto.items)
   }
 
   @Post(':storeId/recompute')
