@@ -41,6 +41,19 @@ export interface LossSignal {
   limitacoesDosDados: string[];
 }
 
+/**
+ * Parametrização atual de um Produto × Loja — sempre um fato observado ou
+ * definido pelo operador, nunca inferido. `quantidadeAtual` é referência
+ * apenas: nenhum motor deste arquivo a usa para calcular sugestão/faixa/delta
+ * (Global Constraint, decisão do operador 2026-09-24).
+ */
+export interface StoreSkuParametrizacao {
+  minimo: number | null;
+  nivelDePar: number | null;
+  quantidadeAtual: number | null;
+  quantidadeAtualEm: string | null;
+}
+
 // ---- Abastecimento Inteligente ----
 
 export type RestockAction = "aumentar" | "manter" | "reduzir" | "nao_abastecer" | "testar" | "dados_insuficientes";
@@ -64,6 +77,11 @@ export interface RestockRecommendation {
   limitacoes: string[];
   versaoMotor: string;
   versaoParametros: string;
+  parametrizacao: StoreSkuParametrizacao | null;
+  /** quantidadeSugeridaIA − parametrizacao.nivelDePar; null quando nivelDePar não configurado. */
+  deltaVsParametrizado: number | null;
+  /** vendido ÷ abastecido somados na janela; null quando nada foi abastecido (nunca divide por zero). */
+  aproveitamento: number | null;
 }
 
 // ---- Mix das Lojas ----
@@ -84,6 +102,8 @@ export interface MixRecommendation {
   limitacoes: string[];
   versaoMotor: string;
   versaoParametros: string;
+  historicoMensal: StoreSkuMonth[];
+  parametrizacao: StoreSkuParametrizacao | null;
 }
 
 /** SKU ausente na loja, candidato por bom desempenho na rede (spec §8 — v1 sem "lojas parecidas"). */
