@@ -1,9 +1,14 @@
 "use client";
 
+import { ConfidenceBadge } from "@/components/commercial-intelligence/confidence-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import type { Level } from "@/lib/commercial-intelligence/types";
+import type { Confidence } from "@/lib/loss-intelligence/types";
 import type { MixClassification, MixOpportunity, MixRecommendation, ProductCategory, Trend } from "@/lib/commercial-intelligence/restock-mix/types";
+
+const CONFIDENCE_TO_LEVEL: Record<Confidence, Level> = { alta: "high", media: "medium", baixa: "low", insuficiente: "insufficient" };
 
 export type MixDisplayRow = { productLabel: string; storeName: string; data: MixRecommendation };
 export type MixOpportunityRow = { productLabel: string; storeName: string; data: MixOpportunity };
@@ -87,7 +92,9 @@ export function MixTable({
               <TableCell>
                 <StatusBadge tone={CLASSIFICATION_TONE[row.data.classificacao]}>{CLASSIFICATION_LABELS[row.data.classificacao]}</StatusBadge>
               </TableCell>
-              <TableCell className="capitalize">{row.data.confianca}</TableCell>
+              <TableCell>
+                <ConfidenceBadge level={CONFIDENCE_TO_LEVEL[row.data.confianca]} />
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -95,7 +102,8 @@ export function MixTable({
 
       {opportunities.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-medium">Oportunidades de novo mix</h3>
+          <h3 className="mb-1 text-sm font-medium">Oportunidades de novo mix</h3>
+          <p className="mb-2 text-xs text-muted-foreground">Candidatos vêm do desempenho na rede inteira — ainda não comparamos com lojas parecidas.</p>
           <div className="flex flex-col gap-2">
             {opportunities.map((row) => (
               <button
@@ -107,8 +115,8 @@ export function MixTable({
                 <p className="font-medium">{row.productLabel}</p>
                 <p className="text-muted-foreground">Não vendido atualmente em {row.storeName}.</p>
                 <p className="text-muted-foreground">{row.data.evidencia}</p>
-                <p className="mt-1">
-                  Teste recomendado: {row.data.quantidadeTeste} unidades — Confiança: <span className="capitalize">{row.data.confianca}</span>
+                <p className="mt-1 flex flex-wrap items-center gap-1">
+                  Teste recomendado: {row.data.quantidadeTeste} unidades — Confiança: <ConfidenceBadge level={CONFIDENCE_TO_LEVEL[row.data.confianca]} />
                 </p>
               </button>
             ))}

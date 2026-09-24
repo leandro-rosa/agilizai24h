@@ -1,5 +1,5 @@
 import { describe, it, expect, jest } from "@jest/globals";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { RestockTable, type RestockDisplayRow } from "./restock-table";
 import type { RestockRecommendation, MixOpportunity } from "@/lib/commercial-intelligence/restock-mix/types";
 
@@ -56,9 +56,20 @@ describe("RestockTable", () => {
   it("shows a 💎 signal for opportunity rows and a trend arrow for recommendation rows", () => {
     render(<RestockTable rows={ROWS} onSelect={jest.fn()} />);
     expect(screen.getByText("💎 Oportunidade de mix")).toBeInTheDocument();
-    // Check that recommendation rows show trend signals (at least one trend label should exist)
-    const trendElements = screen.queryAllByText(/Crescendo|Estável|Caindo|Volátil|Indeterminada/);
-    expect(trendElements.length).toBeGreaterThan(0);
+    const cocaColaRow = screen.getByText("Coca-Cola Zero").closest("tr");
+    expect(cocaColaRow).not.toBeNull();
+    expect(within(cocaColaRow!).getByText("↑ Crescendo")).toBeInTheDocument();
+  });
+
+  it("shows a loss-signal warning instead of the trend arrow when sinalPerdas is active", () => {
+    const lossRow = recRow("Produto Sob Perda", {
+      sku: "SKU-5",
+      sinalPerdas: { acao: "suspender_abastecimento", prioridade: "alta", confianca: "media", escopoProblema: "local", limitacoesDosDados: [] },
+    });
+    render(<RestockTable rows={[...ROWS, lossRow]} onSelect={jest.fn()} />);
+    const row = screen.getByText("Produto Sob Perda").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText("⚠ Sinal de perdas ativo")).toBeInTheDocument();
   });
 
   it("calls onSelect with the exact row when a row is clicked", () => {
@@ -86,5 +97,15 @@ describe("RestockTable", () => {
     expect(screen.getByText("Abastecer (3)")).toBeInTheDocument(); // Coca-Cola Zero, Mentos, Ana Maria (reduzir ainda é abastecer, só que menos)
     expect(screen.getByText("Não abastecer (1)")).toBeInTheDocument(); // Paçoquita
     expect(screen.getByText("Testes (1)")).toBeInTheDocument(); // Produto X
+  });
+
+  it("'Gerar lista' puts dados_insuficientes rows under 'Sem dados suficientes', never under 'Não abastecer'", () => {
+    const semDadosRow = recRow("Refrigerante Guaraná", { sku: "SKU-6", acao: "dados_insuficientes", quantidadeSugeridaIA: 0 });
+    render(<RestockTable rows={[...ROWS, semDadosRow]} onSelect={jest.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Gerar lista de abastecimento" }));
+
+    expect(screen.getByText("Sem dados suficientes (1)")).toBeInTheDocument();
+    expect(screen.getByText("Não abastecer (1)")).toBeInTheDocument(); // continua só Paçoquita
+    expect(screen.getByText(/Refrigerante Guaraná — Loja Centro: 0 un\./)).toBeInTheDocument();
   });
 });

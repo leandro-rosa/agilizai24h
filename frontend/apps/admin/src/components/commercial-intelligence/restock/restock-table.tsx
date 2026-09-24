@@ -2,13 +2,18 @@
 
 import { useMemo, useState } from "react";
 
+import { ConfidenceBadge } from "@/components/commercial-intelligence/confidence-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { Level } from "@/lib/commercial-intelligence/types";
+import type { Confidence } from "@/lib/loss-intelligence/types";
 import type { MixOpportunity, ProductCategory, RestockAction, RestockRecommendation, Trend } from "@/lib/commercial-intelligence/restock-mix/types";
+
+const CONFIDENCE_TO_LEVEL: Record<Confidence, Level> = { alta: "high", media: "medium", baixa: "low", insuficiente: "insufficient" };
 
 export type RestockDisplayRow =
   | { kind: "recomendacao"; productLabel: string; storeName: string; data: RestockRecommendation }
@@ -58,6 +63,13 @@ function suggestedQuantity(row: RestockDisplayRow): number {
   return row.kind === "oportunidade" ? row.data.quantidadeTeste : row.data.quantidadeSugeridaIA;
 }
 
+function suggestedQuantityLabel(row: RestockDisplayRow): string {
+  if (row.kind === "oportunidade") return String(row.data.quantidadeTeste);
+  const { quantidadeSugeridaIA, faixaEstimada } = row.data;
+  if (faixaEstimada.min === faixaEstimada.max) return String(quantidadeSugeridaIA);
+  return `${quantidadeSugeridaIA} (${faixaEstimada.min}–${faixaEstimada.max})`;
+}
+
 type RestockView = "todos" | "levar" | "reduzir" | "nao_levar" | "testar";
 const VIEW_LABELS: Record<RestockView, string> = { todos: "Todos", levar: "Levar", reduzir: "Reduzir", nao_levar: "Não levar", testar: "Testar" };
 const VIEW_FILTERS: Record<RestockView, (action: RestockAction) => boolean> = {
@@ -82,14 +94,16 @@ export function RestockTable({ rows, onSelect }: { rows: RestockDisplayRow[]; on
   const generated = useMemo(() => {
     const abastecer: RestockDisplayRow[] = [];
     const naoAbastecer: RestockDisplayRow[] = [];
+    const semDados: RestockDisplayRow[] = [];
     const testes: RestockDisplayRow[] = [];
     for (const row of rows) {
       const action = effectiveAction(row);
       if (action === "testar") testes.push(row);
+      else if (action === "dados_insuficientes") semDados.push(row);
       else if (action === "nao_abastecer" || effectiveQuantity(row) === 0) naoAbastecer.push(row);
       else abastecer.push(row);
     }
-    return { abastecer, naoAbastecer, testes };
+    return { abastecer, naoAbastecer, semDados, testes };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- overrides é lido via effectiveQuantity, recalcular junto com ele é intencional
   }, [rows, overrides]);
 
@@ -139,21 +153,31 @@ export function RestockTable({ rows, onSelect }: { rows: RestockDisplayRow[]; on
                 <TableCell className="text-right tabular">{vendasRecentes ?? "—"}</TableCell>
                 <TableCell>{signalLabel(row)}</TableCell>
                 <TableCell className="text-right tabular">{ultimoAbastecimento ?? "—"}</TableCell>
-                <TableCell className="text-right tabular">{suggestedQuantity(row)}</TableCell>
+                <TableCell className="text-right tabular">{suggestedQuantityLabel(row)}</TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <Input
                     type="number"
                     min={0}
                     className="w-20 text-right"
                     value={effectiveQuantity(row)}
-                    onChange={(e) => setOverrides((prev) => ({ ...prev, [key]: Math.max(0, Number(e.target.value) || 0) }))}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "") {
+                        setOverrides((prev) => ({ ...prev, [key]: 0 }));
+                        return;
+                      }
+                      const n = Number(raw);
+                      if (!Number.isNaN(n)) setOverrides((prev) => ({ ...prev, [key]: Math.max(0, n) }));
+                    }}
                     aria-label={`Quantidade final — ${row.productLabel}`}
                   />
                 </TableCell>
                 <TableCell>
                   <StatusBadge tone={ACTION_TONE[effectiveAction(row)]}>{ACTION_LABELS[effectiveAction(row)]}</StatusBadge>
                 </TableCell>
-                <TableCell className="capitalize">{confianca}</TableCell>
+                <TableCell>
+                  <ConfidenceBadge level={CONFIDENCE_TO_LEVEL[confianca]} />
+                </TableCell>
               </TableRow>
             );
           })}
@@ -169,6 +193,7 @@ export function RestockTable({ rows, onSelect }: { rows: RestockDisplayRow[]; on
             {([
               ["Abastecer", generated.abastecer],
               ["Não abastecer", generated.naoAbastecer],
+              ["Sem dados suficientes", generated.semDados],
               ["Testes", generated.testes],
             ] as const).map(([label, group]) => (
               <div key={label}>
