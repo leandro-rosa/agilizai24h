@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { PERMISSIONS } from '@app/iam-contracts'
 import type { FastifyRequest } from 'fastify'
@@ -45,6 +45,20 @@ export class ProductsController {
     const result = await this.domains.products({
       method: 'post',
       path: '/products',
+      payload: body,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Patch(':id')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Update a product' })
+  async update(@Param('id') id: string, @Body() body: unknown, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({
+      method: 'patch',
+      path: `/products/${encodeURIComponent(id)}`,
       payload: body,
       correlationId: correlationOf(request),
     })
