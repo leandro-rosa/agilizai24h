@@ -21,7 +21,7 @@ function Stat({ value, label }: { value: number; label: string }) {
 }
 
 /** Resumo estático — nunca um "impacto financeiro potencial" não calibrado (pedido do operador). */
-export function RestockPanel({ rows }: { rows: RestockDisplayRow[] }) {
+export function RestockPanel({ rows, windowLabel }: { rows: RestockDisplayRow[]; windowLabel: string }) {
   const levar = rows.filter((r) => ["aumentar", "manter"].includes(effectiveAction(r))).length;
   const reduzir = rows.filter((r) => effectiveAction(r) === "reduzir").length;
   const naoLevar = rows.filter((r) => effectiveAction(r) === "nao_abastecer").length;
@@ -30,12 +30,15 @@ export function RestockPanel({ rows }: { rows: RestockDisplayRow[] }) {
 
   return (
     <Card>
-      <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-        <Stat value={levar} label="produtos para levar" />
-        <Stat value={unidadesSugeridas} label="unidades sugeridas" />
-        <Stat value={reduzir} label="produtos para reduzir" />
-        <Stat value={naoLevar} label="produtos para não abastecer" />
-        <Stat value={testar} label="oportunidades de teste" />
+      <CardContent className="flex flex-col gap-3">
+        <p className="text-sm text-muted-foreground">{windowLabel}</p>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+          <Stat value={levar} label="produtos para levar" />
+          <Stat value={unidadesSugeridas} label="unidades sugeridas" />
+          <Stat value={reduzir} label="produtos para reduzir" />
+          <Stat value={naoLevar} label="produtos para não abastecer" />
+          <Stat value={testar} label="oportunidades de teste" />
+        </div>
       </CardContent>
     </Card>
   );
