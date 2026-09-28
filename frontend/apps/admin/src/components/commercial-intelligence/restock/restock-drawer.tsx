@@ -52,6 +52,22 @@ function RecommendationBody({ data }: { data: Extract<RestockDisplayRow, { kind:
       </section>
 
       <section>
+        <h3 className="mb-1 text-sm font-medium">Parametrização atual</h3>
+        {data.parametrizacao ? (
+          <div className="text-sm text-muted-foreground">
+            <p>Nível de par: {data.parametrizacao.nivelDePar ?? "—"}</p>
+            <p>Mínimo crítico: {data.parametrizacao.minimo ?? "—"}</p>
+            <p>
+              Quantidade atual (referência, não usada na sugestão): {data.parametrizacao.quantidadeAtual ?? "—"}
+              {data.parametrizacao.quantidadeAtualEm && ` — registrada em ${new Date(data.parametrizacao.quantidadeAtualEm).toLocaleDateString("pt-BR")}`}
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Parametrização atual: não registrada</p>
+        )}
+      </section>
+
+      <section>
         <h3 className="mb-1 text-sm font-medium">Histórico</h3>
         <Table>
           <TableHeader>
@@ -103,7 +119,7 @@ function RecommendationBody({ data }: { data: Extract<RestockDisplayRow, { kind:
       <section>
         <h3 className="mb-1 text-sm font-medium">Quantidade</h3>
         <p className="text-sm">
-          Faixa estimada: {data.faixaEstimada.min}–{data.faixaEstimada.max} unidades
+          Necessidade estimada: {data.faixaEstimada.min}–{data.faixaEstimada.max} unidades
         </p>
         <p className="text-sm">Sugestão operacional: {data.quantidadeSugeridaIA} unidades</p>
       </section>
