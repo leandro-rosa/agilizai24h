@@ -8,7 +8,7 @@ import type { StoreMonthSupply } from "@/lib/api/supply";
 import type { PerStoreMonthlyTotal } from "@/lib/api/finance";
 import { buildStoreSkuSeries } from "../series";
 import { computeTrend } from "../trend";
-import type { LossSignal, MixClassification, MixOpportunity, MixRecommendation, StoreSkuSeries, Trend } from "../types";
+import type { LossSignal, MixClassification, MixOpportunity, MixRecommendation, StoreSkuParametrizacao, StoreSkuSeries, Trend } from "../types";
 import { computeMixConfidence, computeOpportunityConfidence } from "./confidence";
 import { MIX_LOGIC_VERSION } from "./logic-version";
 import type { MixParameters } from "./parameters";
@@ -24,6 +24,7 @@ export interface MixEngineInput {
   lossParameters: LossIntelligenceParameters;
   mixParameters: MixParameters;
   costsBySkuAsOf: (sku: string) => number | null;
+  parametrizacaoFor: (storeId: number, sku: string) => StoreSkuParametrizacao | null;
 }
 
 const RETIRADA_ACTIONS = new Set(["avaliar_retirada_loja", "avaliar_retirada_rede", "avaliar_permanencia_loja", "avaliar_permanencia_rede"]);
@@ -75,12 +76,13 @@ function pushRecommendation(
   list: MixRecommendation[],
   series: StoreSkuSeries,
   product: Product,
-  fields: { classificacao: MixClassification; evidencia: string; confianca: Confidence; sinalPerdas: LossSignal | null; limitacoes: string[]; tendencia: Trend; affinity: number | null; margemPct: number | null },
+  fields: { classificacao: MixClassification; evidencia: string; confianca: Confidence; sinalPerdas: LossSignal | null; limitacoes: string[]; tendencia: Trend; affinity: number | null; margemPct: number | null; historicoMensal: StoreSkuSeries["meses"]; parametrizacao: StoreSkuParametrizacao | null },
 ) {
   list.push({
     sku: series.sku, storeId: series.storeId, categoria: product.category, classificacao: fields.classificacao, evidencia: fields.evidencia,
     tendencia: fields.tendencia, affinity: fields.affinity, margemPct: fields.margemPct, sinalPerdas: fields.sinalPerdas, confianca: fields.confianca,
     limitacoes: fields.limitacoes, versaoMotor: MIX_LOGIC_VERSION, versaoParametros: "provisional",
+    historicoMensal: fields.historicoMensal, parametrizacao: fields.parametrizacao,
   });
 }
 
@@ -95,17 +97,18 @@ export function computeMixRecommendations(input: MixEngineInput): MixRecommendat
 
     const sinalPerdas = lossSignalFor(input.lossResult, series.storeId, series.sku);
     const limitacoes = [...(sinalPerdas?.limitacoesDosDados ?? [])];
+    const parametrizacao = input.parametrizacaoFor(series.storeId, series.sku);
 
     if (sinalPerdas?.acao === "suspender_abastecimento") {
-      pushRecommendation(recommendations, series, product, { classificacao: "suspender_abastecimento", evidencia: `Recomendação ativa da Inteligência de Perdas: ${LOSS_ACTION_LABEL.suspender_abastecimento}.`, confianca: sinalPerdas.confianca, sinalPerdas, limitacoes, tendencia: "indeterminada", affinity: null, margemPct: null });
+      pushRecommendation(recommendations, series, product, { classificacao: "suspender_abastecimento", evidencia: `Recomendação ativa da Inteligência de Perdas: ${LOSS_ACTION_LABEL.suspender_abastecimento}.`, confianca: sinalPerdas.confianca, sinalPerdas, limitacoes, tendencia: "indeterminada", affinity: null, margemPct: null, historicoMensal: series.meses, parametrizacao });
       continue;
     }
     if (sinalPerdas && RETIRADA_ACTIONS.has(sinalPerdas.acao)) {
-      pushRecommendation(recommendations, series, product, { classificacao: "avaliar_retirada", evidencia: `Recomendação ativa da Inteligência de Perdas: ${LOSS_ACTION_LABEL[sinalPerdas.acao]}.`, confianca: sinalPerdas.confianca, sinalPerdas, limitacoes, tendencia: "indeterminada", affinity: null, margemPct: null });
+      pushRecommendation(recommendations, series, product, { classificacao: "avaliar_retirada", evidencia: `Recomendação ativa da Inteligência de Perdas: ${LOSS_ACTION_LABEL[sinalPerdas.acao]}.`, confianca: sinalPerdas.confianca, sinalPerdas, limitacoes, tendencia: "indeterminada", affinity: null, margemPct: null, historicoMensal: series.meses, parametrizacao });
       continue;
     }
     if (sinalPerdas?.acao === "reduzir_abastecimento") {
-      pushRecommendation(recommendations, series, product, { classificacao: "reduzir", evidencia: `Recomendação ativa da Inteligência de Perdas: ${LOSS_ACTION_LABEL.reduzir_abastecimento}.`, confianca: sinalPerdas.confianca, sinalPerdas, limitacoes, tendencia: "indeterminada", affinity: null, margemPct: null });
+      pushRecommendation(recommendations, series, product, { classificacao: "reduzir", evidencia: `Recomendação ativa da Inteligência de Perdas: ${LOSS_ACTION_LABEL.reduzir_abastecimento}.`, confianca: sinalPerdas.confianca, sinalPerdas, limitacoes, tendencia: "indeterminada", affinity: null, margemPct: null, historicoMensal: series.meses, parametrizacao });
       continue;
     }
 
@@ -113,7 +116,7 @@ export function computeMixRecommendations(input: MixEngineInput): MixRecommendat
     const mesesComVenda = qtySeries.filter((q) => q > 0).length;
 
     if (mesesComVenda < input.mixParameters.evidence.minMonthsWithSales) {
-      pushRecommendation(recommendations, series, product, { classificacao: "dados_insuficientes", evidencia: `Evidência insuficiente: apenas ${mesesComVenda} ${mesesComVenda === 1 ? "mês" : "meses"} com venda.`, confianca: "insuficiente", sinalPerdas, limitacoes, tendencia: "indeterminada", affinity: null, margemPct: null });
+      pushRecommendation(recommendations, series, product, { classificacao: "dados_insuficientes", evidencia: `Evidência insuficiente: apenas ${mesesComVenda} ${mesesComVenda === 1 ? "mês" : "meses"} com venda.`, confianca: "insuficiente", sinalPerdas, limitacoes, tendencia: "indeterminada", affinity: null, margemPct: null, historicoMensal: series.meses, parametrizacao });
       continue;
     }
 
@@ -142,7 +145,7 @@ export function computeMixRecommendations(input: MixEngineInput): MixRecommendat
       if (confianca === "alta") confianca = "media";
     }
 
-    pushRecommendation(recommendations, series, product, { classificacao, evidencia, confianca, sinalPerdas, limitacoes, tendencia: trend.tendencia, affinity, margemPct });
+    pushRecommendation(recommendations, series, product, { classificacao, evidencia, confianca, sinalPerdas, limitacoes, tendencia: trend.tendencia, affinity, margemPct, historicoMensal: series.meses, parametrizacao });
   }
 
   return recommendations;

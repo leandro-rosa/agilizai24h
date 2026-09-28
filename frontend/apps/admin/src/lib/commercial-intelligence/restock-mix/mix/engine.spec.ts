@@ -70,6 +70,7 @@ function baseInput(overrides: Partial<MixEngineInput> = {}): MixEngineInput {
     lossParameters: DEFAULT_LOSS_PARAMETERS,
     mixParameters: DEFAULT_MIX_PARAMETERS,
     costsBySkuAsOf: () => 200,
+    parametrizacaoFor: () => null,
     ...overrides,
   };
 }
@@ -150,6 +151,37 @@ describe("computeMixRecommendations", () => {
 
   it("skips a sku with no matching product", () => {
     expect(computeMixRecommendations(baseInput({ products: [] }))).toHaveLength(0);
+  });
+});
+
+describe("parametrização", () => {
+  it("attaches parametrizacao when configured for that store×sku", () => {
+    const result = computeMixRecommendations(baseInput({
+      parametrizacaoFor: (storeId, sku) => (storeId === 1 && sku === "SKU-1" ? { minimo: 2, nivelDePar: 15, quantidadeAtual: 3, quantidadeAtualEm: "2026-09-24T00:00:00.000Z" } : null),
+    }));
+    expect(result[0].parametrizacao).toEqual({ minimo: 2, nivelDePar: 15, quantidadeAtual: 3, quantidadeAtualEm: "2026-09-24T00:00:00.000Z" });
+  });
+
+  it("parametrizacao is null when nothing is configured", () => {
+    const result = computeMixRecommendations(baseInput({ parametrizacaoFor: () => null }));
+    expect(result[0].parametrizacao).toBeNull();
+  });
+
+  it("attaches parametrizacao even on a suspender_abastecimento row", () => {
+    const result = computeMixRecommendations(baseInput({
+      lossResult: lossResult([buildLossRecommendation({ acaoPrioritaria: "suspender_abastecimento" })]),
+      parametrizacaoFor: () => ({ minimo: 1, nivelDePar: 10, quantidadeAtual: null, quantidadeAtualEm: null }),
+    }));
+    expect(result[0].classificacao).toBe("suspender_abastecimento");
+    expect(result[0].parametrizacao?.nivelDePar).toBe(10);
+  });
+});
+
+describe("historicoMensal", () => {
+  it("attaches the same monthly series the engine computed internally", () => {
+    const result = computeMixRecommendations(baseInput({ salesByStoreMonth: salesFor(1, "SKU-1", [10, 10, 10, 10, 10, 10]) }));
+    expect(result[0].historicoMensal).toHaveLength(6);
+    expect(result[0].historicoMensal[5].vendido).toBe(10);
   });
 });
 
