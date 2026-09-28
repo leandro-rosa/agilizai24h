@@ -56,10 +56,13 @@ model StockSnapshot {
 /// Configured per store and SKU, replacing the admin panel mock's hardcoded
 /// "15 for beverages, 8 otherwise" — which was never a real setting.
 model MinimumLevel {
-  id       Int    @id @default(autoincrement())
-  store_id Int
-  sku      String
-  minimum  Int
+  id                      Int       @id @default(autoincrement())
+  store_id                Int
+  sku                     String
+  minimum                 Int?
+  par_level               Int?
+  current_quantity        Int?
+  current_quantity_as_of  DateTime?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

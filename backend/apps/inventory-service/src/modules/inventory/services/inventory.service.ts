@@ -2,6 +2,7 @@ import { Injectable, Logger, MethodNotAllowedException, NotFoundException } from
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { MovementsClient } from './movements.client'
 import { deriveStockSeries, type PeriodMovements } from '../utils/derive-stock'
+import type { BulkParametrizacaoItemDto } from '../controllers/inventory.controller'
 
 export interface StockView {
   store_id: number
@@ -21,7 +22,7 @@ export interface StockView {
    * reversed: it is a visit-moment reading, not a month-end one).
    */
   recorded_closing_balance: number | null
-  minimum?: number
+  minimum?: number | null
   below_minimum?: boolean
 }
 
@@ -237,6 +238,39 @@ export class InventoryService {
     })
   }
 
+  async setParLevel(storeId: number, sku: string, parLevel: number) {
+    return this.prisma.minimumLevel.upsert({
+      where: { store_id_sku: { store_id: storeId, sku } },
+      create: { store_id: storeId, sku, par_level: parLevel },
+      update: { par_level: parLevel },
+    })
+  }
+
+  async bulkSetParametrizacao(storeId: number, items: BulkParametrizacaoItemDto[]): Promise<{ updated: number }> {
+    await this.prisma.$transaction(
+      items.map(item =>
+        this.prisma.minimumLevel.upsert({
+          where: { store_id_sku: { store_id: storeId, sku: item.sku } },
+          create: {
+            store_id: storeId,
+            sku: item.sku,
+            minimum: item.minimum,
+            par_level: item.parLevel ?? null,
+            current_quantity: item.currentQuantity ?? null,
+            current_quantity_as_of: item.currentQuantityAsOf ? new Date(item.currentQuantityAsOf) : null,
+          },
+          update: {
+            minimum: item.minimum,
+            par_level: item.parLevel ?? null,
+            current_quantity: item.currentQuantity ?? null,
+            current_quantity_as_of: item.currentQuantityAsOf ? new Date(item.currentQuantityAsOf) : null,
+          },
+        }),
+      ),
+    )
+    return { updated: items.length }
+  }
+
   listMinimums(storeId: number) {
     return this.prisma.minimumLevel.findMany({ where: { store_id: storeId }, orderBy: { sku: 'asc' } })
   }
@@ -276,7 +310,7 @@ export class InventoryService {
       closing_stock: number
       recorded_closing_balance: number | null
     },
-    minimum?: number,
+    minimum?: number | null,
   ): StockView {
     const closing = Number(row.closing_stock)
 
@@ -294,7 +328,7 @@ export class InventoryService {
       minimum,
       // Asserted only for SKUs that actually have a minimum: without one there
       // is no judgement to make, and defaulting would invent a threshold.
-      below_minimum: minimum === undefined ? undefined : closing <= minimum,
+      below_minimum: minimum == null ? undefined : closing <= minimum,
     }
   }
 }

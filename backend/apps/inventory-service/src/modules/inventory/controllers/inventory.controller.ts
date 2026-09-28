@@ -1,7 +1,8 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { ApiProperty } from '@nestjs/swagger'
-import { IsInt, Min } from 'class-validator'
+import { ArrayMinSize, IsInt, IsISO8601, IsOptional, IsString, Min, ValidateNested } from 'class-validator'
+import { Type } from 'class-transformer'
 import { DerivedEventsPublisher } from '../services/derived-events.publisher'
 import { InventoryService } from '../services/inventory.service'
 
@@ -13,6 +14,49 @@ export class SetMinimumDto {
   @IsInt()
   @Min(0)
   minimum: number
+}
+
+export class SetParLevelDto {
+  @ApiProperty({ description: 'Quantidade-alvo (nível de par) configurada para este Produto × Loja.' })
+  @IsInt()
+  @Min(0)
+  parLevel: number
+}
+
+export class BulkParametrizacaoItemDto {
+  @ApiProperty()
+  @IsString()
+  sku: string
+
+  @ApiProperty()
+  @IsInt()
+  @Min(0)
+  minimum: number
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  parLevel?: number
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  currentQuantity?: number
+
+  @ApiProperty({ required: false, description: 'ISO 8601 — quando a leitura de quantidade atual foi observada.' })
+  @IsOptional()
+  @IsISO8601()
+  currentQuantityAsOf?: string
+}
+
+export class BulkSetParametrizacaoDto {
+  @ApiProperty({ type: [BulkParametrizacaoItemDto] })
+  @ValidateNested({ each: true })
+  @Type(() => BulkParametrizacaoItemDto)
+  @ArrayMinSize(1)
+  items: BulkParametrizacaoItemDto[]
 }
 
 @ApiTags('inventory')
@@ -49,6 +93,25 @@ export class InventoryController {
   @ApiOperation({ summary: 'Configured minimum levels for a store' })
   listMinimums(@Param('storeId', ParseIntPipe) storeId: number) {
     return this.inventory.listMinimums(storeId)
+  }
+
+  @Put(':storeId/:sku/par-level')
+  @ApiOperation({ summary: 'Configure a par level (target quantity)' })
+  setParLevel(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Param('sku') sku: string,
+    @Body() body: SetParLevelDto,
+  ) {
+    return this.inventory.setParLevel(storeId, sku, body.parLevel)
+  }
+
+  @Put(':storeId/parametrizacao/bulk')
+  @ApiOperation({ summary: 'Bulk-upsert minimum, par level and current quantity for many SKUs at once' })
+  bulkSetParametrizacao(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Body() body: BulkSetParametrizacaoDto,
+  ) {
+    return this.inventory.bulkSetParametrizacao(storeId, body.items)
   }
 
   @Get(':storeId/:sku')
