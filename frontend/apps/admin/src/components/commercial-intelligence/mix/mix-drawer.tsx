@@ -48,6 +48,22 @@ function RecommendationBody({ data }: { data: MixDisplayRow["data"] }) {
       </section>
 
       <section>
+        <h3 className="mb-1 text-sm font-medium">Parametrização atual</h3>
+        {data.parametrizacao ? (
+          <div className="text-sm text-muted-foreground">
+            <p>Nível de par: {data.parametrizacao.nivelDePar ?? "—"}</p>
+            <p>Mínimo crítico: {data.parametrizacao.minimo ?? "—"}</p>
+            <p>
+              Quantidade atual (referência, não usada na sugestão): {data.parametrizacao.quantidadeAtual ?? "—"}
+              {data.parametrizacao.quantidadeAtualEm && ` — registrada em ${new Date(data.parametrizacao.quantidadeAtualEm).toLocaleDateString("pt-BR")}`}
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Parametrização atual: não registrada</p>
+        )}
+      </section>
+
+      <section>
         <h3 className="mb-1 text-sm font-medium">Indicadores</h3>
         <dl className="grid grid-cols-2 gap-1 text-sm">
           <dt className="text-muted-foreground">Afinidade com a rede</dt>
