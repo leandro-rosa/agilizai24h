@@ -32,4 +32,12 @@ describe("restock parameters", () => {
   it("formats a share as a percentage", () => {
     expect(formatRestockParameterValue("trend.upThresholdPct", 0.2)).toBe("20%");
   });
+
+  it("has documented rounding defaults", () => {
+    expect(DEFAULT_RESTOCK_PARAMETERS.rounding).toEqual({
+      shortShelfLifeDays: 14,
+      lowAproveitamentoThreshold: 0.6,
+      leanToMinFraction: 0.25,
+    });
+  });
 });

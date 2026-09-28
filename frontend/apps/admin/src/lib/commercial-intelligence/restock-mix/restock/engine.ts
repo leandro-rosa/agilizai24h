@@ -8,7 +8,7 @@ import type { StoreMonthSupply } from "@/lib/api/supply";
 import type { PerStoreMonthlyTotal } from "@/lib/api/finance";
 import { buildStoreSkuSeries } from "../series";
 import { computeTrend } from "../trend";
-import type { LossSignal, RestockAction, RestockRecommendation } from "../types";
+import type { LossSignal, RestockAction, RestockRecommendation, StoreSkuParametrizacao } from "../types";
 import { computeRestockConfidence } from "./confidence";
 import { RESTOCK_LOGIC_VERSION } from "./logic-version";
 import type { RestockParameters } from "./parameters";
@@ -24,6 +24,7 @@ export interface RestockEngineInput {
   today: string;
   lossParameters: LossIntelligenceParameters;
   restockParameters: RestockParameters;
+  parametrizacaoFor: (storeId: number, sku: string) => StoreSkuParametrizacao | null;
 }
 
 const HARD_STOP_ACTIONS: LossAction[] = ["suspender_abastecimento", "avaliar_retirada_loja", "avaliar_retirada_rede"];
@@ -76,6 +77,14 @@ export function computeRestockRecommendations(input: RestockEngineInput): Restoc
     const vendasUltimoMes = qtySeries[qtySeries.length - 1] ?? 0;
     const ultimoAbastecimento = lastRestocked(series.meses);
 
+    const parametrizacao = input.parametrizacaoFor(series.storeId, series.sku);
+    const totalAbastecido = series.meses.reduce((sum, m) => sum + m.abastecido, 0);
+    const totalVendido = series.meses.reduce((sum, m) => sum + m.vendido, 0);
+    const aproveitamento = totalAbastecido > 0 ? totalVendido / totalAbastecido : null;
+
+    const deltaFor = (quantidade: number): number | null =>
+      parametrizacao?.nivelDePar != null ? quantidade - parametrizacao.nivelDePar : null;
+
     // Tier 1 (hard-stop): HARD_STOP_ACTIONS always win, regardless of evidence
     if (sinalPerdas && HARD_STOP_ACTIONS.includes(sinalPerdas.acao)) {
       recommendations.push({
@@ -84,6 +93,7 @@ export function computeRestockRecommendations(input: RestockEngineInput): Restoc
         sinalPerdas, quantidadeSugeridaIA: 0, acao: "nao_abastecer",
         motivo: `Recomendação ativa da Inteligência de Perdas: ${LOSS_ACTION_LABEL[sinalPerdas.acao]}.`,
         confianca: sinalPerdas.confianca, limitacoes: sinalPerdas.limitacoesDosDados, versaoMotor: RESTOCK_LOGIC_VERSION, versaoParametros: "provisional",
+        parametrizacao, deltaVsParametrizado: deltaFor(0), aproveitamento,
       });
       continue;
     }
@@ -92,13 +102,15 @@ export function computeRestockRecommendations(input: RestockEngineInput): Restoc
     if (sinalPerdas?.acao === "reduzir_abastecimento") {
       const trend = computeTrend(qtySeries, input.restockParameters.trend);
       const factor = input.restockParameters.lossIntegration.reduceFactor;
+      const quantidadeReduzida = Math.round(trend.estimativaCentral * factor);
       recommendations.push({
         sku: series.sku, storeId: series.storeId, categoria: product.category, vendasUltimoMes, historicoMensal: series.meses,
         ultimoAbastecimento, mesesComVenda, mesesAnalisados, tendencia: trend.tendencia,
         faixaEstimada: { min: Math.round(trend.faixaEstimada.min * factor), max: Math.round(trend.faixaEstimada.max * factor) },
-        sinalPerdas, quantidadeSugeridaIA: Math.round(trend.estimativaCentral * factor), acao: "reduzir",
+        sinalPerdas, quantidadeSugeridaIA: quantidadeReduzida, acao: "reduzir",
         motivo: `Recomendação ativa da Inteligência de Perdas: ${LOSS_ACTION_LABEL.reduzir_abastecimento}.`,
         confianca: sinalPerdas.confianca, limitacoes: sinalPerdas.limitacoesDosDados, versaoMotor: RESTOCK_LOGIC_VERSION, versaoParametros: "provisional",
+        parametrizacao, deltaVsParametrizado: deltaFor(quantidadeReduzida), aproveitamento,
       });
       continue;
     }
@@ -111,6 +123,7 @@ export function computeRestockRecommendations(input: RestockEngineInput): Restoc
         sinalPerdas, quantidadeSugeridaIA: 0, acao: "dados_insuficientes",
         motivo: `Evidência insuficiente: apenas ${mesesComVenda} ${mesesComVenda === 1 ? "mês" : "meses"} com venda nos últimos ${mesesAnalisados}.`,
         confianca: "insuficiente", limitacoes: sinalPerdas?.limitacoesDosDados ?? [], versaoMotor: RESTOCK_LOGIC_VERSION, versaoParametros: "provisional",
+        parametrizacao, deltaVsParametrizado: deltaFor(0), aproveitamento,
       });
       continue;
     }
@@ -119,9 +132,8 @@ export function computeRestockRecommendations(input: RestockEngineInput): Restoc
     const trend = computeTrend(qtySeries, input.restockParameters.trend);
     const reconciliacaoLimpa = !sinalPerdas || sinalPerdas.limitacoesDosDados.length === 0;
 
-    const quantidadeSugeridaIA = trend.estimativaCentral;
+    let quantidadeSugeridaIA = trend.estimativaCentral;
     const faixaEstimada = trend.faixaEstimada;
-    const acao = determineAction(quantidadeSugeridaIA, ultimoAbastecimento, input.restockParameters.action);
     const motivo = `${vendasUltimoMes} vendidos no último mês analisado, tendência ${TREND_LABEL[trend.tendencia]} nos últimos ${mesesAnalisados} meses.`;
     let confianca: Confidence;
     const limitacoes = [...(sinalPerdas?.limitacoesDosDados ?? [])];
@@ -132,10 +144,24 @@ export function computeRestockRecommendations(input: RestockEngineInput): Restoc
       if (confianca === "alta") confianca = "media";
     }
 
+    // Arredondamento nunca sempre pra cima: sem dado de embalagem ainda, pende
+    // para o piso da faixa quando há sinal de risco de sobra/perda, em vez de
+    // sempre usar o centro da estimativa.
+    const shortShelfLife = product.shelf_life_days != null && product.shelf_life_days <= input.restockParameters.rounding.shortShelfLifeDays;
+    const lowAproveitamento = aproveitamento != null && aproveitamento < input.restockParameters.rounding.lowAproveitamentoThreshold;
+    const lowConfidence = confianca === "baixa" || confianca === "insuficiente";
+    if (shortShelfLife || lowAproveitamento || lowConfidence) {
+      const leaned = Math.round(faixaEstimada.min + (faixaEstimada.max - faixaEstimada.min) * input.restockParameters.rounding.leanToMinFraction);
+      quantidadeSugeridaIA = Math.min(quantidadeSugeridaIA, leaned);
+    }
+
+    const acao = determineAction(quantidadeSugeridaIA, ultimoAbastecimento, input.restockParameters.action);
+
     recommendations.push({
       sku: series.sku, storeId: series.storeId, categoria: product.category, vendasUltimoMes, historicoMensal: series.meses,
       ultimoAbastecimento, mesesComVenda, mesesAnalisados, tendencia: trend.tendencia, faixaEstimada, sinalPerdas,
       quantidadeSugeridaIA, acao, motivo, confianca, limitacoes, versaoMotor: RESTOCK_LOGIC_VERSION, versaoParametros: "provisional",
+      parametrizacao, deltaVsParametrizado: deltaFor(quantidadeSugeridaIA), aproveitamento,
     });
   }
 
