@@ -16,9 +16,11 @@ import { RestockPanel } from "@/components/commercial-intelligence/restock/resto
 import { RestockTable, type RestockDisplayRow } from "@/components/commercial-intelligence/restock/restock-table";
 import { useGetCostsAsOfQuery, useGetProductsQuery } from "@/lib/api/products";
 import { useGetNetworkReconciliationRangeQuery } from "@/lib/api/finance";
+import { useGetNetworkMinimumsQuery } from "@/lib/api/inventory";
 import { useGetNetworkSalesByStoreMonthQuery } from "@/lib/api/sales";
 import { useGetNetworkSupplyByStoreMonthQuery } from "@/lib/api/supply";
 import { useGetStoresQuery } from "@/lib/api/stores";
+import type { StoreSkuParametrizacao } from "@/lib/commercial-intelligence/restock-mix/types";
 import { partitionSynthetic } from "@/lib/commercial-intelligence/synthetic";
 import { ALLOW_SYNTHETIC } from "@/lib/commercial-intelligence/env";
 import { computeMixOpportunities, computeMixRecommendations, type MixEngineInput } from "@/lib/commercial-intelligence/restock-mix/mix/engine";
@@ -67,6 +69,30 @@ export default function CommercialIntelligencePage() {
     error: supplyError,
     refetch: refetchSupply,
   } = useGetNetworkSupplyByStoreMonthQuery({ stores: scopedStores, range: engineRange }, { skip });
+  const {
+    data: minimums,
+    isLoading: loadingMinimums,
+    error: minimumsError,
+    refetch: refetchMinimums,
+  } = useGetNetworkMinimumsQuery({ stores: scopedStores }, { skip });
+
+  const parametrizacaoBySkuStore = useMemo(() => {
+    const map = new Map<string, StoreSkuParametrizacao>();
+    for (const item of minimums ?? []) {
+      map.set(`${item.store_id}:${item.sku}`, {
+        minimo: item.minimum ?? null,
+        nivelDePar: item.par_level ?? null,
+        quantidadeAtual: item.current_quantity ?? null,
+        quantidadeAtualEm: item.current_quantity_as_of ?? null,
+      });
+    }
+    return map;
+  }, [minimums]);
+
+  const parametrizacaoFor = useCallback(
+    (storeId: number, sku: string) => parametrizacaoBySkuStore.get(`${storeId}:${sku}`) ?? null,
+    [parametrizacaoBySkuStore],
+  );
 
   const allSkusForCost = useMemo(() => [...new Set((salesByStoreMonth ?? []).flatMap((month) => month.bySku.map((row) => row.sku)))], [salesByStoreMonth]);
   const {
@@ -106,18 +132,18 @@ export default function CommercialIntelligencePage() {
     if (!lossResult || !scopedProducts.length || !salesByStoreMonth || !supplyByStoreMonth || !reconciliationByStoreMonth) return [];
     const input: RestockEngineInput = {
       stores: scopedStores, products: scopedProducts, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, lossResult, today,
-      lossParameters: RUNTIME_PARAMETERS.parameters, restockParameters: RUNTIME_RESTOCK_PARAMETERS.parameters,
+      lossParameters: RUNTIME_PARAMETERS.parameters, restockParameters: RUNTIME_RESTOCK_PARAMETERS.parameters, parametrizacaoFor,
     };
     return computeRestockRecommendations(input);
-  }, [lossResult, scopedProducts, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, scopedStores, today]);
+  }, [lossResult, scopedProducts, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, scopedStores, today, parametrizacaoFor]);
 
   const mixEngineInput = useMemo<MixEngineInput | null>(() => {
     if (!lossResult || !scopedProducts.length || !salesByStoreMonth || !supplyByStoreMonth || !reconciliationByStoreMonth || !costsBySkuAsOf) return null;
     return {
       stores: scopedStores, products: scopedProducts, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, lossResult, today,
-      lossParameters: RUNTIME_PARAMETERS.parameters, mixParameters: RUNTIME_MIX_PARAMETERS.parameters, costsBySkuAsOf,
+      lossParameters: RUNTIME_PARAMETERS.parameters, mixParameters: RUNTIME_MIX_PARAMETERS.parameters, costsBySkuAsOf, parametrizacaoFor,
     };
-  }, [lossResult, scopedProducts, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, costsBySkuAsOf, scopedStores, today]);
+  }, [lossResult, scopedProducts, salesByStoreMonth, supplyByStoreMonth, reconciliationByStoreMonth, costsBySkuAsOf, scopedStores, today, parametrizacaoFor]);
 
   const mixRecommendations = useMemo(() => (mixEngineInput ? computeMixRecommendations(mixEngineInput) : []), [mixEngineInput]);
   const mixOpportunities = useMemo(() => (mixEngineInput ? computeMixOpportunities(mixEngineInput) : []), [mixEngineInput]);
@@ -150,8 +176,8 @@ export default function CommercialIntelligencePage() {
   const [selectedRestockRow, setSelectedRestockRow] = useState<RestockDisplayRow | null>(null);
   const [selectedMixRow, setSelectedMixRow] = useState<MixDrawerRow | null>(null);
 
-  const combinedError = error ?? storesError ?? productsError ?? salesError ?? supplyError ?? costsError;
-  const isLoading = loadingReconciliation || loadingSales || loadingSupply || loadingCosts;
+  const combinedError = error ?? storesError ?? productsError ?? salesError ?? supplyError ?? costsError ?? minimumsError;
+  const isLoading = loadingReconciliation || loadingSales || loadingSupply || loadingCosts || loadingMinimums;
   const isEmpty = !isLoading && !combinedError && selectedStoreId !== null && restockDisplayRows.length === 0 && mixDisplayRows.length === 0;
 
   const retryAll = useCallback(() => {
@@ -161,7 +187,14 @@ export default function CommercialIntelligencePage() {
     refetchSales();
     refetchSupply();
     refetchCosts();
-  }, [refetchStores, refetchProducts, refetchReconciliation, refetchSales, refetchSupply, refetchCosts]);
+    refetchMinimums();
+  }, [refetchStores, refetchProducts, refetchReconciliation, refetchSales, refetchSupply, refetchCosts, refetchMinimums]);
+
+  const windowLabel = useMemo(() => {
+    const startLabel = new Date(`${engineRange.start}-01`).toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+    const endLabel = new Date(`${engineRange.end}-01`).toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+    return `Base da recomendação: últimos ${lookbackMonths} meses fechados (${startLabel}–${endLabel})`;
+  }, [engineRange, lookbackMonths]);
 
   const businessRuleRows = useMemo(
     () => [...restockBusinessRuleRows(RUNTIME_RESTOCK_PARAMETERS.parameters), ...mixBusinessRuleRows(RUNTIME_MIX_PARAMETERS.parameters)],
@@ -219,7 +252,7 @@ export default function CommercialIntelligencePage() {
 
             <TabsContent value="abastecimento" className="flex flex-col gap-4">
               <p className="text-sm text-muted-foreground">A IA analisa vendas, abastecimentos, margem e perdas para sugerir o que levar para cada loja.</p>
-              <RestockPanel rows={restockDisplayRows} />
+              <RestockPanel rows={restockDisplayRows} windowLabel={windowLabel} />
               <RestockTable rows={restockDisplayRows} onSelect={setSelectedRestockRow} />
               <RestockDrawer row={selectedRestockRow} open={selectedRestockRow !== null} onOpenChange={(open) => !open && setSelectedRestockRow(null)} />
             </TabsContent>
