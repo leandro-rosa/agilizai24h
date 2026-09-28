@@ -117,6 +117,15 @@ export const COLUMN_ALIASES = {
   posId: ['Ponto de venda'],
   machineModel: ['Modelo máq.'],
   buyerNumber: ['Número comprador'],
+  /**
+   * Planograma-only columns (one-time import, `planogram-import/`): the
+   * operational target quantity, the critical minimum, and the physical
+   * count observed at survey time. `productCode` above (already aliased to
+   * 'Código Produto') is reused rather than duplicated here.
+   */
+  parLevel: ['Nível de par'],
+  minimumCritical: ['Mínimo crítico'],
+  currentQuantity: ['Quant. atual'],
 } as const
 
 export type ColumnKey = keyof typeof COLUMN_ALIASES
