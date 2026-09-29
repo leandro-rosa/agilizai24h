@@ -520,19 +520,25 @@ nunca entra na fórmula de nenhum dos dois motores** (`quantidadeSugeridaIA`,
 `faixaEstimada`/`necessidadeEstimada`, `deltaVsParametrizado` são todos
 calculados sem ela): é um valor observado, pontual, sem garantia de estar
 atualizado, e a regra de negócio explícita do operador (2026-09-24) é nunca
-inferir estoque atual por subtração. `nivelDePar`/`minimoCritico` (ambos
-opcionais, `null` quando não parametrizados) são os únicos dois que
-alimentam a sugestão.
+inferir estoque atual por subtração. **`minimoCritico`/`nivelDePar` também
+não alimentam `quantidadeSugeridaIA`** — a sugestão vem só da tendência de
+venda (`trend.estimativaCentral`/`faixaEstimada`, `restock/engine.ts`);
+`nivelDePar` alimenta só a exibição (`deltaVsParametrizado`, a coluna "Δ vs.
+parametrizado"), nunca o cálculo da sugestão em si.
 
-O motor de reposição também aplica um "lean" de arredondamento — reduz
-`quantidadeSugeridaIA` para mais perto do `minimoCritico` quando a evidência
-é mais fraca — controlado por três parâmetros `business` em `rounding`
-(`restock/parameters.ts`): `shortShelfLifeDays` (produto com validade curta
-demais para justificar excesso), `lowAproveitamentoThreshold` (histórico de
-baixo aproveitamento do abastecimento anterior) e `leanToMinFraction` (o
-quanto do caminho até o mínimo o lean percorre). Só se aplica no ramo de
-fórmula normal (tier 3/4) — nunca sobrepõe um hard-stop/reduce/evidence-gate
-já decidido por um tier mais alto.
+O motor de reposição também aplica um "lean" de arredondamento — quando a
+evidência é mais fraca, troca o centro da faixa estimada (`estimativaCentral`)
+por um ponto mais perto do PISO da própria faixa (`faixaEstimada.min`), nunca
+do `minimoCritico` parametrizado — controlado por três parâmetros `business`
+em `rounding` (`restock/parameters.ts`): `shortShelfLifeDays` (produto com
+validade curta demais para justificar excesso), `lowAproveitamentoThreshold`
+(histórico de baixo aproveitamento do abastecimento anterior) e
+`leanToMinFraction` (o quanto do caminho entre o piso e o teto da faixa o
+lean percorre). Um terceiro gatilho, confiança baixa ou insuficiente
+(`confianca === "baixa" | "insuficiente"`), também dispara o lean — não é só
+validade curta ou baixo aproveitamento. Só se aplica no ramo de fórmula
+normal (tier 3/4) — nunca sobrepõe um hard-stop/reduce/evidence-gate já
+decidido por um tier mais alto.
 
 ### Fluxo de dados e guarda de dado sintético
 

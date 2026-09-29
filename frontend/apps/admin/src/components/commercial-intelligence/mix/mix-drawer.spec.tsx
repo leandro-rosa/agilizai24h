@@ -60,6 +60,19 @@ describe("MixDrawer", () => {
     render(<MixDrawer row={row} {...DEFAULT_PROPS} />);
     expect(screen.getByText("Parametrização atual")).toBeInTheDocument();
     expect(screen.getByText(/Nível de par: 15/)).toBeInTheDocument();
+    // Regression: a UTC-midnight timestamp must render as the SAME calendar day —
+    // new Date(...).toLocaleDateString() in a UTC-3 timezone shifted this back a day.
+    expect(screen.getByText(/registrada em 24\/09\/2026/)).toBeInTheDocument();
+  });
+
+  it("shows '—' individually for missing pieces of a partially filled parametrização, not the whole section as unregistered", () => {
+    const row: MixDrawerRow = {
+      variant: "recomendacao", ...RECOMMENDATION_ROW,
+      data: { ...(RECOMMENDATION_ROW.data as MixRecommendation), parametrizacao: { minimo: 5, nivelDePar: null, quantidadeAtual: null, quantidadeAtualEm: null } },
+    };
+    render(<MixDrawer row={row} {...DEFAULT_PROPS} />);
+    expect(screen.getByText(/Mínimo crítico: 5/)).toBeInTheDocument();
+    expect(screen.getByText(/Nível de par: —/)).toBeInTheDocument();
   });
 
   it('shows "não registrada" when parametrização is null', () => {

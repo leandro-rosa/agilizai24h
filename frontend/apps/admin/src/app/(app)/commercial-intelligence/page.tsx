@@ -20,6 +20,7 @@ import { useGetNetworkMinimumsQuery } from "@/lib/api/inventory";
 import { useGetNetworkSalesByStoreMonthQuery } from "@/lib/api/sales";
 import { useGetNetworkSupplyByStoreMonthQuery } from "@/lib/api/supply";
 import { useGetStoresQuery } from "@/lib/api/stores";
+import { monthRange } from "@/lib/format";
 import type { StoreSkuParametrizacao } from "@/lib/commercial-intelligence/restock-mix/types";
 import { partitionSynthetic } from "@/lib/commercial-intelligence/synthetic";
 import { ALLOW_SYNTHETIC } from "@/lib/commercial-intelligence/env";
@@ -190,11 +191,10 @@ export default function CommercialIntelligencePage() {
     refetchMinimums();
   }, [refetchStores, refetchProducts, refetchReconciliation, refetchSales, refetchSupply, refetchCosts, refetchMinimums]);
 
-  const windowLabel = useMemo(() => {
-    const startLabel = new Date(`${engineRange.start}-01`).toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
-    const endLabel = new Date(`${engineRange.end}-01`).toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
-    return `Base da recomendação: últimos ${lookbackMonths} meses fechados (${startLabel}–${endLabel})`;
-  }, [engineRange, lookbackMonths]);
+  const windowLabel = useMemo(
+    () => `Base da recomendação: últimos ${lookbackMonths} meses fechados (${monthRange(engineRange.start, engineRange.end)})`,
+    [engineRange, lookbackMonths],
+  );
 
   const businessRuleRows = useMemo(
     () => [...restockBusinessRuleRows(RUNTIME_RESTOCK_PARAMETERS.parameters), ...mixBusinessRuleRows(RUNTIME_MIX_PARAMETERS.parameters)],

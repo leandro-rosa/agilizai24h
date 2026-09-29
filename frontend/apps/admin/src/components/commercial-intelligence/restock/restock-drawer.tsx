@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Level } from "@/lib/commercial-intelligence/types";
 import type { Confidence } from "@/lib/loss-intelligence/types";
+import { date } from "@/lib/format";
 import type { RestockDisplayRow } from "./restock-table";
 
 const CONFIDENCE_TO_LEVEL: Record<Confidence, Level> = { alta: "high", media: "medium", baixa: "low", insuficiente: "insufficient" };
@@ -59,7 +60,7 @@ function RecommendationBody({ data }: { data: Extract<RestockDisplayRow, { kind:
             <p>Mínimo crítico: {data.parametrizacao.minimo ?? "—"}</p>
             <p>
               Quantidade atual (referência, não usada na sugestão): {data.parametrizacao.quantidadeAtual ?? "—"}
-              {data.parametrizacao.quantidadeAtualEm && ` — registrada em ${new Date(data.parametrizacao.quantidadeAtualEm).toLocaleDateString("pt-BR")}`}
+              {data.parametrizacao.quantidadeAtualEm && ` — registrada em ${date(data.parametrizacao.quantidadeAtualEm)}`}
             </p>
           </div>
         ) : (

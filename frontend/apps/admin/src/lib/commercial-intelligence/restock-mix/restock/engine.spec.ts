@@ -221,6 +221,10 @@ describe("parametrização", () => {
     }));
     expect(result[0].acao).toBe("dados_insuficientes");
     expect(result[0].parametrizacao?.nivelDePar).toBe(18);
+    // Review Focus item 1: the delta must be populated here too (0 - 18), not
+    // skipped just because the evidence gate fired — the operator sees their
+    // own parametrização and its delta regardless of the engine's confidence.
+    expect(result[0].deltaVsParametrizado).toBe(-18);
   });
 });
 

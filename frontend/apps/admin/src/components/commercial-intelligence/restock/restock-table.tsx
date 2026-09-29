@@ -84,7 +84,7 @@ function aproveitamentoLabel(aproveitamento: number | null): string {
   return aproveitamento === null ? "—" : `${Math.round(aproveitamento * 100)}%`;
 }
 
-/** Motivo dominante fica só no drawer (detalhe completo por motivo) — aqui é só o total compacto, nunca inventa um motivo sem dado por linha. */
+/** `LossSignal` não carrega motivo dominante nem detalhe por motivo em lugar nenhum (nem aqui, nem no drawer) — só o total compacto, nunca inventa um motivo sem dado por linha. */
 function perdidoCompactLabel(historicoMensal: StoreSkuMonth[], _sinalPerdas: LossSignal | null): string {
   const total = windowTotals(historicoMensal).perdido;
   return total > 0 ? `${total} un.` : "—";

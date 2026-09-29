@@ -88,6 +88,20 @@ describe("RestockDrawer", () => {
     expect(screen.getByText(/Nível de par: 24/)).toBeInTheDocument();
     expect(screen.getByText(/Mínimo crítico: 3/)).toBeInTheDocument();
     expect(screen.getByText(/Quantidade atual \(referência, não usada na sugestão\): 5/)).toBeInTheDocument();
+    // Regression: a UTC-midnight timestamp must render as the SAME calendar day —
+    // new Date(...).toLocaleDateString() in a UTC-3 timezone shifted this back a day.
+    expect(screen.getByText(/registrada em 20\/09\/2026/)).toBeInTheDocument();
+  });
+
+  it("shows '—' individually for missing pieces of a partially filled parametrização, not the whole section as unregistered", () => {
+    const row: RestockDisplayRow = {
+      ...RECOMMENDATION_ROW,
+      data: { ...(RECOMMENDATION_ROW.data as RestockRecommendation), parametrizacao: { minimo: 5, nivelDePar: null, quantidadeAtual: null, quantidadeAtualEm: null } },
+    };
+    render(<RestockDrawer row={row} {...DEFAULT_PROPS} />);
+    expect(screen.getByText(/Mínimo crítico: 5/)).toBeInTheDocument();
+    expect(screen.getByText(/Nível de par: —/)).toBeInTheDocument();
+    expect(screen.getByText(/Quantidade atual \(referência, não usada na sugestão\): —/)).toBeInTheDocument();
   });
 
   it('shows "não registrada" when parametrização is null', () => {
