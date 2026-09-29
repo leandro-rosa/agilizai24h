@@ -13,6 +13,8 @@ export interface ProductView {
   units_per_package: number | null
   package_type: string | null
   fractionable: boolean | null
+  /** Populated by the ingestion pipeline, not by create()/update() here — read-only from this API. */
+  shelf_life_days: number | null
 }
 
 export interface CreateProductInput {
@@ -235,6 +237,7 @@ function toView(product: {
   units_per_package: number | null
   package_type: string | null
   fractionable: boolean | null
+  shelf_life_days: number | null
 }): ProductView {
   return {
     id: product.id,
@@ -242,6 +245,7 @@ function toView(product: {
     name: product.name,
     category: product.category,
     units_per_package: product.units_per_package,
+    shelf_life_days: product.shelf_life_days,
     package_type: product.package_type,
     fractionable: product.fractionable,
   }

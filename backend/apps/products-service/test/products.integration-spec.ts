@@ -103,6 +103,22 @@ describe('products integration', () => {
     })
   })
 
+  describe('shelf_life_days', () => {
+    // Not accepted by create()/update() — populated by the ingestion pipeline
+    // via a different write path — so this sets it directly on the record,
+    // the way a real perishable product actually gets it.
+    it('findById and list return shelf_life_days once set on the record', async () => {
+      const product = await createProduct('Produto perecível')
+      await prisma.product.update({ where: { id: product.id }, data: { shelf_life_days: 5 } })
+
+      const found = await products.findById(product.id)
+      expect(found.shelf_life_days).toBe(5)
+
+      const listed = (await products.list()).find(p => p.id === product.id)
+      expect(listed?.shelf_life_days).toBe(5)
+    })
+  })
+
   describe('dated cost versions', () => {
     it('keeps the old version when a new one is recorded', async () => {
       const product = await createProduct(unique('Produto'))
