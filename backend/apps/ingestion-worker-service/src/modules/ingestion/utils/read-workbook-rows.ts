@@ -57,16 +57,10 @@ function readWithSheetJS(filePath: string): SheetRows[] {
   let workbook: XLSX.WorkBook
 
   try {
-    // codepage 65001 (UTF-8): this fallback's only other caller is a real xlsx/zip file
-    // (unaffected — OOXML shared strings are already UTF-8 XML), but a plain-text CSV
-    // buffer is auto-detected here too, and without an explicit codepage SheetJS decodes
-    // it as if it were Windows-1252 — every accented header/cell comes out mojibake'd
-    // ("Saída" → "SaÃ­da"), silently breaking any literal-accented-string match downstream
-    // (e.g. detectTreasurySheetSource's 'Saída(R$)'/'Agência:' signatures).
-    workbook = XLSX.read(fs.readFileSync(filePath), { type: 'buffer', cellDates: true, codepage: 65001 })
+    workbook = XLSX.read(fs.readFileSync(filePath), { type: 'buffer', cellDates: true })
   } catch {
     // Last resort: SheetJS's own file reader, for shapes its buffer reader rejects.
-    workbook = XLSX.readFile(filePath, { cellDates: true, codepage: 65001 })
+    workbook = XLSX.readFile(filePath, { cellDates: true })
   }
 
   return workbook.SheetNames.map(sheetName => ({

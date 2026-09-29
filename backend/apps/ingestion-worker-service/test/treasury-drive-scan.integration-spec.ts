@@ -4,14 +4,42 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import { DbClientModule } from '../src/modules/db-client/db-client.module'
 import { PrismaClientService } from '../src/modules/db-client/prisma-client.service'
 import { InMemoryDriveClient } from '../src/modules/drive-source/testing/in-memory-drive.client'
+import { xlsxBuffer } from '../src/modules/drive-source/testing/workbook-fixtures'
 import { TreasuryDriveScanService } from '../src/modules/treasury-drive-source/services/treasury-drive-scan.service'
 import { TreasuryDriveRepository } from '../src/modules/treasury-drive-source/services/treasury-drive.repository'
 import type { TreasuryDriveConfig } from '../src/modules/treasury-drive-source/config/treasury-drive.config'
+import type { SheetRows } from '../src/modules/ingestion/utils/read-workbook-rows'
 
-const C6_STATEMENT_HEADER_CSV =
-  'Data Lançamento,Data Contábil,Título,Descrição,Entrada(R$),Saída(R$),Tipo,Detalhe\n2026-08-03,2026-08-03,Pix recebido,Pix recebido de ALELO S.A.,445.93,0,,'
-const ITAU_HEADER_CSV =
-  'Atualização:,15/09/2026,\nAgência:,2059,\nConta:,0099676-5,\nLançamentos,,\nPeriodo:,01/08/2026 até 31/08/2026,'
+/**
+ * Real native Google Sheets, exported by the real GoogleDriveClient as genuine xlsx (it always
+ * requests XLSX_MIME — see google-drive.client.ts's exportSheet — never CSV). Built with
+ * xlsxBuffer(), the same helper drive-import.throwaway-db-spec.ts and
+ * drive-validation.throwaway-db-spec.ts already use for exactly this "native sheet" fixture
+ * shape, rather than a raw string: InMemoryDriveClient.fromTree writes a NativeSheet's content
+ * verbatim, and a raw UTF-8 CSV string routed through readWorkbookRows's SheetJS-CSV-autodetect
+ * fallback would decode as Windows-1252 (mojibaking every accented header) — a fixture artefact
+ * this feature's real integration can never hit, since the real Drive never returns raw CSV.
+ */
+const c6StatementSheet = (extraRow?: unknown[]): SheetRows => ({
+  sheetName: 'Sheet1',
+  rows: [
+    ['Data Lançamento', 'Data Contábil', 'Título', 'Descrição', 'Entrada(R$)', 'Saída(R$)', 'Tipo', 'Detalhe'],
+    ['2026-08-03', '2026-08-03', 'Pix recebido', 'Pix recebido de ALELO S.A.', 445.93, 0, null, null],
+    ...(extraRow ? [extraRow] : []),
+  ],
+})
+
+const itauStatementSheet = (): SheetRows => ({
+  sheetName: 'Sheet1',
+  rows: [
+    [null, null, null],
+    ['Atualização:', '15/09/2026', null],
+    ['Agência:', '2059', null],
+    ['Conta:', '0099676-5', null],
+    ['Lançamentos', null, null],
+    ['Periodo:', '01/08/2026 até 31/08/2026', null],
+  ],
+})
 
 /**
  * Runs against the real dev Postgres (DATABASE_URL, port 5438) via
@@ -54,7 +82,7 @@ describe('TreasuryDriveScanService', () => {
 
   it('tracks a new file under an allowlisted month/bank folder', async () => {
     const client = InMemoryDriveClient.fromTree('root', {
-      agosto: { c6: { 'extrato c6 agosto': { sheet: C6_STATEMENT_HEADER_CSV } } },
+      agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } },
     })
     const repo = new TreasuryDriveRepository(prisma)
     const service = new TreasuryDriveScanService(repo)
@@ -68,8 +96,8 @@ describe('TreasuryDriveScanService', () => {
 
   it('ignores a month folder not in the allowlist, even a real one (julho)', async () => {
     const client = InMemoryDriveClient.fromTree('root', {
-      julho: { c6: { 'extrato c6 julho': { sheet: C6_STATEMENT_HEADER_CSV } } },
-      agosto: { c6: { 'extrato c6 agosto': { sheet: C6_STATEMENT_HEADER_CSV } } },
+      julho: { c6: { 'extrato c6 julho': { sheet: xlsxBuffer([c6StatementSheet()]) } } },
+      agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } },
     })
     const repo = new TreasuryDriveRepository(prisma)
     const service = new TreasuryDriveScanService(repo)
@@ -83,7 +111,7 @@ describe('TreasuryDriveScanService', () => {
 
   it('skips a subfolder inside a bank folder as noise (e.g. "comprovantes itau")', async () => {
     const client = InMemoryDriveClient.fromTree('root', {
-      agosto: { itau: { 'comprovantes itau': { 'photo.jpg': 'not-a-spreadsheet' }, Entradas_Saidas: { sheet: ITAU_HEADER_CSV } } },
+      agosto: { itau: { 'comprovantes itau': { 'photo.jpg': 'not-a-spreadsheet' }, Entradas_Saidas: { sheet: xlsxBuffer([itauStatementSheet()]) } } },
     })
     const repo = new TreasuryDriveRepository(prisma)
     const service = new TreasuryDriveScanService(repo)
@@ -96,7 +124,7 @@ describe('TreasuryDriveScanService', () => {
   })
 
   it('re-scanning an unchanged file does not flip it back to "new" once imported', async () => {
-    const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: C6_STATEMENT_HEADER_CSV } } } })
+    const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
     const repo = new TreasuryDriveRepository(prisma)
     const service = new TreasuryDriveScanService(repo)
 
@@ -110,13 +138,13 @@ describe('TreasuryDriveScanService', () => {
   })
 
   it('flips status to "changed" when the file content hash differs on a re-scan', async () => {
-    const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: C6_STATEMENT_HEADER_CSV } } } })
+    const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
     const repo = new TreasuryDriveRepository(prisma)
     const service = new TreasuryDriveScanService(repo)
     await service.scan(client, config())
     const [first] = await repo.list()
 
-    client.edit(first.drive_file_id, C6_STATEMENT_HEADER_CSV + '\n2026-08-04,2026-08-04,Novo,Novo,10,0,,')
+    client.edit(first.drive_file_id, xlsxBuffer([c6StatementSheet(['2026-08-04', '2026-08-04', 'Novo', 'Novo', 10, 0, null, null])]))
     await service.scan(client, config())
 
     const [after] = await repo.list()
