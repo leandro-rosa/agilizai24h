@@ -27,7 +27,8 @@ export interface StockView {
 
 export interface BulkParametrizacaoItem {
   sku: string
-  minimum: number
+  /** Nullable/absent — a real state (schema.prisma: minimum is nullable), not "not yet provided". */
+  minimum?: number | null
   parLevel?: number
   currentQuantity?: number
   currentQuantityAsOf?: string

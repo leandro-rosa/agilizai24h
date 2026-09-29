@@ -409,6 +409,15 @@ describe('inventory integration', () => {
       expect(row2?.par_level).toBeNull()
     })
 
+    it('bulkSetParametrizacao accepts a SKU with no minimum yet — a par_level/current_quantity-only row is a real, documented state', async () => {
+      const store = newStore()
+      const { updated } = await inventory.bulkSetParametrizacao(store, [{ sku: 'SKU-BULK-NOMIN', minimum: null, parLevel: 8 }])
+      expect(updated).toBe(1)
+      const row = await prisma.minimumLevel.findUnique({ where: { store_id_sku: { store_id: store, sku: 'SKU-BULK-NOMIN' } } })
+      expect(row?.minimum).toBeNull()
+      expect(row?.par_level).toBe(8)
+    })
+
     it('bulkSetParametrizacao re-run for the same store×sku overwrites cleanly, no duplicate rows', async () => {
       const store = newStore()
       await inventory.bulkSetParametrizacao(store, [{ sku: 'SKU-BULK-3', minimum: 1, parLevel: 10 }])

@@ -28,10 +28,11 @@ export class BulkParametrizacaoItemDto implements BulkParametrizacaoItem {
   @IsString()
   sku: string
 
-  @ApiProperty()
+  @ApiProperty({ required: false, description: 'Nulo/ausente quando ainda não há mínimo configurado para este SKU — estado real, não erro (schema.prisma: minimum é nullable).' })
+  @IsOptional()
   @IsInt()
   @Min(0)
-  minimum: number
+  minimum?: number | null
 
   @ApiProperty({ required: false })
   @IsOptional()
