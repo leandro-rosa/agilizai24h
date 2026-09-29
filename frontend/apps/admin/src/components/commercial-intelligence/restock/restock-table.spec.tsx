@@ -8,7 +8,9 @@ function rec(overrides: Partial<RestockRecommendation> = {}): RestockRecommendat
     sku: "SKU-1", storeId: 1, categoria: "beverage", vendasUltimoMes: 17, historicoMensal: [], ultimoAbastecimento: 24,
     mesesComVenda: 6, mesesAnalisados: 6, tendencia: "crescendo", faixaEstimada: { min: 25, max: 35 }, sinalPerdas: null,
     quantidadeSugeridaIA: 30, acao: "aumentar", motivo: "teste", confianca: "alta", limitacoes: [],
-    versaoMotor: "test", versaoParametros: "test", ...overrides,
+    versaoMotor: "test", versaoParametros: "test",
+    parametrizacao: null, deltaVsParametrizado: null, aproveitamento: null,
+    ...overrides,
   };
 }
 
@@ -107,5 +109,55 @@ describe("RestockTable", () => {
     expect(screen.getByText("Sem dados suficientes (1)")).toBeInTheDocument();
     expect(screen.getByText("Não abastecer (1)")).toBeInTheDocument(); // continua só Paçoquita
     expect(screen.getByText(/Refrigerante Guaraná — Loja Centro: 0 un\./)).toBeInTheDocument();
+  });
+
+  it("shows Parametrizado atual and Δ vs. parametrizado when configured", () => {
+    const rows = [recRow("Produto Com Par", { parametrizacao: { minimo: 3, nivelDePar: 24, quantidadeAtual: 5, quantidadeAtualEm: "2026-09-24T00:00:00.000Z" }, quantidadeSugeridaIA: 9, deltaVsParametrizado: -15 })];
+    render(<RestockTable rows={rows} onSelect={jest.fn()} />);
+    const row = screen.getByText("Produto Com Par").closest("tr");
+    expect(within(row!).getByText("24")).toBeInTheDocument();
+    expect(within(row!).getByText("9 ↓15")).toBeInTheDocument();
+  });
+
+  it('shows "—" for Parametrizado atual and Δ when nothing is configured', () => {
+    const rows = [recRow("Produto Sem Par", { parametrizacao: null, deltaVsParametrizado: null })];
+    render(<RestockTable rows={rows} onSelect={jest.fn()} />);
+    const row = screen.getByText("Produto Sem Par").closest("tr");
+    const cells = within(row!).getAllByRole("cell");
+    expect(cells.some((c) => c.textContent === "—")).toBe(true);
+  });
+
+  it('shows Δ with an up arrow when the suggestion exceeds parametrizado, and "= manter" when equal', () => {
+    const rows = [
+      recRow("Sobe", { parametrizacao: { minimo: 1, nivelDePar: 12, quantidadeAtual: null, quantidadeAtualEm: null }, quantidadeSugeridaIA: 18, deltaVsParametrizado: 6 }),
+      recRow("Mantem", { sku: "SKU-MANTEM", parametrizacao: { minimo: 1, nivelDePar: 12, quantidadeAtual: null, quantidadeAtualEm: null }, quantidadeSugeridaIA: 12, deltaVsParametrizado: 0 }),
+    ];
+    render(<RestockTable rows={rows} onSelect={jest.fn()} />);
+    expect(within(screen.getByText("Sobe").closest("tr")!).getByText("18 ↑6")).toBeInTheDocument();
+    expect(within(screen.getByText("Mantem").closest("tr")!).getByText("12 = manter")).toBeInTheDocument();
+  });
+
+  it("shows Abastecido/Vendido/Perdido totals over the historical window, and Aproveitamento", () => {
+    const rows = [recRow("Produto Com Historico", {
+      historicoMensal: [
+        { period: "2026-06", vendido: 10, abastecido: 20, perdido: 2, receitaCents: 5000 },
+        { period: "2026-07", vendido: 15, abastecido: 20, perdido: 1, receitaCents: 7500 },
+        { period: "2026-08", vendido: 12, abastecido: 20, perdido: 0, receitaCents: 6000 },
+      ],
+      aproveitamento: 0.617,
+    })];
+    render(<RestockTable rows={rows} onSelect={jest.fn()} />);
+    const row = screen.getByText("Produto Com Historico").closest("tr");
+    expect(within(row!).getByText("60")).toBeInTheDocument();
+    expect(within(row!).getByText("37")).toBeInTheDocument();
+    expect(within(row!).getByText("3 un.")).toBeInTheDocument();
+    expect(within(row!).getByText("62%")).toBeInTheDocument();
+  });
+
+  it('shows "—" for Aproveitamento when null (nothing restocked in the window)', () => {
+    const rows = [recRow("Sem Abastecimento", { aproveitamento: null })];
+    render(<RestockTable rows={rows} onSelect={jest.fn()} />);
+    const row = screen.getByText("Sem Abastecimento").closest("tr");
+    expect(within(row!).getAllByText("—").length).toBeGreaterThan(0);
   });
 });

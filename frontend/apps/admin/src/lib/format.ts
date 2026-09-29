@@ -45,6 +45,11 @@ export function period(value: string | null | undefined): string {
   return `${names[Number(month) - 1] ?? month}/${year}`;
 }
 
+/** "2026-03", "2026-08" → "mar/2026–ago/2026". Sempre via `period()` — nunca `new Date(...)`, que desloca um dia em fuso negativo (BRT). */
+export function monthRange(startPeriod: string, endPeriod: string): string {
+  return `${period(startPeriod)}–${period(endPeriod)}`;
+}
+
 /** O mês corrente, no formato que todo serviço usa. */
 export function currentPeriod(): string {
   const now = new Date();

@@ -510,6 +510,36 @@ folha "Regras de negócio" no cabeçalho (`BusinessRulesSheet`, mesmo componente
 do motor antigo, agora combinando as regras de negócio dos dois motores numa
 única folha).
 
+### Parametrização — nível de par, mínimo crítico e quantidade atual
+
+`page.tsx` busca `inventory-service`'s `MinimumLevel` rede inteira (fan-out
+por loja, `useGetNetworkMinimumsQuery`, mesmo padrão de sales/supply) e
+monta um lookup `storeId:sku`, passado aos dois motores como
+`parametrizacaoFor`. **`quantidadeAtual` é só referência, exibida na UI —
+nunca entra na fórmula de nenhum dos dois motores** (`quantidadeSugeridaIA`,
+`faixaEstimada`/`necessidadeEstimada`, `deltaVsParametrizado` são todos
+calculados sem ela): é um valor observado, pontual, sem garantia de estar
+atualizado, e a regra de negócio explícita do operador (2026-09-24) é nunca
+inferir estoque atual por subtração. **`minimoCritico`/`nivelDePar` também
+não alimentam `quantidadeSugeridaIA`** — a sugestão vem só da tendência de
+venda (`trend.estimativaCentral`/`faixaEstimada`, `restock/engine.ts`);
+`nivelDePar` alimenta só a exibição (`deltaVsParametrizado`, a coluna "Δ vs.
+parametrizado"), nunca o cálculo da sugestão em si.
+
+O motor de reposição também aplica um "lean" de arredondamento — quando a
+evidência é mais fraca, troca o centro da faixa estimada (`estimativaCentral`)
+por um ponto mais perto do PISO da própria faixa (`faixaEstimada.min`), nunca
+do `minimoCritico` parametrizado — controlado por três parâmetros `business`
+em `rounding` (`restock/parameters.ts`): `shortShelfLifeDays` (produto com
+validade curta demais para justificar excesso), `lowAproveitamentoThreshold`
+(histórico de baixo aproveitamento do abastecimento anterior) e
+`leanToMinFraction` (o quanto do caminho entre o piso e o teto da faixa o
+lean percorre). Um terceiro gatilho, confiança baixa ou insuficiente
+(`confianca === "baixa" | "insuficiente"`), também dispara o lean — não é só
+validade curta ou baixo aproveitamento. Só se aplica no ramo de fórmula
+normal (tier 3/4) — nunca sobrepõe um hard-stop/reduce/evidence-gate já
+decidido por um tier mais alto.
+
 ### Fluxo de dados e guarda de dado sintético
 
 Página sempre busca a rede inteira (nunca por loja) — trocar de loja no
@@ -633,6 +663,19 @@ loja-alvo) antes da rede crescer bastante além disso.
   detail` ainda diz que `Cupom` não é lido (o schema e o código já persistem), e,
   pela exploração de 2026-09-19, `gateway-service/CLAUDE.md` documenta rotas de
   preço e estoque central que o gateway não implementa.
+
+## `/products` — Cadastro de produtos
+
+Tela majoritariamente somente-leitura (catálogo, custo e preço do dia,
+margem) — a única capacidade de edição é o diálogo "Editar embalagem"
+(`add-restock-mix-operational-revision`, tarefa 14), escopado só aos 3
+campos de embalagem (`unitsPerPackage`/`packageType`/`fractionable`).
+`ProductView`/`toView()` em `products-service` ainda não devolve a maior
+parte dos outros campos nullable de `Product` (`subcategory`, `ean`,
+`supplier_id`, `net_weight`, `ncm`, `cest`, `shelf_life_days`, `status`) —
+gap conhecido, deixado de propósito pela tarefa 2 desta mudança. Um editor
+futuro para esses campos precisa primeiro de trabalho no backend
+(`toView()` e o tipo `ProductView`), não só de frontend.
 
 ## `/ingestion` — "Arquivos no Drive" (`add-drive-ingestion-source`)
 

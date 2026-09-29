@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import type { ZodType } from "zod";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export type FieldSpec<T extends FieldValues> =
   | { name: Path<T>; label: string; kind: "text" | "number" | "date" | "email"; placeholder?: string; hint?: string }
   | { name: Path<T>; label: string; kind: "select"; options: { value: string; label: string }[]; hint?: string }
+  | { name: Path<T>; label: string; kind: "checkbox"; hint?: string }
   | {
       name: Path<T>;
       label: string;
@@ -124,37 +126,49 @@ export function ResourceFormDialog<T extends FieldValues>({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{spec.label}</FormLabel>
-                    <FormControl>
-                      {spec.kind === "select" ? (
-                        <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    {spec.kind === "select" ? (
+                      // FormControl must wrap SelectTrigger itself, not the whole <Select> —
+                      // Select's root is a non-DOM context provider that doesn't forward id/
+                      // aria-* to its trigger, which would leave the FormLabel unassociated.
+                      <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                        <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Selecione" />
                           </SelectTrigger>
-                          <SelectContent>
-                            {spec.options.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : spec.kind === "combobox" ? (
-                        <Combobox
-                          options={spec.options}
-                          value={field.value ?? ""}
-                          onChange={field.onChange}
-                          placeholder={spec.placeholder}
-                        />
-                      ) : (
-                        <Input
-                          type={spec.kind === "number" ? "number" : spec.kind === "date" ? "date" : spec.kind}
-                          placeholder={spec.placeholder}
-                          {...field}
-                          value={field.value ?? ""}
-                          className={spec.kind === "number" ? "tabular" : undefined}
-                        />
-                      )}
-                    </FormControl>
+                        </FormControl>
+                        <SelectContent>
+                          {spec.options.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <FormControl>
+                        {spec.kind === "combobox" ? (
+                          <Combobox
+                            options={spec.options}
+                            value={field.value ?? ""}
+                            onChange={field.onChange}
+                            placeholder={spec.placeholder}
+                          />
+                        ) : spec.kind === "checkbox" ? (
+                          <Checkbox
+                            checked={field.value ?? false}
+                            onCheckedChange={(checked) => field.onChange(checked === true)}
+                          />
+                        ) : (
+                          <Input
+                            type={spec.kind === "number" ? "number" : spec.kind === "date" ? "date" : spec.kind}
+                            placeholder={spec.placeholder}
+                            {...field}
+                            value={field.value ?? ""}
+                            className={spec.kind === "number" ? "tabular" : undefined}
+                          />
+                        )}
+                      </FormControl>
+                    )}
                     {spec.hint && <p className="text-xs text-muted-foreground">{spec.hint}</p>}
                     <FormMessage />
                   </FormItem>

@@ -56,13 +56,26 @@ model StockSnapshot {
 /// Configured per store and SKU, replacing the admin panel mock's hardcoded
 /// "15 for beverages, 8 otherwise" — which was never a real setting.
 model MinimumLevel {
-  id                      Int       @id @default(autoincrement())
-  store_id                Int
-  sku                     String
-  minimum                 Int?
-  par_level               Int?
-  current_quantity        Int?
-  current_quantity_as_of  DateTime?
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  sku      String
+  /// Nullable: a row can exist for par_level/current_quantity alone, before a
+  /// minimum has ever been configured for that store×SKU.
+  minimum  Int?
+
+  /// The quantity-to-restock-to ("nível de par") the operator has planned for
+  /// this store×SKU — an operator decision, never inferred.
+  par_level Int?
+
+  /// An *observed* stock reading (e.g. from a planogram/inventory report),
+  /// timestamped. This is a different concept from StockSnapshot.closing_stock
+  /// above: closing_stock is *derived* (restocked-sold-removed+adjustment) for
+  /// finance's month-end valuation; current_quantity is a real count someone
+  /// took, kept here only as a reference — never recomputed, never averaged
+  /// with closing_stock, and consumers must not treat the two as
+  /// interchangeable.
+  current_quantity       Int?
+  current_quantity_as_of DateTime?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

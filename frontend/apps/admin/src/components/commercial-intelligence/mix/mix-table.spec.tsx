@@ -1,5 +1,5 @@
 import { describe, it, expect, jest } from "@jest/globals";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MixTable } from "./mix-table";
 import type { MixDisplayRow, MixOpportunityRow } from "./mix-table";
 import type { MixRecommendation, MixOpportunity } from "@/lib/commercial-intelligence/restock-mix/types";
@@ -8,7 +8,9 @@ function rec(overrides: Partial<MixRecommendation> = {}): MixRecommendation {
   return {
     sku: "SKU-1", storeId: 1, categoria: "beverage", classificacao: "manter", evidencia: "Presença estável.",
     tendencia: "estavel", affinity: 1, margemPct: 0.2, sinalPerdas: null, confianca: "alta", limitacoes: [],
-    versaoMotor: "test", versaoParametros: "test", ...overrides,
+    versaoMotor: "test", versaoParametros: "test",
+    historicoMensal: [], parametrizacao: null,
+    ...overrides,
   };
 }
 
@@ -76,5 +78,44 @@ describe("MixTable", () => {
   it('never shows "Oportunidades de novo mix" when there are none', () => {
     render(<MixTable rows={ROWS} opportunities={[]} onSelect={jest.fn()} onSelectOpportunity={jest.fn()} />);
     expect(screen.queryByText("Oportunidades de novo mix")).not.toBeInTheDocument();
+  });
+
+  it("shows Parametrizado, Abastecido, Vendido, Perdido and Margem columns from historicoMensal", () => {
+    const r = row("Produto com histórico", {
+      historicoMensal: [
+        { period: "2026-06", vendido: 8, abastecido: 10, perdido: 1, receitaCents: 4000 },
+        { period: "2026-07", vendido: 9, abastecido: 10, perdido: 0, receitaCents: 4500 },
+      ],
+      parametrizacao: { minimo: 2, nivelDePar: 12, quantidadeAtual: null, quantidadeAtualEm: null },
+      margemPct: 0.35,
+    });
+    render(<MixTable rows={[r]} opportunities={[]} onSelect={jest.fn()} onSelectOpportunity={jest.fn()} />);
+    const tr = screen.getByText(r.productLabel).closest("tr");
+    expect(within(tr!).getByText("12")).toBeInTheDocument();
+    expect(within(tr!).getByText("20")).toBeInTheDocument();
+    expect(within(tr!).getByText("17")).toBeInTheDocument();
+    expect(within(tr!).getByText("1 un.")).toBeInTheDocument();
+    expect(within(tr!).getByText("35%")).toBeInTheDocument();
+  });
+
+  it("shows \"—\" for margem when null (no cost resolved)", () => {
+    const r = row("Sem margem", { margemPct: null });
+    render(<MixTable rows={[r]} opportunities={[]} onSelect={jest.fn()} onSelectOpportunity={jest.fn()} />);
+    const tr = screen.getByText(r.productLabel).closest("tr");
+    expect(within(tr!).getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("shows Desempenho na rede as a labeled affinity ratio, not a bare number", () => {
+    const r = row("Com afinidade", { affinity: 0.22 });
+    render(<MixTable rows={[r]} opportunities={[]} onSelect={jest.fn()} onSelectOpportunity={jest.fn()} />);
+    const tr = screen.getByText(r.productLabel).closest("tr");
+    expect(within(tr!).getByText("0.22x a média da rede")).toBeInTheDocument();
+  });
+
+  it('shows "sem comparação" for Desempenho na rede when affinity is null', () => {
+    const r = row("Sem afinidade", { affinity: null });
+    render(<MixTable rows={[r]} opportunities={[]} onSelect={jest.fn()} onSelectOpportunity={jest.fn()} />);
+    const tr = screen.getByText(r.productLabel).closest("tr");
+    expect(within(tr!).getByText("sem comparação")).toBeInTheDocument();
   });
 });

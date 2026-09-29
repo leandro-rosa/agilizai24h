@@ -78,4 +78,41 @@ export class InventoryController {
 
     return result.data
   }
+
+  @Put(':storeId/:sku/par-level')
+  @RequiresPermission(PERMISSIONS.INVENTORY_WRITE)
+  @ApiOperation({ summary: 'Configure a par level (nível de par) for a store and SKU' })
+  async setParLevel(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Param('sku') sku: string,
+    @Body() body: unknown,
+    @Req() request: FastifyRequest,
+  ) {
+    const result = await this.domains.inventory({
+      method: 'put',
+      path: `/inventory/${storeId}/${encodeURIComponent(sku)}/par-level`,
+      payload: body,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Put(':storeId/parametrizacao/bulk')
+  @RequiresPermission(PERMISSIONS.INVENTORY_WRITE)
+  @ApiOperation({ summary: 'Bulk-upsert minimum/par level/current quantity for many SKUs at once' })
+  async bulkSetParametrizacao(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Body() body: unknown,
+    @Req() request: FastifyRequest,
+  ) {
+    const result = await this.domains.inventory({
+      method: 'put',
+      path: `/inventory/${storeId}/parametrizacao/bulk`,
+      payload: body,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
 }

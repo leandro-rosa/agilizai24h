@@ -23,7 +23,7 @@ describe("RestockPanel", () => {
       recRow("aumentar", 30), recRow("manter", 10), recRow("reduzir", 5), recRow("reduzir", 5),
       recRow("nao_abastecer", 0), recRow("dados_insuficientes", 0), opportunityRow(4),
     ];
-    render(<RestockPanel rows={rows} />);
+    render(<RestockPanel rows={rows} windowLabel="janela de teste" />);
 
     // Both levar and reduzir count as 2
     expect(screen.getAllByText("2")).toHaveLength(2);
@@ -37,8 +37,13 @@ describe("RestockPanel", () => {
 
   it("sums quantidadeSugeridaIA/quantidadeTeste of every row into 'unidades sugeridas', never fabricating an impact estimate", () => {
     const rows: RestockDisplayRow[] = [recRow("aumentar", 30), recRow("manter", 10), opportunityRow(4)];
-    render(<RestockPanel rows={rows} />);
+    render(<RestockPanel rows={rows} windowLabel="janela de teste" />);
     expect(screen.getByText("44")).toBeInTheDocument(); // 30+10+4
     expect(screen.queryByText(/impacto/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the explicit analysis window label above the resumo", () => {
+    render(<RestockPanel rows={[]} windowLabel="Base da recomendação: últimos 3 meses fechados (jun–ago/2026)" />);
+    expect(screen.getByText("Base da recomendação: últimos 3 meses fechados (jun–ago/2026)")).toBeInTheDocument();
   });
 });

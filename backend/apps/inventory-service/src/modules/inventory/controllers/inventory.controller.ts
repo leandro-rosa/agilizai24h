@@ -1,10 +1,10 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { ApiProperty } from '@nestjs/swagger'
-import { ArrayMinSize, IsInt, IsISO8601, IsOptional, IsString, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
+import { ArrayMinSize, IsInt, IsISO8601, IsOptional, IsString, Min, ValidateNested } from 'class-validator'
 import { DerivedEventsPublisher } from '../services/derived-events.publisher'
-import { InventoryService } from '../services/inventory.service'
+import { InventoryService, type BulkParametrizacaoItem } from '../services/inventory.service'
 
 /** `YYYY-MM` — every period in this platform is a whole month, never finer. */
 const PERIOD_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/
@@ -23,15 +23,16 @@ export class SetParLevelDto {
   parLevel: number
 }
 
-export class BulkParametrizacaoItemDto {
+export class BulkParametrizacaoItemDto implements BulkParametrizacaoItem {
   @ApiProperty()
   @IsString()
   sku: string
 
-  @ApiProperty()
+  @ApiProperty({ required: false, description: 'Nulo/ausente quando ainda não há mínimo configurado para este SKU — estado real, não erro (schema.prisma: minimum é nullable).' })
+  @IsOptional()
   @IsInt()
   @Min(0)
-  minimum: number
+  minimum?: number | null
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -136,6 +137,25 @@ export class InventoryController {
     @Body() dto: SetMinimumDto,
   ) {
     return this.inventory.setMinimum(storeId, sku, dto.minimum)
+  }
+
+  @Put(':storeId/:sku/par-level')
+  @ApiOperation({ summary: 'Configure a par level (nível de par)' })
+  setParLevel(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Param('sku') sku: string,
+    @Body() dto: SetParLevelDto,
+  ) {
+    return this.inventory.setParLevel(storeId, sku, dto.parLevel)
+  }
+
+  @Put(':storeId/parametrizacao/bulk')
+  @ApiOperation({ summary: 'Bulk-upsert minimum/par level/current quantity for many SKUs at once' })
+  bulkSetParametrizacao(
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Body() dto: BulkSetParametrizacaoDto,
+  ) {
+    return this.inventory.bulkSetParametrizacao(storeId, dto.items)
   }
 
   @Post(':storeId/recompute')

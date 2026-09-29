@@ -174,6 +174,77 @@ describe('gateway integration', () => {
     })
   })
 
+  describe('parametrização and product-update proxy routes', () => {
+    it('PUT /inventory/:storeId/:sku/par-level requires inventory:write and forwards to inventory-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })
+
+      await request(server())
+        .put('/inventory/1/SKU-1/par-level')
+        .set('Cookie', `${SESSION}=good`)
+        .send({ parLevel: 30 })
+        .expect(403)
+
+      expect(stub.calledWith('PUT', '/inventory/1/SKU-1/par-level')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.INVENTORY_WRITE] } })
+      stub.on('PUT', '/inventory/1/SKU-1/par-level', { status: 200, body: { store_id: 1, sku: 'SKU-1', par_level: 30 } })
+
+      await request(server())
+        .put('/inventory/1/SKU-1/par-level')
+        .set('Cookie', `${SESSION}=good`)
+        .send({ parLevel: 30 })
+        .expect(200)
+
+      expect(stub.calledWith('PUT', '/inventory/1/SKU-1/par-level')).toBe(true)
+    })
+
+    it('PUT /inventory/:storeId/parametrizacao/bulk requires inventory:write and forwards to inventory-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })
+
+      await request(server())
+        .put('/inventory/1/parametrizacao/bulk')
+        .set('Cookie', `${SESSION}=good`)
+        .send({ items: [{ sku: 'SKU-1', minimum: 3 }] })
+        .expect(403)
+
+      expect(stub.calledWith('PUT', '/inventory/1/parametrizacao/bulk')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.INVENTORY_WRITE] } })
+      stub.on('PUT', '/inventory/1/parametrizacao/bulk', { status: 200, body: { updated: 1 } })
+
+      await request(server())
+        .put('/inventory/1/parametrizacao/bulk')
+        .set('Cookie', `${SESSION}=good`)
+        .send({ items: [{ sku: 'SKU-1', minimum: 3 }] })
+        .expect(200)
+
+      expect(stub.calledWith('PUT', '/inventory/1/parametrizacao/bulk')).toBe(true)
+    })
+
+    it('PATCH /products/:id requires products:write and forwards to products-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })
+
+      await request(server())
+        .patch('/products/1')
+        .set('Cookie', `${SESSION}=good`)
+        .send({ unitsPerPackage: 24, packageType: 'caixa', fractionable: true })
+        .expect(403)
+
+      expect(stub.calledWith('PATCH', '/products/1')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.PRODUCTS_WRITE] } })
+      stub.on('PATCH', '/products/1', { status: 200, body: { id: 1, sku: 'A', units_per_package: 24 } })
+
+      await request(server())
+        .patch('/products/1')
+        .set('Cookie', `${SESSION}=good`)
+        .send({ unitsPerPackage: 24, packageType: 'caixa', fractionable: true })
+        .expect(200)
+
+      expect(stub.calledWith('PATCH', '/products/1')).toBe(true)
+    })
+  })
+
   describe('upstream failures', () => {
     it('forwards a domain 404 as 404 rather than swallowing it', async () => {
       stub.on('GET', '/stores/99', { status: 404, body: { message: 'Store 99 not found' } })

@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Level } from "@/lib/commercial-intelligence/types";
 import type { Confidence } from "@/lib/loss-intelligence/types";
-import type { MixOpportunity, ProductCategory, RestockAction, RestockRecommendation, Trend } from "@/lib/commercial-intelligence/restock-mix/types";
+import type { LossSignal, MixOpportunity, ProductCategory, RestockAction, RestockRecommendation, StoreSkuMonth, Trend } from "@/lib/commercial-intelligence/restock-mix/types";
 
 const CONFIDENCE_TO_LEVEL: Record<Confidence, Level> = { alta: "high", media: "medium", baixa: "low", insuficiente: "insufficient" };
 
@@ -68,6 +68,26 @@ function suggestedQuantityLabel(row: RestockDisplayRow): string {
   const { quantidadeSugeridaIA, faixaEstimada } = row.data;
   if (faixaEstimada.min === faixaEstimada.max) return String(quantidadeSugeridaIA);
   return `${quantidadeSugeridaIA} (${faixaEstimada.min}–${faixaEstimada.max})`;
+}
+
+function deltaLabel(quantidadeSugeridaIA: number, delta: number | null): string {
+  if (delta === null) return "—";
+  if (delta === 0) return `${quantidadeSugeridaIA} = manter`;
+  return delta > 0 ? `${quantidadeSugeridaIA} ↑${delta}` : `${quantidadeSugeridaIA} ↓${Math.abs(delta)}`;
+}
+
+function windowTotals(meses: { abastecido: number; vendido: number; perdido: number }[]): { abastecido: number; vendido: number; perdido: number } {
+  return meses.reduce((acc, m) => ({ abastecido: acc.abastecido + m.abastecido, vendido: acc.vendido + m.vendido, perdido: acc.perdido + m.perdido }), { abastecido: 0, vendido: 0, perdido: 0 });
+}
+
+function aproveitamentoLabel(aproveitamento: number | null): string {
+  return aproveitamento === null ? "—" : `${Math.round(aproveitamento * 100)}%`;
+}
+
+/** `LossSignal` não carrega motivo dominante nem detalhe por motivo em lugar nenhum (nem aqui, nem no drawer) — só o total compacto, nunca inventa um motivo sem dado por linha. */
+function perdidoCompactLabel(historicoMensal: StoreSkuMonth[], _sinalPerdas: LossSignal | null): string {
+  const total = windowTotals(historicoMensal).perdido;
+  return total > 0 ? `${total} un.` : "—";
 }
 
 type RestockView = "todos" | "levar" | "reduzir" | "nao_levar" | "testar";
@@ -129,10 +149,15 @@ export function RestockTable({ rows, onSelect }: { rows: RestockDisplayRow[]; on
           <TableRow>
             <TableHead>Produto</TableHead>
             <TableHead>Categoria</TableHead>
+            <TableHead className="text-right">Parametrizado atual</TableHead>
+            <TableHead className="text-right">Abastecido</TableHead>
+            <TableHead className="text-right">Vendido</TableHead>
+            <TableHead>Perdido</TableHead>
+            <TableHead className="text-right">Aproveitamento</TableHead>
             <TableHead className="text-right">Vendas recentes</TableHead>
-            <TableHead>Sinal</TableHead>
-            <TableHead className="text-right">Último abastecimento</TableHead>
+            <TableHead>Tendência</TableHead>
             <TableHead className="text-right">Sugestão IA</TableHead>
+            <TableHead className="text-right">Δ vs. parametrizado</TableHead>
             <TableHead className="text-right">Quantidade final</TableHead>
             <TableHead>Ação</TableHead>
             <TableHead>Confiança</TableHead>
@@ -144,16 +169,20 @@ export function RestockTable({ rows, onSelect }: { rows: RestockDisplayRow[]; on
             const isOpportunity = row.kind === "oportunidade";
             const categoria = isOpportunity ? null : row.data.categoria;
             const vendasRecentes = isOpportunity ? null : row.data.vendasUltimoMes;
-            const ultimoAbastecimento = isOpportunity ? null : row.data.ultimoAbastecimento;
             const confianca = row.data.confianca;
             return (
               <TableRow key={key} className="cursor-pointer" onClick={() => onSelect(row)}>
                 <TableCell className="font-medium">{row.productLabel}</TableCell>
                 <TableCell>{categoria ? CATEGORY_LABELS[categoria] : "—"}</TableCell>
+                <TableCell className="text-right tabular">{isOpportunity ? "—" : (row.data.parametrizacao?.nivelDePar ?? "—")}</TableCell>
+                <TableCell className="text-right tabular">{isOpportunity ? "—" : windowTotals(row.data.historicoMensal).abastecido}</TableCell>
+                <TableCell className="text-right tabular">{isOpportunity ? "—" : windowTotals(row.data.historicoMensal).vendido}</TableCell>
+                <TableCell>{isOpportunity ? "—" : perdidoCompactLabel(row.data.historicoMensal, row.data.sinalPerdas)}</TableCell>
+                <TableCell className="text-right tabular">{isOpportunity ? "—" : aproveitamentoLabel(row.data.aproveitamento)}</TableCell>
                 <TableCell className="text-right tabular">{vendasRecentes ?? "—"}</TableCell>
                 <TableCell>{signalLabel(row)}</TableCell>
-                <TableCell className="text-right tabular">{ultimoAbastecimento ?? "—"}</TableCell>
                 <TableCell className="text-right tabular">{suggestedQuantityLabel(row)}</TableCell>
+                <TableCell className="text-right tabular">{isOpportunity ? "—" : deltaLabel(row.data.quantidadeSugeridaIA, row.data.deltaVsParametrizado)}</TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <Input
                     type="number"

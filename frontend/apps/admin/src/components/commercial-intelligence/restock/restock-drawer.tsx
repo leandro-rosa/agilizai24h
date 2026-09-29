@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Level } from "@/lib/commercial-intelligence/types";
 import type { Confidence } from "@/lib/loss-intelligence/types";
+import { date } from "@/lib/format";
 import type { RestockDisplayRow } from "./restock-table";
 
 const CONFIDENCE_TO_LEVEL: Record<Confidence, Level> = { alta: "high", media: "medium", baixa: "low", insuficiente: "insufficient" };
@@ -49,6 +50,22 @@ function RecommendationBody({ data }: { data: Extract<RestockDisplayRow, { kind:
       <section>
         <h3 className="mb-1 text-sm font-medium">Por que?</h3>
         <p className="text-sm">{data.motivo}</p>
+      </section>
+
+      <section>
+        <h3 className="mb-1 text-sm font-medium">Parametrização atual</h3>
+        {data.parametrizacao ? (
+          <div className="text-sm text-muted-foreground">
+            <p>Nível de par: {data.parametrizacao.nivelDePar ?? "—"}</p>
+            <p>Mínimo crítico: {data.parametrizacao.minimo ?? "—"}</p>
+            <p>
+              Quantidade atual (referência, não usada na sugestão): {data.parametrizacao.quantidadeAtual ?? "—"}
+              {data.parametrizacao.quantidadeAtualEm && ` — registrada em ${date(data.parametrizacao.quantidadeAtualEm)}`}
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Parametrização atual: não registrada</p>
+        )}
       </section>
 
       <section>
@@ -103,7 +120,7 @@ function RecommendationBody({ data }: { data: Extract<RestockDisplayRow, { kind:
       <section>
         <h3 className="mb-1 text-sm font-medium">Quantidade</h3>
         <p className="text-sm">
-          Faixa estimada: {data.faixaEstimada.min}–{data.faixaEstimada.max} unidades
+          Necessidade estimada: {data.faixaEstimada.min}–{data.faixaEstimada.max} unidades
         </p>
         <p className="text-sm">Sugestão operacional: {data.quantidadeSugeridaIA} unidades</p>
       </section>

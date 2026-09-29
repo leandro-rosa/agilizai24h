@@ -10,6 +10,20 @@ export interface ProductView {
   sku: string
   name: string
   category: string
+  units_per_package: number | null
+  package_type: string | null
+  fractionable: boolean | null
+  /** Populated by the ingestion pipeline, not by create()/update() here — read-only from this API. */
+  shelf_life_days: number | null
+}
+
+export interface CreateProductInput {
+  sku: string
+  name: string
+  category: ProductCategory
+  unitsPerPackage?: number
+  packageType?: string
+  fractionable?: boolean
 }
 
 export interface NameMatch {
@@ -47,30 +61,43 @@ export class ProductsService {
     private readonly prisma: PrismaClientService,
   ) {}
 
-  async create(sku: string, name: string, category: ProductCategory): Promise<ProductView> {
+  async create(input: CreateProductInput): Promise<ProductView> {
     // Checked explicitly: PrismaRepository discards Prisma's error code, so
     // branching on a unique-constraint violation is not available. The database
     // constraint stays as the backstop for the race this leaves.
-    const existing = await this.prisma.product.findUnique({ where: { sku } })
-    if (existing) throw new ConflictException(`A product with SKU ${sku} already exists`)
+    const existing = await this.prisma.product.findUnique({ where: { sku: input.sku } })
+    if (existing) throw new ConflictException(`A product with SKU ${input.sku} already exists`)
 
     const created = await this.prisma.product.create({
-      data: { sku, name, category, normalized_name: normalizeName(name) },
+      data: {
+        sku: input.sku,
+        name: input.name,
+        category: input.category,
+        normalized_name: normalizeName(input.name),
+        units_per_package: input.unitsPerPackage ?? null,
+        package_type: input.packageType ?? null,
+        fractionable: input.fractionable ?? null,
+      },
     })
 
     return toView(created)
   }
 
-  async update(id: number, changes: { name?: string; category?: ProductCategory }): Promise<ProductView> {
+  async update(
+    id: number,
+    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number; packageType?: string; fractionable?: boolean },
+  ): Promise<ProductView> {
     const existing = await this.prisma.product.findUnique({ where: { id } })
     if (!existing) throw new NotFoundException(`Product ${id} not found`)
 
     const updated = await this.prisma.product.update({
       where: { id },
       data: {
-        ...changes,
-        // Kept in step with the display name, since it is derived from it.
-        ...(changes.name ? { normalized_name: normalizeName(changes.name) } : {}),
+        ...(changes.name !== undefined ? { name: changes.name, normalized_name: normalizeName(changes.name) } : {}),
+        ...(changes.category !== undefined ? { category: changes.category } : {}),
+        ...(changes.unitsPerPackage !== undefined ? { units_per_package: changes.unitsPerPackage } : {}),
+        ...(changes.packageType !== undefined ? { package_type: changes.packageType } : {}),
+        ...(changes.fractionable !== undefined ? { fractionable: changes.fractionable } : {}),
       },
     })
 
@@ -202,6 +229,24 @@ export class ProductsService {
   }
 }
 
-function toView(product: { id: number; sku: string; name: string; category: string }): ProductView {
-  return { id: product.id, sku: product.sku, name: product.name, category: product.category }
+function toView(product: {
+  id: number
+  sku: string
+  name: string
+  category: string
+  units_per_package: number | null
+  package_type: string | null
+  fractionable: boolean | null
+  shelf_life_days: number | null
+}): ProductView {
+  return {
+    id: product.id,
+    sku: product.sku,
+    name: product.name,
+    category: product.category,
+    units_per_package: product.units_per_package,
+    shelf_life_days: product.shelf_life_days,
+    package_type: product.package_type,
+    fractionable: product.fractionable,
+  }
 }

@@ -4,6 +4,7 @@ import { ConfidenceBadge } from "@/components/commercial-intelligence/confidence
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { Level } from "@/lib/commercial-intelligence/types";
 import type { Confidence } from "@/lib/loss-intelligence/types";
+import { date } from "@/lib/format";
 import type { MixDisplayRow, MixOpportunityRow } from "./mix-table";
 
 const CONFIDENCE_TO_LEVEL: Record<Confidence, Level> = { alta: "high", media: "medium", baixa: "low", insuficiente: "insufficient" };
@@ -45,6 +46,22 @@ function RecommendationBody({ data }: { data: MixDisplayRow["data"] }) {
       <section>
         <h3 className="mb-1 text-sm font-medium">Situação</h3>
         <p className="text-sm">{TREND_LABEL[data.tendencia]}</p>
+      </section>
+
+      <section>
+        <h3 className="mb-1 text-sm font-medium">Parametrização atual</h3>
+        {data.parametrizacao ? (
+          <div className="text-sm text-muted-foreground">
+            <p>Nível de par: {data.parametrizacao.nivelDePar ?? "—"}</p>
+            <p>Mínimo crítico: {data.parametrizacao.minimo ?? "—"}</p>
+            <p>
+              Quantidade atual (referência, não usada na sugestão): {data.parametrizacao.quantidadeAtual ?? "—"}
+              {data.parametrizacao.quantidadeAtualEm && ` — registrada em ${date(data.parametrizacao.quantidadeAtualEm)}`}
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Parametrização atual: não registrada</p>
+        )}
       </section>
 
       <section>

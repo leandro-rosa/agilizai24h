@@ -2,7 +2,6 @@ import { Injectable, Logger, MethodNotAllowedException, NotFoundException } from
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { MovementsClient } from './movements.client'
 import { deriveStockSeries, type PeriodMovements } from '../utils/derive-stock'
-import type { BulkParametrizacaoItemDto } from '../controllers/inventory.controller'
 
 export interface StockView {
   store_id: number
@@ -24,6 +23,15 @@ export interface StockView {
   recorded_closing_balance: number | null
   minimum?: number | null
   below_minimum?: boolean
+}
+
+export interface BulkParametrizacaoItem {
+  sku: string
+  /** Nullable/absent — a real state (schema.prisma: minimum is nullable), not "not yet provided". */
+  minimum?: number | null
+  parLevel?: number
+  currentQuantity?: number
+  currentQuantityAsOf?: string
 }
 
 export interface StoreStockView {
@@ -246,7 +254,7 @@ export class InventoryService {
     })
   }
 
-  async bulkSetParametrizacao(storeId: number, items: BulkParametrizacaoItemDto[]): Promise<{ updated: number }> {
+  async bulkSetParametrizacao(storeId: number, items: BulkParametrizacaoItem[]): Promise<{ updated: number }> {
     await this.prisma.$transaction(
       items.map(item =>
         this.prisma.minimumLevel.upsert({
@@ -328,6 +336,9 @@ export class InventoryService {
       minimum,
       // Asserted only for SKUs that actually have a minimum: without one there
       // is no judgement to make, and defaulting would invent a threshold.
+      // `== null` deliberately covers both `undefined` (no MinimumLevel row at
+      // all) and `null` (a row exists, e.g. for par_level, but minimum itself
+      // was never configured) the same way.
       below_minimum: minimum == null ? undefined : closing <= minimum,
     }
   }

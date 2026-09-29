@@ -161,6 +161,42 @@ export const PARAMETER_DOCS = {
     max: 100,
     integer: true,
   }),
+  "rounding.shortShelfLifeDays": d({
+    label: "Validade curta (dias)",
+    kind: "business",
+    unit: "number",
+    why: "Validade (em dias) abaixo da qual um produto é tratado como de risco de perda, puxando a sugestão para o piso da faixa estimada em vez do centro.",
+    controls: "Um dos três sinais de risco que ligam o arredondamento para o piso da faixa (§6 passo 7).",
+    up: "Mais produtos são tratados como de validade curta — mais sugestões puxadas para o piso.",
+    down: "Menos produtos entram nesse critério.",
+    min: 1,
+    max: 365,
+    integer: true,
+  }),
+  "rounding.lowAproveitamentoThreshold": d({
+    label: "Aproveitamento baixo (limiar)",
+    kind: "business",
+    unit: "share",
+    why: "Proporção vendido/abastecido abaixo da qual o histórico do Produto×Loja é tratado como sinal de sobra recorrente, puxando a sugestão para o piso da faixa.",
+    controls: "Um dos três sinais de risco que ligam o arredondamento para o piso da faixa (§6 passo 7).",
+    up: "Mais Produtos×Lojas são tratados como de sobra recorrente.",
+    down: "Menos exigente — só aproveitamento bem baixo aciona o piso.",
+    min: 0,
+    max: 1,
+    integer: false,
+  }),
+  "rounding.leanToMinFraction": d({
+    label: "Fração da faixa usada quando há risco",
+    kind: "business",
+    unit: "share",
+    why: "Fração da faixa estimada (a partir do piso) usada como sugestão quando um sinal de risco (validade curta, baixo aproveitamento ou confiança baixa) está ativo — 0 seria sempre o piso exato, 1 seria sempre o teto.",
+    controls: "Ponto da faixa estimada usado como sugestão quando o arredondamento pende para o piso (§6 passo 7).",
+    up: "Sugestão fica mais próxima do teto da faixa mesmo com sinal de risco.",
+    down: "Sugestão fica mais próxima do piso da faixa quando há sinal de risco.",
+    min: 0,
+    max: 1,
+    integer: false,
+  }),
 } as const;
 
 export type ParameterPath = keyof typeof PARAMETER_DOCS;
@@ -184,4 +220,5 @@ export const PARAMETER_GROUP_LABELS: Record<string, string> = {
   action: "Ação operacional",
   lossIntegration: "Integração com a Inteligência de Perdas",
   confidence: "Confiança",
+  rounding: "Arredondamento",
 };

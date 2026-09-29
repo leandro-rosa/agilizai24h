@@ -1,9 +1,13 @@
 "use client";
 
+import { Pencil } from "lucide-react";
 import { useMemo, useState } from "react";
+import { z } from "zod";
 
 import { PageHeader } from "@/components/page-header";
+import { ResourceFormDialog, type FieldSpec } from "@/components/resource-form-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -25,8 +29,10 @@ import {
   useGetCostsAsOfQuery,
   useGetPricesAsOfQuery,
   useGetProductsQuery,
+  useUpdateProductMutation,
   type Product,
 } from "@/lib/api/products";
+import { useHasPermission } from "@/lib/auth/use-permission";
 import { money } from "@/lib/format";
 
 const categoryLabel: Record<Product["category"], string> = {
@@ -40,6 +46,44 @@ const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// Fixed list of the package types the operation actually uses. Not free text —
+// a closed set keeps "caixa"/"Caixa"/"cx" from fragmenting into synonyms across
+// products (scoped narrowly to packaging only, per the approved design doc; a
+// general product-edit form is a separate initiative, not this task).
+const PACKAGE_TYPES = ["caixa", "fardo", "pacote", "unidade"];
+
+const packagingSchema = z.object({
+  unitsPerPackage: z.string().optional(),
+  packageType: z.string().optional(),
+  fractionable: z.boolean().optional(),
+});
+
+type PackagingForm = z.infer<typeof packagingSchema>;
+
+const PACKAGING_FIELDS: FieldSpec<PackagingForm>[] = [
+  { name: "unitsPerPackage", label: "Unidades por embalagem", kind: "number", placeholder: "24" },
+  {
+    name: "packageType",
+    label: "Tipo de embalagem",
+    kind: "select",
+    options: PACKAGE_TYPES.map((type) => ({ value: type, label: type })),
+  },
+  {
+    name: "fractionable",
+    label: "Fracionável",
+    kind: "checkbox",
+    hint: "Pode ser vendido em unidades soltas, fora da embalagem original.",
+  },
+];
+
+function toPackagingForm(product: Product): PackagingForm {
+  return {
+    unitsPerPackage: product.units_per_package !== null ? String(product.units_per_package) : "",
+    packageType: product.package_type ?? "",
+    fractionable: product.fractionable ?? false,
+  };
 }
 
 export default function ProductsPage() {
@@ -72,6 +116,10 @@ export default function ProductsPage() {
     }
     return map;
   }, [costs]);
+
+  const [updateProduct] = useUpdateProductMutation();
+  const canWrite = useHasPermission("products:write");
+  const [editing, setEditing] = useState<Product | null>(null);
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -122,13 +170,14 @@ export default function ProductsPage() {
               <TableHead className="tabular text-right">Custo (hoje)</TableHead>
               <TableHead className="tabular text-right">Preço (hoje)</TableHead>
               <TableHead className="tabular text-right">Margem</TableHead>
+              <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 7 }).map((__, j) => (
+                  {Array.from({ length: 8 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -137,7 +186,7 @@ export default function ProductsPage() {
               ))
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-muted-foreground">
                   Nenhum produto encontrado.
                 </TableCell>
               </TableRow>
@@ -181,6 +230,13 @@ export default function ProductsPage() {
                         <span className={margin < 0 ? "text-destructive" : ""}>{(margin * 100).toFixed(1)}%</span>
                       )}
                     </TableCell>
+                    <TableCell className="text-right">
+                      {canWrite && (
+                        <Button variant="ghost" size="icon" title="Editar embalagem" onClick={() => setEditing(product)}>
+                          <Pencil />
+                        </Button>
+                      )}
+                    </TableCell>
                   </TableRow>
                 );
               })
@@ -188,6 +244,28 @@ export default function ProductsPage() {
           </TableBody>
         </Table>
       </div>
+
+      {editing && (
+        <ResourceFormDialog
+          key={editing.id}
+          title={`Editar embalagem — ${editing.name}`}
+          schema={packagingSchema}
+          fields={PACKAGING_FIELDS}
+          defaultValues={toPackagingForm(editing)}
+          open
+          onOpenChange={(open) => !open && setEditing(null)}
+          onSubmit={(values) =>
+            updateProduct({
+              id: editing.id,
+              changes: {
+                unitsPerPackage: values.unitsPerPackage ? Number(values.unitsPerPackage) : undefined,
+                packageType: values.packageType || undefined,
+                fractionable: values.fractionable,
+              },
+            }).unwrap()
+          }
+        />
+      )}
     </div>
   );
 }

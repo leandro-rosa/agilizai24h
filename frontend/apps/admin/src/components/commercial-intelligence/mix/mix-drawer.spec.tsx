@@ -1,6 +1,6 @@
 import { describe, it, expect, jest } from "@jest/globals";
 import { render, screen } from "@testing-library/react";
-import { MixDrawer } from "./mix-drawer";
+import { MixDrawer, type MixDrawerRow } from "./mix-drawer";
 import type { MixDisplayRow, MixOpportunityRow } from "./mix-table";
 import type { MixRecommendation, MixOpportunity } from "@/lib/commercial-intelligence/restock-mix/types";
 
@@ -11,6 +11,7 @@ const RECOMMENDATION_ROW: MixDisplayRow = {
     sku: "SKU-1", storeId: 1, categoria: "beverage", classificacao: "explorar", evidencia: "Tendência de crescimento, participação acima da esperada pela rede, margem saudável.",
     tendencia: "crescendo", affinity: 1.4, margemPct: 0.22, sinalPerdas: null, confianca: "alta", limitacoes: [],
     versaoMotor: "test", versaoParametros: "test",
+    historicoMensal: [], parametrizacao: null,
   } satisfies MixRecommendation,
 };
 
@@ -49,5 +50,37 @@ describe("MixDrawer", () => {
     expect(screen.getByText("Bom desempenho em 7 lojas da rede.")).toBeInTheDocument();
     expect(screen.getByText("Quantidade de teste: 4 unidades")).toBeInTheDocument();
     expect(screen.queryByText("Situação")).not.toBeInTheDocument();
+  });
+
+  it("shows Parametrização atual with minimo and nível de par", () => {
+    const row: MixDrawerRow = {
+      variant: "recomendacao", ...RECOMMENDATION_ROW,
+      data: { ...(RECOMMENDATION_ROW.data as MixRecommendation), parametrizacao: { minimo: 2, nivelDePar: 15, quantidadeAtual: 4, quantidadeAtualEm: "2026-09-24T00:00:00.000Z" } },
+    };
+    render(<MixDrawer row={row} {...DEFAULT_PROPS} />);
+    expect(screen.getByText("Parametrização atual")).toBeInTheDocument();
+    expect(screen.getByText(/Nível de par: 15/)).toBeInTheDocument();
+    // Regression: a UTC-midnight timestamp must render as the SAME calendar day —
+    // new Date(...).toLocaleDateString() in a UTC-3 timezone shifted this back a day.
+    expect(screen.getByText(/registrada em 24\/09\/2026/)).toBeInTheDocument();
+  });
+
+  it("shows '—' individually for missing pieces of a partially filled parametrização, not the whole section as unregistered", () => {
+    const row: MixDrawerRow = {
+      variant: "recomendacao", ...RECOMMENDATION_ROW,
+      data: { ...(RECOMMENDATION_ROW.data as MixRecommendation), parametrizacao: { minimo: 5, nivelDePar: null, quantidadeAtual: null, quantidadeAtualEm: null } },
+    };
+    render(<MixDrawer row={row} {...DEFAULT_PROPS} />);
+    expect(screen.getByText(/Mínimo crítico: 5/)).toBeInTheDocument();
+    expect(screen.getByText(/Nível de par: —/)).toBeInTheDocument();
+  });
+
+  it('shows "não registrada" when parametrização is null', () => {
+    const row: MixDrawerRow = {
+      variant: "recomendacao", ...RECOMMENDATION_ROW,
+      data: { ...(RECOMMENDATION_ROW.data as MixRecommendation), parametrizacao: null },
+    };
+    render(<MixDrawer row={row} {...DEFAULT_PROPS} />);
+    expect(screen.getByText("Parametrização atual: não registrada")).toBeInTheDocument();
   });
 });

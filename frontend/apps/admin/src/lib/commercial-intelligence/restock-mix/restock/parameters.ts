@@ -7,6 +7,7 @@ export interface RestockParameters {
   action: { increaseThresholdPct: number; decreaseThresholdPct: number };
   lossIntegration: { reduceFactor: number };
   confidence: { highMin: number; mediumMin: number };
+  rounding: { shortShelfLifeDays: number; lowAproveitamentoThreshold: number; leanToMinFraction: number };
 }
 
 export const DEFAULT_RESTOCK_PARAMETERS: RestockParameters = {
@@ -15,6 +16,7 @@ export const DEFAULT_RESTOCK_PARAMETERS: RestockParameters = {
   action: { increaseThresholdPct: 0.15, decreaseThresholdPct: 0.15 },
   lossIntegration: { reduceFactor: 0.5 },
   confidence: { highMin: 70, mediumMin: 40 },
+  rounding: { shortShelfLifeDays: 14, lowAproveitamentoThreshold: 0.6, leanToMinFraction: 0.25 },
 };
 
 /** Todos são provisórios nesta fase — nenhum foi calibrado contra resultado real de intervenção. */
