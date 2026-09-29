@@ -40,8 +40,14 @@ describe('parseC6StatementSheet', () => {
     expect(result.rejections[0].reason).toBe('unparseable_date')
   })
 
-  it('never sets structuralHint from the sheet\'s own Tipo/Detalhe columns — that is the operator\'s manual classification, not a structural fact', () => {
+  it('sets structuralHint from Título when it contains a bank-printed structural pattern', () => {
     const rows = [HEADER, ['2026-08-03T00:00:00.000Z', '2026-08-03T00:00:00.000Z', 'SEGURO CONTA C6 Ago 26', 'Seguro Conta Ago 26', 0, 20, 'seguro conta', 'seguro']]
+    const result = parseC6StatementSheet(rows)
+    expect(result.rows[0].structuralHint).toEqual({ kind: 'expense', category: 'Financeiro/Tributos' })
+  })
+
+  it('never sets structuralHint from the sheet\'s own Tipo/Detalhe columns — those are the operator\'s manual classifications, not structural facts', () => {
+    const rows = [HEADER, ['2026-08-03T00:00:00.000Z', '2026-08-03T00:00:00.000Z', 'Regular transaction', 'REST FRANGOASSADO CAJ', 0, 100, 'seguro conta', 'seguro']]
     const result = parseC6StatementSheet(rows)
     expect(result.rows[0].structuralHint).toBeUndefined()
   })

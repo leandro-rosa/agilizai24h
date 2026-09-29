@@ -23,7 +23,7 @@ const TRANSACTION_LINE_PATTERN = /^(\d{2})\/(\d{2})\s*\t\d{2}\/\d{2}\s*\t([^\t]*
  * (o próprio Tipo da coluna já responde a classificação) independente do
  * favorecido — confirmados literalmente no texto real (Anexo A §3).
  */
-const PATTERNS: StructuralPattern[] = [
+export const C6_PATTERNS: StructuralPattern[] = [
   { matchText: 'PGTO FAT CARTAO C6', kind: 'movement', category: 'Pagamento de fatura' },
   { matchText: 'CDB C6 LIM.GARANT', kind: 'movement', category: 'CDB' },
   { matchText: 'EMISSAO DE CDB', kind: 'movement', category: 'CDB' },
@@ -99,7 +99,7 @@ export function parseC6Statement(pages: PdfPage[]): ParseStatementLinesResult {
 
       const description = descriptionRaw.trim()
       const normalizedDescription = normalizeForMatch(description)
-      const structural = PATTERNS.find(pattern => normalizedDescription.includes(normalizeForMatch(pattern.matchText)))
+      const structural = C6_PATTERNS.find(pattern => normalizedDescription.includes(normalizeForMatch(pattern.matchText)))
 
       rows.push({
         occurredOn,
