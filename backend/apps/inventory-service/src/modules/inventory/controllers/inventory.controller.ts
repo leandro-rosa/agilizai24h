@@ -96,25 +96,6 @@ export class InventoryController {
     return this.inventory.listMinimums(storeId)
   }
 
-  @Put(':storeId/:sku/par-level')
-  @ApiOperation({ summary: 'Configure a par level (target quantity)' })
-  setParLevel(
-    @Param('storeId', ParseIntPipe) storeId: number,
-    @Param('sku') sku: string,
-    @Body() body: SetParLevelDto,
-  ) {
-    return this.inventory.setParLevel(storeId, sku, body.parLevel)
-  }
-
-  @Put(':storeId/parametrizacao/bulk')
-  @ApiOperation({ summary: 'Bulk-upsert minimum, par level and current quantity for many SKUs at once' })
-  bulkSetParametrizacao(
-    @Param('storeId', ParseIntPipe) storeId: number,
-    @Body() body: BulkSetParametrizacaoDto,
-  ) {
-    return this.inventory.bulkSetParametrizacao(storeId, body.items)
-  }
-
   @Get(':storeId/:sku')
   @ApiOperation({
     summary: 'Derived stock for one SKU',
