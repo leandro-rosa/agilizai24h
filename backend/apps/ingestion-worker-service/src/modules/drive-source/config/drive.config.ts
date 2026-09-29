@@ -48,6 +48,30 @@ const text = (source: Source, name: string): string | undefined => {
   return trimmed === '' ? undefined : trimmed
 }
 
+export function parseDriveCredential(source: Source): { credential: DriveCredential | undefined; problems: string[] } {
+  const problems: string[] = []
+  const base64 = text(source, 'GOOGLE_SERVICE_ACCOUNT_JSON_BASE64')
+  const file = text(source, 'GOOGLE_SERVICE_ACCOUNT_FILE')
+  let credential: DriveCredential | undefined
+
+  if (base64 !== undefined && file !== undefined) {
+    problems.push('set only one of GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 and GOOGLE_SERVICE_ACCOUNT_FILE')
+  } else if (base64 !== undefined) {
+    try {
+      const parsed = JSON.parse(Buffer.from(base64, 'base64').toString('utf8')) as Record<string, unknown>
+      if (typeof parsed.client_email !== 'string' || typeof parsed.private_key !== 'string') {
+        problems.push('GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 must decode to a service account key with client_email and private_key')
+      } else {
+        credential = { kind: 'base64', value: base64 }
+      }
+    } catch {
+      problems.push('GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 is not valid base64-encoded JSON')
+    }
+  }
+
+  return { credential, problems }
+}
+
 /**
  * Builds the Drive configuration from environment values, applying the
  * documented defaults and failing at startup — not at the first scan — when the
@@ -85,22 +109,13 @@ export function loadDriveConfig(source: Source, fileExists: (path: string) => bo
   const base64 = text(source, 'GOOGLE_SERVICE_ACCOUNT_JSON_BASE64')
   const file = text(source, 'GOOGLE_SERVICE_ACCOUNT_FILE')
 
-  let credential: DriveCredential | undefined
+  const { credential: baseCredential, problems: credentialProblems } = parseDriveCredential(source)
+  problems.push(...credentialProblems)
 
-  if (base64 !== undefined && file !== undefined) {
-    problems.push('set only one of GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 and GOOGLE_SERVICE_ACCOUNT_FILE')
-  } else if (base64 !== undefined) {
-    try {
-      const parsed = JSON.parse(Buffer.from(base64, 'base64').toString('utf8')) as Record<string, unknown>
-      if (typeof parsed.client_email !== 'string' || typeof parsed.private_key !== 'string') {
-        problems.push('GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 must decode to a service account key with client_email and private_key')
-      } else {
-        credential = { kind: 'base64', value: base64 }
-      }
-    } catch {
-      problems.push('GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 is not valid base64-encoded JSON')
-    }
-  } else if (file !== undefined) {
+  let credential: DriveCredential | undefined = baseCredential
+
+  // Handle file credential if base64 was not set and no mutual-exclusion error
+  if (file !== undefined && base64 === undefined && !credentialProblems.some(p => p.includes('only one of'))) {
     if (fileExists(file)) credential = { kind: 'file', path: file }
     else problems.push('GOOGLE_SERVICE_ACCOUNT_FILE not found at the configured path')
   }

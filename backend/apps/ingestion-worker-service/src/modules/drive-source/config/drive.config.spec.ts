@@ -1,4 +1,4 @@
-import { loadDriveConfig } from './drive.config'
+import { loadDriveConfig, parseDriveCredential } from './drive.config'
 
 const SERVICE_ACCOUNT = { client_email: 'reader@project.iam.gserviceaccount.com', private_key: 'not-a-real-key' }
 const asBase64 = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64')
@@ -163,5 +163,32 @@ describe('loadDriveConfig', () => {
       expect(() => loadDriveConfig({ DRIVE_SCAN_CRON: 'every day' })).toThrow(/DRIVE_SCAN_CRON/)
       expect(loadDriveConfig({ DRIVE_SCAN_CRON: '30 5 * * 1-5' }).scanCron).toBe('30 5 * * 1-5')
     })
+  })
+})
+
+describe('parseDriveCredential', () => {
+  it('parses a valid base64 service account key', () => {
+    const key = Buffer.from(JSON.stringify({ client_email: 'a@b.iam.gserviceaccount.com', private_key: 'x' })).toString('base64')
+    const { credential, problems } = parseDriveCredential({ GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: key })
+    expect(problems).toEqual([])
+    expect(credential).toEqual({ kind: 'base64', value: key })
+  })
+
+  it('reports a problem when base64 does not decode to a service account shape', () => {
+    const bad = Buffer.from(JSON.stringify({ foo: 'bar' })).toString('base64')
+    const { credential, problems } = parseDriveCredential({ GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: bad })
+    expect(credential).toBeUndefined()
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('reports a problem when both base64 and file are set', () => {
+    const { problems } = parseDriveCredential({ GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: 'x', GOOGLE_SERVICE_ACCOUNT_FILE: '/tmp/key.json' })
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('returns no credential and no problem when neither is set', () => {
+    const { credential, problems } = parseDriveCredential({})
+    expect(credential).toBeUndefined()
+    expect(problems).toEqual([])
   })
 })
