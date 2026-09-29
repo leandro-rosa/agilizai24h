@@ -125,6 +125,22 @@ describe('parseItauStatementSheet', () => {
     expect(result.rows[0].structuralHint).toEqual({ kind: 'expense', category: 'Juros - Limite Garantido' })
   })
 
+  it('rejects a row with a blank Data cell but populated Lançamento/Valor (R$), rather than silently dropping it', () => {
+    const rows = withHeader(['', 'PIX RECEBIDO AGILIZ.31/08', 'AGILIZ.AI LTDA', '60.819.321/0001-44', 1300])
+    const result = parseItauStatementSheet(rows)
+
+    expect(result.rows).toEqual([])
+    expect(result.rejections).toEqual([expect.objectContaining({ rowReference: 'row11', reason: 'unparseable_date' })])
+  })
+
+  it('skips a genuinely blank row with no rejection', () => {
+    const rows = withHeader([null, null, null, null, null, null])
+    const result = parseItauStatementSheet(rows)
+
+    expect(result.rows).toEqual([])
+    expect(result.rejections).toEqual([])
+  })
+
   it('parses several consecutive real rows from the fetched file, preserving order and excluding the balance line', () => {
     const rows = withHeader(
       ['31/08/2026', 'SALDO TOTAL DISPONÍVEL DIA', '', '', null, 5686.12],

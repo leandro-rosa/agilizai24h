@@ -154,7 +154,19 @@ export function parseItauStatementSheet(rows: unknown[][]): ParseStatementLinesR
     const rowReference = `row${i + 1}`
 
     const dataCell = cellText(row[columnIndex.data])
-    if (!dataCell) continue // Trailing blank rows past the last real transaction.
+    if (!dataCell) {
+      // A genuinely blank row (trailing rows past the last real transaction, or a stray blank
+      // line) is not a transaction candidate at all — skip, same as `statement-line.ts`'s "not
+      // every line is a transaction" rule. But a row that has SOME other content while its
+      // `Data` cell specifically is empty is not that: it looks like a malformed transaction
+      // row (a future export quirk, a cell-shift artifact), and silently skipping it would be
+      // exactly the "silently dropped row" this codebase's parsers are built to never do — so
+      // it is a rejection instead.
+      if (row.every(cell => !cellText(cell))) continue
+
+      rejections.push({ rowReference, reason: 'unparseable_date', detail: 'Row has no "Data" value but is not blank' })
+      continue
+    }
 
     const label = cellText(row[columnIndex.lancamento])
     const normalizedLabel = normalizeForMatch(label)
