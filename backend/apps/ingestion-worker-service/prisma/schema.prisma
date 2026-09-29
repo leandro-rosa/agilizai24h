@@ -291,3 +291,28 @@ model DriveScanRun {
   @@index([started_at])
   @@map("drive_scan_run")
 }
+
+/// Tracks a file the treasury Drive scan has seen inside Extratos/<mês>/<banco>/.
+/// Deliberately no validation_status/validation_report — there is no coverage
+/// concept for a whole-month bank statement to validate (see design's "Non-goals").
+model TreasuryDriveFile {
+  id                  String    @id @default(uuid())
+  drive_file_id       String    @unique
+  month_folder_name   String
+  bank_folder_name    String
+  /// TreasurySource value once a signature matches; null = unrecognized, never imported.
+  detected_source     String?
+  name                String
+  /// The Drive's own metadata — this IS the import's period source, never the folder name (no year in it).
+  modified_time       DateTime
+  content_sha256      String
+  /// 'new' | 'changed' | 'importing' | 'imported' | 'ignored' | 'error'
+  status              String    @default("new")
+  imported_at         DateTime?
+  imported_account_id Int?
+  error_detail        String?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  @@map("treasury_drive_file")
+}
