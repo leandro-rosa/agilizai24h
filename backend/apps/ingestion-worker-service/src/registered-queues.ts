@@ -2,6 +2,7 @@ import { INGESTION_QUEUES } from '@app/ingestion-contracts'
 import { TREASURY_QUEUES, TREASURY_SOURCE_QUEUES } from '@app/treasury-ingestion-contracts'
 import { INTERNAL_QUEUES } from './modules/ingestion/constants/file-types'
 import { DRIVE_QUEUES } from './modules/drive-source/constants/drive.constants'
+import { TREASURY_DRIVE_QUEUES } from './modules/treasury-drive-source/constants/treasury-drive.constants'
 
 /**
  * Every queue this service ever calls `broker.holdIt()`/`holdItALot()` on —
@@ -24,6 +25,8 @@ export const REGISTERED_QUEUES = [
   INTERNAL_QUEUES.STAGED_ROWS,
   // Internal: Google Drive source — scan, validate, import (add-drive-ingestion-source).
   ...Object.values(DRIVE_QUEUES),
+  // Internal: the treasury Drive source — scan, import (add-treasury-statement-drive-sync).
+  ...Object.values(TREASURY_DRIVE_QUEUES),
   // Outbound: one batch per period to each owning service.
   INGESTION_QUEUES.SALES_ROWS,
   INGESTION_QUEUES.SALES_TRANSACTIONS,

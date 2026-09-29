@@ -82,4 +82,15 @@ export class TreasuryDriveRepository {
   markError(id: string, detail: string) {
     return this.prisma.treasuryDriveFile.update({ where: { id }, data: { status: 'error', error_detail: detail } })
   }
+
+  /**
+   * Sets or clears `ignored`, mirroring `DriveImportService.setIgnored`'s status flip — but with
+   * no business-rule refusal of its own (no equivalent of that service's `not_ignorable`/
+   * `not_ignored` codes): the controller only ever calls this after confirming the file exists,
+   * and un-ignoring always lands back on `new` rather than trying to recall whether it was
+   * `changed` before, which this table has no history of.
+   */
+  setIgnored(id: string, ignored: boolean) {
+    return this.prisma.treasuryDriveFile.update({ where: { id }, data: { status: ignored ? 'ignored' : 'new' } })
+  }
 }

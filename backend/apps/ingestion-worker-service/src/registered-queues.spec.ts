@@ -1,6 +1,7 @@
 import { INGESTION_QUEUES } from '@app/ingestion-contracts'
 import { REGISTERED_QUEUES } from './registered-queues'
 import { DRIVE_QUEUES } from './modules/drive-source/constants/drive.constants'
+import { TREASURY_DRIVE_QUEUES } from './modules/treasury-drive-source/constants/treasury-drive.constants'
 
 /**
  * Guards against the exact bug add-sales-transaction-detail shipped with:
@@ -22,6 +23,12 @@ describe('REGISTERED_QUEUES', () => {
 
   it('includes the internal Drive queues — scan, validate and import are published with holdIt', () => {
     for (const queueName of Object.values(DRIVE_QUEUES)) {
+      expect(REGISTERED_QUEUES).toContain(queueName)
+    }
+  })
+
+  it('includes the internal treasury Drive queues — scan and import are published with holdIt', () => {
+    for (const queueName of Object.values(TREASURY_DRIVE_QUEUES)) {
       expect(REGISTERED_QUEUES).toContain(queueName)
     }
   })

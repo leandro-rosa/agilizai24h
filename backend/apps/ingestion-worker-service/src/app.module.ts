@@ -11,6 +11,9 @@ import { DriveValidateWorker } from './modules/drive-source/jobs/drive-validate.
 import { DriveSourceModule } from './modules/drive-source/drive-source.module'
 import { IngestionModule } from './modules/ingestion/ingestion.module'
 import { REGISTERED_QUEUES } from './registered-queues'
+import { TreasuryDriveImportWorker } from './modules/treasury-drive-source/jobs/treasury-drive-import.worker'
+import { TreasuryDriveScanWorker } from './modules/treasury-drive-source/jobs/treasury-drive-scan.worker'
+import { TreasuryDriveSourceModule } from './modules/treasury-drive-source/treasury-drive-source.module'
 import { CostRowsWorker } from './modules/ingestion/jobs/cost-rows.worker'
 import { ParseFileWorker } from './modules/ingestion/jobs/parse-file.worker'
 import { StagedRowsWorker } from './modules/ingestion/jobs/staged-rows.worker'
@@ -31,6 +34,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     DbClientModule,
     IngestionModule,
     DriveSourceModule,
+    TreasuryDriveSourceModule,
     TreasuryIngestionModule,
     HoldItModule.register(REGISTERED_QUEUES, { withKafkaBrokers: false }),
     HoldItModule.registerWorker({
@@ -48,6 +52,8 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
         DriveScanWorker,
         DriveValidateWorker,
         DriveImportWorker,
+        TreasuryDriveScanWorker,
+        TreasuryDriveImportWorker,
       ],
     }),
   ],
