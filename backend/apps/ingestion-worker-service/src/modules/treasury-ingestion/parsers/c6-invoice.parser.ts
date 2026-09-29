@@ -3,7 +3,7 @@ import type { PdfPage } from '../utils/pdf-text'
 import { monthFromPtAbbreviation, resolveYearFromPeriod } from '../utils/date'
 import { findBareMoneyInText } from '../utils/money'
 import { normalizeForMatch } from '../utils/normalize'
-import type { ParseStatementLinesResult } from './statement-line'
+import type { ParseStatementLinesResult, StructuralPattern } from './statement-line'
 
 /**
  * Real shape (measured 2026-08, design.md D9): `DD mmm <description> <bare amount>` — no
@@ -32,9 +32,24 @@ const BARE_AMOUNT_PATTERN = /(-)?\s*((?:\d{1,3}(?:\.\d{3})*|\d+),\d{2})/
  *   lines (e.g. "C6 Business Final XXXX - BARBARA O FERNANDES"), which get
  *   no special treatment: same analysis as the cartão principal.
  *
+ * Exported (same reasoning as `C6_PATTERNS` in `c6-statement.parser.ts`,
+ * `add-treasury-statement-drive-sync` task 6/7): the Drive-sourced invoice
+ * SHEET carries the identical bank-printed text in its own `Descrição`
+ * column (confirmed against the real file — a credit/payment line's
+ * `Descrição` reads literally "Inclusao de Pagamento") — same structural
+ * fact, different export format. `c6-invoice-sheet.parser.ts` reuses this
+ * array rather than re-typing the pattern strings, so the two parsers can
+ * never silently drift apart on what counts as a pagamento/refinanciamento.
+ *
  * `period` (the uploader-stated `YYYY-MM`) resolves the year no purchase
  * line states itself — see `resolveYearFromPeriod`.
  */
+export const C6_INVOICE_PATTERNS: StructuralPattern[] = [
+  { matchText: 'INCLUSAO DE PAGAMENTO', kind: 'movement', category: 'Pagamento de fatura' },
+  { matchText: 'PAGAMENTO FATURA', kind: 'movement', category: 'Pagamento de fatura' },
+  { matchText: 'REFINANCIAMENTO FATURA', kind: 'expense', category: 'Financeiro/Tributos' },
+]
+
 export function parseC6Invoice(pages: PdfPage[], period: string): ParseStatementLinesResult {
   const rows: TreasuryRawRow[] = []
   const rejections: TreasuryRawRejection[] = []
@@ -73,9 +88,7 @@ export function parseC6Invoice(pages: PdfPage[], period: string): ParseStatement
       const description = (amountMatch ? rest.slice(0, amountMatch.index) : rest).trim()
       const normalized = normalizeForMatch(description)
       const installmentMatch = INSTALLMENT_PATTERN.exec(description)
-
-      const isPayment = normalized.includes('INCLUSAO DE PAGAMENTO') || normalized.includes('PAGAMENTO FATURA')
-      const isRefinancing = normalized.includes('REFINANCIAMENTO FATURA')
+      const structural = C6_INVOICE_PATTERNS.find(pattern => normalized.includes(normalizeForMatch(pattern.matchText)))
 
       rows.push({
         occurredOn,
@@ -86,17 +99,13 @@ export function parseC6Invoice(pages: PdfPage[], period: string): ParseStatement
         // this specific document even though real money left the checking
         // account (that departure is its own line on the checking
         // statement, already classified as `movement` there).
-        direction: isPayment ? 'inflow' : 'outflow',
+        direction: structural?.kind === 'movement' ? 'inflow' : 'outflow',
         counterpartyRaw: description,
         sourceRef: rowReference,
         ...(installmentMatch
           ? { installmentIndex: Number(installmentMatch[1]), installmentTotal: Number(installmentMatch[2]) }
           : {}),
-        ...(isPayment
-          ? { structuralHint: { kind: 'movement' as const, category: 'Pagamento de fatura' } }
-          : isRefinancing
-            ? { structuralHint: { kind: 'expense' as const, category: 'Financeiro/Tributos' } }
-            : {}),
+        ...(structural ? { structuralHint: { kind: structural.kind, category: structural.category } } : {}),
       })
     })
   }
