@@ -27,8 +27,14 @@ export interface TreasuryDriveImportJobEnvelope {
  * this module passes the `DriveClient` into the service as a call argument rather than
  * injecting it via `DriveImportService`'s own constructor-DI token, so the worker builds it
  * fresh from config here, same as the scan worker already does.
+ *
+ * `concurrency: 1`, same as `drive-import.worker.ts`'s own queue: each import holds a whole
+ * spreadsheet in memory and does one S3 upload. The repository's `claimForImporting` is the
+ * real (atomic, DB-level) defense against two simultaneous imports of the SAME file; this
+ * caps how many DIFFERENT files this worker processes at once, the same resource-use reasoning
+ * the sibling worker's own comment gives.
  */
-@HoldItProcessor(TREASURY_DRIVE_QUEUES.IMPORT)
+@HoldItProcessor(TREASURY_DRIVE_QUEUES.IMPORT, { concurrency: 1 })
 export class TreasuryDriveImportWorker extends HoldItWorkerHost<TreasuryDriveImportJobEnvelope> {
   constructor(
     @Inject(TREASURY_DRIVE_CONFIG) private readonly config: TreasuryDriveConfig,

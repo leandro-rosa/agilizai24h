@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
+import type { TreasuryDriveFileStatus } from '../constants/treasury-drive.constants'
+
+/** Every status an import may still be claimed from — not `imported` (already done) nor `importing` (someone else has it). */
+const CLAIMABLE_STATUSES: readonly TreasuryDriveFileStatus[] = ['new', 'changed', 'error']
 
 @Injectable()
 export class TreasuryDriveRepository {
@@ -58,8 +62,21 @@ export class TreasuryDriveRepository {
     return this.prisma.treasuryDriveFile.update({ where: { id }, data: { status: 'imported', imported_at: new Date(), imported_account_id: accountId } })
   }
 
-  markImporting(id: string) {
-    return this.prisma.treasuryDriveFile.update({ where: { id }, data: { status: 'importing' } })
+  /**
+   * Moves a file to `importing` only if it is still in one of `CLAIMABLE_STATUSES` — an atomic
+   * conditional `updateMany`, not a read-then-write, so of two truly simultaneous imports of the
+   * same file exactly one wins. Mirrors `DriveRepository.claimForImport`'s exact pattern (the
+   * sibling Drive source's own defense against this same race — see that file's own doc
+   * comment: "the one place that carries a guarantee"). Returns false when the file is not in a
+   * claimable state — another import got there first, or it is already `imported` — which the
+   * caller turns into the same `already_imported` refusal as the sequential case.
+   */
+  async claimForImporting(id: string): Promise<boolean> {
+    const { count } = await this.prisma.treasuryDriveFile.updateMany({
+      where: { id, status: { in: [...CLAIMABLE_STATUSES] } },
+      data: { status: 'importing' },
+    })
+    return count === 1
   }
 
   markError(id: string, detail: string) {

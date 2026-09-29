@@ -43,9 +43,11 @@ export class TreasuryDriveImportService {
   async import(id: string, client: DriveClient, accountId: number, period: string): Promise<{ status: 'imported'; jobId: string }> {
     const file = await this.repository.findById(id)
     if (!file) throw new BadRequestException({ code: 'not_found' })
-    if (file.status === 'imported') throw new ConflictException({ code: 'already_imported' })
 
-    await this.repository.markImporting(id)
+    // Atomic claim, not read-then-write: of two truly simultaneous imports of the same file,
+    // exactly one of these calls flips the status and the other sees it already gone.
+    const claimed = await this.repository.claimForImporting(id)
+    if (!claimed) throw new ConflictException({ code: 'already_imported' })
 
     try {
       const tmp = mkdtempSync(join(tmpdir(), 'treasury-drive-import-'))

@@ -140,6 +140,32 @@ describe('TreasuryDriveImportService', () => {
     expect(s3.uploadFile).toHaveBeenCalledTimes(1)
   })
 
+  it('lets exactly one of two truly concurrent imports of the same file through, and publishes exactly one job', async () => {
+    const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
+    const file = await tracked(client)
+
+    // Two service instances (own no state — only the shared repository/broker/S3 stub matter),
+    // fired together: this is what distinguishes the race from the sequential "import, then
+    // import again" case above. The repository's claimForImporting is the real, atomic (DB-level
+    // conditional updateMany) guard being exercised here — a mock could never prove this.
+    const results = await Promise.allSettled([
+      service().import(file.id, client, 42, '2026-08'),
+      service().import(file.id, client, 42, '2026-08'),
+    ])
+
+    const fulfilled = results.filter((r): r is PromiseFulfilledResult<{ status: 'imported'; jobId: string }> => r.status === 'fulfilled')
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0].reason).toMatchObject({ response: expect.objectContaining({ code: 'already_imported' }) })
+
+    expect(published).toHaveLength(1)
+    expect(s3.uploadFile).toHaveBeenCalledTimes(1)
+    const after = await repo.findById(file.id)
+    expect(after?.status).toBe('imported')
+  })
+
   it('marks the file "error" and does not publish anything when the re-fetched content no longer matches any known signature', async () => {
     const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
     const file = await tracked(client)
