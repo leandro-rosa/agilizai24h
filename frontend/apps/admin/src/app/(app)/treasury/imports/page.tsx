@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { period as fmtPeriod } from "@/lib/format";
 import { IMPORT_STATUS_LABELS, TREASURY_SOURCE_LABELS, useGetPendingImportsQuery } from "@/lib/api/treasury";
 import { useHasPermission } from "@/lib/auth/use-permission";
+import { DriveFilesSection } from "@/components/treasury/drive-files-section";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
@@ -37,6 +38,8 @@ export default function TreasuryImportsPage() {
           ) : null
         }
       />
+
+      <DriveFilesSection />
 
       <RequestState
         isLoading={isLoading}
