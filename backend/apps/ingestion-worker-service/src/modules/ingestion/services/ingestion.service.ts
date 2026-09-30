@@ -58,6 +58,7 @@ export interface StagedVisitLineInput {
   removedTotal: number
   adjustment: number
   balanceAfter: number
+  capacity: number | null
 }
 
 /** One transaction-detail row awaiting staging — see `StagedSalesTransaction` and design D1/D4. */
@@ -95,6 +96,7 @@ interface StagedVisitLineRow {
   removed_total: number
   adjustment: number
   balance_after: number
+  capacity: number | null
 }
 
 @Injectable()
@@ -312,6 +314,7 @@ export class IngestionService {
         removed_total: line.removedTotal,
         adjustment: line.adjustment,
         balance_after: line.balanceAfter,
+        capacity: line.capacity,
       })),
     })
   }
@@ -621,6 +624,7 @@ export class IngestionService {
           removedTotal: line.removed_total,
           adjustment: line.adjustment,
           balanceAfter: line.balance_after,
+          capacity: line.capacity,
         })),
       }
 

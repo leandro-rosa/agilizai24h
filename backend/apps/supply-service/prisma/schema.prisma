@@ -196,6 +196,8 @@ model SupplyVisitLine {
   /// Signed `Diferença`.
   adjustment          Int
   balance_after       Int
+  /// The report's `Capacidade`; NULL when empty. The export writes 0 where none is set.
+  capacity            Int?
 
   visit SupplyVisit @relation(fields: [visit_id], references: [id], onDelete: Cascade)
 

@@ -83,6 +83,8 @@ export const COLUMN_ALIASES = {
    * the visit line untouched, or every uncounted line would read as a count of 0.
    */
   confirmedCount: ['Qtd. confirmada'],
+  /** Shelf capacity — 0 or empty on every real line so far; carried so the audit can say it is not available. */
+  capacity: ['Capacidade'],
   /** Quantity the planogram asked to restock; null when absent. */
   quantityToRestock: ['A abastecer'],
   /**

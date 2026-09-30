@@ -23,13 +23,13 @@
 
 ## 4. Balance audit in inventory service
 
-- [ ] 4.1 Pure functions with unit tests: consecutive-visit consumption, proration over months by overlap, exclusion of months not fully covered, rise-without-event pairs counted apart.
-- [ ] 4.2 Pure functions: count versus system balance (absolute and relative difference distributions, share equal), count coverage per store and month, stratification by turnover and balance band, store-month ratio of consumption to sales.
-- [ ] 4.3 Gaps: store-months with consumption and no sales listed and excluded from the distributions, capacity-available share, covered period.
-- [ ] 4.4 Turnover and balance bands read from backend configuration, returned in the response as provisional presentation parameters; no verdict, tolerance or pass/fail field anywhere in the response.
-- [ ] 4.5 Service that reads visits (supply service) and aggregated sales (existing movements client) per store, tolerating the failure of one store by reporting it as a gap, never as zero; route `GET /inventory/audit/balance?from&to`.
-- [ ] 4.6 Tests: a test asserting the response has no verdict or tolerance keys; a test that changing the audit result changes nothing else in the service; an empty-system test (no visits) returning an empty audit.
-- [ ] 4.7 Update `backend/apps/inventory-service/CLAUDE.md` (the audit, why it is computed on read, that it sets no tolerance).
+- [x] 4.1 Pure functions with unit tests: consecutive-visit consumption, proration over months by overlap, exclusion of months not fully covered, rise-without-event pairs counted apart.
+- [x] 4.2 Pure functions: count versus system balance (absolute and relative difference distributions, share equal), count coverage per store and month, stratification by turnover and balance band, store-month ratio of consumption to sales.
+- [x] 4.3 Gaps: store-months with consumption and no sales listed and excluded from the distributions, capacity-available share, covered period.
+- [x] 4.4 Turnover and balance bands read from backend configuration, returned in the response as provisional presentation parameters; no verdict, tolerance or pass/fail field anywhere in the response.
+- [x] 4.5 Service that reads visits (supply service) and aggregated sales (existing movements client) per store, tolerating the failure of one store by reporting it as a gap, never as zero; route `GET /inventory/audit/balance?from&to`.
+- [x] 4.6 Tests: a test asserting the response has no verdict or tolerance keys; a test that changing the audit result changes nothing else in the service; an empty-system test (no visits) returning an empty audit.
+- [x] 4.7 Update `backend/apps/inventory-service/CLAUDE.md` (the audit, why it is computed on read, that it sets no tolerance).
 
 ## 5. Gateway
 

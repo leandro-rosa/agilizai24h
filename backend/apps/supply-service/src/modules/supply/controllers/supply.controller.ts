@@ -18,6 +18,21 @@ export class SupplyController {
     return this.supply.listReasons()
   }
 
+  @Get('visits/stores')
+  @ApiOperation({
+    summary: 'The stores that have supply visits in a range of periods',
+    description: 'For a network-wide reader to know which stores to read visits for. Empty list when there are none.',
+  })
+  @ApiQuery({ name: 'from', required: true, example: '2026-03' })
+  @ApiQuery({ name: 'to', required: true, example: '2026-07' })
+  async findVisitStores(@Query('from') from: string, @Query('to') to: string) {
+    if (!isValidPeriod(from) || !isValidPeriod(to) || from > to) {
+      throw new BadRequestException('from and to are required, as YYYY-MM, with from <= to')
+    }
+
+    return { from, to, store_ids: await this.supply.findVisitStoreIds(from, to) }
+  }
+
   @Get('supply/:storeId')
   @ApiOperation({
     summary: 'Restocks and per-reason removals for a store and period',

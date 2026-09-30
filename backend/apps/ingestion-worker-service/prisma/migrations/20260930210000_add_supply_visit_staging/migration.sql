@@ -20,6 +20,7 @@ CREATE TABLE "staged_visit_line" (
     "removed_total" INTEGER NOT NULL,
     "adjustment" INTEGER NOT NULL,
     "balance_after" INTEGER NOT NULL,
+    "capacity" INTEGER,
 
     CONSTRAINT "staged_visit_line_pkey" PRIMARY KEY ("id")
 );

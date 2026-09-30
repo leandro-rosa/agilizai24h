@@ -163,6 +163,7 @@ model StagedVisitLine {
   removed_total       Int
   adjustment          Int
   balance_after       Int
+  capacity            Int?
 
   ingestion Ingestion @relation(fields: [ingestion_id], references: [id], onDelete: Cascade)
 

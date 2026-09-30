@@ -54,6 +54,7 @@ export interface VisitLineView {
   removed_total: number
   adjustment: number
   balance_after: number
+  capacity: number | null
 }
 
 export interface VisitView {
@@ -222,6 +223,7 @@ export class SupplyService {
                   removed_total: line.removedTotal,
                   adjustment: line.adjustment,
                   balance_after: line.balanceAfter,
+                  capacity: line.capacity,
                 })),
               },
             },
@@ -327,9 +329,22 @@ export class SupplyService {
           removed_total: line.removed_total,
           adjustment: line.adjustment,
           balance_after: line.balance_after,
+          capacity: line.capacity,
         })),
       })),
     }
+  }
+
+  /** The stores that have at least one visit in the range — what a network-wide reader iterates over. */
+  async findVisitStoreIds(from: string, to: string): Promise<number[]> {
+    const rows = await this.prisma.supplyVisit.findMany({
+      where: { period: { gte: from, lte: to } },
+      select: { store_id: true },
+      distinct: ['store_id'],
+      orderBy: { store_id: 'asc' },
+    })
+
+    return rows.map(row => row.store_id)
   }
 
   async findLoss(storeId: number, period: string): Promise<DerivedLoss> {

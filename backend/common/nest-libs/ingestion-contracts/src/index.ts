@@ -153,6 +153,11 @@ export interface SupplyVisitLine {
   /** Signed `Diferença`. */
   adjustment: number
   balanceAfter: number
+  /**
+   * The report's `Capacidade`; null when the cell is empty. The real export
+   * writes 0 where no capacity is set, so only a positive value means one is known.
+   */
+  capacity: number | null
 }
 
 /**

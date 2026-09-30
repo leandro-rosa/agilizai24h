@@ -412,6 +412,7 @@ describe('supply integration', () => {
           removedTotal: 0,
           adjustment: 0,
           balanceAfter: 29,
+          capacity: null,
         },
       ],
       ...over,
@@ -441,6 +442,7 @@ describe('supply integration', () => {
           removed_total: 0,
           adjustment: 0,
           balance_after: 29,
+          capacity: null,
         },
       ])
     })
@@ -538,6 +540,14 @@ describe('supply integration', () => {
 
       const result = await supply.findVisits(store, '2026-03', '2026-04')
       expect(result.visits.map(v => v.source_reference)).toEqual(['march-early', 'march-late', 'april'])
+    })
+
+    it('lists the stores that have visits in a range, and none outside it', async () => {
+      const store = newStore()
+      await ingest(store, { period: '2026-03', visits: [visit()] })
+
+      expect(await supply.findVisitStoreIds('2026-03', '2026-03')).toContain(store)
+      expect(await supply.findVisitStoreIds('2026-05', '2026-06')).not.toContain(store)
     })
 
     it('returns an empty list, not an error, for a range with no visits', async () => {

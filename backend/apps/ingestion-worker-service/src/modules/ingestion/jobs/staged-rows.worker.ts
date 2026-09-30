@@ -500,6 +500,7 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
       removedTotal,
       adjustment,
       balanceAfter: recordedClosing,
+      capacity: toQuantity(readColumn(rowData, 'capacity')),
     })
 
     return undefined

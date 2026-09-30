@@ -6,6 +6,7 @@ import { INVENTORY_PERIOD_DERIVED_SUBSCRIBERS, PERIOD_EVENT_QUEUES } from '@app/
 import { validateEnv } from './config/env.validation'
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware'
 import { DbClientModule } from './modules/db-client/db-client.module'
+import { BalanceAuditModule } from './modules/balance-audit/balance-audit.module'
 import { InventoryModule } from './modules/inventory/inventory.module'
 import { CentralStockModule } from './modules/central-stock/central-stock.module'
 import { PeriodUpdatedWorker } from './modules/inventory/jobs/period-updated.worker'
@@ -16,6 +17,8 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     HealthModule,
     DbClientModule,
+    // Before InventoryModule: its routes must register first, or `/inventory/:storeId/:sku` swallows `/inventory/audit/balance`.
+    BalanceAuditModule,
     InventoryModule,
     CentralStockModule,
     // Consumes the period event supply and sales publish, and publishes the

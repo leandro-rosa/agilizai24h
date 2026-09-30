@@ -318,6 +318,7 @@ describe('IngestionService.finalize — supply visits (add-stock-quality-phase0)
     removed_total: 0,
     adjustment: 0,
     balance_after: 29,
+    capacity: null,
     ...over,
   })
 
@@ -389,6 +390,7 @@ describe('IngestionService.finalize — supply visits (add-stock-quality-phase0)
             removedTotal: 0,
             adjustment: 0,
             balanceAfter: 29,
+            capacity: null,
           },
         ],
       },
