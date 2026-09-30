@@ -10,7 +10,7 @@ import { INTERNAL_QUEUES, REQUIRED_HEADERS, type IngestionFileType } from '../co
 import { IngestionService } from '../services/ingestion.service'
 import { UpstreamClient } from '../services/upstream.client'
 import { hasRawColumn, type ColumnKey } from '../utils/row-mapping'
-import { locateRestockingOperations } from '../utils/locate-restocking-operations'
+import { locateRestockingOperations, NO_CLIENT_REASON } from '../utils/locate-restocking-operations'
 import { readWorkbookRows } from '../utils/read-workbook-rows'
 
 interface ParseFileJob {
@@ -216,9 +216,17 @@ export class ParseFileWorker extends HoldItWorkerHost<ParseFileJob> {
       ingestionId,
       located.unparseableSheets.map(sheet => ({
         rowReference: sheet.sheetName,
-        reason: 'unparseable_sheet',
+        // A sheet with no `Cliente` is a known, counted shape (the distribution
+        // center's inventory), not a malformed sheet — it has its own reason.
+        reason: sheet.reason === NO_CLIENT_REASON ? 'no_client' : 'unparseable_sheet',
         detail: sheet.reason,
       })),
+    )
+
+    await this.ingestions.recordNoClient(
+      ingestionId,
+      located.noClientOperations.length,
+      located.noClientOperations.reduce((sum, operation) => sum + operation.lineCount, 0),
     )
 
     if (located.operations.length === 0) return null

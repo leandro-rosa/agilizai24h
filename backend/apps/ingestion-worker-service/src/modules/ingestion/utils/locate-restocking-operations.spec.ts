@@ -140,4 +140,62 @@ describe('locateRestockingOperations', () => {
       expect(result.headerRowNumber).toBeNull()
     })
   })
+
+  describe('operations with no client (add-stock-quality-phase0)', () => {
+    const sheet = (name: string, cliente: string, codes: string[]): SheetRows => ({
+      sheetName: name,
+      rows: [OP_LABELS, opValues(cliente, 'Inventário'), [], PRODUCT_HEADER, ...codes.map(productRow)],
+    })
+
+    it('counts the operation and its product rows instead of dropping it silently', () => {
+      const result = locateRestockingOperations([
+        sheet('Operação 1', 'Ascenty - JDI01', ['6098']),
+        sheet('Operação 2', '', ['6098', '7215', '1014']),
+      ])
+
+      expect(result.operations.map(operation => operation.sheetName)).toEqual(['Operação 1'])
+      expect(result.noClientOperations).toEqual([{ sheetName: 'Operação 2', operationKind: 'inventory', lineCount: 3 }])
+      // Still rejected for store-level ingestion — counting is additive.
+      expect(result.unparseableSheets.map(unparseable => unparseable.sheetName)).toEqual(['Operação 2'])
+    })
+
+    it('does not count blank rows under the product table as lines', () => {
+      const result = locateRestockingOperations([sheet('Operação 2', '', ['6098', '', '7215'])])
+
+      expect(result.noClientOperations[0].lineCount).toBe(2)
+    })
+
+    it('reports nothing when every operation names a client', () => {
+      expect(locateRestockingOperations([sheet('Operação 1', 'Ascenty - JDI01', ['6098'])]).noClientOperations).toEqual([])
+    })
+  })
+
+  describe('the visit instants', () => {
+    it('reads the start and the previous operation end next to the end, null when a cell is empty', () => {
+      const labels = [...OP_LABELS, 'Operação anterior finalizada em']
+      const started = new Date('2026-07-02T08:32:00Z')
+      const finished = new Date('2026-07-02T08:45:00Z')
+      const previous = new Date('2026-06-25T05:18:00Z')
+
+      const result = locateRestockingOperations([
+        {
+          sheetName: 'Operação 1',
+          rows: [
+            labels,
+            [1, 'Ascenty - JDI01', 'Cidade', '', '', 'Combinado', started, finished, previous],
+            [],
+            PRODUCT_HEADER,
+            productRow('6098'),
+          ],
+        },
+        {
+          sheetName: 'Operação 2',
+          rows: [labels, [1, 'Ascenty - JDI01', 'Cidade', '', '', 'Combinado', '', finished, ''], [], PRODUCT_HEADER, productRow('6098')],
+        },
+      ])
+
+      expect(result.operations[0]).toMatchObject({ startedAt: started, finishedAt: finished, previousFinishedAt: previous })
+      expect(result.operations[1]).toMatchObject({ startedAt: null, previousFinishedAt: null })
+    })
+  })
 })

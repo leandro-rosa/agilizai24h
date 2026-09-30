@@ -45,7 +45,15 @@ model Ingestion {
   uploaded_at    DateTime @default(now())
   updated_at     DateTime @updatedAt
 
+  /// Supply only: operations (sheets) whose `Cliente` was empty — the
+  /// distribution center's own inventory counts. No store receives their
+  /// quantities; the counts exist so their absence is observable
+  /// (add-stock-quality-phase0).
+  no_client_operations Int @default(0)
+  no_client_lines      Int @default(0)
+
   staged               StagedRow[]
+  staged_visit_lines   StagedVisitLine[]
   staged_transactions  StagedSalesTransaction[]
   rejections           IngestionRejection[]
   operations           IngestionOperation[]
@@ -80,6 +88,9 @@ model IngestionOperation {
   /// lets `finalize()` pick the LATEST reported closing balance as the
   /// month's recorded figure rather than an arbitrary earlier one.
   finished_at DateTime?
+  /// "Iniciado em" and "Operação anterior finalizada em" — carried to supply-service as the visit's own instants.
+  started_at           DateTime?
+  previous_finished_at DateTime?
 
   created_at DateTime @default(now())
 
@@ -129,6 +140,34 @@ model StagedRow {
   @@index([ingestion_id])
   @@index([ingestion_id, store_id])
   @@map("staged_row")
+}
+
+/// One accepted product line of a supply operation, kept per visit — a separate
+/// table from `StagedRow` (which is split per movement kind and summed per
+/// SKU) because a visit line is one SKU's whole reading for one operation:
+/// balance before, the count if one was made, restocked, removed, adjustment,
+/// balance after. `confirmed_count` and `quantity_to_restock` are NULL when the
+/// report cell was empty, which is not zero. Deleted with the staging area.
+model StagedVisitLine {
+  id           Int    @id @default(autoincrement())
+  ingestion_id String
+
+  store_id   Int
+  sheet_name String
+  sku        String
+
+  balance_before      Int
+  confirmed_count     Int?
+  quantity_to_restock Int?
+  restocked           Int
+  removed_total       Int
+  adjustment          Int
+  balance_after       Int
+
+  ingestion Ingestion @relation(fields: [ingestion_id], references: [id], onDelete: Cascade)
+
+  @@index([ingestion_id])
+  @@map("staged_visit_line")
 }
 
 /// A parsed, per-transaction sales detail row waiting for every chunk of its

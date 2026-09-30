@@ -73,6 +73,18 @@ export const COLUMN_ALIASES = {
    * balance, rather than an arbitrary earlier reading (design D5).
    */
   finishedAt: ['Finalizado em'],
+  /** When this operation started — the start of the visit (`add-stock-quality-phase0`). */
+  startedAt: ['Iniciado em'],
+  /** The previous operation's end, as the report itself states it — null when empty, never inferred. */
+  previousFinishedAt: ['Operação anterior finalizada em'],
+  /**
+   * The count made BEFORE restocking. Empty on ~73% of lines, and an empty
+   * cell is NOT zero: `toQuantity` returns null for it and the null must reach
+   * the visit line untouched, or every uncounted line would read as a count of 0.
+   */
+  confirmedCount: ['Qtd. confirmada'],
+  /** Quantity the planogram asked to restock; null when absent. */
+  quantityToRestock: ['A abastecer'],
   /**
    * Per-transaction outcome, carried only by the network-wide sales format
    * (Aug 2026 POS export capability — one row per transaction, every store,

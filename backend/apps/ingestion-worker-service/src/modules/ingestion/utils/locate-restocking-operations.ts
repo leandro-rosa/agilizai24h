@@ -27,6 +27,8 @@ export interface RestockingOperation {
   clientRaw: string
   operationKind: OperationKindKey
   finishedAt: Date | null
+  startedAt: Date | null
+  previousFinishedAt: Date | null
   /** 1-indexed — where this sheet's product table header actually is. */
   productHeaderRowNumber: number
 }
@@ -36,9 +38,23 @@ export interface UnparseableSheet {
   reason: string
 }
 
+/**
+ * A sheet whose operation header names no store (`Cliente` empty) — in the real
+ * export, the distribution center's own inventory counts. Still rejected for
+ * store-level ingestion (no store receives its quantities), but counted here so
+ * "no store named" is observable instead of silently absent from every total.
+ */
+export interface NoClientOperation {
+  sheetName: string
+  operationKind: OperationKindKey | null
+  /** Product rows under the sheet's product-table header. */
+  lineCount: number
+}
+
 export interface LocateRestockingResult {
   operations: RestockingOperation[]
   unparseableSheets: UnparseableSheet[]
+  noClientOperations: NoClientOperation[]
   /**
    * The row every parseable sheet's product header shares — `smartChunk`
    * takes one `headersRow` for the whole workbook, so every sheet must agree.
@@ -65,6 +81,25 @@ export interface LocateRestockingResult {
 
 const SEARCH_WINDOW = 10
 
+/** The `unparseableSheets` reason for an operation with no `Cliente`; the worker keys its own rejection code off it. */
+export const NO_CLIENT_REASON = 'The operation header names no store (Cliente)'
+
+/** Counts the product rows of one sheet: rows under the product-table header that carry a product code. */
+function countProductRows(rows: unknown[][]): number {
+  const headerIndex = locateRawHeaderRow(rows.slice(0, SEARCH_WINDOW), 'productCode', SEARCH_WINDOW)
+  if (headerIndex === null) return 0
+
+  const labels = (rows[headerIndex] ?? []).map(value => String(value ?? ''))
+  let count = 0
+
+  for (const row of rows.slice(headerIndex + 1)) {
+    const record = Object.fromEntries(labels.map((label, index) => [label, row[index]]))
+    if (String(readRawColumn(record, 'productCode') ?? '').trim() !== '') count++
+  }
+
+  return count
+}
+
 /**
  * Reads every sheet's operation header (store, kind, loss totals) and locates
  * its product table, without touching a single product row — `smartChunk`
@@ -73,6 +108,7 @@ const SEARCH_WINDOW = 10
 export function locateRestockingOperations(sheets: SheetRows[]): LocateRestockingResult {
   const operations: RestockingOperation[] = []
   const unparseableSheets: UnparseableSheet[] = []
+  const noClientOperations: NoClientOperation[] = []
   let productHeaderRow: string[] | null = null
 
   for (const sheet of sheets) {
@@ -96,7 +132,12 @@ export function locateRestockingOperations(sheets: SheetRows[]): LocateRestockin
     const operationKindLabel = String(readRawColumn(headerRecord, 'operationKind') ?? '').trim()
 
     if (clientRaw === '') {
-      unparseableSheets.push({ sheetName: sheet.sheetName, reason: 'The operation header names no store (Cliente)' })
+      unparseableSheets.push({ sheetName: sheet.sheetName, reason: NO_CLIENT_REASON })
+      noClientOperations.push({
+        sheetName: sheet.sheetName,
+        operationKind: resolveOperationKind(operationKindLabel),
+        lineCount: countProductRows(sheet.rows),
+      })
       continue
     }
 
@@ -129,6 +170,8 @@ export function locateRestockingOperations(sheets: SheetRows[]): LocateRestockin
       clientRaw,
       operationKind,
       finishedAt: toExcelDate(readRawColumn(headerRecord, 'finishedAt')),
+      startedAt: toExcelDate(readRawColumn(headerRecord, 'startedAt')),
+      previousFinishedAt: toExcelDate(readRawColumn(headerRecord, 'previousFinishedAt')),
       // 0-indexed here; +1 for the 1-indexed row number `smartChunk`'s `headersRow` expects.
       productHeaderRowNumber: productHeaderRowIndex + 1,
     })
@@ -139,6 +182,7 @@ export function locateRestockingOperations(sheets: SheetRows[]): LocateRestockin
   return {
     operations,
     unparseableSheets,
+    noClientOperations,
     headerRowNumber: distinctHeaderRows.length === 1 ? distinctHeaderRows[0] : null,
     inconsistentHeaderRows: distinctHeaderRows.length > 1,
     missingRequiredColumns:

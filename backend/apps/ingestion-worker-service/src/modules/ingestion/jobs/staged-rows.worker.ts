@@ -7,6 +7,7 @@ import {
   type RejectionInput,
   type StagedRowInput,
   type StagedSalesTransactionInput,
+  type StagedVisitLineInput,
 } from '../services/ingestion.service'
 import { UpstreamClient } from '../services/upstream.client'
 import { checkBalanceIdentity } from '../utils/check-balance-identity'
@@ -127,6 +128,7 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
 
     const toStage: StagedRowInput[] = []
     const toStageTransactions: StagedSalesTransactionInput[] = []
+    const toStageVisitLines: StagedVisitLineInput[] = []
 
     for (const message of salesMessages) {
       const reference = `${message.additionalData.worksheetName ?? 'sheet1'}!row ${message.rowId}`
@@ -229,13 +231,14 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
 
       const problem =
         fileType === 'supply'
-          ? this.mapSupplyRow(sku!, message.rowData, operation!, toStage)
+          ? this.mapSupplyRow(sku!, message.rowData, operation!, toStage, toStageVisitLines)
           : this.mapSalesOrCostRow(fileType, sku!, networkStoreId ?? ingestion.store_id!, message.rowData, toStage)
 
       if (problem) rejections.push({ rowReference: reference, ...problem })
     }
 
     await this.ingestions.stageRows(ingestionId, toStage)
+    if (toStageVisitLines.length > 0) await this.ingestions.stageVisitLines(ingestionId, toStageVisitLines)
     await this.ingestions.stageSalesTransactions(ingestionId, toStageTransactions)
     await this.ingestions.recordRejections(ingestionId, rejections)
 
@@ -398,6 +401,7 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
     rowData: Record<string, unknown>,
     operation: ResolvedOperation,
     into: StagedRowInput[],
+    visitLinesInto: StagedVisitLineInput[],
   ): Omit<RejectionInput, 'rowReference'> | undefined {
     const opening = toQuantity(readColumn(rowData, 'openingBalance')) ?? 0
     const restocked = toQuantity(readColumn(rowData, 'restocked'))
@@ -479,6 +483,24 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
     // movement produced by the same row.
     rows[rows.length - 1].recordedClosingBalance = recordedClosing
     into.push(...rows)
+
+    // The visit line is pushed only here, after every check has passed, so a
+    // rejected line (broken identity, unknown reason) never appears in a visit.
+    // The count and the to-restock quantity stay null when the cell was empty:
+    // null is "not counted", and 0 would be a count of zero (measured: only ~27%
+    // of lines are counted).
+    visitLinesInto.push({
+      storeId: operation.storeId,
+      sheetName: operation.sheetName,
+      sku,
+      balanceBefore: opening,
+      confirmedCount: toQuantity(readColumn(rowData, 'confirmedCount')),
+      quantityToRestock: toQuantity(readColumn(rowData, 'quantityToRestock')),
+      restocked: restocked ?? 0,
+      removedTotal,
+      adjustment,
+      balanceAfter: recordedClosing,
+    })
 
     return undefined
   }

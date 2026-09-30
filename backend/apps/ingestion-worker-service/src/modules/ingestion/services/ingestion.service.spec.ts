@@ -1,4 +1,4 @@
-import { INGESTION_QUEUES, type SalesRowsJob, type SalesTransactionsJob } from '@app/ingestion-contracts'
+import { INGESTION_QUEUES, type SalesRowsJob, type SalesTransactionsJob, type SupplyRowsJob } from '@app/ingestion-contracts'
 import { IngestionService } from './ingestion.service'
 
 interface StagedRowFixture {
@@ -62,6 +62,10 @@ describe('IngestionService.finalize — sales', () => {
       // The array form of $transaction just needs to await whatever
       // already-created promises it is handed — the individual calls above
       // are what matter to these tests, not the transaction wrapper itself.
+      stagedVisitLine: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue(undefined),
+      },
       $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
     }
 
@@ -226,6 +230,10 @@ describe('IngestionService.finalize — sales transaction detail (add-sales-tran
         findMany: jest.fn().mockResolvedValue(opts.staged),
         deleteMany: jest.fn().mockResolvedValue(undefined),
       },
+      stagedVisitLine: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue(undefined),
+      },
       $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
     }
 
@@ -284,3 +292,237 @@ describe('IngestionService.finalize — sales transaction detail (add-sales-tran
     expect(transactionMessages(holdIt)).toHaveLength(0)
   })
 })
+
+describe('IngestionService.finalize — supply visits (add-stock-quality-phase0)', () => {
+  const at = (iso: string) => new Date(iso)
+
+  const stagedMovement = (storeId: number, sheetName: string, sku: string, quantity: number) => ({
+    store_id: storeId,
+    sheet_name: sheetName,
+    sku,
+    movement_kind: 'restock',
+    reason_key: null,
+    quantity,
+    source_text: null,
+    recorded_closing_balance: null,
+  })
+
+  const visitLine = (over: Record<string, unknown> = {}) => ({
+    store_id: 7,
+    sheet_name: 'Operação 1',
+    sku: '5010',
+    balance_before: 8,
+    confirmed_count: 8,
+    quantity_to_restock: 21,
+    restocked: 21,
+    removed_total: 0,
+    adjustment: 0,
+    balance_after: 29,
+    ...over,
+  })
+
+  const build = (opts: { staged: ReturnType<typeof stagedMovement>[]; visitLines: ReturnType<typeof visitLine>[]; operations: unknown[] }) => {
+    const holdIt = jest.fn().mockResolvedValue({ id: 'job-1' })
+
+    const prisma = {
+      ingestion: {
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          id: 'ing-1',
+          file_type: 'supply',
+          store_id: null,
+          period: '2026-07',
+          correlation_id: null,
+          rejected_rows: 0,
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
+      },
+      stagedRow: { findMany: jest.fn().mockResolvedValue(opts.staged), deleteMany: jest.fn().mockResolvedValue(undefined) },
+      stagedVisitLine: {
+        findMany: jest.fn().mockResolvedValue(opts.visitLines),
+        deleteMany: jest.fn().mockResolvedValue(undefined),
+      },
+      stagedSalesTransaction: { deleteMany: jest.fn().mockResolvedValue(undefined) },
+      ingestionOperation: { findMany: jest.fn().mockResolvedValue(opts.operations) },
+      $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+    }
+
+    return { service: new IngestionService(prisma as never, { holdIt } as never), holdIt, prisma }
+  }
+
+  const supplyJobs = (holdIt: jest.Mock): SupplyRowsJob[] =>
+    holdIt.mock.calls.filter(([call]) => call.queueName === INGESTION_QUEUES.SUPPLY_ROWS).map(([call]) => call.message)
+
+  const operation = (over: Record<string, unknown> = {}) => ({
+    sheet_name: 'Operação 1',
+    operation_kind: 'combined',
+    started_at: at('2026-07-02T08:32:00Z'),
+    finished_at: at('2026-07-02T08:45:00Z'),
+    previous_finished_at: at('2026-06-25T05:18:00Z'),
+    store_id: 7,
+    ...over,
+  })
+
+  it('forwards a counted line with its count, the operation kind and its instants', async () => {
+    const { service, holdIt } = build({
+      staged: [stagedMovement(7, 'Operação 1', '5010', 21)],
+      visitLines: [visitLine()],
+      operations: [operation()],
+    })
+
+    await service.finalize('ing-1')
+
+    const [job] = supplyJobs(holdIt)
+    expect(job.visits).toEqual([
+      {
+        kind: 'combined',
+        startedAt: '2026-07-02T08:32:00.000Z',
+        endedAt: '2026-07-02T08:45:00.000Z',
+        previousEndedAt: '2026-06-25T05:18:00.000Z',
+        sourceReference: 'Operação 1',
+        lines: [
+          {
+            sku: '5010',
+            balanceBefore: 8,
+            confirmedCount: 8,
+            quantityToRestock: 21,
+            restocked: 21,
+            removedTotal: 0,
+            adjustment: 0,
+            balanceAfter: 29,
+          },
+        ],
+      },
+    ])
+  })
+
+  it('keeps an uncounted line as null, distinguishable from a count of zero', async () => {
+    const { service, holdIt } = build({
+      staged: [stagedMovement(7, 'Operação 1', '5010', 21), stagedMovement(7, 'Operação 1', '6001', 4)],
+      visitLines: [visitLine({ confirmed_count: null }), visitLine({ sku: '6001', confirmed_count: 0 })],
+      operations: [operation()],
+    })
+
+    await service.finalize('ing-1')
+
+    const lines = supplyJobs(holdIt)[0].visits![0].lines
+    expect(lines.find(line => line.sku === '5010')!.confirmedCount).toBeNull()
+    expect(lines.find(line => line.sku === '6001')!.confirmedCount).toBe(0)
+  })
+
+  it('sends each store its own visits only', async () => {
+    const { service, holdIt } = build({
+      staged: [stagedMovement(7, 'Operação 1', '5010', 21), stagedMovement(9, 'Operação 2', '5010', 6)],
+      visitLines: [visitLine(), visitLine({ store_id: 9, sheet_name: 'Operação 2' })],
+      operations: [operation(), operation({ sheet_name: 'Operação 2', store_id: 9 })],
+    })
+
+    await service.finalize('ing-1')
+
+    const jobs = supplyJobs(holdIt)
+    expect(jobs).toHaveLength(2)
+    for (const job of jobs) {
+      expect(job.visits).toHaveLength(1)
+      expect(job.visits![0].sourceReference).toBe(job.storeId === 7 ? 'Operação 1' : 'Operação 2')
+    }
+  })
+
+  it('does not forward a visit line that was never staged (a rejected line produces no visit line)', async () => {
+    const { service, holdIt } = build({
+      staged: [stagedMovement(7, 'Operação 1', '5010', 21)],
+      visitLines: [],
+      operations: [operation()],
+    })
+
+    await service.finalize('ing-1')
+
+    expect(supplyJobs(holdIt)[0].visits).toEqual([])
+  })
+
+  it('leaves out a visit with no end instant rather than inventing one', async () => {
+    const { service, holdIt } = build({
+      staged: [stagedMovement(7, 'Operação 1', '5010', 21)],
+      visitLines: [visitLine()],
+      operations: [operation({ finished_at: null })],
+    })
+
+    await service.finalize('ing-1')
+
+    expect(supplyJobs(holdIt)[0].visits).toEqual([])
+  })
+
+  it('does not change the monthly quantities the job already carried', async () => {
+    const { service, holdIt } = build({
+      staged: [stagedMovement(7, 'Operação 1', '5010', 21), stagedMovement(7, 'Operação 2', '5010', 4)],
+      visitLines: [visitLine(), visitLine({ sheet_name: 'Operação 2', restocked: 4 })],
+      operations: [operation(), operation({ sheet_name: 'Operação 2' })],
+    })
+
+    await service.finalize('ing-1')
+
+    expect(supplyJobs(holdIt)[0].restocks).toEqual([{ sku: '5010', quantityRestocked: 25 }])
+  })
+
+  it('clears the staged visit lines with the rest of the staging area', async () => {
+    const { service, prisma } = build({ staged: [], visitLines: [], operations: [] })
+
+    await service.finalize('ing-1')
+
+    expect(prisma.stagedVisitLine.deleteMany).toHaveBeenCalledWith({ where: { ingestion_id: 'ing-1' } })
+  })
+})
+
+describe('IngestionService.noClientGaps (add-stock-quality-phase0)', () => {
+  const ingestion = (id: string, period: string, uploaded: string, ops: number, lines: number) => ({
+    id,
+    period,
+    uploaded_at: new Date(uploaded),
+    no_client_operations: ops,
+    no_client_lines: lines,
+  })
+
+  const build = (rows: ReturnType<typeof ingestion>[]) => {
+    const prisma = { ingestion: { findMany: jest.fn().mockResolvedValue(rows) } }
+    return { service: new IngestionService(prisma as never, {} as never), prisma }
+  }
+
+  it('counts a period once, from its latest finished ingestion, however many times it was re-imported', async () => {
+    // Already ordered newest first, as the query asks for.
+    const { service } = build([
+      ingestion('c', '2026-07', '2026-09-20T00:00:00Z', 40, 9000),
+      ingestion('b', '2026-06', '2026-09-19T00:00:00Z', 33, 7000),
+      ingestion('a', '2026-07', '2026-09-01T00:00:00Z', 10, 1),
+    ])
+
+    const result = await service.noClientGaps('2026-06', '2026-07')
+
+    expect(result.periods).toEqual([
+      { period: '2026-06', ingestionId: 'b', operationsWithoutClient: 33, linesWithoutClient: 7000 },
+      { period: '2026-07', ingestionId: 'c', operationsWithoutClient: 40, linesWithoutClient: 9000 },
+    ])
+    expect(result.totals).toEqual({ operationsWithoutClient: 73, linesWithoutClient: 16000 })
+  })
+
+  it('returns an empty summary, not an error, when no period in the range was ingested', async () => {
+    const { service } = build([])
+
+    expect(await service.noClientGaps('2026-01', '2026-02')).toEqual({
+      from: '2026-01',
+      to: '2026-02',
+      periods: [],
+      totals: { operationsWithoutClient: 0, linesWithoutClient: 0 },
+    })
+  })
+
+  it('only looks at finished supply ingestions', async () => {
+    const { service, prisma } = build([])
+
+    await service.noClientGaps('2026-01', '2026-02')
+
+    expect(prisma.ingestion.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ file_type: 'supply', status: { in: ['completed', 'partially_completed'] } }),
+      }),
+    )
+  })
+})
+

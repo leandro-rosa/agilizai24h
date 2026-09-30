@@ -130,11 +130,59 @@ export interface SupplyRecordedClosingBalanceRow {
   quantity: number
 }
 
+/** The operation kinds the restocking export produces — see the ingestion worker's `operation-kinds.ts`. */
+export type SupplyVisitKind = 'restocking' | 'inventory' | 'combined'
+
+/**
+ * One SKU's line within one supply operation, exactly as the report states it.
+ *
+ * `confirmedCount` is the count made BEFORE restocking (measured: `Diferença ==
+ * confirmada − anterior` on every counted restocked line) — never the quantity
+ * after. It is `null` when the cell was empty, which is NOT a count of zero:
+ * only about 27% of lines are counted, and reading the rest as zero would
+ * fabricate a count. `quantityToRestock` (`A abastecer`) is null for the same reason.
+ */
+export interface SupplyVisitLine {
+  sku: string
+  balanceBefore: number
+  confirmedCount: number | null
+  quantityToRestock: number | null
+  restocked: number
+  /** Signed, zero or negative — the `Remoções` number, not the reason text. */
+  removedTotal: number
+  /** Signed `Diferença`. */
+  adjustment: number
+  balanceAfter: number
+}
+
+/**
+ * One supply operation (one sheet of the workbook) of one store. Attributed to
+ * the period of its `endedAt`. Additive to the monthly quantities: it never
+ * replaces them and they are not derived from it.
+ */
+export interface SupplyVisit {
+  kind: SupplyVisitKind
+  /** ISO instants. `startedAt` is null when the header cell was empty. */
+  startedAt: string | null
+  endedAt: string
+  /** The report's "Operação anterior finalizada em", when it states one. */
+  previousEndedAt: string | null
+  /** Sheet name in the source workbook, e.g. "Operação 12" — for tracing a figure back to the file. */
+  sourceReference: string
+  lines: SupplyVisitLine[]
+}
+
 export type SupplyRowsJob = IngestionEnvelope<never> & {
   restocks: SupplyRestockRow[]
   removals: SupplyRemovalRow[]
   adjustments: SupplyAdjustmentRow[]
   recordedClosingBalances: SupplyRecordedClosingBalanceRow[]
+  /**
+   * Optional and additive (no `schemaVersion` bump): a job without it is valid
+   * and leaves the store-period's stored visits untouched; one with it — even
+   * an empty list — replaces them.
+   */
+  visits?: SupplyVisit[]
 }
 
 export interface CostRow {

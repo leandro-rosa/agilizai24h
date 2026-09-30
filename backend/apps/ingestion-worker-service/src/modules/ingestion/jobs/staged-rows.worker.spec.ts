@@ -387,3 +387,107 @@ describe('StagedRowsWorker', () => {
     })
   })
 })
+
+describe('StagedRowsWorker — supply visit lines (add-stock-quality-phase0)', () => {
+  const supplyMessage = (rowData: Record<string, unknown>, rowId = 5) => ({
+    rowData,
+    requestId: 'ing-1',
+    rowId,
+    additionalData: { ingestionId: 'ing-1', fileType: 'supply' as const, worksheetName: 'Operação 1' },
+  })
+
+  const line = (over: Record<string, unknown> = {}) => ({
+    Codigo_Produto: '5010',
+    Qtd_Anterior: 8,
+    Qtd_confirmada: 8,
+    A_abastecer: 21,
+    Qtd_abastecida: 21,
+    Remocoes: 0,
+    Diferenca: 0,
+    Qtd_final: 29,
+    Detalhes_das_Remocoes: '',
+    ...over,
+  })
+
+  const build = (operationKind = 'combined') => {
+    const ingestions = {
+      stageRows: jest.fn().mockResolvedValue(undefined),
+      stageVisitLines: jest.fn().mockResolvedValue(undefined),
+      stageSalesTransactions: jest.fn().mockResolvedValue(undefined),
+      recordRejections: jest.fn().mockResolvedValue(undefined),
+      completeChunk: jest.fn().mockResolvedValue(false),
+      finalize: jest.fn().mockResolvedValue(undefined),
+      operationsFor: jest.fn().mockResolvedValue([{ sheet_name: 'Operação 1', store_id: 7, operation_kind: operationKind }]),
+    }
+    const prisma = { ingestion: { findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'ing-1', file_type: 'supply', store_id: null }) } }
+    const upstream = {
+      resolveSkus: jest.fn(async (codes: string[]) => ({
+        matched: codes.map(code => ({ id: 1, sku: code, name: code })),
+        unmatched: [],
+      })),
+      resolveProductNames: jest.fn().mockResolvedValue({ matched: [], unmatched: [] }),
+    }
+
+    return { worker: new StagedRowsWorker(ingestions as never, prisma as never, upstream as never), ingestions }
+  }
+
+  it('stages a counted line with its count, balances and movements', async () => {
+    const { worker, ingestions } = build()
+
+    await worker.process(jobOf([supplyMessage(line())]))
+
+    expect(ingestions.stageVisitLines).toHaveBeenCalledWith('ing-1', [
+      {
+        storeId: 7,
+        sheetName: 'Operação 1',
+        sku: '5010',
+        balanceBefore: 8,
+        confirmedCount: 8,
+        quantityToRestock: 21,
+        restocked: 21,
+        removedTotal: 0,
+        adjustment: 0,
+        balanceAfter: 29,
+      },
+    ])
+  })
+
+  it('stages an uncounted line with a null count — not zero', async () => {
+    const { worker, ingestions } = build()
+
+    await worker.process(jobOf([supplyMessage(line({ Qtd_confirmada: '', A_abastecer: '' }))]))
+
+    const [, lines] = ingestions.stageVisitLines.mock.calls[0]
+    expect(lines[0].confirmedCount).toBeNull()
+    expect(lines[0].quantityToRestock).toBeNull()
+  })
+
+  it('keeps a genuine count of zero as zero', async () => {
+    const { worker, ingestions } = build()
+
+    await worker.process(jobOf([supplyMessage(line({ Qtd_Anterior: 0, Qtd_confirmada: 0, Qtd_abastecida: 6, Qtd_final: 6 }))]))
+
+    expect(ingestions.stageVisitLines.mock.calls[0][1][0].confirmedCount).toBe(0)
+  })
+
+  it('stages nothing for a line that breaks the balance identity, and rejects it with its reason', async () => {
+    const { worker, ingestions } = build()
+
+    await worker.process(jobOf([supplyMessage(line({ Qtd_final: 99 }))]))
+
+    expect(ingestions.stageVisitLines).not.toHaveBeenCalled()
+    expect(ingestions.recordRejections).toHaveBeenCalledWith('ing-1', [expect.objectContaining({ reason: 'balance_mismatch' })])
+  })
+
+  it('stages a carry-forward line with no movement — the balance chain needs it', async () => {
+    const { worker, ingestions } = build('inventory')
+
+    await worker.process(
+      jobOf([supplyMessage(line({ Qtd_Anterior: 5, Qtd_confirmada: 5, A_abastecer: '', Qtd_abastecida: '', Qtd_final: 5 }))]),
+    )
+
+    const [, lines] = ingestions.stageVisitLines.mock.calls[0]
+    expect(lines[0]).toMatchObject({ balanceBefore: 5, restocked: 0, balanceAfter: 5, confirmedCount: 5 })
+  })
+})
+

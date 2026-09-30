@@ -11,6 +11,7 @@ import {
   type SupplyRemovalRow,
   type SupplyRestockRow,
   type SupplyRowsJob,
+  type SupplyVisit,
 } from '@app/ingestion-contracts'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { INTERNAL_QUEUES, RETRY_OPTIONS, type IngestionFileType } from '../constants/file-types'
@@ -45,6 +46,20 @@ export interface StagedRowInput {
   recordedClosingBalance?: number
 }
 
+/** One accepted product line of a supply operation, awaiting staging — see `StagedVisitLine`. Nulls are "the cell was empty", never zero. */
+export interface StagedVisitLineInput {
+  storeId: number
+  sheetName: string
+  sku: string
+  balanceBefore: number
+  confirmedCount: number | null
+  quantityToRestock: number | null
+  restocked: number
+  removedTotal: number
+  adjustment: number
+  balanceAfter: number
+}
+
 /** One transaction-detail row awaiting staging — see `StagedSalesTransaction` and design D1/D4. */
 export interface StagedSalesTransactionInput {
   storeId: number
@@ -66,6 +81,20 @@ export interface StagedSalesTransactionInput {
   posId?: string
   machineModel?: string
   buyerNumber?: string
+}
+
+/** A staged visit line as read back from the database. */
+interface StagedVisitLineRow {
+  store_id: number
+  sheet_name: string
+  sku: string
+  balance_before: number
+  confirmed_count: number | null
+  quantity_to_restock: number | null
+  restocked: number
+  removed_total: number
+  adjustment: number
+  balance_after: number
 }
 
 @Injectable()
@@ -152,8 +181,62 @@ export class IngestionService {
         store_id: operation.storeId,
         operation_kind: operation.operationKind,
         finished_at: operation.finishedAt,
+        started_at: operation.startedAt,
+        previous_finished_at: operation.previousFinishedAt,
       })),
     })
+  }
+
+  /**
+   * Records how many operations and lines a restocking workbook carried with no
+   * `Cliente`. They stay rejected for store-level ingestion — this only makes
+   * them countable, so a consumer can tell "set aside" from "never present".
+   */
+  recordNoClient(id: string, operations: number, lines: number) {
+    return this.prisma.ingestion.update({
+      where: { id },
+      data: { no_client_operations: operations, no_client_lines: lines },
+    })
+  }
+
+  /**
+   * Operation and line counts set aside for having no client, summed over the
+   * LATEST finished supply ingestion of each period in the range — a period
+   * re-imported three times counts once.
+   */
+  async noClientGaps(from: string, to: string) {
+    const ingestions = await this.prisma.ingestion.findMany({
+      where: {
+        file_type: 'supply',
+        status: { in: ['completed', 'partially_completed'] },
+        period: { gte: from, lte: to },
+      },
+      orderBy: { uploaded_at: 'desc' },
+    })
+
+    const latestByPeriod = new Map<string, (typeof ingestions)[number]>()
+    for (const ingestion of ingestions) {
+      if (!latestByPeriod.has(ingestion.period)) latestByPeriod.set(ingestion.period, ingestion)
+    }
+
+    const periods = [...latestByPeriod.values()]
+      .sort((a, b) => a.period.localeCompare(b.period))
+      .map(ingestion => ({
+        period: ingestion.period,
+        ingestionId: ingestion.id,
+        operationsWithoutClient: ingestion.no_client_operations,
+        linesWithoutClient: ingestion.no_client_lines,
+      }))
+
+    return {
+      from,
+      to,
+      periods,
+      totals: {
+        operationsWithoutClient: periods.reduce((sum, row) => sum + row.operationsWithoutClient, 0),
+        linesWithoutClient: periods.reduce((sum, row) => sum + row.linesWithoutClient, 0),
+      },
+    }
   }
 
   operationsFor(ingestionId: string) {
@@ -209,6 +292,26 @@ export class IngestionService {
         amount_cents: row.amountCents ?? null,
         source_text: row.sourceText ?? null,
         recorded_closing_balance: row.recordedClosingBalance ?? null,
+      })),
+    })
+  }
+
+  stageVisitLines(id: string, lines: StagedVisitLineInput[]) {
+    if (lines.length === 0) return Promise.resolve()
+
+    return this.prisma.stagedVisitLine.createMany({
+      data: lines.map(line => ({
+        ingestion_id: id,
+        store_id: line.storeId,
+        sheet_name: line.sheetName,
+        sku: line.sku,
+        balance_before: line.balanceBefore,
+        confirmed_count: line.confirmedCount,
+        quantity_to_restock: line.quantityToRestock,
+        restocked: line.restocked,
+        removed_total: line.removedTotal,
+        adjustment: line.adjustment,
+        balance_after: line.balanceAfter,
       })),
     })
   }
@@ -278,7 +381,8 @@ export class IngestionService {
     }
 
     if (ingestion.file_type === 'supply') {
-      await this.publishSupplyByStore(id, ingestion.period, ingestion.correlation_id ?? undefined, staged)
+      const stagedVisitLines = await this.prisma.stagedVisitLine.findMany({ where: { ingestion_id: id } })
+      await this.publishSupplyByStore(id, ingestion.period, ingestion.correlation_id ?? undefined, staged, stagedVisitLines)
     }
 
     if (ingestion.file_type === 'cost') {
@@ -302,6 +406,7 @@ export class IngestionService {
 
     await this.prisma.$transaction([
       this.prisma.stagedRow.deleteMany({ where: { ingestion_id: id } }),
+      this.prisma.stagedVisitLine.deleteMany({ where: { ingestion_id: id } }),
       this.prisma.stagedSalesTransaction.deleteMany({ where: { ingestion_id: id } }),
       this.prisma.ingestion.update({
         where: { id },
@@ -463,6 +568,71 @@ export class IngestionService {
   }
 
   /**
+   * Builds one `SupplyVisit` per operation (sheet) from its staged lines, grouped
+   * by store. Additive to the monthly quantities above — those are summed per
+   * SKU and lose the visit boundary; this keeps it.
+   *
+   * A visit with no end instant cannot be placed in time, so it is left out and
+   * logged rather than given an invented one. Lines rejected upstream (broken
+   * balance identity, unreadable balance, unknown reason) were never staged and
+   * so are never here. A visit belongs to the ingestion's period, the same as
+   * its monthly quantities do.
+   */
+  private assembleVisits(
+    operations: {
+      sheet_name: string
+      operation_kind: string
+      started_at: Date | null
+      finished_at: Date | null
+      previous_finished_at: Date | null
+    }[],
+    lines: StagedVisitLineRow[],
+  ): Map<number, SupplyVisit[]> {
+    const operationBySheet = new Map(operations.map(operation => [operation.sheet_name, operation]))
+    const linesBySheet = new Map<string, StagedVisitLineRow[]>()
+
+    for (const line of lines) {
+      if (!linesBySheet.has(line.sheet_name)) linesBySheet.set(line.sheet_name, [])
+      linesBySheet.get(line.sheet_name)!.push(line)
+    }
+
+    const byStore = new Map<number, SupplyVisit[]>()
+
+    for (const [sheetName, sheetLines] of linesBySheet) {
+      const operation = operationBySheet.get(sheetName)
+
+      if (!operation?.finished_at) {
+        this.logger.warn(`Visit "${sheetName}" has no end instant — ${sheetLines.length} line(s) left out of the visit records`)
+        continue
+      }
+
+      const visit: SupplyVisit = {
+        kind: operation.operation_kind as SupplyVisit['kind'],
+        startedAt: operation.started_at?.toISOString() ?? null,
+        endedAt: operation.finished_at.toISOString(),
+        previousEndedAt: operation.previous_finished_at?.toISOString() ?? null,
+        sourceReference: sheetName,
+        lines: sheetLines.map(line => ({
+          sku: line.sku,
+          balanceBefore: line.balance_before,
+          confirmedCount: line.confirmed_count,
+          quantityToRestock: line.quantity_to_restock,
+          restocked: line.restocked,
+          removedTotal: line.removed_total,
+          adjustment: line.adjustment,
+          balanceAfter: line.balance_after,
+        })),
+      }
+
+      const storeId = sheetLines[0].store_id
+      if (!byStore.has(storeId)) byStore.set(storeId, [])
+      byStore.get(storeId)!.push(visit)
+    }
+
+    return byStore
+  }
+
+  /**
    * Groups staged supply rows by store and sends one `SupplyRowsJob` per
    * store — one restocking workbook can name every store in the network, and
    * supply-service replaces a store-period wholesale, so one message must
@@ -473,11 +643,13 @@ export class IngestionService {
     period: string,
     correlationId: string | undefined,
     staged: { store_id: number; sheet_name: string | null; sku: string; movement_kind: string | null; reason_key: string | null; quantity: number | null; source_text: string | null; recorded_closing_balance: number | null }[],
+    visitLines: StagedVisitLineRow[] = [],
   ): Promise<void> {
     if (staged.length === 0) return
 
     const operations = await this.operationsFor(ingestionId)
     const finishedAtBySheet = new Map(operations.map(operation => [operation.sheet_name, operation.finished_at]))
+    const visitsByStore = this.assembleVisits(operations, visitLines)
 
     const byStore = new Map<number, typeof staged>()
     for (const row of staged) {
@@ -567,6 +739,7 @@ export class IngestionService {
         removals,
         adjustments,
         recordedClosingBalances,
+        visits: visitsByStore.get(storeId) ?? [],
       }
 
       await this.broker.holdIt({ queueName: INGESTION_QUEUES.SUPPLY_ROWS, message, options: RETRY_OPTIONS })

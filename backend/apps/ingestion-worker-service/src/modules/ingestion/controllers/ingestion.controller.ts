@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, ValidateIf } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
@@ -80,6 +80,23 @@ export class IngestionController {
   @ApiOperation({ summary: 'Recent ingestions' })
   list(@Query('limit') limit?: string) {
     return this.ingestions.listRecent(limit ? Number(limit) : undefined)
+  }
+
+  @Get('gaps')
+  @ApiOperation({
+    summary: 'Supply operations set aside for having no client, per period',
+    description:
+      'Counts of operations and lines whose `Cliente` was empty (the distribution center inventory). ' +
+      'They are rejected for store-level ingestion and never written to any store; this only makes them ' +
+      'countable. Uses the latest finished supply ingestion of each period. Declared before `:id`.',
+  })
+  gaps(@Query('from') from?: string, @Query('to') to?: string) {
+    const period = /^\d{4}-(0[1-9]|1[0-2])$/
+    if (!from || !to || !period.test(from) || !period.test(to) || from > to) {
+      throw new BadRequestException('from and to are required, as YYYY-MM, with from <= to')
+    }
+
+    return this.ingestions.noClientGaps(from, to)
   }
 
   @Get(':id')

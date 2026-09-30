@@ -1,17 +1,17 @@
 ## 1. Preparation
 
-- [ ] 1.1 Work in an isolated worktree; the main checkout has uncommitted admin changes (supply page, ingestion client, drive-sync button) that must not be staged. Check the target checkout's `git status` before any merge.
+- [x] 1.1 Work in an isolated worktree; the main checkout has uncommitted admin changes (supply page, ingestion client, drive-sync button) that must not be staged. Check the target checkout's `git status` before any merge.
 - [ ] 1.2 Record the baseline of `pnpm turbo run lint typecheck test` for `supply-service`, `ingestion-worker-service`, `inventory-service`, `gateway-service`, `@app/ingestion-contracts` and `@agiliz/admin`, so any new failure is attributable to this change.
 - [ ] 1.3 Record a control sum (row counts and total quantities) of `restock_record`, `removal_record`, `adjustment_record` and `recorded_closing_balance` per store and period for 2026-01 to 2026-08, read-only, to compare after the backfill.
 - [ ] 1.4 Copy the offline analysis figures into the test expectations as documented reference values, not as thresholds: 25,606 counted lines of 88,418 with a store, 97.0% equal to the system, 10,080 store×SKU×month compared, 152 no-client operations with 28,610 lines.
 
 ## 2. Contract and parser
 
-- [ ] 2.1 Add the optional `visits` field to `SupplyRowsJob` in `@app/ingestion-contracts` (visit: kind, start, end, previous end, source reference; line: SKU, balance before, confirmed count or null, quantity to restock or null, restocked, removed total, adjustment, balance after) without changing `schemaVersion`; a job without `visits` stays valid.
-- [ ] 2.2 Map `Qtd. confirmada`, `A abastecer`, `Iniciado em`, `Finalizado em` and `Operação anterior finalizada em` in the existing column mapping, null when the cell is empty, never 0.
-- [ ] 2.3 Assemble visits in `finalize()` per store and period, attributing each visit to the period of its end instant; a line rejected for a broken balance identity produces no visit line.
-- [ ] 2.4 Record, per operation with no identifiable client, a rejection with its own reason and expose the counts of operations and lines through a gaps summary route (`GET /ingestions/gaps?from&to`); quantities are still not written to any store.
-- [ ] 2.5 Tests with fixtures shaped like the real report: a counted line, an uncounted line (null, distinguishable from 0), a broken-identity line not forwarded, an operation without client counted, a job without `visits` still accepted.
+- [x] 2.1 Add the optional `visits` field to `SupplyRowsJob` in `@app/ingestion-contracts` (visit: kind, start, end, previous end, source reference; line: SKU, balance before, confirmed count or null, quantity to restock or null, restocked, removed total, adjustment, balance after) without changing `schemaVersion`; a job without `visits` stays valid.
+- [x] 2.2 Map `Qtd. confirmada`, `A abastecer`, `Iniciado em`, `Finalizado em` and `Operação anterior finalizada em` in the existing column mapping, null when the cell is empty, never 0.
+- [x] 2.3 Assemble visits in `finalize()` per store and period, attributing each visit to the period of its end instant; a line rejected for a broken balance identity produces no visit line.
+- [x] 2.4 Record, per operation with no identifiable client, a rejection with its own reason and expose the counts of operations and lines through a gaps summary route (`GET /ingestions/gaps?from&to`); quantities are still not written to any store.
+- [x] 2.5 Tests with fixtures shaped like the real report: a counted line, an uncounted line (null, distinguishable from 0), a broken-identity line not forwarded, an operation without client counted, a job without `visits` still accepted.
 
 ## 3. Supply service
 
