@@ -1,9 +1,9 @@
 ## 1. Preparation
 
 - [x] 1.1 Work in an isolated worktree; the main checkout has uncommitted admin changes (supply page, ingestion client, drive-sync button) that must not be staged. Check the target checkout's `git status` before any merge.
-- [ ] 1.2 Record the baseline of `pnpm turbo run lint typecheck test` for `supply-service`, `ingestion-worker-service`, `inventory-service`, `gateway-service`, `@app/ingestion-contracts` and `@agiliz/admin`, so any new failure is attributable to this change.
-- [ ] 1.3 Record a control sum (row counts and total quantities) of `restock_record`, `removal_record`, `adjustment_record` and `recorded_closing_balance` per store and period for 2026-01 to 2026-08, read-only, to compare after the backfill.
-- [ ] 1.4 Copy the offline analysis figures into the test expectations as documented reference values, not as thresholds: 25,606 counted lines of 88,418 with a store, 97.0% equal to the system, 10,080 store×SKU×month compared, 152 no-client operations with 28,610 lines.
+- [x] 1.2 Record the baseline of `pnpm turbo run lint typecheck test` for `supply-service`, `ingestion-worker-service`, `inventory-service`, `gateway-service`, `@app/ingestion-contracts` and `@agiliz/admin`, so any new failure is attributable to this change.
+- [x] 1.3 Record a control sum (row counts and total quantities) of `restock_record`, `removal_record`, `adjustment_record` and `recorded_closing_balance` per store and period for 2026-01 to 2026-08, read-only, to compare after the backfill.
+- [x] 1.4 Copy the offline analysis figures into the test expectations as documented reference values, not as thresholds: 25,606 counted lines of 88,418 with a store, 97.0% equal to the system, 10,080 store×SKU×month compared, 152 no-client operations with 28,610 lines.
 
 ## 2. Contract and parser
 
