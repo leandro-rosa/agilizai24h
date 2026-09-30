@@ -86,6 +86,39 @@ describe("DriveImportDialog", () => {
     expect(screen.getByLabelText("Período")).toHaveValue("2026-08");
   });
 
+  describe("period suggestion combines month_folder_name and modified_time", () => {
+    // This design's own real example: an August Itaú statement whose Google Sheet
+    // was last edited in September (the operator filling in Tipo/Detalhe columns
+    // after the month closed). modified_time alone would wrongly suggest "2026-09".
+    it("suggests the folder's month, not modified_time's month, when the file was edited after the statement month (design's real example: agosto file, modified in setembro)", () => {
+      const file: TreasuryDriveFile = { ...FILE, month_folder_name: "agosto", modified_time: "2026-09-10T00:00:00.000Z" };
+      render(<DriveImportDialog file={file} pending={false} onOpenChange={jest.fn()} onConfirm={jest.fn()} />);
+
+      expect(screen.getByLabelText("Período")).toHaveValue("2026-08");
+    });
+
+    it("rolls the year back one when the folder's month is chronologically later than modified_time's month (dezembro file edited in janeiro of the next year)", () => {
+      const file: TreasuryDriveFile = { ...FILE, month_folder_name: "dezembro", modified_time: "2027-01-08T00:00:00.000Z" };
+      render(<DriveImportDialog file={file} pending={false} onOpenChange={jest.fn()} onConfirm={jest.fn()} />);
+
+      expect(screen.getByLabelText("Período")).toHaveValue("2026-12");
+    });
+
+    it("still suggests the same month/year when the folder's month and modified_time's month agree (no regression)", () => {
+      const file: TreasuryDriveFile = { ...FILE, month_folder_name: "setembro", modified_time: "2026-09-22T00:00:00.000Z" };
+      render(<DriveImportDialog file={file} pending={false} onOpenChange={jest.fn()} onConfirm={jest.fn()} />);
+
+      expect(screen.getByLabelText("Período")).toHaveValue("2026-09");
+    });
+
+    it("falls back to modified_time-only when month_folder_name is not a recognized Portuguese month name (defensive)", () => {
+      const file: TreasuryDriveFile = { ...FILE, month_folder_name: "pasta-invalida", modified_time: "2026-05-20T00:00:00.000Z" };
+      render(<DriveImportDialog file={file} pending={false} onOpenChange={jest.fn()} onConfirm={jest.fn()} />);
+
+      expect(screen.getByLabelText("Período")).toHaveValue("2026-05");
+    });
+  });
+
   it("calls onConfirm with the selected account and period when Confirmar is clicked, never before", () => {
     const onConfirm = jest.fn();
     render(<DriveImportDialog file={FILE} pending={false} onOpenChange={jest.fn()} onConfirm={onConfirm} />);

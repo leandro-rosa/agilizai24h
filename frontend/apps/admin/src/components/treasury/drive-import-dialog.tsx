@@ -16,11 +16,71 @@ export interface DriveImportConfirmation {
 
 const PERIOD_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 
+/**
+ * Nomes de mês em português por extenso, sem abreviação — mesma convenção de
+ * `month_folder_name` no backend (pasta literal do Drive, ex. "agosto",
+ * "setembro"; ver `TREASURY_DRIVE_MONTH_FOLDERS` e a allowlist de
+ * `treasury-drive-source`). Não existe um utilitário equivalente do lado do
+ * frontend nem uma lib compartilhada entre backend/frontend para reusar — o
+ * mapeamento de `ingestion-worker-service/.../drive-source/utils/
+ * suggestions.ts` é backend-only (módulo Node, sem build compartilhado com o
+ * Next), então esta lista é escrita de novo aqui, escopada a este arquivo.
+ */
+const MONTH_NAMES: Record<string, number> = {
+  janeiro: 1,
+  fevereiro: 2,
+  março: 3,
+  abril: 4,
+  maio: 5,
+  junho: 6,
+  julho: 7,
+  agosto: 8,
+  setembro: 9,
+  outubro: 10,
+  novembro: 11,
+  dezembro: 12,
+};
+
 /** "2026-08-15T00:00:00.000Z" → "2026-08". Sem fuso: a data já vem em UTC. */
-function periodOf(modifiedTime: string): string {
+function periodFromModifiedTime(modifiedTime: string): string {
   const [iso] = modifiedTime.split("T");
   const [year, month] = iso.split("-");
   return `${year}-${month}`;
+}
+
+/**
+ * O período sugerido para importação, combinando `month_folder_name` (o mês
+ * real, mas sem ano — o nome da pasta do Drive) com `modified_time` (tem ano,
+ * mas não é o mês do extrato: numa Google Sheet, `modified_time` reflete
+ * quando a operadora editou a planilha por último, preenchendo as colunas
+ * Tipo/Detalhe — tipicamente DEPOIS do fim do mês do extrato, nunca antes).
+ * O exemplo real do design desta mudança: um extrato Itaú de agosto, editado
+ * em setembro — usar só `modified_time` sugeriria "2026-09" para um extrato
+ * de agosto.
+ *
+ * O ano vem do ano de `modified_time`, exceto quando o mês da pasta é
+ * cronologicamente POSTERIOR ao mês de `modified_time` — só acontece quando o
+ * arquivo foi editado no mês seguinte ao período que ele descreve, e esse mês
+ * seguinte virou o ano (pasta "dezembro" editada em janeiro do ano seguinte);
+ * nesse caso o ano volta um, porque a edição aconteceu depois da virada.
+ *
+ * `month_folder_name` que não bate com nenhum nome de mês reconhecido (não
+ * deveria acontecer, dado a allowlist do próprio backend, mas defensivo)
+ * cai no comportamento antigo, só `modified_time`.
+ */
+function periodOf(file: { month_folder_name: string; modified_time: string }): string {
+  const modifiedTimePeriod = periodFromModifiedTime(file.modified_time);
+
+  const folderMonth = MONTH_NAMES[file.month_folder_name.trim().toLowerCase()];
+  if (folderMonth === undefined) return modifiedTimePeriod;
+
+  const [modifiedYearRaw, modifiedMonthRaw] = modifiedTimePeriod.split("-");
+  const modifiedYear = Number(modifiedYearRaw);
+  const modifiedMonth = Number(modifiedMonthRaw);
+
+  const year = folderMonth > modifiedMonth ? modifiedYear - 1 : modifiedYear;
+
+  return `${year}-${String(folderMonth).padStart(2, "0")}`;
 }
 
 /**
@@ -71,7 +131,7 @@ function DialogBody({
   const [chosenAccountId, setChosenAccountId] = useState<number | null>(null);
   const accountId = chosenAccountId ?? suggested?.id ?? null;
 
-  const [period, setPeriod] = useState(periodOf(file.modified_time));
+  const [period, setPeriod] = useState(periodOf(file));
 
   const periodIsValid = PERIOD_PATTERN.test(period);
   const ready = accountId !== null && periodIsValid;
