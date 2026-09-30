@@ -259,6 +259,37 @@ export interface UploadStatementsArgs {
   files: { source: TreasurySource; account_id: number; file: File }[];
 }
 
+// ---------------------------------------------------------------------------
+// Google Drive source (add-treasury-drive-statement-sync) — mirrors
+// lib/api/ingestion.ts's own Drive section, over the gateway's
+// `/treasury-drive-files*` routes (Task 12).
+// ---------------------------------------------------------------------------
+
+export type TreasuryDriveFileStatus = "new" | "changed" | "importing" | "imported" | "ignored" | "error";
+
+export interface TreasuryDriveFile {
+  id: string;
+  month_folder_name: string;
+  bank_folder_name: string;
+  detected_source: TreasurySource | null;
+  name: string;
+  modified_time: string;
+  status: TreasuryDriveFileStatus;
+  imported_at: string | null;
+  imported_account_id: number | null;
+  error_detail: string | null;
+}
+
+export interface TreasuryDriveStatus {
+  configured: boolean;
+}
+
+export interface ImportTreasuryDriveFileArgs {
+  id: string;
+  accountId: number;
+  period: string;
+}
+
 export interface UpdatePendingTransactionArgs {
   import_id: number;
   transaction_id: number;
@@ -318,7 +349,7 @@ function toQuery<T extends object = Record<string, never>>(filter: T = {} as T):
 export const treasuryApi = createApi({
   reducerPath: "treasuryApi",
   baseQuery: gatewayBaseQuery,
-  tagTypes: ["Transaction", "Account", "Mapping", "Fee", "PendingImport"],
+  tagTypes: ["Transaction", "Account", "Mapping", "Fee", "PendingImport", "TreasuryDriveFile", "TreasuryDriveStatus"],
   endpoints: (builder) => ({
     getCategories: builder.query<string[], void>({
       query: () => "/treasury/categories",
@@ -460,6 +491,30 @@ export const treasuryApi = createApi({
       query: (id) => ({ url: `/treasury/imports/${id}/reject`, method: "POST" }),
       invalidatesTags: (_result, _error, id) => [{ type: "PendingImport", id }, "PendingImport"],
     }),
+
+    // Google Drive source. A scan only ever reads; nothing is imported until a person asks.
+    getTreasuryDriveFiles: builder.query<TreasuryDriveFile[], void>({
+      query: () => "/treasury-drive-files",
+      providesTags: ["TreasuryDriveFile"],
+    }),
+    getTreasuryDriveStatus: builder.query<TreasuryDriveStatus, void>({
+      query: () => "/treasury-drive-files/status",
+      providesTags: ["TreasuryDriveStatus"],
+    }),
+    /** "Sincronizar agora": queues a scan of the treasury Drive folders. */
+    scanTreasuryDrive: builder.mutation<{ status: "queued" | "already_running" }, void>({
+      query: () => ({ url: "/treasury-drive-files/scan", method: "POST" }),
+      invalidatesTags: ["TreasuryDriveStatus"],
+    }),
+    importTreasuryDriveFile: builder.mutation<{ status: string }, ImportTreasuryDriveFileArgs>({
+      query: ({ id, ...body }) => ({ url: `/treasury-drive-files/${encodeURIComponent(id)}/import`, method: "POST", body }),
+      invalidatesTags: ["TreasuryDriveFile", "PendingImport"],
+    }),
+    /** `ignored: false` brings an ignored file back. */
+    ignoreTreasuryDriveFile: builder.mutation<{ status: string }, { id: string; ignored: boolean }>({
+      query: ({ id, ignored }) => ({ url: `/treasury-drive-files/${encodeURIComponent(id)}/ignore`, method: "POST", body: { ignored } }),
+      invalidatesTags: ["TreasuryDriveFile"],
+    }),
   }),
 });
 
@@ -493,4 +548,9 @@ export const {
   useAttachProofMutation,
   useConfirmImportMutation,
   useRejectImportMutation,
+  useGetTreasuryDriveFilesQuery,
+  useGetTreasuryDriveStatusQuery,
+  useScanTreasuryDriveMutation,
+  useImportTreasuryDriveFileMutation,
+  useIgnoreTreasuryDriveFileMutation,
 } = treasuryApi;
