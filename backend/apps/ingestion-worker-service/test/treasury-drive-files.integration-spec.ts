@@ -1,4 +1,6 @@
 import 'reflect-metadata'
+import { S3Service } from '@app/aws'
+import { HoldItBullMQBroker } from '@app/hold-it'
 import { ValidationPipe } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -9,6 +11,7 @@ import { InMemoryDriveClient } from '../src/modules/drive-source/testing/in-memo
 import { xlsxBuffer } from '../src/modules/drive-source/testing/workbook-fixtures'
 import { TreasuryDriveFilesController } from '../src/modules/treasury-drive-source/controllers/treasury-drive-files.controller'
 import { TREASURY_DRIVE_CONFIG, loadTreasuryDriveConfig, type TreasuryDriveConfig } from '../src/modules/treasury-drive-source/config/treasury-drive.config'
+import { TreasuryDriveImportService } from '../src/modules/treasury-drive-source/services/treasury-drive-import.service'
 import { TreasuryDriveProducer } from '../src/modules/treasury-drive-source/services/treasury-drive.producer'
 import { TreasuryDriveRepository } from '../src/modules/treasury-drive-source/services/treasury-drive.repository'
 import { TreasuryDriveScanService } from '../src/modules/treasury-drive-source/services/treasury-drive-scan.service'
@@ -50,8 +53,12 @@ const disabledConfig = (): TreasuryDriveConfig => loadTreasuryDriveConfig({})
  * and treasury-drive-import.integration-spec.ts (Tasks 8-9) use, reached through real HTTP
  * handling (mirrors drive-files-api.throwaway-db-spec.ts's own controller-level style, but
  * against the shared dev DB rather than a throwaway container, matching this test's own
- * `test:integration` tier). The producer is mocked, same as that sibling spec does — this test
- * is about the controller/repository/DTO wiring, not the real BullMQ broker.
+ * `test:integration` tier). `TreasuryDriveImportService` is real here too — not mocked, unlike
+ * the producer/broker/S3 it depends on — because `POST :id/import`'s atomic claim
+ * (`requestImport`, Finding 1) is the real, DB-level `claimForImporting` guard, and a test that
+ * mocked the service could never prove two concurrent HTTP requests for the same file really do
+ * collapse to exactly one 202. Only the producer (the actual BullMQ enqueue) and the
+ * broker/S3 (never reached by `requestImport`, which only claims and queues) are mocked.
  */
 describe('Treasury Drive files HTTP API', () => {
   let app: NestFastifyApplication
@@ -70,8 +77,11 @@ describe('Treasury Drive files HTTP API', () => {
       controllers: [TreasuryDriveFilesController],
       providers: [
         TreasuryDriveRepository,
+        TreasuryDriveImportService,
         { provide: TREASURY_DRIVE_CONFIG, useValue: config },
         { provide: TreasuryDriveProducer, useValue: producer },
+        { provide: HoldItBullMQBroker, useValue: { holdIt: jest.fn() } },
+        { provide: S3Service, useValue: { uploadFile: jest.fn() } },
       ],
     }).compile()
 
@@ -202,6 +212,35 @@ describe('Treasury Drive files HTTP API', () => {
       const file = await seedFile()
 
       expect((await http('POST', `/treasury-drive-files/${file.id}/import`, { period: AUGUST })).status).toBe(400)
+    })
+
+    it('returns 409 at once (not 202) for a second import of an already-importing file — the double-click/re-click case', async () => {
+      const file = await seedFile()
+
+      const first = await http('POST', `/treasury-drive-files/${file.id}/import`, { accountId: 42, period: AUGUST })
+      const second = await http('POST', `/treasury-drive-files/${file.id}/import`, { accountId: 42, period: AUGUST })
+
+      expect(first).toMatchObject({ status: 202, body: { id: file.id, status: 'importing' } })
+      expect(second).toMatchObject({ status: 409, body: { code: 'already_imported' } })
+      expect(producer.enqueueImport).toHaveBeenCalledTimes(1)
+    })
+
+    it('lets exactly one of two truly concurrent import requests for the same file through, with a real (DB-level) atomic claim — not a mock', async () => {
+      const file = await seedFile()
+
+      const [first, second] = await Promise.all([
+        http('POST', `/treasury-drive-files/${file.id}/import`, { accountId: 42, period: AUGUST }),
+        http('POST', `/treasury-drive-files/${file.id}/import`, { accountId: 42, period: AUGUST }),
+      ])
+
+      const statuses = [first.status, second.status].sort()
+      expect(statuses).toEqual([202, 409])
+      const conflict = first.status === 409 ? first : second
+      expect(conflict.body).toMatchObject({ code: 'already_imported' })
+      expect(producer.enqueueImport).toHaveBeenCalledTimes(1)
+
+      const after = await repository.findById(file.id)
+      expect(after?.status).toBe('importing')
     })
   })
 

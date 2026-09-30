@@ -500,7 +500,7 @@ vs. Drive Sheet) em lugar nenhum. Estruturalmente indistinguíveis pra jusante.
 "Tipo"/"Detalhe" que a operadora digita (e.g. "Deslocamento"/"alimentação"), mas
 `structuralHint` (a classificação estrutural do parser) continua reservado só a
 fatos que a própria forma do arquivo fixa, independentes de favorecido (ver
-`c6-statement.parser.ts`'s `PATTERNS` — "PGTO FAT CARTAO C6" é sempre
+`c6-statement.parser.ts`'s `C6_PATTERNS` — "PGTO FAT CARTAO C6" é sempre
 "Pagamento de fatura"). O motor de classificação do `treasury-service` classifica
 identicamente qualquer linha do Drive ou de PDF pelo mesmo `counterpartyRaw` +
 regras de de-para — sem criar um segundo eixo descoordernado de classificação.

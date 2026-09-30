@@ -55,8 +55,10 @@ export class TreasuryDriveProducer {
    * `error`) must both be able to queue, unlike `enqueueValidation`'s "one at a time" dedup, which
    * this module has no equivalent of (no `:id/validate` route — see the controller's own doc
    * comment). The real "only one import of this file at a time" guarantee is
-   * `TreasuryDriveRepository.claimForImporting`'s atomic DB-level claim inside the worker
-   * (Task 9), not anything enforced here.
+   * `TreasuryDriveRepository.claimForImporting`'s atomic DB-level claim — but that runs on the
+   * REQUEST path, inside `TreasuryDriveImportService.requestImport`, BEFORE this method is ever
+   * called: by the time a job reaches this queue, the claim has already succeeded, so nothing
+   * enforced here needs to duplicate it.
    */
   async enqueueImport(payload: TreasuryDriveImportPayload, correlationId?: string): Promise<void> {
     const message: TreasuryDriveImportJobEnvelope = {

@@ -50,6 +50,14 @@ const config = (overrides: Partial<TreasuryDriveConfig> = {}): TreasuryDriveConf
  * PrismaClientService — the same pattern treasury-drive-scan.integration-spec.ts and
  * chunk-accumulation.integration-spec.ts use, not the throwaway-container helper (that one is
  * reserved for test:integration:drive). The table is cleared after every test.
+ *
+ * This file covers `TreasuryDriveImportService.runImport` — the WORKER side (download, re-detect,
+ * S3-upload, publish) — and `requestImport`'s own "queue failure must not leave the file stuck at
+ * importing" behavior. The atomic-claim guarantee itself (`requestImport`'s 409 on an
+ * already-`imported`/`importing` file, and the true-concurrency race) is exercised at the HTTP
+ * layer in treasury-drive-files.integration-spec.ts — see this module's own CLAUDE.md/Finding 1:
+ * that guarantee now lives on the REQUEST path, not inside `runImport`, so it belongs to the
+ * controller/HTTP-level test, not here.
  */
 describe('TreasuryDriveImportService', () => {
   let app: TestingModule
@@ -64,6 +72,7 @@ describe('TreasuryDriveImportService', () => {
     }),
   }
   const s3 = { uploadFile: jest.fn() }
+  const producer = { enqueueImport: jest.fn().mockResolvedValue(undefined) }
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -83,6 +92,7 @@ describe('TreasuryDriveImportService', () => {
   beforeEach(() => {
     broker.holdIt.mockClear()
     s3.uploadFile.mockReset().mockResolvedValue({})
+    producer.enqueueImport.mockReset().mockResolvedValue(undefined)
     published.length = 0
   })
 
@@ -97,88 +107,96 @@ describe('TreasuryDriveImportService', () => {
     return file
   }
 
-  const service = () => new TreasuryDriveImportService(repo, broker as never, s3 as never)
+  const service = () => new TreasuryDriveImportService(repo, producer as never, broker as never, s3 as never)
 
-  it("publishes a TreasuryRawRowsJob with the confirmed accountId/period and the file's real content, using a real S3 upload (never the brief's placeholder objectKey)", async () => {
-    const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
-    const file = await tracked(client)
+  describe('runImport (the worker side: download, re-detect, upload, publish)', () => {
+    it("publishes a TreasuryRawRowsJob with the confirmed accountId/period and the file's real content, using a real S3 upload (never the brief's placeholder objectKey)", async () => {
+      const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
+      const file = await tracked(client)
+      // The request path already claimed the file before a job would ever reach the worker.
+      await repo.claimForImporting(file.id)
 
-    const result = await service().import(file.id, client, 42, '2026-08')
+      const result = await service().runImport(file.id, client, 42, '2026-08')
 
-    expect(result.status).toBe('imported')
-    expect(published).toHaveLength(1)
-    expect(published[0].queueName).toBe('treasury.raw-rows')
-    expect(published[0].message.accountId).toBe(42)
-    expect(published[0].message.period).toBe('2026-08')
-    expect(published[0].message.source).toBe('c6_statement')
-    expect(published[0].message.rows).toHaveLength(1)
+      expect(result?.status).toBe('imported')
+      expect(published).toHaveLength(1)
+      expect(published[0].queueName).toBe('treasury.raw-rows')
+      expect(published[0].message.accountId).toBe(42)
+      expect(published[0].message.period).toBe('2026-08')
+      expect(published[0].message.source).toBe('c6_statement')
+      expect(published[0].message.rows).toHaveLength(1)
 
-    // The real S3Service upload, not the brief's placeholder string.
-    const objectKey = published[0].message.objectKey
-    expect(objectKey).not.toMatch(/PLACEHOLDER/i)
-    expect(objectKey).toMatch(/^treasury-imports\/2026-08\/c6_statement\/.+/)
-    expect(s3.uploadFile).toHaveBeenCalledTimes(1)
-    const [key, body, contentType] = s3.uploadFile.mock.calls[0]
-    expect(key).toBe(objectKey)
-    expect(Buffer.isBuffer(body)).toBe(true)
-    expect(contentType).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      // The real S3Service upload, not the brief's placeholder string.
+      const objectKey = published[0].message.objectKey
+      expect(objectKey).not.toMatch(/PLACEHOLDER/i)
+      expect(objectKey).toMatch(/^treasury-imports\/2026-08\/c6_statement\/.+/)
+      expect(s3.uploadFile).toHaveBeenCalledTimes(1)
+      const [key, body, contentType] = s3.uploadFile.mock.calls[0]
+      expect(key).toBe(objectKey)
+      expect(Buffer.isBuffer(body)).toBe(true)
+      expect(contentType).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-    const after = await repo.findById(file.id)
-    expect(after).toMatchObject({ status: 'imported', imported_account_id: 42 })
-  })
-
-  it('refuses a second import of the same already-imported file', async () => {
-    const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
-    const file = await tracked(client)
-
-    await service().import(file.id, client, 42, '2026-08')
-    await expect(service().import(file.id, client, 42, '2026-08')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'already_imported' }),
+      const after = await repo.findById(file.id)
+      expect(after).toMatchObject({ status: 'imported', imported_account_id: 42 })
     })
 
-    expect(published).toHaveLength(1)
-    expect(s3.uploadFile).toHaveBeenCalledTimes(1)
-  })
+    it('does nothing (no download, no publish) for a stale or duplicate job whose file is no longer "importing"', async () => {
+      const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
+      const file = await tracked(client)
+      // Never claimed (still "new") — nothing on the request path handed this job its slot.
 
-  it('lets exactly one of two truly concurrent imports of the same file through, and publishes exactly one job', async () => {
-    const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
-    const file = await tracked(client)
+      const result = await service().runImport(file.id, client, 42, '2026-08')
 
-    // Two service instances (own no state — only the shared repository/broker/S3 stub matter),
-    // fired together: this is what distinguishes the race from the sequential "import, then
-    // import again" case above. The repository's claimForImporting is the real, atomic (DB-level
-    // conditional updateMany) guard being exercised here — a mock could never prove this.
-    const results = await Promise.allSettled([
-      service().import(file.id, client, 42, '2026-08'),
-      service().import(file.id, client, 42, '2026-08'),
-    ])
-
-    const fulfilled = results.filter((r): r is PromiseFulfilledResult<{ status: 'imported'; jobId: string }> => r.status === 'fulfilled')
-    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-
-    expect(fulfilled).toHaveLength(1)
-    expect(rejected).toHaveLength(1)
-    expect(rejected[0].reason).toMatchObject({ response: expect.objectContaining({ code: 'already_imported' }) })
-
-    expect(published).toHaveLength(1)
-    expect(s3.uploadFile).toHaveBeenCalledTimes(1)
-    const after = await repo.findById(file.id)
-    expect(after?.status).toBe('imported')
-  })
-
-  it('marks the file "error" and does not publish anything when the re-fetched content no longer matches any known signature', async () => {
-    const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
-    const file = await tracked(client)
-    client.edit(file.drive_file_id, xlsxBuffer([unrelatedSheet()]))
-
-    await expect(service().import(file.id, client, 42, '2026-08')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'unrecognized' }),
+      expect(result).toBeUndefined()
+      expect(published).toHaveLength(0)
+      expect(s3.uploadFile).not.toHaveBeenCalled()
+      const after = await repo.findById(file.id)
+      expect(after?.status).toBe('new')
     })
 
-    expect(published).toHaveLength(0)
-    expect(s3.uploadFile).not.toHaveBeenCalled()
-    const after = await repo.findById(file.id)
-    expect(after?.status).toBe('error')
-    expect(after?.error_detail).toMatch(/no recognizable signature/i)
+    it('marks the file "error" and does not publish anything when the re-fetched content no longer matches any known signature', async () => {
+      const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
+      const file = await tracked(client)
+      client.edit(file.drive_file_id, xlsxBuffer([unrelatedSheet()]))
+      await repo.claimForImporting(file.id)
+
+      await expect(service().runImport(file.id, client, 42, '2026-08')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'unrecognized' }),
+      })
+
+      expect(published).toHaveLength(0)
+      expect(s3.uploadFile).not.toHaveBeenCalled()
+      const after = await repo.findById(file.id)
+      expect(after?.status).toBe('error')
+      expect(after?.error_detail).toMatch(/no recognizable signature/i)
+    })
+  })
+
+  describe('requestImport (the request side: claim, queue)', () => {
+    it('claims the file, queues the import and returns "importing"', async () => {
+      const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
+      const file = await tracked(client)
+
+      const result = await service().requestImport(file.id, 42, '2026-08')
+
+      expect(result).toEqual({ id: file.id, status: 'importing' })
+      expect(producer.enqueueImport).toHaveBeenCalledWith({ fileId: file.id, accountId: 42, period: '2026-08' }, undefined)
+      const after = await repo.findById(file.id)
+      expect(after?.status).toBe('importing')
+    })
+
+    it('marks the file back to "error" (never stuck at "importing" with no job actually queued) when enqueueing fails', async () => {
+      const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) } } } })
+      const file = await tracked(client)
+      producer.enqueueImport.mockRejectedValueOnce(new Error('queue unreachable'))
+
+      await expect(service().requestImport(file.id, 42, '2026-08')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'queue_unavailable' }),
+      })
+
+      const after = await repo.findById(file.id)
+      // `error` (not stuck at `importing`) is claimable again — a retry from the operator can proceed.
+      expect(after?.status).toBe('error')
+    })
   })
 })

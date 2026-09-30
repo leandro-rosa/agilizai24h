@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { extname, join } from 'node:path'
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common'
+import { BadRequestException, ConflictException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { S3Service } from '@app/aws'
 import { HoldItBullMQBroker } from '@app/hold-it'
 import { TREASURY_QUEUES, type TreasuryRawRowsJob } from '@app/treasury-ingestion-contracts'
@@ -15,6 +15,7 @@ import { detectTreasurySheetSource } from '../utils/detect-source'
 import { parseItauStatementSheet } from '../parsers/itau-statement-sheet.parser'
 import { parseC6StatementSheet } from '../parsers/c6-statement-sheet.parser'
 import { parseC6InvoiceSheet } from '../parsers/c6-invoice-sheet.parser'
+import { TreasuryDriveProducer } from './treasury-drive.producer'
 import { TreasuryDriveRepository } from './treasury-drive.repository'
 
 /** Only the 3 sources this Drive source can ever detect (see detect-source.ts) — the other 4 arrive as PDF/CSV uploads through the gateway's own `/treasury-imports` path. */
@@ -24,30 +25,76 @@ const PARSERS = {
   c6_invoice: parseC6InvoiceSheet,
 } as const
 
+const refusal = (code: string, message: string) => ({ code, message })
+
 /**
- * Imports a confirmed treasury Drive file: re-downloads and re-detects fresh — never trusts
- * the scan's cached read for the actual write, same "the job recomputes every check on the
- * bytes it actually downloaded" principle drive-source's own `DriveImportService.runImport`
- * already follows for sales/supply. Uploads the raw file to S3 (the evidence, kept even after
- * parsing — same convention as `TreasuryRawRowsJob.objectKey`'s own doc comment) and publishes
- * exactly one job to the existing `treasury.raw-rows` queue, unchanged.
+ * Imports a confirmed treasury Drive file. Two halves, deliberately apart — the same split
+ * `DriveImportService` (the sibling sales/abastecimento Drive source) already uses for exactly
+ * this reason (see that file's own doc comment, "Two halves, deliberately apart"):
+ *
+ * `requestImport` runs on the HTTP path and only claims and queues — no download, no parsing —
+ * so it returns at once. The atomic claim (`repository.claimForImporting`) is what an operator's
+ * double-click, or a re-click on a file already `imported`/`importing`, hits immediately as a 409
+ * — never silently refused later inside the queue, where nobody observes it.
+ *
+ * `runImport` runs on the queue (`TreasuryDriveImportWorker`) and does the real work:
+ * re-downloads and re-detects the source fresh — never trusts the scan's cached read for the
+ * actual write, same "the job recomputes every check on the bytes it actually downloaded"
+ * principle `DriveImportService.runImport` already follows. It does NOT re-claim: the request
+ * path already did that, so it only checks the file is still `importing` — a stale or duplicate
+ * job (e.g. a BullMQ redelivery after the worker process died mid-import) finds the file still
+ * `importing` and simply proceeds, retrying the download from scratch, rather than failing the
+ * atomic claim forever the way re-claiming would. Uploads the raw file to S3 (the evidence, kept
+ * even after parsing — same convention as `TreasuryRawRowsJob.objectKey`'s own doc comment) and
+ * publishes exactly one job to the existing `treasury.raw-rows` queue, unchanged.
  */
 @Injectable()
 export class TreasuryDriveImportService {
+  private readonly logger = new Logger(TreasuryDriveImportService.name)
+
   constructor(
     private readonly repository: TreasuryDriveRepository,
+    private readonly producer: TreasuryDriveProducer,
     private readonly broker: HoldItBullMQBroker,
     private readonly s3: S3Service,
   ) {}
 
-  async import(id: string, client: DriveClient, accountId: number, period: string): Promise<{ status: 'imported'; jobId: string }> {
-    const file = await this.repository.findById(id)
-    if (!file) throw new BadRequestException({ code: 'not_found' })
+  // ---------------------------------------------------------------------------------------------
+  // The request: claim, queue. Nothing is downloaded here.
+  // ---------------------------------------------------------------------------------------------
 
-    // Atomic claim, not read-then-write: of two truly simultaneous imports of the same file,
-    // exactly one of these calls flips the status and the other sees it already gone.
+  async requestImport(id: string, accountId: number, period: string, correlationId?: string): Promise<{ id: string; status: 'importing' }> {
+    const file = await this.repository.findById(id)
+    if (!file) throw new NotFoundException(refusal('not_found', 'No such treasury Drive file'))
+
+    // The atomic step: of two simultaneous requests — or a double-click, or a re-click on a file
+    // already `imported`/`importing` — exactly one moves the file to `importing` and the other
+    // sees it already gone, refused here at once, never inside the queue where nobody observes it.
     const claimed = await this.repository.claimForImporting(id)
-    if (!claimed) throw new ConflictException({ code: 'already_imported' })
+    if (!claimed) throw new ConflictException(refusal('already_imported', 'This file is already being imported or is no longer importable'))
+
+    try {
+      await this.producer.enqueueImport({ fileId: id, accountId, period }, correlationId)
+    } catch (error) {
+      // The claim already moved the file to `importing`; if it never actually got queued, it
+      // must not stay stuck there forever — `error` is claimable again, so a retry can proceed.
+      await this.repository.markError(id, 'The import could not be queued')
+      this.logger.error(`Could not queue the import of treasury Drive file ${id}: ${(error as Error).message}`)
+      throw new HttpException(refusal('queue_unavailable', 'The import could not be queued; try again'), 503)
+    }
+
+    return { id, status: 'importing' }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // The job: download, recompute every check, and only then write.
+  // ---------------------------------------------------------------------------------------------
+
+  async runImport(id: string, client: DriveClient, accountId: number, period: string): Promise<{ status: 'imported'; jobId: string } | undefined> {
+    const file = await this.repository.findById(id)
+    // A stale or repeated job: the request path already claimed this file: if it is no longer
+    // `importing`, someone else finished it (or reset it) and there is nothing left to do here.
+    if (!file || file.status !== 'importing') return undefined
 
     try {
       const tmp = mkdtempSync(join(tmpdir(), 'treasury-drive-import-'))
@@ -67,11 +114,13 @@ export class TreasuryDriveImportService {
         const { rows, rejections } = parse(sheets[0].rows)
 
         // Only now does anything leave this process — same discipline as drive-import.service.ts's
-        // own "nothing is written before the checks pass" comment. `exportSheet` always produces
-        // real xlsx bytes regardless of the source's original mime type (the treasury Drive scan
-        // already established this: it calls exportSheet unconditionally, never download), so the
-        // uploaded content type is always XLSX_MIME, and the original name always gets an .xlsx
-        // extension when the Drive item (a native Sheet) reports none of its own.
+        // own "nothing is written before the checks pass" comment. `exportSheet` only ever succeeds
+        // for a native Google Sheet (`GOOGLE_SHEET_MIME`) — Drive's `files.export` rejects any other
+        // mime type with a 403 (see `treasury-drive-scan.service.ts`'s own per-file mimeType guard,
+        // added after a real scan crash on a non-Sheet file) — so a file that reaches this point
+        // with a real `detectedSource` was always a native Sheet, and these re-downloaded bytes are
+        // always real xlsx. The original name always gets an .xlsx extension when the Drive item
+        // reports none of its own.
         const bytes = await readFile(destPath)
         const originalName = extname(file.name) === '' ? `${file.name}.xlsx` : file.name
         const objectKey = `treasury-imports/${period}/${detectedSource}/${randomUUID()}-${originalName.replace(/[\\/]/g, '_')}`
@@ -95,7 +144,7 @@ export class TreasuryDriveImportService {
         rmSync(tmp, { recursive: true, force: true })
       }
     } catch (error) {
-      if (!(error instanceof BadRequestException) && !(error instanceof ConflictException)) {
+      if (!(error instanceof BadRequestException)) {
         await this.repository.markError(id, (error as Error).message)
       }
       throw error

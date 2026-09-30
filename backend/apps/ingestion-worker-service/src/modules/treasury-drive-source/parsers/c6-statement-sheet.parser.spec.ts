@@ -51,4 +51,13 @@ describe('parseC6StatementSheet', () => {
     const result = parseC6StatementSheet(rows)
     expect(result.rows[0].structuralHint).toBeUndefined()
   })
+
+  it('rejects the whole file with unrecognized_columns when a required header is missing, rather than silently reading undefined cells', () => {
+    const headerMissingTitulo = ['Data Lançamento', 'Data Contábil', 'Descrição', 'Entrada(R$)', 'Saída(R$)', 'Tipo', 'Detalhe']
+    const rows = [headerMissingTitulo, ['2026-08-03T00:00:00.000Z', '2026-08-03T00:00:00.000Z', 'Pix recebido de ALELO S.A.', 445.93, 0]]
+    const result = parseC6StatementSheet(rows)
+    expect(result.rows).toEqual([])
+    expect(result.rejections).toHaveLength(1)
+    expect(result.rejections[0].reason).toBe('unrecognized_columns')
+  })
 })

@@ -2,6 +2,7 @@ import { Body, ConflictException, Controller, Get, Headers, HttpCode, Inject, No
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { TREASURY_DRIVE_CONFIG, type TreasuryDriveConfig } from '../config/treasury-drive.config'
 import { IgnoreTreasuryDriveFileDto, ImportTreasuryDriveFileDto } from '../dto/treasury-drive-files.dto'
+import { TreasuryDriveImportService } from '../services/treasury-drive-import.service'
 import { TreasuryDriveProducer } from '../services/treasury-drive.producer'
 import { TreasuryDriveRepository } from '../services/treasury-drive.repository'
 
@@ -20,10 +21,14 @@ const notFound = () => new NotFoundException({ code: 'not_found', message: 'No s
  * confirm_replace, confirm_validation }`, because the source is fixed per file (the detected
  * bank/kind) and there is no "would replace" or "needs re-confirmation" state to carry.
  *
- * Nothing here does the actual import: it enqueues and answers 202, same as "Sincronizar agora"
- * does for a scan — `TreasuryDriveImportService.import` (Task 9) runs inside
- * `TreasuryDriveImportWorker`, not on the request path, so a slow re-download/re-parse/S3-upload
- * never ties up an HTTP request.
+ * `POST :id/import` claims the file and queues the real work, but does not do it itself: the
+ * atomic claim (`TreasuryDriveImportService.requestImport`) runs on the request path, so an
+ * operator's double-click, or a re-click on a file already `imported`/`importing`, is refused
+ * with 409 at once — never silently refused later inside the queue, where nobody would observe
+ * it (mirrors `DriveImportService`'s own `requestImport`/`runImport` split — see that service's
+ * doc comment). The actual download/parse/detect/S3-upload happens in
+ * `TreasuryDriveImportService.runImport`, inside `TreasuryDriveImportWorker`, so a slow
+ * re-download/re-parse/S3-upload never ties up an HTTP request.
  */
 @ApiTags('treasury-drive-files')
 @Controller('treasury-drive-files')
@@ -32,6 +37,7 @@ export class TreasuryDriveFilesController {
     @Inject(TREASURY_DRIVE_CONFIG) private readonly config: TreasuryDriveConfig,
     private readonly repository: TreasuryDriveRepository,
     private readonly producer: TreasuryDriveProducer,
+    private readonly imports: TreasuryDriveImportService,
   ) {}
 
   @Get()
@@ -64,15 +70,11 @@ export class TreasuryDriveFilesController {
   @HttpCode(202)
   @ApiOperation({
     summary: 'Import a confirmed treasury Drive file',
-    description: 'Queues the import against the confirmed account and period; the worker re-downloads and re-checks the file before writing anything.',
+    description:
+      'Claims the file and queues the import against the confirmed account and period. Refused with 409 at once when the file is already imported or importing; the worker re-downloads and re-checks the file before writing anything.',
   })
   async import(@Param('id') id: string, @Body() body: ImportTreasuryDriveFileDto, @Headers('x-correlation-id') correlationId?: string) {
-    const file = await this.repository.findById(id)
-    if (!file) throw notFound()
-
-    await this.producer.enqueueImport({ fileId: id, accountId: body.accountId, period: body.period }, correlationId)
-
-    return { id, status: 'importing' }
+    return this.imports.requestImport(id, body.accountId, body.period, correlationId)
   }
 
   @Post(':id/ignore')

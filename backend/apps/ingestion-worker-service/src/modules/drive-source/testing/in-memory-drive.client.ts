@@ -8,10 +8,23 @@ export interface NativeSheet {
   sheet: Buffer | string
 }
 
-/** Names map to file content (a file), a NativeSheet (a native sheet) or a nested object (a folder). */
-export type DriveTree = { [name: string]: Buffer | string | NativeSheet | DriveTree }
+/**
+ * An arbitrary-mimeType file in a test tree — a PDF, a photo, anything that is not a native
+ * Google Sheet and not the default XLSX_MIME a plain string/Buffer entry gets. Lets a test build
+ * the realistic "a non-Sheet file sits in the same folder as the real Sheets" scenario (an
+ * uploaded PDF statement, a receipt photo) without every plain file becoming one.
+ */
+export interface RawMimeFile {
+  mimeType: string
+  content: Buffer | string
+}
+
+/** Names map to file content (a file), a NativeSheet (a native sheet), a RawMimeFile (an arbitrary mimeType) or a nested object (a folder). */
+export type DriveTree = { [name: string]: Buffer | string | NativeSheet | RawMimeFile | DriveTree }
 
 const isSheet = (value: unknown): value is NativeSheet => typeof value === 'object' && value !== null && 'sheet' in value
+const isRawMimeFile = (value: unknown): value is RawMimeFile =>
+  typeof value === 'object' && value !== null && 'mimeType' in value && 'content' in value
 const isBytes = (value: unknown): value is Buffer | string => typeof value === 'string' || Buffer.isBuffer(value)
 
 /**
@@ -46,6 +59,7 @@ export class InMemoryDriveClient implements DriveClient {
     for (const [name, value] of Object.entries(tree)) {
       if (isBytes(value)) this.addFile(parentId, name, value)
       else if (isSheet(value)) this.addFile(parentId, name, value.sheet, true)
+      else if (isRawMimeFile(value)) this.addFile(parentId, name, value.content, false, undefined, value.mimeType)
       else this.addTree(this.addFolder(parentId, name), value)
     }
   }
@@ -68,14 +82,14 @@ export class InMemoryDriveClient implements DriveClient {
     return id
   }
 
-  addFile(parentId: string, name: string, content: Buffer | string, nativeSheet = false, id?: string): string {
+  addFile(parentId: string, name: string, content: Buffer | string, nativeSheet = false, id?: string, mimeType?: string): string {
     const fileId = id ?? `file-${++this.sequence}`
     const bytes = Buffer.from(content)
     this.contents.set(fileId, bytes)
     this.register({
       id: fileId,
       name,
-      mimeType: nativeSheet ? GOOGLE_SHEET_MIME : XLSX_MIME,
+      mimeType: mimeType ?? (nativeSheet ? GOOGLE_SHEET_MIME : XLSX_MIME),
       isFolder: false,
       size: nativeSheet ? null : bytes.length,
       md5Checksum: nativeSheet ? null : createHash('md5').update(bytes).digest('hex'),
@@ -165,8 +179,17 @@ export class InMemoryDriveClient implements DriveClient {
     return this.stream(fileId, destPath, maxBytes)
   }
 
+  /** Like the real Drive: `files.export` only ever works for a native Google Sheet — anything
+   * else (a PDF, an uploaded xlsx, a photo) is rejected, same as Drive's real 403 "Export only
+   * supports Docs Editors files". This is what makes a scan/import that calls `exportSheet`
+   * unconditionally on every non-folder file break against this fake exactly as it would break
+   * against the real Drive. */
   async exportSheet(fileId: string, destPath: string, maxBytes: number): Promise<DownloadResult> {
     this.exported.push(fileId)
+    const item = this.mustGet(fileId)
+    if (item.mimeType !== GOOGLE_SHEET_MIME) {
+      throw new Error(`The Drive returned 403: Export only supports Docs Editors files (mimeType: ${item.mimeType})`)
+    }
     return this.stream(fileId, destPath, maxBytes)
   }
 

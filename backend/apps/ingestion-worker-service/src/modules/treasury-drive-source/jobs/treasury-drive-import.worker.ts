@@ -30,9 +30,11 @@ export interface TreasuryDriveImportJobEnvelope {
  *
  * `concurrency: 1`, same as `drive-import.worker.ts`'s own queue: each import holds a whole
  * spreadsheet in memory and does one S3 upload. The repository's `claimForImporting` is the
- * real (atomic, DB-level) defense against two simultaneous imports of the SAME file; this
- * caps how many DIFFERENT files this worker processes at once, the same resource-use reasoning
- * the sibling worker's own comment gives.
+ * real (atomic, DB-level) defense against two simultaneous imports of the SAME file — but it
+ * runs on the REQUEST path now (`TreasuryDriveImportService.requestImport`), before a job is
+ * ever enqueued here, not in this worker (see that service's own doc comment). This
+ * `concurrency: 1` only caps how many DIFFERENT files this worker processes at once, the same
+ * resource-use reasoning the sibling worker's own comment gives.
  */
 @HoldItProcessor(TREASURY_DRIVE_QUEUES.IMPORT, { concurrency: 1 })
 export class TreasuryDriveImportWorker extends HoldItWorkerHost<TreasuryDriveImportJobEnvelope> {
@@ -52,6 +54,6 @@ export class TreasuryDriveImportWorker extends HoldItWorkerHost<TreasuryDriveImp
       ? createGoogleDriveClient({ credential: this.config.credential } as DriveConfig)
       : new DisabledDriveClient()
 
-    return this.imports.import(job.data.fileId, client, job.data.accountId, job.data.period)
+    return this.imports.runImport(job.data.fileId, client, job.data.accountId, job.data.period)
   }
 }

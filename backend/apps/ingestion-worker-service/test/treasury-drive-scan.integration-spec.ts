@@ -150,4 +150,30 @@ describe('TreasuryDriveScanService', () => {
     const [after] = await repo.list()
     expect(after.status).toBe('changed')
   })
+
+  it('tracks a real Sheet file and does not abort the scan when a non-Sheet file (e.g. a PDF, uploaded by hand) sits in the same bank folder', async () => {
+    // `exportSheet` only ever works for a native Google Sheet (see InMemoryDriveClient's own
+    // doc comment) — a real Drive folder with a hand-uploaded PDF statement alongside the real
+    // Sheets is exactly the scenario that used to throw 403 and abort every file after it.
+    const client = InMemoryDriveClient.fromTree('root', {
+      agosto: {
+        c6: {
+          'comprovante.pdf': { mimeType: 'application/pdf', content: 'not-a-spreadsheet' },
+          'extrato c6 agosto': { sheet: xlsxBuffer([c6StatementSheet()]) },
+        },
+      },
+    })
+    const repo = new TreasuryDriveRepository(prisma)
+    const service = new TreasuryDriveScanService(repo)
+
+    const result = await service.scan(client, config())
+
+    expect(result.seen).toBe(2)
+    expect(result.new).toBe(2)
+    const files = await repo.list()
+    const sheetFile = files.find(f => f.name === 'extrato c6 agosto')
+    const pdfFile = files.find(f => f.name === 'comprovante.pdf')
+    expect(sheetFile).toMatchObject({ detected_source: 'c6_statement', status: 'new' })
+    expect(pdfFile).toMatchObject({ detected_source: null, status: 'new' })
+  })
 })

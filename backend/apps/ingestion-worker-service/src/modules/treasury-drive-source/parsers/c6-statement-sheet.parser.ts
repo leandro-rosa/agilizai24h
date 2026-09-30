@@ -16,15 +16,24 @@ import { normalizeForMatch } from '../../treasury-ingestion/utils/normalize'
  * `Tipo` and `Detalhe` are the operator's classifications and are deliberately NOT used for
  * `structuralHint`, distinguishing operator input from bank-printed format signals.
  */
-const HEADERS = ['Data Lançamento', 'Data Contábil', 'Título', 'Descrição', 'Entrada(R$)', 'Saída(R$)', 'Tipo', 'Detalhe']
 
-function toColumnIndex(header: unknown[]): Record<string, number> {
+/**
+ * The columns this parser actually reads — same "only what's consumed, never the whole real
+ * layout" discipline as `itau-statement-sheet.parser.ts`'s own `REQUIRED_HEADERS` (`Data
+ * Contábil`/`Tipo`/`Detalhe` are real columns of the export but nothing here reads them). A
+ * header row missing one of these rejects the whole file (`unrecognized_columns`) instead of
+ * silently reading `undefined` cells row after row — the same bug class `buildColumnIndex`
+ * (Itaú sheet parser) already guards against.
+ */
+const REQUIRED_HEADERS = ['Data Lançamento', 'Título', 'Descrição', 'Entrada(R$)', 'Saída(R$)']
+
+function buildColumnIndex(header: unknown[]): Record<string, number> | null {
   const index: Record<string, number> = {}
   header.forEach((cell, i) => {
     const key = String(cell ?? '').trim()
     if (key) index[key] = i
   })
-  return index
+  return REQUIRED_HEADERS.every(name => name in index) ? index : null
 }
 
 function toDateOnly(value: unknown): string | null {
@@ -41,9 +50,18 @@ function toAmountCents(value: unknown): number | null {
 
 export function parseC6StatementSheet(rows: unknown[][]): ParseStatementLinesResult {
   const [header, ...dataRows] = rows
-  const columnIndex = toColumnIndex(header)
+  const columnIndex = buildColumnIndex(header ?? [])
   const result: TreasuryRawRow[] = []
   const rejections: TreasuryRawRejection[] = []
+
+  if (!columnIndex) {
+    rejections.push({
+      rowReference: 'header',
+      reason: 'unrecognized_columns',
+      detail: `Header row is missing an expected column (${REQUIRED_HEADERS.join(', ')})`,
+    })
+    return { rows: result, rejections }
+  }
 
   dataRows.forEach((row, i) => {
     const rowReference = `row${i + 2}`
