@@ -131,11 +131,12 @@ export class ParseFileWorker extends HoldItWorkerHost<ParseFileJob> {
 
       // Recorded before any chunk can finish, so the completion check has the
       // real target to compare against.
-      await this.ingestions.markProcessing(ingestionId, jobs.length)
+      const allChunksAlreadyDone = await this.ingestions.markProcessing(ingestionId, jobs.length)
 
-      if (jobs.length === 0) {
-        // An empty file still marks the period ingested, which is what keeps
-        // "never uploaded" distinct from "uploaded and empty".
+      if (allChunksAlreadyDone) {
+        // Either an empty file (still marks the period ingested, which keeps
+        // "never uploaded" distinct from "uploaded and empty"), or every chunk
+        // finished before the count was known — nobody else will finalise it.
         await this.ingestions.finalize(ingestionId)
       }
 

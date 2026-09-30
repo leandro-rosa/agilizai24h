@@ -152,11 +152,25 @@ export class IngestionService {
     return this.prisma.ingestion.findMany({ orderBy: { uploaded_at: 'desc' }, take: limit })
   }
 
-  markProcessing(id: string, expectedChunks: number) {
-    return this.prisma.ingestion.update({
+  /**
+   * Records how many chunks the file was split into, and reports whether every
+   * one of them has ALREADY finished.
+   *
+   * `smartChunk` enqueues the row jobs before it returns the count, so on a big
+   * file the workers can finish chunks before this runs. Those chunks saw
+   * `expected_chunks = 0` and correctly did not declare themselves last (see
+   * `completeChunk`); the last chunk may therefore have come and gone, and this
+   * is the only place left to notice. Both this statement and `completeChunk`
+   * are single atomic updates on the same row, so exactly one of the two sees
+   * "all done" — the file is finalised once, never twice and never zero times.
+   */
+  async markProcessing(id: string, expectedChunks: number): Promise<boolean> {
+    const updated = await this.prisma.ingestion.update({
       where: { id },
       data: { status: 'processing', expected_chunks: expectedChunks },
     })
+
+    return updated.processed_chunks >= expectedChunks
   }
 
   markFailed(id: string, error: string) {
@@ -276,7 +290,11 @@ export class IngestionService {
       },
     })
 
-    return updated.processed_chunks >= updated.expected_chunks
+    // `expected_chunks` is 0 until `markProcessing` runs, and 0 >= anything is
+    // true: without this guard the FIRST chunk to finish on a fast worker would
+    // call itself the last, finalise a partial batch and replace the period with
+    // it (seen live on the May 2026 backfill: 28 of 11,237 lines handed over).
+    return updated.expected_chunks > 0 && updated.processed_chunks >= updated.expected_chunks
   }
 
   stageRows(id: string, rows: StagedRowInput[]) {

@@ -116,6 +116,58 @@ describe('chunk accumulation', () => {
     expect(results.filter(Boolean)).toHaveLength(1)
   }, 30000)
 
+  describe('chunks that finish before the chunk count is known', () => {
+    // smartChunk enqueues the row jobs before it returns how many there are, so on
+    // a big file fast workers finish chunks while `expected_chunks` is still 0.
+    // Seen live on the May 2026 backfill: the first chunk called itself last and
+    // handed over 28 of 11,237 lines, replacing the month with them.
+    it('does not call a chunk last while the count is still unknown', async () => {
+      const id = await newIngestion('sales', 0)
+
+      expect(await ingestions.completeChunk(id, 1, 0)).toBe(false)
+      expect(await ingestions.completeChunk(id, 1, 0)).toBe(false)
+    }, 30000)
+
+    it('finalises when the count arrives after every chunk is already done — exactly once', async () => {
+      const id = await newIngestion('sales', 0)
+
+      expect(await ingestions.completeChunk(id, 1, 0)).toBe(false)
+      expect(await ingestions.completeChunk(id, 1, 0)).toBe(false)
+      expect(await ingestions.completeChunk(id, 1, 0)).toBe(false)
+
+      // markProcessing is where the late count lands, and it is the only place left to notice.
+      expect(await ingestions.markProcessing(id, 3)).toBe(true)
+    }, 30000)
+
+    it('leaves finalising to the chunks when the count arrives first', async () => {
+      const id = await newIngestion('sales', 0)
+
+      expect(await ingestions.markProcessing(id, 3)).toBe(false)
+      expect(await ingestions.completeChunk(id, 1, 0)).toBe(false)
+      expect(await ingestions.completeChunk(id, 1, 0)).toBe(false)
+      expect(await ingestions.completeChunk(id, 1, 0)).toBe(true)
+    }, 30000)
+
+    it('finalises an empty file from markProcessing', async () => {
+      const id = await newIngestion('sales', 0)
+
+      expect(await ingestions.markProcessing(id, 0)).toBe(true)
+    }, 30000)
+
+    it('never finalises twice when the count and the last chunk race', async () => {
+      for (let round = 0; round < 25; round++) {
+        const id = await newIngestion('sales', 0)
+        await ingestions.completeChunk(id, 1, 0)
+        await ingestions.completeChunk(id, 1, 0)
+
+        const results = await Promise.all([ingestions.markProcessing(id, 3), ingestions.completeChunk(id, 1, 0)])
+
+        // One of the two — never both, never neither — sees the file as done.
+        expect(results.filter(Boolean)).toHaveLength(1)
+      }
+    }, 60000)
+  })
+
   it('clears the staging area once the rows are handed over', async () => {
     const id = await newIngestion('sales', 1)
     await ingestions.stageRows(id, [{ storeId: 12345, sku: 'A', quantity: 1, amountCents: 100 }])
