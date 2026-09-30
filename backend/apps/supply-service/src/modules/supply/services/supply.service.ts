@@ -4,6 +4,7 @@ import type {
   SupplyRecordedClosingBalanceRow,
   SupplyRemovalRow,
   SupplyRestockRow,
+  SupplyVisit,
 } from '@app/ingestion-contracts'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { deriveLoss, type ClassifiedRemoval, type DerivedLoss } from '../utils/derive-loss'
@@ -43,6 +44,36 @@ export interface PeriodView {
   loss: DerivedLoss
 }
 
+export interface VisitLineView {
+  sku: string
+  balance_before: number
+  /** The count made BEFORE restocking; null = not counted (never zero). */
+  confirmed_count: number | null
+  quantity_to_restock: number | null
+  restocked: number
+  removed_total: number
+  adjustment: number
+  balance_after: number
+}
+
+export interface VisitView {
+  id: number
+  period: string
+  kind: string
+  started_at: string | null
+  ended_at: string
+  previous_ended_at: string | null
+  source_reference: string
+  lines: VisitLineView[]
+}
+
+export interface VisitsView {
+  store_id: number
+  from: string
+  to: string
+  visits: VisitView[]
+}
+
 export interface IngestPeriodInput {
   storeId: number
   period: string
@@ -51,6 +82,11 @@ export interface IngestPeriodInput {
   removals: SupplyRemovalRow[]
   adjustments: SupplyAdjustmentRow[]
   recordedClosingBalances: SupplyRecordedClosingBalanceRow[]
+  /**
+   * Undefined leaves the store-period's stored visits untouched (a job from a
+   * worker that predates visits); a list — even an empty one — replaces them.
+   */
+  visits?: SupplyVisit[]
 }
 
 export interface IngestResult {
@@ -84,6 +120,7 @@ export class SupplyService {
     removals,
     adjustments,
     recordedClosingBalances,
+    visits,
   }: IngestPeriodInput): Promise<IngestResult> {
     const reasons = await this.prisma.removalReason.findMany()
     const byKey = new Map(reasons.map(reason => [reason.key, reason]))
@@ -158,6 +195,40 @@ export class SupplyService {
         })
       }
 
+      // Visits are replaced in the same transaction as the monthly records, so a
+      // corrected report never leaves a superseded visit behind and a failed
+      // write never leaves the two out of step. Lines go with their visit (cascade).
+      if (visits !== undefined) {
+        await tx.supplyVisit.deleteMany({ where: { store_id: storeId, period } })
+
+        for (const visit of visits) {
+          await tx.supplyVisit.create({
+            data: {
+              store_id: storeId,
+              period,
+              kind: visit.kind,
+              started_at: visit.startedAt ? new Date(visit.startedAt) : null,
+              ended_at: new Date(visit.endedAt),
+              previous_ended_at: visit.previousEndedAt ? new Date(visit.previousEndedAt) : null,
+              source_reference: visit.sourceReference,
+              ingestion_id: ingestionId,
+              lines: {
+                create: visit.lines.map(line => ({
+                  sku: line.sku,
+                  balance_before: line.balanceBefore,
+                  confirmed_count: line.confirmedCount,
+                  quantity_to_restock: line.quantityToRestock,
+                  restocked: line.restocked,
+                  removed_total: line.removedTotal,
+                  adjustment: line.adjustment,
+                  balance_after: line.balanceAfter,
+                })),
+              },
+            },
+          })
+        }
+      }
+
       await tx.ingestedPeriod.upsert({
         where: { store_id_period: { store_id: storeId, period } },
         create: {
@@ -219,6 +290,45 @@ export class SupplyService {
       adjustments: adjustments.map(row => ({ sku: row.sku, quantity: row.quantity })),
       recorded_closing_balances: closingBalances.map(row => ({ sku: row.sku, quantity: row.quantity })),
       loss: deriveLoss(removals.map(toClassified)),
+    }
+  }
+
+  /**
+   * A store's visits and their lines over a range of periods, ordered by end
+   * instant. An empty list — not an error — for a range with none, so "never
+   * ingested" and "ingested with no visits" read the same to this caller; the
+   * period-level distinction still lives in `findPeriod`.
+   */
+  async findVisits(storeId: number, from: string, to: string): Promise<VisitsView> {
+    const visits = await this.prisma.supplyVisit.findMany({
+      where: { store_id: storeId, period: { gte: from, lte: to } },
+      include: { lines: { orderBy: [{ sku: 'asc' }, { id: 'asc' }] } },
+      orderBy: [{ ended_at: 'asc' }, { id: 'asc' }],
+    })
+
+    return {
+      store_id: storeId,
+      from,
+      to,
+      visits: visits.map(visit => ({
+        id: visit.id,
+        period: visit.period,
+        kind: visit.kind,
+        started_at: visit.started_at?.toISOString() ?? null,
+        ended_at: visit.ended_at.toISOString(),
+        previous_ended_at: visit.previous_ended_at?.toISOString() ?? null,
+        source_reference: visit.source_reference,
+        lines: visit.lines.map(line => ({
+          sku: line.sku,
+          balance_before: line.balance_before,
+          confirmed_count: line.confirmed_count,
+          quantity_to_restock: line.quantity_to_restock,
+          restocked: line.restocked,
+          removed_total: line.removed_total,
+          adjustment: line.adjustment,
+          balance_after: line.balance_after,
+        })),
+      })),
     }
   }
 

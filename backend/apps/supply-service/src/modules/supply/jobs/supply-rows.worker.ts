@@ -22,7 +22,7 @@ export class SupplyRowsWorker extends HoldItWorkerHost<SupplyRowsJob> {
   }
 
   async process(job: Job<SupplyRowsJob>): Promise<unknown> {
-    const { schemaVersion, storeId, period, ingestionId, restocks, removals, adjustments, recordedClosingBalances, correlationId } =
+    const { schemaVersion, storeId, period, ingestionId, restocks, removals, adjustments, recordedClosingBalances, visits, correlationId } =
       job.data
 
     if (schemaVersion !== 1) {
@@ -41,6 +41,8 @@ export class SupplyRowsWorker extends HoldItWorkerHost<SupplyRowsJob> {
       removals: removals ?? [],
       adjustments: adjustments ?? [],
       recordedClosingBalances: recordedClosingBalances ?? [],
+      // Left undefined, not defaulted: a job without `visits` must not wipe stored ones.
+      visits,
     })
 
     // After the commit, and only on a real change — re-uploading an identical

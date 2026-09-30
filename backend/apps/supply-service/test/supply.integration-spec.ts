@@ -1,6 +1,7 @@
 import 'reflect-metadata'
 import { ConfigModule } from '@nestjs/config'
 import { Test, type TestingModule } from '@nestjs/testing'
+import type { SupplyVisit } from '@app/ingestion-contracts'
 import { DbClientModule } from '../src/modules/db-client/db-client.module'
 import { PrismaClientService } from '../src/modules/db-client/prisma-client.service'
 import { SupplyService } from '../src/modules/supply/services/supply.service'
@@ -41,6 +42,7 @@ describe('supply integration', () => {
       await prisma.removalRecord.deleteMany({ where: { store_id: { in: storeIds } } })
       await prisma.adjustmentRecord.deleteMany({ where: { store_id: { in: storeIds } } })
       await prisma.recordedClosingBalance.deleteMany({ where: { store_id: { in: storeIds } } })
+      await prisma.supplyVisit.deleteMany({ where: { store_id: { in: storeIds } } })
       await prisma.ingestedPeriod.deleteMany({ where: { store_id: { in: storeIds } } })
     }
     await app?.close()
@@ -55,6 +57,7 @@ describe('supply integration', () => {
       removals?: { sku: string; reason: string; quantityRemoved: number; sourceText?: string }[]
       adjustments?: { sku: string; quantity: number }[]
       recordedClosingBalances?: { sku: string; quantity: number }[]
+      visits?: SupplyVisit[]
     } = {},
   ) =>
     supply.ingestPeriod({
@@ -65,6 +68,7 @@ describe('supply integration', () => {
       removals: opts.removals ?? [],
       adjustments: opts.adjustments ?? [],
       recordedClosingBalances: opts.recordedClosingBalances ?? [],
+      visits: opts.visits,
     })
 
   describe('the loss rule', () => {
@@ -390,4 +394,155 @@ describe('supply integration', () => {
       expect(period.recorded_closing_balances).toEqual([])
     })
   })
+
+  describe('visits (add-stock-quality-phase0)', () => {
+    const visit = (over: Partial<SupplyVisit> = {}): SupplyVisit => ({
+      kind: 'combined',
+      startedAt: '2026-03-02T08:32:00.000Z',
+      endedAt: '2026-03-02T08:45:00.000Z',
+      previousEndedAt: '2026-02-25T05:18:00.000Z',
+      sourceReference: 'Operação 1',
+      lines: [
+        {
+          sku: '5010',
+          balanceBefore: 8,
+          confirmedCount: 8,
+          quantityToRestock: 21,
+          restocked: 21,
+          removedTotal: 0,
+          adjustment: 0,
+          balanceAfter: 29,
+        },
+      ],
+      ...over,
+    })
+
+    it('records a combined visit with its count and instants', async () => {
+      const store = newStore()
+      await ingest(store, { restocks: [{ sku: '5010', quantityRestocked: 21 }], visits: [visit()] })
+
+      const result = await supply.findVisits(store, '2026-03', '2026-03')
+
+      expect(result.visits).toHaveLength(1)
+      expect(result.visits[0]).toMatchObject({
+        kind: 'combined',
+        started_at: '2026-03-02T08:32:00.000Z',
+        ended_at: '2026-03-02T08:45:00.000Z',
+        previous_ended_at: '2026-02-25T05:18:00.000Z',
+        source_reference: 'Operação 1',
+      })
+      expect(result.visits[0].lines).toEqual([
+        {
+          sku: '5010',
+          balance_before: 8,
+          confirmed_count: 8,
+          quantity_to_restock: 21,
+          restocked: 21,
+          removed_total: 0,
+          adjustment: 0,
+          balance_after: 29,
+        },
+      ])
+    })
+
+    it('keeps a missing count null, distinguishable from a count of zero', async () => {
+      const store = newStore()
+      const base = visit().lines[0]
+      await ingest(store, {
+        visits: [
+          visit({
+            lines: [
+              { ...base, sku: 'UNCOUNTED', confirmedCount: null, quantityToRestock: null },
+              { ...base, sku: 'ZERO', confirmedCount: 0 },
+            ],
+          }),
+        ],
+      })
+
+      const lines = (await supply.findVisits(store, '2026-03', '2026-03')).visits[0].lines
+      expect(lines.find(line => line.sku === 'UNCOUNTED')!.confirmed_count).toBeNull()
+      expect(lines.find(line => line.sku === 'UNCOUNTED')!.quantity_to_restock).toBeNull()
+      expect(lines.find(line => line.sku === 'ZERO')!.confirmed_count).toBe(0)
+    })
+
+    it('re-ingesting the identical report does not duplicate visits or lines', async () => {
+      const store = newStore()
+      await ingest(store, { visits: [visit()] })
+      await ingest(store, { visits: [visit()], ingestionId: 'ing-2' })
+
+      const result = await supply.findVisits(store, '2026-03', '2026-03')
+      expect(result.visits).toHaveLength(1)
+      expect(result.visits[0].lines).toHaveLength(1)
+    })
+
+    it('a corrected report leaves no visit from the superseded ingestion', async () => {
+      const store = newStore()
+      await ingest(store, { visits: [visit({ sourceReference: 'old' })] })
+      await ingest(store, { visits: [visit({ sourceReference: 'corrected' })], ingestionId: 'ing-2' })
+
+      const result = await supply.findVisits(store, '2026-03', '2026-03')
+      expect(result.visits.map(v => v.source_reference)).toEqual(['corrected'])
+    })
+
+    it('leaves the other periods of the same store unchanged', async () => {
+      const store = newStore()
+      await ingest(store, { period: '2026-03', visits: [visit({ sourceReference: 'march' })] })
+      await ingest(store, {
+        period: '2026-04',
+        visits: [visit({ sourceReference: 'april', endedAt: '2026-04-02T08:45:00.000Z' })],
+      })
+      await ingest(store, { period: '2026-04', visits: [], ingestionId: 'ing-2' })
+
+      const result = await supply.findVisits(store, '2026-03', '2026-04')
+      expect(result.visits.map(v => v.source_reference)).toEqual(['march'])
+    })
+
+    it('a job without visits leaves the stored visits untouched', async () => {
+      const store = newStore()
+      await ingest(store, { visits: [visit()] })
+      await ingest(store, { ingestionId: 'ing-2', restocks: [{ sku: '5010', quantityRestocked: 21 }] })
+
+      expect((await supply.findVisits(store, '2026-03', '2026-03')).visits).toHaveLength(1)
+    })
+
+    it('monthly records are identical with and without visits', async () => {
+      const withVisits = newStore()
+      const without = newStore()
+      const input = {
+        restocks: [{ sku: '5010', quantityRestocked: 21 }],
+        removals: [{ sku: '5010', reason: 'expired', quantityRemoved: 2 }],
+        adjustments: [{ sku: '5010', quantity: -1 }],
+        recordedClosingBalances: [{ sku: '5010', quantity: 29 }],
+      }
+      await ingest(withVisits, { ...input, visits: [visit()] })
+      await ingest(without, input)
+
+      const a = await supply.findPeriod(withVisits, '2026-03')
+      const b = await supply.findPeriod(without, '2026-03')
+      expect({ ...a, store_id: 0 }).toEqual({ ...b, store_id: 0 })
+    })
+
+    it('reads a range ordered by end instant, across periods', async () => {
+      const store = newStore()
+      await ingest(store, {
+        period: '2026-04',
+        visits: [visit({ sourceReference: 'april', endedAt: '2026-04-05T08:45:00.000Z' })],
+      })
+      await ingest(store, {
+        period: '2026-03',
+        visits: [
+          visit({ sourceReference: 'march-late', endedAt: '2026-03-20T08:45:00.000Z' }),
+          visit({ sourceReference: 'march-early', endedAt: '2026-03-02T08:45:00.000Z' }),
+        ],
+      })
+
+      const result = await supply.findVisits(store, '2026-03', '2026-04')
+      expect(result.visits.map(v => v.source_reference)).toEqual(['march-early', 'march-late', 'april'])
+    })
+
+    it('returns an empty list, not an error, for a range with no visits', async () => {
+      expect((await supply.findVisits(newStore(), '2026-01', '2026-02')).visits).toEqual([])
+    })
+  })
 })
+

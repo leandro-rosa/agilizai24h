@@ -15,11 +15,11 @@
 
 ## 3. Supply service
 
-- [ ] 3.1 Additive Prisma migration: visit and visit-line tables with indexes on store+end and visit+SKU; no change to the existing tables.
-- [ ] 3.2 Write visits inside the same transaction that replaces the period's monthly records, replacing the store and period's visits; tolerate a job without `visits`.
-- [ ] 3.3 Read route returning a store's visits and lines for a range of periods ordered by end instant; empty list for a range with none.
-- [ ] 3.4 Tests: idempotent re-ingestion does not duplicate; a corrected report leaves no superseded visit; other periods unchanged; monthly records identical with and without visits; null count preserved.
-- [ ] 3.5 Update `backend/apps/supply-service/CLAUDE.md` (visits, what they are not, the meaning of `Qtd. confirmada` as the count before restocking).
+- [x] 3.1 Additive Prisma migration: visit and visit-line tables with indexes on store+end and visit+SKU; no change to the existing tables.
+- [x] 3.2 Write visits inside the same transaction that replaces the period's monthly records, replacing the store and period's visits; tolerate a job without `visits`.
+- [x] 3.3 Read route returning a store's visits and lines for a range of periods ordered by end instant; empty list for a range with none.
+- [x] 3.4 Tests: idempotent re-ingestion does not duplicate; a corrected report leaves no superseded visit; other periods unchanged; monthly records identical with and without visits; null count preserved.
+- [x] 3.5 Update `backend/apps/supply-service/CLAUDE.md` (visits, what they are not, the meaning of `Qtd. confirmada` as the count before restocking).
 
 ## 4. Balance audit in inventory service
 

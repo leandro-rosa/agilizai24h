@@ -19,8 +19,34 @@ evento QUE ELE publica depois de derivar (ver
 | `GET /reasons` | Os seis motivos e sua classificação — a regra como dado |
 | `GET /supply/:storeId?period=` | Abastecimento, remoções, ajuste e fechamento registrado |
 | `GET /supply/:storeId/loss?period=` | Perda real: total, por motivo, por SKU |
+| `GET /supply/:storeId/visits?from=&to=` | As visitas (operações) da loja e suas linhas, por instante de término |
 | fila `ingestion.supply-rows` | Consome lote de um período |
 | fila `period.data-updated.inventory` | Publica quando o período muda |
+
+## As visitas (`add-stock-quality-phase0`)
+
+Além dos totais mensais, o serviço guarda **cada operação de abastecimento**
+(uma aba do workbook) e uma linha por SKU: saldo anterior, `Qtd. confirmada`,
+`A abastecer`, abastecido, remoções (número assinado), ajuste e saldo final —
+`supply_visit` e `supply_visit_line`. Os registros mensais somam por SKU e
+perdem a fronteira da visita; as visitas a mantêm, para seguir o saldo de um
+SKU de uma visita à seguinte sem reler planilha.
+
+- **`Qtd. confirmada` é a contagem feita ANTES do abastecimento**, não a
+  quantidade depois (medido: `Diferença == confirmada − anterior` em 4.313 de
+  4.313 linhas contadas e abastecidas; a quantidade depois é `Qtd. final`).
+  É **nula** quando a célula veio vazia, e nulo **não é zero**: só ~27% das
+  linhas são contadas, e ler o resto como zero fabricaria uma contagem.
+- **Aditivo e nunca fonte**: nada mensal é derivado das visitas e as visitas
+  não alteram nenhum registro mensal (há teste de igualdade com e sem visitas).
+- **Convergência**: a visita pertence ao período em que foi ingerida, como suas
+  quantidades mensais, e é substituída na MESMA transação que substitui os
+  registros do período — reenviar não duplica, relatório corrigido não deixa
+  visita antiga, outros períodos da loja não mudam. Um job **sem** `visits`
+  (worker antigo) não mexe nas visitas guardadas; `visits: []` as apaga.
+- **Não muda o evento**: `changed` continua vindo só dos registros mensais, então
+  reimportar apenas para gravar visitas não dispara `period.data-updated`.
+- A leitura devolve lista vazia, não erro, para um intervalo sem visitas.
 
 ## A regra
 

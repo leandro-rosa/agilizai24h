@@ -85,4 +85,17 @@ describe('SupplyRowsWorker', () => {
 
     expect(supply.ingestPeriod).toHaveBeenCalledWith(expect.objectContaining({ restocks: [], removals: [] }))
   })
+
+  it('passes visits through untouched, and leaves them undefined when the job has none', async () => {
+    const { worker, supply } = build(true)
+    const visits = [{ kind: 'combined', startedAt: null, endedAt: '2026-03-02T08:45:00.000Z', previousEndedAt: null, sourceReference: 'Operação 1', lines: [] }]
+
+    await worker.process(jobFor({ ...valid, visits }))
+    await worker.process(jobFor(valid))
+
+    expect(supply.ingestPeriod.mock.calls[0][0].visits).toEqual(visits)
+    // Undefined — not []: a job from a worker that predates visits must not wipe stored ones.
+    expect(supply.ingestPeriod.mock.calls[1][0].visits).toBeUndefined()
+  })
 })
+

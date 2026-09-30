@@ -143,3 +143,62 @@ model IngestedPeriod {
   @@unique([store_id, period])
   @@map("ingested_period")
 }
+
+/// One supply operation (a "visit") of a store, as the restocking report stated it.
+///
+/// Additive to the monthly records above and never a source for them: they are
+/// summed per SKU and lose the visit boundary, this keeps it, so a consumer can
+/// follow a SKU's balance from one visit to the next without re-parsing a
+/// report (add-stock-quality-phase0). A visit belongs to the period it was
+/// ingested under, like its monthly quantities, and is replaced wholesale with
+/// them.
+model SupplyVisit {
+  id       Int    @id @default(autoincrement())
+  store_id Int
+  period   String
+
+  /// 'restocking' | 'inventory' | 'combined'
+  kind String
+
+  started_at       DateTime?
+  ended_at         DateTime
+  /// The report's own "Operação anterior finalizada em", when it stated one — never inferred.
+  previous_ended_at DateTime?
+  /// The sheet in the source workbook, for tracing a figure back to the file.
+  source_reference String
+  ingestion_id     String
+
+  created_at DateTime @default(now())
+
+  lines SupplyVisitLine[]
+
+  @@index([store_id, ended_at])
+  @@index([store_id, period])
+  @@map("supply_visit")
+}
+
+/// One SKU's reading within one visit.
+///
+/// `confirmed_count` is the count made BEFORE restocking, and is NULL when the
+/// report cell was empty — which is not a count of zero (only ~27% of lines are
+/// counted). `quantity_to_restock` is NULL for the same reason.
+model SupplyVisitLine {
+  id       Int    @id @default(autoincrement())
+  visit_id Int
+  sku      String
+
+  balance_before      Int
+  confirmed_count     Int?
+  quantity_to_restock Int?
+  restocked           Int
+  /// Signed, zero or negative — the report's `Remoções` number.
+  removed_total       Int
+  /// Signed `Diferença`.
+  adjustment          Int
+  balance_after       Int
+
+  visit SupplyVisit @relation(fields: [visit_id], references: [id], onDelete: Cascade)
+
+  @@index([visit_id, sku])
+  @@map("supply_visit_line")
+}
