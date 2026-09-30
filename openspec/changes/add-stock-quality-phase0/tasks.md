@@ -33,7 +33,7 @@
 
 ## 5. Gateway
 
-- [ ] 5.1 Expose the audit route and the ingestion gaps route with the existing stock-read permission and the gateway's error mapping; tests for authorised, forbidden and upstream-failure responses.
+- [x] 5.1 Expose the audit route and the ingestion gaps route with the existing stock-read permission and the gateway's error mapping; tests for authorised, forbidden and upstream-failure responses.
 
 ## 6. Admin panel
 

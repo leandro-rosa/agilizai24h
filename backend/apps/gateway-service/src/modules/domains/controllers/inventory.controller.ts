@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Put, Query, Req } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Put, Query, Req } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { PERMISSIONS } from '@app/iam-contracts'
 import type { FastifyRequest } from 'fastify'
@@ -10,6 +10,29 @@ import { correlationOf } from './stores.controller'
 @Controller('inventory')
 export class InventoryController {
   constructor(private readonly domains: DomainClient) {}
+
+  /** Declared before `:storeId` so the literal segment is never read as a store id. */
+  @Get('audit/balance')
+  @RequiresPermission(PERMISSIONS.INVENTORY_READ)
+  @ApiOperation({
+    summary: 'Balance-quality audit: counts and consumption against the system',
+    description: 'Distributions and counts only — the audit defines no tolerance and labels nothing as passing or failing.',
+  })
+  @ApiQuery({ name: 'from', required: true, example: '2026-03' })
+  @ApiQuery({ name: 'to', required: true, example: '2026-08' })
+  async balanceAudit(@Query('from') from: string, @Query('to') to: string, @Req() request: FastifyRequest) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(from ?? '') || !/^\d{4}-(0[1-9]|1[0-2])$/.test(to ?? '') || from > to) {
+      throw new BadRequestException('from and to are required, as YYYY-MM, with from <= to')
+    }
+
+    const result = await this.domains.inventory({
+      method: 'get',
+      path: `/inventory/audit/balance?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
 
   @Get(':storeId')
   @RequiresPermission(PERMISSIONS.INVENTORY_READ)

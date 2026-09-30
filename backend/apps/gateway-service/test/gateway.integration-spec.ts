@@ -368,6 +368,86 @@ describe('gateway integration', () => {
     }, 20000)
   })
 
+  describe('balance audit routes (add-stock-quality-phase0)', () => {
+    const AUDIT = '/inventory/audit/balance'
+    const GAPS = '/ingestions/gaps'
+    const auditBody = { covered: { stores: 0 }, gaps: { unavailable_stores: [] } }
+
+    it('GET /inventory/audit/balance answers 403 without inventory:read and never reaches inventory-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })
+
+      await request(server()).get(`${AUDIT}?from=2026-03&to=2026-08`).set('Cookie', `${SESSION}=good`).expect(403)
+
+      expect(stub.calledWith('GET', AUDIT)).toBe(false)
+    })
+
+    it('GET /inventory/audit/balance forwards to inventory-service with inventory:read, and is not read as a store id', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.INVENTORY_READ] } })
+      stub.on('GET', AUDIT, { status: 200, body: auditBody })
+
+      const response = await request(server())
+        .get(`${AUDIT}?from=2026-03&to=2026-08`)
+        .set('Cookie', `${SESSION}=good`)
+        .expect(200)
+
+      expect(response.body).toEqual(auditBody)
+      expect(stub.calledWith('GET', AUDIT)).toBe(true)
+    })
+
+    it('GET /inventory/audit/balance rejects a missing or malformed range with 400, before any upstream call', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.INVENTORY_READ] } })
+
+      await request(server()).get(AUDIT).set('Cookie', `${SESSION}=good`).expect(400)
+      await request(server()).get(`${AUDIT}?from=2026-08&to=2026-03`).set('Cookie', `${SESSION}=good`).expect(400)
+      await request(server()).get(`${AUDIT}?from=March&to=2026-03`).set('Cookie', `${SESSION}=good`).expect(400)
+
+      expect(stub.calledWith('GET', AUDIT)).toBe(false)
+    })
+
+    it('GET /inventory/audit/balance answers 502, never 401 or 403, when inventory-service is too slow', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.INVENTORY_READ] } })
+      stub.on('GET', AUDIT, { status: 200, body: auditBody, delayMs: 3000 })
+
+      const response = await request(server()).get(`${AUDIT}?from=2026-03&to=2026-08`).set('Cookie', `${SESSION}=good`)
+
+      expect(response.status).toBe(502)
+      expect(response.body.upstream).toBe('inventory')
+    }, 20000)
+
+    it('GET /ingestions/gaps answers 403 without inventory:read and never reaches ingestion-worker-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })
+
+      await request(server()).get(`${GAPS}?from=2026-03&to=2026-08`).set('Cookie', `${SESSION}=good`).expect(403)
+
+      expect(stub.calledWith('GET', GAPS)).toBe(false)
+    })
+
+    it('GET /ingestions/gaps forwards with inventory:read and is not read as an ingestion id', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.INVENTORY_READ] } })
+      stub.on('GET', GAPS, { status: 200, body: { periods: [], totals: { operationsWithoutClient: 0, linesWithoutClient: 0 } } })
+
+      const response = await request(server()).get(`${GAPS}?from=2026-03&to=2026-08`).set('Cookie', `${SESSION}=good`).expect(200)
+
+      expect(response.body.totals).toEqual({ operationsWithoutClient: 0, linesWithoutClient: 0 })
+      expect(stub.calledWith('GET', GAPS)).toBe(true)
+    })
+
+    it('GET /ingestions/gaps rejects a malformed range with 400', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.INVENTORY_READ] } })
+
+      await request(server()).get(`${GAPS}?from=2026-03`).set('Cookie', `${SESSION}=good`).expect(400)
+    })
+
+    it('GET /ingestions/gaps answers 502 when ingestion-worker-service is too slow', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.INVENTORY_READ] } })
+      stub.on('GET', GAPS, { status: 200, body: {}, delayMs: 3000 })
+
+      const response = await request(server()).get(`${GAPS}?from=2026-03&to=2026-08`).set('Cookie', `${SESSION}=good`)
+
+      expect(response.status).toBe(502)
+    }, 20000)
+  })
+
   describe('aggregation', () => {
     it('reports partial failure explicitly instead of returning the subset', async () => {
       stub.on('GET', '/products', { status: 200, body: [], delayMs: 3000 })

@@ -27,6 +27,8 @@ request) e, por rota, dos 12 serviços de domínio — `stores`, `products`,
 | `GET /supply/reasons` | `supply:read` | O vocabulário de motivo de remoção |
 | `GET /supply/:storeId`, `GET /supply/:storeId/loss` | `supply:read` | Exige `?period=` |
 | `GET /inventory/:storeId`, `.../below-minimum`, `.../minimums` | `inventory:read` | `period` opcional (padrão: mais recente) |
+| `GET /inventory/audit/balance?from=&to=` | `inventory:read` | Auditoria de qualidade do saldo (`add-stock-quality-phase0`): só distribuições, sem veredito/tolerância. Declarada antes de `:storeId`; `from`/`to` `YYYY-MM` validados aqui (400) |
+| `GET /ingestions/gaps?from=&to=` | `inventory:read` (não `ingestion:read`) | Operações/linhas sem `Cliente` (CD) por período — a aba "Qualidade do saldo" junta com a auditoria, então quem vê uma vê a outra. Declarada antes de `GET /ingestions/:id` |
 | `PUT /inventory/:storeId/:sku/minimum` | `inventory:write` | |
 | `GET /finance/:storeId/:period`, `GET /finance/:storeId`, `GET /finance/rollup` | `finance:read` | A reconciliação mensal |
 | `POST /finance/:storeId/:period/recompute` | `finance:read` | Não cria nada que o leitor já não pudesse ver — só re-deriva |

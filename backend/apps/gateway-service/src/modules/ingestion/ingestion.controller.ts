@@ -146,6 +146,31 @@ export class IngestionController {
     return result.data
   }
 
+  /**
+   * Declared before `:id`. Gated by the stock-read permission, not ingestion:read:
+   * the "Qualidade do saldo" view combines it with the audit, and a reader who
+   * may see one should see the other.
+   */
+  @Get('gaps')
+  @RequiresPermission(PERMISSIONS.INVENTORY_READ)
+  @ApiOperation({
+    summary: 'Supply operations set aside for having no client, per period',
+    description: 'Counts only (the distribution center inventory). Nothing is written to any store.',
+  })
+  async gaps(@Query('from') from: string, @Query('to') to: string, @Req() request: FastifyRequest) {
+    if (!PERIOD_PATTERN.test(from ?? '') || !PERIOD_PATTERN.test(to ?? '') || from > to) {
+      throw new BadRequestException('from and to are required, as YYYY-MM, with from <= to')
+    }
+
+    const result = await this.domains.ingestion({
+      method: 'get',
+      path: `/ingestions/gaps?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      correlationId: (request as { correlationId?: string }).correlationId,
+    })
+
+    return result.data
+  }
+
   @Get(':id')
   @RequiresPermission(PERMISSIONS.INGESTION_READ)
   @ApiOperation({
