@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ComposedChart, Line, LineChart, XAxis, YAxis } from "recharts";
 
+import { DriveSyncButton } from "@/components/supply/drive-sync-button";
 import { LossTab } from "@/components/supply/loss-tab";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
@@ -834,6 +835,7 @@ export default function SupplyPage() {
       <PageHeader
         title="Abastecimento"
         description="Reposição, investigação de perdas e a reconciliação mensal (valor abastecido, CMV, sobra e perda real), por loja e período."
+        actions={<DriveSyncButton />}
       />
 
       <StorePeriodPicker storeId={storeId} onStoreIdChange={setStoreId} range={range} onRangeChange={setRange} allowNetwork />

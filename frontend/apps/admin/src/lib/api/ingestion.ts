@@ -246,6 +246,7 @@ export const {
   useGetIngestionQuery,
   useUploadIngestionMutation,
   useGetDriveFilesQuery,
+  useLazyGetDriveFilesQuery,
   useGetDriveStatusQuery,
   useScanDriveMutation,
   useValidateDriveFileMutation,

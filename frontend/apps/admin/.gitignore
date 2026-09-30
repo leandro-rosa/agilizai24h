@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local personal overrides (e.g. an extra host port for a friendlier local URL)
+docker-compose.override.yml
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
