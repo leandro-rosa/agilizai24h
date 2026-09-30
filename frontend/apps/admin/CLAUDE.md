@@ -207,6 +207,17 @@ tela.
   `/treasury` (dashboard + tabela, já confirmado). `/treasury/imports` (sem
   período) é só a listagem histórica de todo `PendingImport`, entrada pelo
   item "Importar extratos" da sidebar.
+- **"Arquivos no Drive"** — nova seção em `/treasury/imports`, acima do histórico
+  de upload manual, espelhando `/ingestion`'s padrão próprio de Drive
+  (`add-drive-ingestion-source`). Escaneia a pasta "Extratos" do Google Drive
+  mensalmente (06:00 America/Sao_Paulo ou "Sincronizar agora"), detecta extratos
+  Itaú e faturas/extratos C6, lista para revisão e importação com um clique,
+  entregando as mesmas filas de `treasury.raw-rows` que o upload manual já usa
+  — `treasury-service` vê as linhas identicamente. Scoped a Itaú/C6 por enquanto;
+  as outras 4 fontes (Nubank, PagBank, Bradesco, PagSeguro) virão depois quando
+  houver real file groundwork (ver
+  [backend/apps/ingestion-worker-service/CLAUDE.md](../../../backend/apps/ingestion-worker-service/CLAUDE.md),
+  seção "A fonte Drive de tesouraria").
 - **Polling da tela de conferência não usa `pollingInterval` alimentado por
   ref/estado derivado do próprio resultado da query.** A config de ESLint
   deste app aplica as regras de pureza do React Compiler

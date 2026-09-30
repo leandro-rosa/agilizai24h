@@ -467,6 +467,47 @@ test:integration:drive` (scan, validação, import e API contra o Postgres
 descartável e o `InMemoryDriveClient`; precisa de Docker). Nunca fala com o
 Google real. A aceitação com a pasta real é do operador (tarefa 13.3).
 
+## A fonte Drive de tesouraria (`add-treasury-drive-statement-sync`)
+
+Um segundo Drive root folder — "Extratos" (id `1m-79pKJqmE7nL9enlLb_ncAFHe7BBccq`) —
+organizado como `<mês>/<banco>/<arquivo>`, onde a operadora coloca mensalmente
+extratos bancários e faturas de cartão (Itaú, C6) em vez de fazer upload manual
+via `/treasury/imports/upload`. O mesmo "drop it in Drive, click sync"
+que sales/abastecimento já têm. Módulo paralelo, `src/modules/treasury-drive-source/`,
+não generaliza o `drive-source` existente — sua validação por cobertura de dia
+é vendas-específica e não se aplica aqui.
+
+**A pasta é uma segunda fonte, as 3 primeiras (Itaú PDF, C6 PDF, etc.) continuam
+via upload manual.** Esta primeira fase cobre Itaú statement, C6 statement e C6
+invoice — três novos parsers em `parsers/`, lendo células de Google Sheet em vez
+de texto extraído de PDF. As outras 4 fontes (Nubank, PagBank, Bradesco,
+PagSeguro fatura) virão depois, quando real-file groundwork confirmar seu layout
+no Drive.
+
+**Allowlist de meses é manual, não computado** — `TREASURY_DRIVE_MONTH_FOLDERS`
+lista os meses explicitamente (e.g. `agosto,setembro`), estendido à mão cada
+período. Motivo: os nomes das pastas carregam só o mês ("agosto"), nunca o ano,
+então "agosto" num Drive poderia ser 2026 ou 2025 e não tem como descobrir qual
+sem ler o conteúdo — automatizar isso criaria um vetor de ambiguidade em uma
+feature financeira. Só pastas nessa allowlist são escaneadas; uma pasta real
+"julho" não nomeada voltaria a ser invisível, nunca listada como "não reconhecido".
+
+**As linhas vêm todas na mesma fila (`treasury.raw-rows`) que as 7 fontes PDF
+já alimentam**, unchanged — `treasury-service` não diferencia origem (PDF manual
+vs. Drive Sheet) em lugar nenhum. Estruturalmente indistinguíveis pra jusante.
+
+**Sem reuso de Tipo/Detalhe da própria Sheet** — as Sheets C6 carregam colunas
+"Tipo"/"Detalhe" que a operadora digita (e.g. "Deslocamento"/"alimentação"), mas
+`structuralHint` (a classificação estrutural do parser) continua reservado só a
+fatos que a própria forma do arquivo fixa, independentes de favorecido (ver
+`c6-statement.parser.ts`'s `PATTERNS` — "PGTO FAT CARTAO C6" é sempre
+"Pagamento de fatura"). O motor de classificação do `treasury-service` classifica
+identicamente qualquer linha do Drive ou de PDF pelo mesmo `counterpartyRaw` +
+regras de de-para — sem criar um segundo eixo descoordernado de classificação.
+
+Ver [docs/superpowers/specs/2026-09-29-treasury-statement-drive-sync-design.md](../../../docs/superpowers/specs/2026-09-29-treasury-statement-drive-sync-design.md)
+e [docs/superpowers/plans/2026-09-29-treasury-statement-drive-sync.md](../../../docs/superpowers/plans/2026-09-29-treasury-statement-drive-sync.md).
+
 ## Gaps conhecidos
 - **Fonte Drive: sem calendário operacional de loja** — a cobertura por dia
   esperado depende dos dias normais inferidos do arquivo (ver acima). Vira
