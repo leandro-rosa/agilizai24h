@@ -14,6 +14,7 @@ import { BillingController } from './controllers/billing.controller'
 import { CapexController } from './controllers/capex.controller'
 import { SuppliersController } from './controllers/suppliers.controller'
 import { TreasuryController } from './controllers/treasury.controller'
+import { TreasuryDriveFilesController } from './controllers/treasury-drive-files.controller'
 import { TreasuryImportsController } from './controllers/treasury-imports.controller'
 
 @Module({
@@ -28,6 +29,7 @@ import { TreasuryImportsController } from './controllers/treasury-imports.contro
     SuppliersController,
     TreasuryController,
     TreasuryImportsController,
+    TreasuryDriveFilesController,
     AccountingController,
     BillingController,
     CapexController,

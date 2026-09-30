@@ -245,6 +245,99 @@ describe('gateway integration', () => {
     })
   })
 
+  describe('treasury Drive files proxy routes', () => {
+    it('GET /treasury-drive-files requires treasury:read and forwards to ingestion-worker-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })
+
+      await request(server()).get('/treasury-drive-files').set('Cookie', `${SESSION}=good`).expect(403)
+
+      expect(stub.calledWith('GET', '/treasury-drive-files')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.TREASURY_READ] } })
+      stub.on('GET', '/treasury-drive-files', { status: 200, body: [] })
+
+      await request(server()).get('/treasury-drive-files').set('Cookie', `${SESSION}=good`).expect(200)
+
+      expect(stub.calledWith('GET', '/treasury-drive-files')).toBe(true)
+    })
+
+    it('GET /treasury-drive-files/status requires treasury:read and forwards to ingestion-worker-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })
+
+      await request(server()).get('/treasury-drive-files/status').set('Cookie', `${SESSION}=good`).expect(403)
+
+      expect(stub.calledWith('GET', '/treasury-drive-files/status')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.TREASURY_READ] } })
+      stub.on('GET', '/treasury-drive-files/status', { status: 200, body: { configured: false } })
+
+      await request(server()).get('/treasury-drive-files/status').set('Cookie', `${SESSION}=good`).expect(200)
+
+      expect(stub.calledWith('GET', '/treasury-drive-files/status')).toBe(true)
+    })
+
+    it('POST /treasury-drive-files/scan requires treasury:write and forwards to ingestion-worker-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.TREASURY_READ] } })
+
+      await request(server()).post('/treasury-drive-files/scan').set('Cookie', `${SESSION}=good`).expect(403)
+
+      expect(stub.calledWith('POST', '/treasury-drive-files/scan')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.TREASURY_WRITE] } })
+      stub.on('POST', '/treasury-drive-files/scan', { status: 202, body: { status: 'queued' } })
+
+      await request(server()).post('/treasury-drive-files/scan').set('Cookie', `${SESSION}=good`).expect(202)
+
+      expect(stub.calledWith('POST', '/treasury-drive-files/scan')).toBe(true)
+    })
+
+    it('POST /treasury-drive-files/:id/import requires treasury:write and forwards to ingestion-worker-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.TREASURY_READ] } })
+
+      await request(server())
+        .post('/treasury-drive-files/file-1/import')
+        .set('Cookie', `${SESSION}=good`)
+        .send({ accountId: 1, period: '2026-08' })
+        .expect(403)
+
+      expect(stub.calledWith('POST', '/treasury-drive-files/file-1/import')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.TREASURY_WRITE] } })
+      stub.on('POST', '/treasury-drive-files/file-1/import', { status: 202, body: { id: 'file-1', status: 'importing' } })
+
+      await request(server())
+        .post('/treasury-drive-files/file-1/import')
+        .set('Cookie', `${SESSION}=good`)
+        .send({ accountId: 1, period: '2026-08' })
+        .expect(202)
+
+      expect(stub.calledWith('POST', '/treasury-drive-files/file-1/import')).toBe(true)
+    })
+
+    it('POST /treasury-drive-files/:id/ignore requires treasury:write and forwards to ingestion-worker-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.TREASURY_READ] } })
+
+      await request(server())
+        .post('/treasury-drive-files/file-1/ignore')
+        .set('Cookie', `${SESSION}=good`)
+        .send({ ignored: true })
+        .expect(403)
+
+      expect(stub.calledWith('POST', '/treasury-drive-files/file-1/ignore')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.TREASURY_WRITE] } })
+      stub.on('POST', '/treasury-drive-files/file-1/ignore', { status: 200, body: { id: 'file-1', status: 'ignored' } })
+
+      await request(server())
+        .post('/treasury-drive-files/file-1/ignore')
+        .set('Cookie', `${SESSION}=good`)
+        .send({ ignored: true })
+        .expect(200)
+
+      expect(stub.calledWith('POST', '/treasury-drive-files/file-1/ignore')).toBe(true)
+    })
+  })
+
   describe('upstream failures', () => {
     it('forwards a domain 404 as 404 rather than swallowing it', async () => {
       stub.on('GET', '/stores/99', { status: 404, body: { message: 'Store 99 not found' } })
