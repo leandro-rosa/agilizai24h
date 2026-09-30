@@ -45,14 +45,14 @@
 
 ## 7. Backfill and verification
 
-- [ ] 7.1 Reimport 2026-01 to 2026-08 through the normal import path (files from `var/exemplos-de-planilhas` and the stored August workbook); no synthetic data written to any database.
-- [ ] 7.2 Recompute the control sums of task 1.3 and compare; if any monthly record changed, stop and investigate before continuing.
-- [ ] 7.3 Compare the audit response with the offline analysis reference values of task 1.4 and explain any difference.
-- [ ] 7.4 Run `pnpm turbo run lint typecheck test` on the affected packages and compare with the baseline of task 1.2.
+- [x] 7.1 Reimport 2026-01 to 2026-08 through the normal import path (files from `var/exemplos-de-planilhas` and the stored August workbook); no synthetic data written to any database.
+- [x] 7.2 Recompute the control sums of task 1.3 and compare; if any monthly record changed, stop and investigate before continuing.
+- [x] 7.3 Compare the audit response with the offline analysis reference values of task 1.4 and explain any difference.
+- [x] 7.4 Run `pnpm turbo run lint typecheck test` on the affected packages and compare with the baseline of task 1.2.
 - [ ] 7.5 Open the tab in a browser against the real local stack and check every state, the line counts and the notice, in light and dark.
 - [ ] 7.6 When September's reports are imported, recompute the audit and record how the figures moved; the tolerance stays undecided until the Leandro reviews the distributions.
 
 ## 8. Closing
 
-- [ ] 8.1 Update the memory `commercial-intel-v2-phase0-findings` with the verified results of the backfill.
+- [x] 8.1 Update the memory `commercial-intel-v2-phase0-findings` with the verified results of the backfill.
 - [ ] 8.2 Commit and merge to the main branch in the same session, after checking the target checkout's `git status`, without staging unrelated uncommitted files.
