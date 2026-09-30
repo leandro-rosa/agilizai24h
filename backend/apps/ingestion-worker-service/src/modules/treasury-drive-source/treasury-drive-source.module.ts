@@ -5,6 +5,7 @@ import { TreasuryDriveImportService } from './services/treasury-drive-import.ser
 import { TreasuryDriveProducer } from './services/treasury-drive.producer'
 import { TreasuryDriveRepository } from './services/treasury-drive.repository'
 import { TreasuryDriveScanService } from './services/treasury-drive-scan.service'
+import { TreasuryDriveSchedulerService } from './services/treasury-drive-scheduler.service'
 
 /**
  * The treasury Drive source (Itaú/C6 bank statement and invoice files) — see the workspace
@@ -28,9 +29,10 @@ import { TreasuryDriveScanService } from './services/treasury-drive-scan.service
  * `TREASURY_DRIVE_SCAN_CRON`) is a real process env var, never something injected only through
  * Nest's `ConfigService` — so there is no `TREASURY_DRIVE_ENV_KEYS` allowlist to keep in sync.
  *
- * The scheduler that keeps the daily scan registered (mirroring `DriveSchedulerService`) is
- * Task 11 — not wired in yet. Until then, only "Sincronizar agora" (`POST /scan`) can trigger a
- * scan.
+ * `TreasuryDriveSchedulerService` (Task 11) keeps the daily scan registered exactly when the
+ * source is configured, mirroring `DriveSchedulerService` exactly — see that service's own doc
+ * comment. It is a provider here (not a worker), since `OnApplicationBootstrap` just needs to run
+ * once per process boot, not process queue jobs.
  */
 @Global()
 @Module({
@@ -44,6 +46,7 @@ import { TreasuryDriveScanService } from './services/treasury-drive-scan.service
     TreasuryDriveProducer,
     TreasuryDriveScanService,
     TreasuryDriveImportService,
+    TreasuryDriveSchedulerService,
   ],
   exports: [TREASURY_DRIVE_CONFIG, TreasuryDriveRepository, TreasuryDriveProducer, TreasuryDriveScanService, TreasuryDriveImportService],
 })
