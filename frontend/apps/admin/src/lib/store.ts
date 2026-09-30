@@ -1,6 +1,7 @@
 import { configureStore } from "@reduxjs/toolkit";
 
 import { authApi } from "@/lib/api/auth";
+import { balanceAuditApi } from "@/lib/api/balance-audit";
 import { ingestionApi } from "@/lib/api/ingestion";
 import { financeApi } from "@/lib/api/finance";
 import { inventoryApi } from "@/lib/api/inventory";
@@ -19,6 +20,7 @@ export function makeStore() {
   return configureStore({
     reducer: {
       [authApi.reducerPath]: authApi.reducer,
+      [balanceAuditApi.reducerPath]: balanceAuditApi.reducer,
       [storesApi.reducerPath]: storesApi.reducer,
       [productsApi.reducerPath]: productsApi.reducer,
       [inventoryApi.reducerPath]: inventoryApi.reducer,
@@ -36,6 +38,7 @@ export function makeStore() {
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware().concat(
         authApi.middleware,
+        balanceAuditApi.middleware,
         storesApi.middleware,
         productsApi.middleware,
         inventoryApi.middleware,

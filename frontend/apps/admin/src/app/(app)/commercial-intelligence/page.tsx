@@ -9,6 +9,7 @@ import { RequestState } from "@/components/request-state";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BalanceQualityTab } from "@/components/commercial-intelligence/balance-quality/balance-quality-tab";
 import { MixDrawer, type MixDrawerRow } from "@/components/commercial-intelligence/mix/mix-drawer";
 import { MixTable, type MixDisplayRow, type MixOpportunityRow } from "@/components/commercial-intelligence/mix/mix-table";
 import { RestockDrawer } from "@/components/commercial-intelligence/restock/restock-drawer";
@@ -39,6 +40,7 @@ export default function CommercialIntelligencePage() {
   const { data: stores, error: storesError, refetch: refetchStores } = useGetStoresQuery();
   const { data: products, error: productsError, refetch: refetchProducts } = useGetProductsQuery();
   const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState("abastecimento");
 
   const storePartition = useMemo(() => partitionSynthetic(stores ?? [], ALLOW_SYNTHETIC), [stores]);
   const scopedStores = storePartition.kept;
@@ -220,44 +222,54 @@ export default function CommercialIntelligencePage() {
         }
       />
 
-      <Select
-        value={selectedStoreId === null ? undefined : String(selectedStoreId)}
-        onValueChange={(value) => {
-          setSelectedStoreId(Number(value));
-          setSelectedRestockRow(null);
-          setSelectedMixRow(null);
-        }}
-      >
-        <SelectTrigger className="w-64">
-          <SelectValue placeholder="Selecione a loja" />
-        </SelectTrigger>
-        <SelectContent>
-          {scopedStores.map((s) => (
-            <SelectItem key={s.id} value={String(s.id)}>
-              {s.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-6">
+        <TabsList>
+          <TabsTrigger value="abastecimento">Abastecimento Inteligente</TabsTrigger>
+          <TabsTrigger value="mix">Mix das Lojas</TabsTrigger>
+          <TabsTrigger value="saldo">Qualidade do saldo</TabsTrigger>
+        </TabsList>
 
-      {selectedStoreId === null ? (
-        <p className="text-sm text-muted-foreground">Selecione uma loja para ver as recomendações de abastecimento e mix.</p>
-      ) : (
-        <RequestState isLoading={isLoading} error={combinedError} isEmpty={isEmpty} emptyMessage="Sem dados suficientes nesta loja para calcular recomendações." onRetry={retryAll}>
-          <Tabs defaultValue="abastecimento" className="gap-6">
-            <TabsList>
-              <TabsTrigger value="abastecimento">Abastecimento Inteligente</TabsTrigger>
-              <TabsTrigger value="mix">Mix das Lojas</TabsTrigger>
-            </TabsList>
+        {/* A loja só importa para as duas análises por loja; a qualidade do saldo é da rede inteira. */}
+        {activeTab !== "saldo" && (
+          <Select
+            value={selectedStoreId === null ? undefined : String(selectedStoreId)}
+            onValueChange={(value) => {
+              setSelectedStoreId(Number(value));
+              setSelectedRestockRow(null);
+              setSelectedMixRow(null);
+            }}
+          >
+            <SelectTrigger className="w-64">
+              <SelectValue placeholder="Selecione a loja" />
+            </SelectTrigger>
+            <SelectContent>
+              {scopedStores.map((s) => (
+                <SelectItem key={s.id} value={String(s.id)}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
-            <TabsContent value="abastecimento" className="flex flex-col gap-4">
+        <TabsContent value="abastecimento" className="flex flex-col gap-4">
+          {selectedStoreId === null ? (
+            <p className="text-sm text-muted-foreground">Selecione uma loja para ver as recomendações de abastecimento e mix.</p>
+          ) : (
+            <RequestState isLoading={isLoading} error={combinedError} isEmpty={isEmpty} emptyMessage="Sem dados suficientes nesta loja para calcular recomendações." onRetry={retryAll}>
               <p className="text-sm text-muted-foreground">A IA analisa vendas, abastecimentos, margem e perdas para sugerir o que levar para cada loja.</p>
               <RestockPanel rows={restockDisplayRows} windowLabel={windowLabel} />
               <RestockTable rows={restockDisplayRows} onSelect={setSelectedRestockRow} />
               <RestockDrawer row={selectedRestockRow} open={selectedRestockRow !== null} onOpenChange={(open) => !open && setSelectedRestockRow(null)} />
-            </TabsContent>
+            </RequestState>
+          )}
+        </TabsContent>
 
-            <TabsContent value="mix" className="flex flex-col gap-4">
+        <TabsContent value="mix" className="flex flex-col gap-4">
+          {selectedStoreId === null ? (
+            <p className="text-sm text-muted-foreground">Selecione uma loja para ver as recomendações de abastecimento e mix.</p>
+          ) : (
+            <RequestState isLoading={isLoading} error={combinedError} isEmpty={isEmpty} emptyMessage="Sem dados suficientes nesta loja para calcular recomendações." onRetry={retryAll}>
               <p className="text-sm text-muted-foreground">Quais produtos deveriam existir nesta loja, com base em tendência, participação na rede e margem.</p>
               <MixTable
                 rows={mixDisplayRows}
@@ -266,10 +278,14 @@ export default function CommercialIntelligencePage() {
                 onSelectOpportunity={(row) => setSelectedMixRow({ variant: "oportunidade", ...row })}
               />
               <MixDrawer row={selectedMixRow} open={selectedMixRow !== null} onOpenChange={(open) => !open && setSelectedMixRow(null)} />
-            </TabsContent>
-          </Tabs>
-        </RequestState>
-      )}
+            </RequestState>
+          )}
+        </TabsContent>
+
+        <TabsContent value="saldo">
+          <BalanceQualityTab storeName={storeName} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -461,6 +461,32 @@ Produtos, Comportamento, Lojas, Combos, Central de oportunidades), paradas
 desde 2026-09-19 aguardando meses reais importados e o `Cupom` conferido
 (`add-commercial-intelligence-page`).
 
+**Terceira aba, "Qualidade do saldo"** (`add-stock-quality-phase0`,
+`src/components/commercial-intelligence/balance-quality/`): mede quanto o saldo
+do sistema pode ser confiado, comparando **contagem física × saldo** e
+**consumo entre visitas × venda registrada**, com as lacunas ao lado. Lê
+`GET /inventory/audit/balance` e `GET /ingestions/gaps` (ambos `inventory:read`,
+cliente em `src/lib/api/balance-audit.ts`). É da **rede inteira**: o seletor de
+loja some nessa aba, porque as outras duas é que dependem de loja.
+
+O que ela **se recusa a afirmar**, de propósito:
+
+- **Nenhum veredito nem tolerância.** Nada é "aceitável/inaceitável/passou/
+  falhou"; o backend não devolve campo assim e há teste que varre o texto
+  renderizado atrás dessas palavras. A tolerância só será definida com o dono
+  depois de ver as distribuições reais.
+- **Nem verdade física.** Um aviso fixo diz que consumo e venda vêm do mesmo
+  PDV, então a concordância valida o alinhamento dos dados, não o estoque real.
+- **Faixas de giro/saldo são do backend**, vêm na resposta (`presentation`,
+  `provisional`) e são mostradas como "provisórias, só para fatiar" — o navegador
+  não tem cópia delas.
+- **"Venda não importada" ≠ "sem venda"**: loja sem mês de venda carregado tem giro
+  desconhecido; dizer que o SKU não vende seria falso.
+- **Toda cifra mostra sua contagem de linhas e o período.** Linha sem contagem
+  aparece como cobertura (ao lado de quantas foram contadas), nunca como "igual".
+- Estados via `RequestState` (carregando, vazio — "ainda não há dados de visitas",
+  erro, sem permissão). Sem `inventory:read` nada é pedido: `skip` nas duas queries.
+
 **O código antigo não foi apagado, só desligado da tela** — pedido explícito
 do operador para reaproveitar em fases futuras: `src/lib/
 commercial-intelligence/*` (motor de medição, 95 parâmetros, disponibilidade,

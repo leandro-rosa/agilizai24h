@@ -37,11 +37,11 @@
 
 ## 6. Admin panel
 
-- [ ] 6.1 RTK Query client for the audit and the gaps summary following the existing `lib/api` conventions.
-- [ ] 6.2 Tab "Qualidade do saldo" in the Commercial Intelligence page beside Abastecimento and Mix: count versus system by turnover and balance band, count coverage, consumption versus sales by band and by store-month, and data gaps; every figure shows its line count and period.
-- [ ] 6.3 Fixed notice stating that consumption and sales come from the same point of sale and that agreement validates data alignment, not physical truth; no figure labelled acceptable or unacceptable.
-- [ ] 6.4 Loading, empty (no visit data yet), error and forbidden states through the existing request-state component; component specs for each and for the absence of verdict wording.
-- [ ] 6.5 Update `frontend/apps/admin/CLAUDE.md` (the tab, its source, what it refuses to claim).
+- [x] 6.1 RTK Query client for the audit and the gaps summary following the existing `lib/api` conventions.
+- [x] 6.2 Tab "Qualidade do saldo" in the Commercial Intelligence page beside Abastecimento and Mix: count versus system by turnover and balance band, count coverage, consumption versus sales by band and by store-month, and data gaps; every figure shows its line count and period.
+- [x] 6.3 Fixed notice stating that consumption and sales come from the same point of sale and that agreement validates data alignment, not physical truth; no figure labelled acceptable or unacceptable.
+- [x] 6.4 Loading, empty (no visit data yet), error and forbidden states through the existing request-state component; component specs for each and for the absence of verdict wording.
+- [x] 6.5 Update `frontend/apps/admin/CLAUDE.md` (the tab, its source, what it refuses to claim).
 
 ## 7. Backfill and verification
 
