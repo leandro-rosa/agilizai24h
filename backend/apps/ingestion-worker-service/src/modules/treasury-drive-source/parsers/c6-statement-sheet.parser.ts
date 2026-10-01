@@ -1,6 +1,7 @@
 import type { TreasuryRawRejection, TreasuryRawRow } from '@app/treasury-ingestion-contracts'
 import type { ParseStatementLinesResult } from '../../treasury-ingestion/parsers/statement-line'
 import { C6_PATTERNS } from '../../treasury-ingestion/parsers/c6-statement.parser'
+import { parseBrDate } from '../../treasury-ingestion/utils/date'
 import { normalizeForMatch } from '../../treasury-ingestion/utils/normalize'
 
 /**
@@ -66,7 +67,17 @@ function buildColumnIndex(header: unknown[]): Record<string, number> | null {
 
 function toDateOnly(value: unknown): string | null {
   if (value instanceof Date) return value.toISOString().slice(0, 10)
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+    // The real September file stores this column as DD/MM/YYYY text, not an ISO string or a
+    // native Date — found live against the real file (August's genuinely differed, an ISO-ish
+    // native-Sheet export), same month-to-month format variance this bank's other sources show.
+    const brDateMatch = value.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+    if (brDateMatch) {
+      const [, day, month, year] = brDateMatch
+      return parseBrDate(day, month, year)
+    }
+  }
   return null
 }
 

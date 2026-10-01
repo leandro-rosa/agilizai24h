@@ -83,4 +83,11 @@ describe('parseC6StatementSheet', () => {
       sourceRef: 'row9',
     }])
   })
+
+  it('parses "Data Lançamento" as real DD/MM/YYYY text, not just an ISO string — the real September file stores it this way', () => {
+    const rows = [HEADER, ['01/09/2026', '01/09/2026', 'Pix recebido de AGILIZ.AI LTDA', 'Pix recebido de AGILIZ.AI LTDA', 7800, 0]]
+    const result = parseC6StatementSheet(rows)
+    expect(result.rejections).toEqual([])
+    expect(result.rows[0].occurredOn).toBe('2026-09-01')
+  })
 })
