@@ -4,6 +4,9 @@ import { HealthModule } from '@app/health'
 import { HoldItModule } from '@app/hold-it'
 import { validateEnv } from './config/env.validation'
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware'
+import { BacktestModule } from './modules/backtest/backtest.module'
+import { BacktestWorker } from './modules/backtest/backtest.worker'
+import { BACKTEST_QUEUES } from './modules/backtest/backtest.constants'
 import { DbClientModule } from './modules/db-client/db-client.module'
 import { BaselineModule } from './modules/baseline/baseline.module'
 import { FlagsModule } from './modules/flags/flags.module'
@@ -26,10 +29,11 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     BaselineModule,
     FlagsModule,
     RunsModule,
+    BacktestModule,
     // withKafkaBrokers is explicit for the same reason as everywhere else: the default is true
     // and crashes NestJS at startup.
-    HoldItModule.register([INTELLIGENCE_QUEUES.ENGINE_STORE], { withKafkaBrokers: false }),
-    HoldItModule.registerWorker({ processors: [EngineStoreWorker] }),
+    HoldItModule.register([INTELLIGENCE_QUEUES.ENGINE_STORE, BACKTEST_QUEUES.BACKTEST], { withKafkaBrokers: false }),
+    HoldItModule.registerWorker({ processors: [EngineStoreWorker, BacktestWorker] }),
   ],
 })
 export class AppModule implements NestModule {

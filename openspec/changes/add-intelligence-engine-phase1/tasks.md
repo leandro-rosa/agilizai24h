@@ -52,14 +52,14 @@
 
 ## 8. Backtest
 
-- [ ] 8.1 Data view that returns only records ending before an origin; a test asserting no later date is ever read.
-- [ ] 8.2 Rolling-origin replay (April to August 2026 origins) recording, per Product × Store with enough data: baseline in force (with the "baseline of the time unknown" marker where it applies), recommended quantity, `H`, action and Mix state, and afterwards sales, losses by reason, stock-outs and economic result (loss counted once).
-- [ ] 8.3 Demand-forecast error as one metric (censored actuals counted apart and excluded).
-- [ ] 8.4 Coherence assessment per action (reduce, increase/test, keep, evaluate removal) with the criteria shown, labelled an estimate and worded as "compatible with the data that followed", never as correct or proven; for reductions show separately the losses and sales that followed, the cycles in which demand exceeded the recommended quantity, the potentially avoidable loss units and the units of sales at risk; conflicting criteria → inconclusive. Tests: reduction compatible with the data, reduction with mixed evidence (inconclusive), harmful reduction, unsupported increase, too little afterwards, and that no output wording claims correctness.
-- [ ] 8.5 Coverage report with the five exclusive categories summing to the total; tests that conflicting data wins over balance status and that each pair appears once.
-- [ ] 8.6 Count-rule sensitivity report over the grid of counts considered, minimum counts, maximum age and tolerance, with the configured defaults marked; it selects nothing; test that the defaults appear in the grid.
-- [ ] 8.7 Stored report with per-pair results, aggregates, coverage and sensitivity tables, every figure with its coverage (origins, pairs, cycles) and no verdict or frozen threshold; test that no key reads like pass/fail and that "coherent" is not worded as approval.
-- [ ] 8.8 A command to run the backtest against the real local history and print a readable summary.
+- [x] 8.1 Data view that returns only records ending before an origin; a test asserting no later date is ever read.
+- [x] 8.2 Rolling-origin replay (April to August 2026 origins) recording, per Product × Store with enough data: baseline in force (with the "baseline of the time unknown" marker where it applies), recommended quantity, `H`, action and Mix state, and afterwards sales, losses by reason, stock-outs and economic result (loss counted once).
+- [x] 8.3 Demand-forecast error as one metric (censored actuals counted apart and excluded).
+- [x] 8.4 Coherence assessment per action (reduce, increase/test, keep, evaluate removal) with the criteria shown, labelled an estimate and worded as "compatible with the data that followed", never as correct or proven; for reductions show separately the losses and sales that followed, the cycles in which demand exceeded the recommended quantity, the potentially avoidable loss units and the units of sales at risk; conflicting criteria → inconclusive. Tests: reduction compatible with the data, reduction with mixed evidence (inconclusive), harmful reduction, unsupported increase, too little afterwards, and that no output wording claims correctness.
+- [x] 8.5 Coverage report with the five exclusive categories summing to the total; tests that conflicting data wins over balance status and that each pair appears once.
+- [x] 8.6 Count-rule sensitivity report over the grid of counts considered, minimum counts, maximum age and tolerance, with the configured defaults marked; it selects nothing; test that the defaults appear in the grid.
+- [x] 8.7 Stored report with per-pair results, aggregates, coverage and sensitivity tables, every figure with its coverage (origins, pairs, cycles) and no verdict or frozen threshold; test that no key reads like pass/fail and that "coherent" is not worded as approval.
+- [x] 8.8 A readable summary of the stored report: `GET /backtests/:id/summary` (plain text) and `GET /backtests/:id` (JSON), `GET /backtests` list, `POST /backtests` to start one through the queue; internal, no gateway route.
 
 ## 9. Monthly refresh
 

@@ -19,8 +19,8 @@ Sem superfície pública: nenhuma rota no gateway ainda.
 
 Pronto: bootstrap, env, health, clientes de leitura, Docker, `agiliz-cli`,
 modelo de dados, parâmetros, o **motor** e as **runs** (fila + persistência +
-leitura). **Ainda não existe** backtest nem atualização mensal automática —
-grupos 8 e 9 da mudança. Sem rota no gateway e sem tela.
+leitura) e o **backtest** (fila + persistência + relatório legível). **Ainda não existe**
+a atualização mensal automática — grupo 9 da mudança. Sem rota no gateway e sem tela.
 
 ## Runs (`/runs`) — rotas internas
 
@@ -45,6 +45,50 @@ grupos 8 e 9 da mudança. Sem rota no gateway e sem tela.
   conflitos não disparam; o motor já os trata quando vierem.
 - `asOf` padrão é agora; sem importar setembro, uma run "ao vivo" tem toda contagem
   antiga (`last_count_too_old`) — rode com `asOf` do fim do último mês importado.
+
+## Backtest (`/backtests`) — rotas internas (`src/modules/backtest/`)
+
+Repete o motor sobre a história para o dono LER antes de qualquer tela. **Não decide nada**:
+sem aprovado/reprovado, sem limiar congelado, sem parâmetro alterado.
+
+- `POST /backtests {rangeFrom, rangeTo, dataThrough?, asOf?, parameterVersionId?}` só registra
+  (`backtest_run`, status em `report.status`) e enfileira **um job** (`intelligence.backtest`);
+  `GET /backtests`, `GET /backtests/:id` (JSON), `GET /backtests/:id/summary` (texto),
+  `GET /backtests/:id/results?storeId=&sku=&origin=&action=&coherence=`. `BacktestService`
+  implementa `BACKTEST_PORT` (`start` volta na hora; `status` só diz `completed` quando
+  resultados + relatório foram gravados **na mesma transação**).
+- **Origens**: todo início de mês com ≥ 8 semanas de história (desde a 1ª visita) até
+  `dataThrough` (jan–ago → abr..ago). Cada loja é lida **uma vez** (`RunInputBuilder`) e cada
+  origem é um **corte** (`HistoryView`): só entra o que terminou ANTES da origem; teste com
+  espião (`latestDateRead`) e de invariância (adulterar o futuro não muda o resultado).
+  `asOf` do motor = origem. Evidência de rede não é reexecutada (cada par é julgado sozinho).
+- **Por par com dados suficientes** (fora de `insufficient_history`): baseline vigente na
+  origem (histórico do baseline; sem histórico → baseline de registro **marcado**
+  `ofRecordQuantityOfTheTimeUnknown`; hoje é TODO o período, o histórico só começa em set/2026),
+  quantidade/`H`/ação/Mix e, depois: vendido, perda por motivo, rupturas (intervalos
+  censurados), ciclos, resultado econômico (margem − custo da perda, cada perda uma vez, custo
+  = versão única atual). A perda mensal é espalhada nos ciclos pelas remoções registradas nas
+  visitas (estimativa; dito no resultado).
+- **Erro de previsão = UMA métrica** (WAPE): previsto (taxa mediana × dias dos intervalos não
+  censurados) contra observado entre visitas; censurados contados à parte e fora do erro.
+- **Coerência** (`coherence.ts`, D13): "coerente" = só "os dados seguintes são compatíveis sob
+  os critérios mostrados", sempre `label: 'estimate'`, com critérios ao lado; critérios em
+  conflito ou menos ciclos que o mínimo → `inconclusive`. Redução mostra SEPARADOS perdas,
+  vendas, ciclos acima da quantidade sugerida, perda potencialmente evitável (teto =
+  baseline − sugerida) e venda em risco. "Em risco" só pesa se ≥ `backtest.salesAtRiskShare`
+  das vendas (desvio conservador de D13: sem perda e com pouco acima → inconclusivo, não
+  incoerente). Teste varre todo texto/chave: nada diz correto/provado/aprovado/veredito.
+- **Cobertura** (5 categorias exclusivas, soma = total; `buildCoverageReport` recusa par
+  repetido) e **sensibilidade das regras de contagem** (contagens 1/2/3/5 × mínimo 1/2/3 × idade
+  30/45/60/90 × tolerância 5%/2, 10%/3, 15%/5; 108 combinações válidas, as inválidas
+  `minCounts > windowCounts` são listadas, não sumidas; as configuradas marcadas
+  `configured`, adicionadas se fora da grade). Reusa `classifyTolerance`/`coverageCategory` do
+  motor; **não escolhe nem recomenda** (nenhuma chave "recommended/best/chosen").
+- Todo agregado traz `covers {origins, pairs, cycles}`. A limitação do baseline de época vem em
+  destaque. O JSON não tem veredito nem limiar.
+- **Idempotência**: o job só roda com status `running`; reentrega depois de concluído é
+  ignorada; escrita sob `pg_advisory_xact_lock`; falha só vira `failed` na ÚLTIMA tentativa.
+- Medido nos dados reais jan–ago (21 lojas): ~7,5 s, ~4,8 mil resultados (~10 MB), relatório ~100 KB.
 
 ## O motor (`src/modules/engine/`, funções puras)
 
