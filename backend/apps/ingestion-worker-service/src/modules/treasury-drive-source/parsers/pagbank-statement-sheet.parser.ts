@@ -8,8 +8,9 @@ import type { TreasuryRawRejection, TreasuryRawRow } from '@app/treasury-ingesti
  * of that file — `Data, Tipo, Descrição, Entradas, Saidas, Saldo` — same shape
  * `detectTreasurySheetSource`'s PagBank branch already searches for (Task 3).
  *
- * The header row is LOCATED within a window, never assumed to be `rows[0]` — unlike
- * `c6-statement-sheet.parser.ts`, whose real export has no preamble at all. Task 8's own routing
+ * The header row is LOCATED within a window, never assumed to be `rows[0]` — same discipline
+ * `c6-statement-sheet.parser.ts` also needed once its own real September file turned out to have
+ * a metadata preamble too (found live, not anticipated at design time). Task 8's own routing
  * plan calls `SHEET_PARSERS[detectedSource](result.sheets[0].rows)` with the FULL sheet rows,
  * metadata preamble included; a parser that destructured `const [header, ...dataRows] = rows`
  * would read the "Nome do Titular" line as the header and silently reject every real row as

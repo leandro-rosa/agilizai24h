@@ -60,4 +60,27 @@ describe('parseC6StatementSheet', () => {
     expect(result.rejections).toHaveLength(1)
     expect(result.rejections[0].reason).toBe('unrecognized_columns')
   })
+
+  it('locates the real header past a metadata preamble, instead of assuming row 0 is the header — real September file shape: title/blank/agência-conta/generated-at/blank/period/blank, header at row 8', () => {
+    const rows = [
+      [null, 'EXTRATO DE CONTA CORRENTE C6 BANK'],
+      [],
+      [null, 'Agência: 1 / Conta: 405968949'],
+      [null, 'Extrato gerado em 01/10/2026 - as 12:07:10'],
+      [],
+      [null, 'Extrato de 01/09/2026 a 30/09/2026'],
+      [],
+      HEADER,
+      ['2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z', 'Pix recebido de AGILIZ.AI LTDA', 'Pix recebido de AGILIZ.AI LTDA', 7800, 0],
+    ]
+    const result = parseC6StatementSheet(rows)
+    expect(result.rejections).toEqual([])
+    expect(result.rows).toEqual([{
+      occurredOn: '2026-09-01',
+      amountCents: 780000,
+      direction: 'inflow',
+      counterpartyRaw: 'Pix recebido de AGILIZ.AI LTDA',
+      sourceRef: 'row9',
+    }])
+  })
 })
