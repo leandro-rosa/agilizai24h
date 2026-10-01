@@ -108,4 +108,27 @@ describe('readAndClassifyTreasuryDriveFile', () => {
     expect(result.detectedSource).toBeNull()
     expect(result.contentSha256).toBeTruthy()
   })
+
+  it('records a password-protected PDF as unrecognized when the configured password is wrong, without throwing', async () => {
+    const client = InMemoryDriveClient.fromTree('root', {})
+    const fileId = client.addFile('root', 'fatura.pdf', readFileSync(ENCRYPTED_PDF_FIXTURE), false)
+
+    const result = await readAndClassifyTreasuryDriveFile(client, fileId, 'application/pdf', 'c6', '/tmp/test-dest-8', 25 * 1024 * 1024, 'wrong-password')
+    expect(result.detectedSource).toBeNull()
+    expect(result.contentSha256).toBeTruthy()
+    expect(result.pages).toBeUndefined()
+  })
+
+  it('records corrupt content starting with zip magic bytes as unrecognized, without throwing', async () => {
+    const client = InMemoryDriveClient.fromTree('root', {})
+    // Real zip/xlsx magic bytes ("PK\x03\x04"), followed by garbage no zip reader can parse —
+    // neither ExcelJS's own attempt nor SheetJS's buffer/file fallback inside `readWorkbookRows`
+    // can make a workbook out of this.
+    const fileId = client.addFile('root', 'corrupt.xlsx', Buffer.from([0x50, 0x4b, 0x03, 0x04, 0xff, 0xff, 0xff, 0xff]), false)
+
+    const result = await readAndClassifyTreasuryDriveFile(client, fileId, 'application/octet-stream', 'itau', '/tmp/test-dest-9', 25 * 1024 * 1024, undefined)
+    expect(result.detectedSource).toBeNull()
+    expect(result.contentSha256).toBeTruthy()
+    expect(result.sheets).toBeUndefined()
+  })
 })

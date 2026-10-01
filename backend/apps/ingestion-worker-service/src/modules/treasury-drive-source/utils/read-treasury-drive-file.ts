@@ -46,8 +46,15 @@ export async function readAndClassifyTreasuryDriveFile(
   const magic = bytes.subarray(0, 4)
 
   if (magic.subarray(0, 2).equals(ZIP_MAGIC)) {
-    const sheets = await readWorkbookRows(destPath)
-    return { detectedSource: detectTreasurySheetSource(sheets, bankFolderName), contentSha256: sha256, sheets }
+    try {
+      const sheets = await readWorkbookRows(destPath)
+      return { detectedSource: detectTreasurySheetSource(sheets, bankFolderName), contentSha256: sha256, sheets }
+    } catch {
+      // Corrupt or non-workbook content that merely starts with zip magic bytes (ExcelJS's own
+      // attempt AND SheetJS's fallback both failed inside `readWorkbookRows`): unrecognized, never
+      // thrown further — same contract as every other unreadable-content case in this function.
+      return { detectedSource: null, contentSha256: sha256 }
+    }
   }
 
   if (magic.equals(PDF_MAGIC)) {
@@ -56,8 +63,14 @@ export async function readAndClassifyTreasuryDriveFile(
       return { detectedSource: detectTreasuryPdfSource(pages, bankFolderName), contentSha256: sha256, pages }
     } catch (error) {
       if (error instanceof PdfPasswordRequiredError && pdfPassword !== undefined) {
-        const pages = await extractPdfPages(bytes, pdfPassword)
-        return { detectedSource: detectTreasuryPdfSource(pages, bankFolderName), contentSha256: sha256, pages }
+        try {
+          const pages = await extractPdfPages(bytes, pdfPassword)
+          return { detectedSource: detectTreasuryPdfSource(pages, bankFolderName), contentSha256: sha256, pages }
+        } catch {
+          // The configured password was wrong (or any other failure reading with it): unrecognized,
+          // never thrown further — same contract as the no-password-configured case right below.
+          return { detectedSource: null, contentSha256: sha256 }
+        }
       }
       // Wrong/missing password, or any other read failure: unrecognized, never thrown further —
       // the metadata-based sha256 from `download` above is still a valid fingerprint for re-scan
