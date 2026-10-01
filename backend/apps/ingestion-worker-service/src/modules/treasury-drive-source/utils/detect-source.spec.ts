@@ -39,4 +39,24 @@ describe('detectTreasurySheetSource', () => {
     const rows = [['Data Lançamento', 'Data Contábil', 'Título', 'Descrição', 'Entrada(R$)', 'Saída(R$)', 'Tipo', 'Detalhe']]
     expect(detectTreasurySheetSource(sheet(rows), 'nubank')).toBeNull()
   })
+
+  it('detects a PagBank statement by its header row and bank name in the metadata block', () => {
+    const rows = [
+      [null, { richText: [{ text: 'Nome do Titular : AGILIZ.AI LTDA' }] }],
+      [null, { richText: [{ text: 'Banco : 290 - PagSeguro Internet S/A' }] }],
+      [null, { richText: [{ text: 'Agência : 0001' }] }],
+      [null, { richText: [{ text: 'Conta 76803075-1' }] }],
+      [null, { richText: [{ text: 'Período : 01/09/2026 a 30/09/2026' }] }],
+      [],
+      [],
+      [],
+      [null, { richText: [{ text: 'Data' }] }, { richText: [{ text: 'Tipo' }] }, { richText: [{ text: 'Descrição' }] }, { richText: [{ text: 'Entradas' }] }, { richText: [{ text: 'Saidas' }] }, { richText: [{ text: 'Saldo' }] }],
+    ]
+    expect(detectTreasurySheetSource(sheet(rows), 'pagseguro')).toBe('pagbank_statement')
+  })
+
+  it('does not detect pagbank_statement for an unrelated sheet in the pagseguro folder', () => {
+    const rows = [['Something', 'Unrelated', 'Header']]
+    expect(detectTreasurySheetSource(sheet(rows), 'pagseguro')).toBeNull()
+  })
 })
