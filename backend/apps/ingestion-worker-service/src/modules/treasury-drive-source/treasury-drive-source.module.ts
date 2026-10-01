@@ -26,7 +26,7 @@ import { TreasuryDriveSchedulerService } from './services/treasury-drive-schedul
  * `DRIVE_CONFIG`'s own factory): `loadTreasuryDriveConfig` already accepts a plain
  * `Record<string, unknown>`, and every variable it reads (`TREASURY_DRIVE_ROOT_FOLDER_ID`,
  * `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`/`_FILE`, `TREASURY_DRIVE_MONTH_FOLDERS`,
- * `TREASURY_DRIVE_SCAN_CRON`) is a real process env var, never something injected only through
+ * `TREASURY_DRIVE_SCAN_CRON`, `TREASURY_DRIVE_PDF_PASSWORD`) is a real process env var, never something injected only through
  * Nest's `ConfigService` — so there is no `TREASURY_DRIVE_ENV_KEYS` allowlist to keep in sync.
  *
  * `TreasuryDriveSchedulerService` (Task 11) keeps the daily scan registered exactly when the

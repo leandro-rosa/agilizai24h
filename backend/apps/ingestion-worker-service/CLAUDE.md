@@ -477,16 +477,34 @@ que sales/abastecimento já têm. Módulo paralelo, `src/modules/treasury-drive-
 não generaliza o `drive-source` existente — sua validação por cobertura de dia
 é vendas-específica e não se aplica aqui.
 
-**A pasta é uma segunda fonte, as 7 fontes de PDF/fatura continuam via upload manual.** Esta fase cobre
-Itaú statement, C6 statement, C6 invoice (como Sheet nativa **ou** PDF com senha conforme o mês),
-Nubank statement (PDF) e PagBank statement (mislabeled-PDF-xlsx detectado em scan como XLSX no Drive
-mas tratado pelo parser de PDF). C6 invoice, quando em PDF, é desbloqueada via `TREASURY_DRIVE_PDF_PASSWORD`
-se definida (requerida só em C6; o arquivo real de Nubank não tem senha). Nubank e PagBank reusam os
-parsers de PDF e XLSX das fontes de upload manual — PagBank ganhou um parser Sheet-específico para
-o formato mislabeled.
-Bradesco permanece explicitamente fora de escopo — nenhum arquivo real ainda no Drive para validar layout.
-Ver [docs/superpowers/specs/2026-09-29-treasury-statement-drive-sync-design.md](../../../docs/superpowers/specs/2026-09-29-treasury-statement-drive-sync-design.md)
+**5 das 7 fontes já são alcançáveis via Drive; 2 continuam só por upload manual.** Esta fase (plano
+`2026-10-01-treasury-drive-multi-bank`, abaixo) cobre Itaú statement, C6 statement, C6 invoice (como Sheet
+nativa **ou** PDF com senha conforme o mês), Nubank statement (PDF) e PagBank statement. `pagseguro_invoice` (a
+fatura de cartão — 7ª fonte, distinta do extrato PagBank acima) e Bradesco statement continuam só via
+upload manual: PagSeguro-invoice porque este módulo nunca ganhou detecção pra ela, Bradesco porque nenhum
+arquivo real ainda caiu no Drive para validar layout.
+
+**PagBank é o caso que engana por mimeType**: o Drive relata o arquivo como `application/pdf`, mas o
+conteúdo real são bytes de zip/xlsx — `read-treasury-drive-file.ts` nunca confia no mimeType reclamado
+pra decidir o formato, só o usa pra saber se `exportSheet` (Sheet nativa) é possível; tudo mais é
+identificado pelos magic bytes do próprio arquivo baixado (`PK` = zip/xlsx, mesmo quando o Drive chamou de
+PDF). Por isso PagBank é lido pelo parser de PLANILHA novo, `parsePagBankStatementSheet`
+(`parsers/pagbank-statement-sheet.parser.ts`) — nunca por um parser de PDF. C6 invoice, quando realmente em
+PDF, é desbloqueada via `TREASURY_DRIVE_PDF_PASSWORD` se definida (requerida só em C6; o arquivo real de
+Nubank não tem senha).
+
+**Nubank e PagBank não reusam o mesmo tipo de parser entre si** — só Nubank reusa um parser existente
+(`nubank.parser.ts`, o mesmo PDF parser do upload manual, inalterado). PagBank ganhou um parser
+Sheet-específico novo (`pagbank-statement-sheet.parser.ts`, Task 5 deste plano): nenhum parser existente
+lia PagBank como planilha antes, porque a fonte de upload manual sempre recebeu PagBank como o PDF
+`pagbank_statement` real, nunca como este xlsx mislabeled do Drive.
+
+Ver, para o desenho original Itaú/C6-only (histórico):
+[docs/superpowers/specs/2026-09-29-treasury-statement-drive-sync-design.md](../../../docs/superpowers/specs/2026-09-29-treasury-statement-drive-sync-design.md)
 e [docs/superpowers/plans/2026-09-29-treasury-statement-drive-sync.md](../../../docs/superpowers/plans/2026-09-29-treasury-statement-drive-sync.md).
+Para esta extensão multi-bank (Nubank, PagBank, `TREASURY_DRIVE_PDF_PASSWORD`):
+[docs/superpowers/specs/2026-10-01-treasury-drive-multi-bank-design.md](../../../docs/superpowers/specs/2026-10-01-treasury-drive-multi-bank-design.md)
+e [docs/superpowers/plans/2026-10-01-treasury-drive-multi-bank.md](../../../docs/superpowers/plans/2026-10-01-treasury-drive-multi-bank.md).
 
 **Allowlist de meses é manual, não computado** — `TREASURY_DRIVE_MONTH_FOLDERS`
 lista os meses explicitamente (e.g. `agosto-26,setembro-26`), com sufixo de ano (não bare `agosto`),
@@ -508,8 +526,7 @@ fatos que a própria forma do arquivo fixa, independentes de favorecido (ver
 identicamente qualquer linha do Drive ou de PDF pelo mesmo `counterpartyRaw` +
 regras de de-para — sem criar um segundo eixo descoordernado de classificação.
 
-Ver [docs/superpowers/specs/2026-09-29-treasury-statement-drive-sync-design.md](../../../docs/superpowers/specs/2026-09-29-treasury-statement-drive-sync-design.md)
-e [docs/superpowers/plans/2026-09-29-treasury-statement-drive-sync.md](../../../docs/superpowers/plans/2026-09-29-treasury-statement-drive-sync.md).
+Ver referências de spec/plano (original e extensão multi-bank) logo acima.
 
 ## Gaps conhecidos
 - **Fonte Drive: sem calendário operacional de loja** — a cobertura por dia
