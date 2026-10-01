@@ -12,7 +12,8 @@
     "test:integration": "jest --config jest.integration.config.js --runInBand --passWithNoTests",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "test:integration:db": "bash test/support/with-test-db.sh pnpm test:integration"
   },
   "dependencies": {
     "@bull-board/api": "^9.2.0",

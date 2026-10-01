@@ -4,6 +4,10 @@ import { HealthModule } from '@app/health'
 import { validateEnv } from './config/env.validation'
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware'
 import { DbClientModule } from './modules/db-client/db-client.module'
+import { BaselineModule } from './modules/baseline/baseline.module'
+import { FlagsModule } from './modules/flags/flags.module'
+import { ParametersModule } from './modules/parameters/parameters.module'
+import { ScheduleModule } from './modules/schedule/schedule.module'
 import { SourcesModule } from './modules/sources/sources.module'
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
 
@@ -13,6 +17,10 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     HealthModule,
     DbClientModule,
     SourcesModule,
+    ParametersModule,
+    ScheduleModule,
+    BaselineModule,
+    FlagsModule,
     // HoldItModule (queues and the run worker) is registered with the runs group of
     // add-intelligence-engine-phase1; the env it needs is already validated.
   ],

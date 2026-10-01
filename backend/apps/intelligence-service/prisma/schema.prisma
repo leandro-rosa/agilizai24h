@@ -7,5 +7,159 @@ datasource db {
   provider = "postgresql"
 }
 
-// Models arrive with the data-model group of add-intelligence-engine-phase1
-// (parameter versions, baseline, schedule, runs, recommendations, backtest).
+/// One immutable version of every number that shapes a recommendation —
+/// tolerance, bands, thresholds, visit weekdays. Append-only: changing a
+/// parameter creates a NEW row, the previous one stays readable, and every
+/// stored result records the version that produced it (design D11). The latest
+/// row is the current version.
+model ParameterVersion {
+  id         Int      @id @default(autoincrement())
+  created_at DateTime @default(now())
+  /// Free text: who or what created it ("initial defaults", "owner recalibration…").
+  note       String?
+  /// The full, validated parameter document — never a partial patch.
+  values     Json
+
+  runs EngineRun[]
+
+  @@map("parameter_version")
+}
+
+/// The baseline quantity ("qtd itens por loja") of a SKU — ONE value per SKU,
+/// applied to every store (owner decision 2026-09-30), with an append-only
+/// history: a re-import adds a row, it never overwrites. The current baseline
+/// is the latest row whose effective date has been reached.
+model BaselineQuantity {
+  id             Int      @id @default(autoincrement())
+  sku            String
+  quantity       Int
+  /// Where the value came from, e.g. the pricing sheet file name.
+  source         String
+  effective_from DateTime
+  created_at     DateTime @default(now())
+
+  @@index([sku, effective_from, id])
+  @@map("baseline_quantity")
+}
+
+/// Planned visit weekdays of one store (ISO: 1 = Monday … 7 = Sunday), an
+/// override of the default in the parameters. Append-only; the latest row of a
+/// store wins. Never inferred silently from history.
+model StoreSchedule {
+  id             Int      @id @default(autoincrement())
+  store_id       Int
+  weekdays       Int[]
+  note           String?
+  effective_from DateTime @default(now())
+  created_at     DateTime @default(now())
+
+  @@index([store_id, id])
+  @@map("store_schedule")
+}
+
+/// "Closed pack preferred in this store" for a Product x Store. Stored and
+/// shown, NEVER read by any calculation — it only becomes an operational
+/// option beside a result. Append-only; the latest row of a pair wins.
+model ProductStoreFlag {
+  id                Int      @id @default(autoincrement())
+  store_id          Int
+  sku               String
+  prefer_closed_pack Boolean
+  created_at        DateTime @default(now())
+
+  @@index([store_id, sku, id])
+  @@map("product_store_flag")
+}
+
+/// One execution of the engine. Immutable once finished; a later run never
+/// overwrites it (design D2/D14).
+model EngineRun {
+  id                   String   @id
+  /// 'queued' | 'running' | 'completed' | 'failed'
+  status               String
+  engine_version       String
+  parameter_version_id Int
+  /// The reference date balance ages are measured from.
+  as_of                DateTime
+  /// The months of history the run covers, YYYY-MM.
+  range_from           String
+  range_to             String
+  /// The last closed month the data really covers — stated on every result.
+  data_through         String
+  stores_total         Int      @default(0)
+  stores_done          Int      @default(0)
+  error                String?
+  created_at           DateTime @default(now())
+  finished_at          DateTime?
+
+  parameters      ParameterVersion @relation(fields: [parameter_version_id], references: [id])
+  recommendations Recommendation[]
+
+  @@index([created_at])
+  @@map("engine_run")
+}
+
+/// The full result of the engine for one Product x Store in one run, plus the
+/// columns needed to filter on it. The JSON is the complete, explainable result
+/// (facts, evidence, limitations); the columns are only an index over it.
+model Recommendation {
+  id        Int    @id @default(autoincrement())
+  run_id    String
+  store_id  Int
+  sku       String
+  /// 'keep' | 'test' | 'evaluate_removal' | 'insufficient_data'
+  mix       String
+  /// 'keep' | 'reduce' | 'increase' | 'test' | 'no_evidence'
+  quantity_action String
+  /// 'within_tolerance' | 'outside_tolerance' | 'not_verifiable'
+  tolerance_status String
+  /// One of the five exclusive coverage categories.
+  coverage_category String
+  releases_balance_use Boolean
+  result    Json
+  created_at DateTime @default(now())
+
+  run EngineRun @relation(fields: [run_id], references: [id], onDelete: Cascade)
+
+  @@unique([run_id, store_id, sku])
+  @@index([run_id, store_id])
+  @@map("recommendation")
+}
+
+/// One replay of the engine over history (design D13). Stores its aggregates,
+/// coverage and sensitivity reports; never a verdict.
+model BacktestRun {
+  id                   String   @id
+  engine_version       String
+  parameter_version_id Int
+  /// The origins replayed, as ISO dates.
+  origins              Json
+  data_through         String
+  /// Aggregates, coverage report and count-rule sensitivity tables.
+  report               Json
+  created_at           DateTime @default(now())
+
+  results BacktestResult[]
+
+  @@map("backtest_run")
+}
+
+/// One Product x Store at one origin: what was recommended and what followed.
+model BacktestResult {
+  id          Int      @id @default(autoincrement())
+  run_id      String
+  origin      DateTime
+  store_id    Int
+  sku         String
+  /// 'keep' | 'reduce' | 'increase' | 'test' | 'evaluate_removal' | 'no_evidence' | null when no recommendation could be given
+  action      String?
+  /// 'coherent' | 'incoherent' | 'inconclusive' | null — an estimate, never proof.
+  coherence   String?
+  coverage_category String
+  outcome     Json
+
+  run BacktestRun @relation(fields: [run_id], references: [id], onDelete: Cascade)
+
+  @@index([run_id, origin])
+  @@map("backtest_result")
+}

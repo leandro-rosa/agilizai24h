@@ -12,14 +12,14 @@
 
 ## 3. Data model
 
-- [ ] 3.1 Prisma schema and migration: `parameter_version`, `baseline_quantity` (append-only), `store_schedule`, `product_store_flag`, `engine_run`, `recommendation`, `backtest_run`, `backtest_result`.
-- [ ] 3.2 Repository tests on an isolated Postgres: append-only history, current baseline resolution, latest parameter version.
+- [x] 3.1 Prisma schema and migration: `parameter_version`, `baseline_quantity` (append-only), `store_schedule`, `product_store_flag`, `engine_run`, `recommendation`, `backtest_run`, `backtest_result`.
+- [x] 3.2 Repository tests on an isolated Postgres: append-only history, current baseline resolution, latest parameter version.
 
 ## 4. Parameters
 
-- [ ] 4.1 Parameter schema with the defaults of the design (tolerance 10% or 3 units, windowCounts, minCounts, maxAgeDays, half-life, censoring shares, pattern thresholds, mix and alert parameters, `L`, `z`, visit weekdays), validation that rejects nonsense (inverted bands, negative values), and every default labelled provisional.
-- [ ] 4.2 Internal routes to read the current and any historical parameter version and to create a new one; creating never edits an earlier version; initial version created at first start.
-- [ ] 4.3 Tests: new version leaves the old readable, invalid document rejected, defaults equal the owner's 10% / 3 units, default visit weekdays Monday, Tuesday, Thursday, Friday and a per-store override.
+- [x] 4.1 Parameter schema with the defaults of the design (tolerance 10% or 3 units, windowCounts, minCounts, maxAgeDays, half-life, censoring shares, pattern thresholds, mix and alert parameters, `L`, `z`, visit weekdays), validation that rejects nonsense (inverted bands, negative values), and every default labelled provisional.
+- [x] 4.2 Internal routes to read the current and any historical parameter version and to create a new one; creating never edits an earlier version; initial version created at first start.
+- [x] 4.3 Tests: new version leaves the old readable, invalid document rejected, defaults equal the owner's 10% / 3 units, default visit weekdays Monday, Tuesday, Thursday, Friday and a per-store override.
 
 ## 5. Baseline and packaging import
 

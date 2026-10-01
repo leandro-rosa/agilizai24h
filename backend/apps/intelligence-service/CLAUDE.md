@@ -15,12 +15,38 @@ motivo), `sales-service` (venda mensal), `products-service` (custo, embalagem).
 **Escreve**: só o próprio banco (porta de host 5446).
 Sem superfície pública: nenhuma rota no gateway ainda.
 
-## Estado do scaffold
+## Estado
 
 Pronto: bootstrap Fastify, validação de env, health, `DbClientModule`,
 clientes HTTP somente-leitura (`src/modules/sources/`), Docker/compose,
-registro no `agiliz-cli`. **Ainda não existe** modelo de dados, motor, fila,
-parâmetros nem backtest — vêm nos grupos 3 a 10 da mudança.
+registro no `agiliz-cli`, **modelo de dados** (`prisma/schema.prisma`: versões de
+parâmetros, baseline, agenda por loja, flag de caixa fechada, runs,
+recomendações, backtest) e **parâmetros** (`src/modules/parameters/`). **Ainda
+não existe** motor, fila nem backtest — vêm nos grupos 5 a 10 da mudança.
+
+## Parâmetros (`/parameters`, `/schedules`) — rotas internas, sem gateway
+
+- Tudo que molda uma recomendação mora aqui, **no backend, versionado e só-append**:
+  mudar um valor cria uma versão NOVA a partir da atual (`POST /parameters`
+  com `values` parcial + `note`), validada como um todo; nenhuma versão é editada
+  ou apagada. `GET /parameters/current` devolve cada parâmetro rotulado
+  `provisional` ou não; `GET /parameters/versions[/:id]` lê o histórico. A versão 1
+  nasce dos defaults na primeira subida.
+- **Tolerância** (decisão do dono, 2026-09-30): aceita diferença de até o MAIOR entre
+  10% do saldo e 3 unidades. Esses dois valores **não** são provisórios; os demais
+  são — em especial a regra de contagens (`windowCounts` 3, `minCounts` 1,
+  `maxAgeDays` 45), que fica provisória e **sem combinação escolhida** até o
+  relatório de sensibilidade sobre a cobertura real.
+- **Validação** recusa valor negativo/não numérico, `minCounts > windowCounts`
+  (nenhum saldo seria verificável), faixas de confiança invertidas, "maioria" que
+  não é maioria e dia da semana inválido, listando todos os problemas de uma vez.
+- **Dias de visita**: padrão segunda, terça, quinta e sexta (ISO 1,2,4,5), com
+  override por loja (`PUT /schedules/:storeId`, só-append, a última linha vence).
+  Nunca inferidos do histórico.
+- **Baseline** (`qtd itens por loja`): UM valor por SKU, vale para todas as lojas,
+  histórico só-append; o vigente é a última linha já em vigor (empate na mesma data
+  → a mais recente). **Flag "caixa fechada"**: guardada e exibida, nunca lida por
+  cálculo nenhum.
 
 ## Decisões que valem desde já
 
@@ -36,5 +62,8 @@ parâmetros nem backtest — vêm nos grupos 3 a 10 da mudança.
 
 ## Testes
 
-`pnpm test` (unitários, rodar com `--maxWorkers=2`) e `pnpm test:integration`
-(Postgres descartável; nunca o banco de quem opera).
+`pnpm exec jest --maxWorkers=2` (unitários) e `pnpm test:integration:db`
+(sobe um Postgres **descartável**, migra do zero e remove ao sair). Os specs de
+integração esvaziam as tabelas e **se recusam a rodar** contra algo que pareça o
+banco real (`test/support/reset-db.ts`); nunca aponte `DATABASE_URL` para o banco
+de quem opera.
