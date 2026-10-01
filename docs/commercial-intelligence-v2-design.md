@@ -284,7 +284,7 @@ Seguindo a convenção do repo: abrir uma mudança OpenSpec que **substitui o es
   - Importar setembro e limpar linhas sintéticas do `minimum_level`.
   - **Gate:** reconciliar consumo entre visitas × `sales_record` por loja × SKU × mês. Se não fechar, o saldo fica como "indisponível" e a Fase 4 é reavaliada.
 - **Fase 1, motor e backtest (sem UI).** Biblioteca pura com os contratos da seção B; serviço no backend que guarda `versao_motor/parametros` por resultado. Backtest de repetição jan a jun → jul/ago: erro da taxa prevista, ruptura e validade após cada recomendação. Os limiares só congelam depois disso.
-- **Fase 2, Por Loja + drawer.** Mix, Quantidade, Operação, saldo e confiabilidades. Cards clicáveis. A tela atual de Abastecimento/Mix continua até haver paridade.
+- **Fase 2, Por Loja + drawer.** Toda tela da Inteligência mostra "Dados atualizados até <mês>", "Última atualização da inteligência <data>" e a marca de defasagem quando há mês fechado ainda não incorporado (exemplo: "Dados atualizados até: Setembro/2026 · Última atualização da inteligência: 05/10/2026"); nada é apresentado como atualizado até um mês ainda não importado/fechado. A cada mês fechado, tudo é recalculado e o mês novo entra no histórico sem substituir o anterior. Mix, Quantidade, Operação, saldo e confiabilidades. Cards clicáveis. A tela atual de Abastecimento/Mix continua até haver paridade.
 - **Fase 3, Por Produto e Matriz.**
 - **Fase 4, Próximo abastecimento** (somente se o gate da Fase 0 passar) e lista de ida.
 - **Fase 5, registro de decisões** (recomendação, decisão humana, quantidades, usuário, justificativa) e acompanhamento antes × depois.

@@ -67,7 +67,7 @@
 - [ ] 9.2 Subscribe to `period.data-updated` events of supply and sales, and a manual trigger; when `dataThrough` advances enqueue one refresh that runs engine, coverage, backtest (origins extended to the new month) and sensitivity as a linked, immutable set; a failed refresh leaves the previous current set in place.
 - [ ] 9.3 History: sets are never overwritten, each stamped with the period covered, engine version, parameter version and computation time; a "current" pointer moves only when the whole set has finished; read a Product × Store's evolution across sets. Test: the September set does not alter or delete the August set.
 - [ ] 9.4 Freshness on every result and report (`dataThrough`, `computedAt`) and `outOfDate` by number of months lagged when a later month is available; tests for up to date, a closed month not yet incorporated and a month not yet imported (never claimed as covered).
-- [ ] 9.5 Add to the Phase 2 requirements (in `docs/commercial-intelligence-v2-design.md`) that every screen shows "Dados atualizados até <month>", "Última atualização da inteligência <date>" and the out-of-date mark.
+- [x] 9.5 Add to the Phase 2 requirements (in `docs/commercial-intelligence-v2-design.md`) that every screen shows "Dados atualizados até <month>", "Última atualização da inteligência <date>" and the out-of-date mark.
 
 ## 10. Verification and closing
 
