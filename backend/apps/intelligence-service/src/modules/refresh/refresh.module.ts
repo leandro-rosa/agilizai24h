@@ -1,8 +1,6 @@
 import { Global, Module } from '@nestjs/common'
 import { FreshnessService } from './freshness.service'
-import { NotYetAvailableBacktest } from './not-yet-available-backtest'
 import { RefreshController } from './refresh.controller'
-import { BACKTEST_PORT } from './refresh.ports'
 import { RefreshService } from './refresh.service'
 
 /**
@@ -11,14 +9,12 @@ import { RefreshService } from './refresh.service'
  * `HoldItModule.registerWorker` instantiates in its own module, can inject it. The workers are
  * deliberately NOT providers here.
  *
- * BACKTEST_PORT: the real backtest (group 8) replaces the placeholder below. When it lands, add
- * its module to `imports` (it must export a provider for `BACKTEST_PORT`) and DELETE the
- * placeholder provider line, so nothing else needs to change.
+ * `BACKTEST_PORT` is provided by the (global) backtest module; the refresh only depends on the port.
  */
 @Global()
 @Module({
   controllers: [RefreshController],
-  providers: [FreshnessService, RefreshService, { provide: BACKTEST_PORT, useClass: NotYetAvailableBacktest }],
+  providers: [FreshnessService, RefreshService],
   exports: [FreshnessService, RefreshService],
 })
 export class RefreshModule {}
