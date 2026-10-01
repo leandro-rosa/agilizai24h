@@ -18,9 +18,33 @@ Sem superfície pública: nenhuma rota no gateway ainda.
 ## Estado
 
 Pronto: bootstrap, env, health, clientes de leitura, Docker, `agiliz-cli`,
-modelo de dados, parâmetros e o **motor** (`src/modules/engine/`). **Ainda não
-existe** fila de execução, persistência de runs, backtest nem atualização
-mensal — grupos 7 a 10 da mudança. Nenhuma rota do motor ainda; só testes.
+modelo de dados, parâmetros, o **motor** e as **runs** (fila + persistência +
+leitura). **Ainda não existe** backtest nem atualização mensal automática —
+grupos 8 e 9 da mudança. Sem rota no gateway e sem tela.
+
+## Runs (`/runs`) — rotas internas
+
+- `POST /runs {rangeFrom, rangeTo, asOf?}` só **registra** a run (versão do motor + versão
+  dos parâmetros) e enfileira **um job por loja** (`intelligence.engine-store`); o
+  trabalho pesado nunca roda na requisição. `GET /runs/:id` mostra status, a versão de
+  parâmetros usada **com seus valores**, o resultado por loja e o resumo de cobertura;
+  `GET /runs/:id/results?storeId=&sku=&coverage=` lê os resultados.
+- **Loja que não pôde ser lida** fica `skipped` com o motivo e **não** vira "zero
+  recomendações" nem derruba as outras. Loja sintética (nome com `[teste]`,
+  `sintético`…) é `excluded` e listada; SKU sintético é pulado.
+- **`dataThrough` sai dos dados**, não de uma data declarada: o último mês terminado antes
+  de `asOf` em que suprimento **e** venda existem para a fração de lojas configurada
+  (`refresh.availableStoreShare`, 90%). Nunca um mês que a run não leu. É nulo até acabar.
+- **Idempotência**: job reentregue substitui as linhas da loja (não duplica); a run é
+  finalizada **uma vez só** (claim atômico `running → finalizing`); run finalizada não é
+  reprocessada; run nunca é alterada por outra depois de concluída.
+- A **evidência de rede** (retirada em mais da metade das lojas expostas; escopo do dano)
+  precisa de todas as lojas, então é aplicada na finalização, não por loja.
+- **Limites desta fase**: "SKU rejeitado na importação" e "baseline em conflito" ainda não
+  chegam como entrada (nenhuma fonte somente-leitura os expõe por loja), então esses dois
+  conflitos não disparam; o motor já os trata quando vierem.
+- `asOf` padrão é agora; sem importar setembro, uma run "ao vivo" tem toda contagem
+  antiga (`last_count_too_old`) — rode com `asOf` do fim do último mês importado.
 
 ## O motor (`src/modules/engine/`, funções puras)
 

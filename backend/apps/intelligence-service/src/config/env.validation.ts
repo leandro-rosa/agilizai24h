@@ -36,6 +36,10 @@ class EnvironmentVariables {
   @IsNotEmpty()
   PRODUCTS_SERVICE_URL: string
 
+  @IsString()
+  @IsNotEmpty()
+  STORES_SERVICE_URL: string
+
   @IsOptional()
   @IsInt()
   @Min(1)

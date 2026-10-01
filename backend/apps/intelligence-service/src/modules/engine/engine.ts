@@ -51,6 +51,8 @@ export interface PairResult {
   balance: BalanceEstimate
   conflicts: DataConflict[]
   coverage: CoverageCategory
+  /** Filled by the run once every store has reported: the cross-store view of this SKU. */
+  network?: { exposedStores: number; storesWithRemovalPattern: number; storesWithDamage: number }
   confidence: Confidence
   explanation: {
     facts: Fact[]

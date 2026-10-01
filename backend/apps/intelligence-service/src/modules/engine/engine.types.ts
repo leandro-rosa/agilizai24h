@@ -22,6 +22,7 @@ export interface VisitPoint {
 
 export type LossReason = 'expired' | 'damaged_product' | 'other_reason'
 export type NonLossReason = 'return' | 'transfer' | 'internal_use'
+export type NonLossReasonKey = NonLossReason
 
 /** Monthly facts of one Product x Store (sales and removals are only known per month). */
 export interface MonthlyFacts {

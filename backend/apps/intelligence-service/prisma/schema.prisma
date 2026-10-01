@@ -84,8 +84,10 @@ model EngineRun {
   /// The months of history the run covers, YYYY-MM.
   range_from           String
   range_to             String
-  /// The last closed month the data really covers — stated on every result.
-  data_through         String
+  /// The last month the data really covers, computed from what the stores had
+  /// (supply AND sales present for the configured share of them). Null until the
+  /// run finishes — a run never claims a month it did not read.
+  data_through         String?
   stores_total         Int      @default(0)
   stores_done          Int      @default(0)
   error                String?
@@ -94,9 +96,31 @@ model EngineRun {
 
   parameters      ParameterVersion @relation(fields: [parameter_version_id], references: [id])
   recommendations Recommendation[]
+  stores          EngineRunStore[]
 
   @@index([created_at])
   @@map("engine_run")
+}
+
+/// What happened to one store in one run: processed, or skipped with the reason.
+/// A skipped store is NEVER read as "zero recommendations" — it is listed.
+model EngineRunStore {
+  id         Int      @id @default(autoincrement())
+  run_id     String
+  store_id   Int
+  /// 'done' | 'skipped'
+  status     String
+  /// Why it was skipped (a failed read, a synthetic store…); null when done.
+  reason     String?
+  pairs      Int      @default(0)
+  /// Per month: whether supply and sales were present for this store.
+  months     Json?
+  created_at DateTime @default(now())
+
+  run EngineRun @relation(fields: [run_id], references: [id], onDelete: Cascade)
+
+  @@unique([run_id, store_id])
+  @@map("engine_run_store")
 }
 
 /// The full result of the engine for one Product x Store in one run, plus the

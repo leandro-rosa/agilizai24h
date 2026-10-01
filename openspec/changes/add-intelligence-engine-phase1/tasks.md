@@ -45,10 +45,10 @@
 
 ## 7. Runs and results
 
-- [ ] 7.1 Source readers: visits per store from `supply-service`, period removals by reason, monthly sales, cost; a failing store is reported as skipped with the reason, never as zero; synthetic stores and SKUs skipped and listed.
-- [ ] 7.2 `POST /runs` creating an `engine_run` with versions, as-of date and `dataThrough`, one queue job per store, a worker that computes and persists results, and run status endpoints.
-- [ ] 7.3 Results read routes by run, store and SKU, with the stored parameter version available.
-- [ ] 7.4 Integration test on an isolated Postgres with the broker stubbed: a run persists a result per Product × Store, records both versions, survives one failing store, and is idempotent for the same inputs.
+- [x] 7.1 Source readers: visits per store from `supply-service`, period removals by reason, monthly sales, cost; a failing store is reported as skipped with the reason, never as zero; synthetic stores and SKUs skipped and listed.
+- [x] 7.2 `POST /runs` creating an `engine_run` with versions, as-of date and `dataThrough`, one queue job per store, a worker that computes and persists results, and run status endpoints.
+- [x] 7.3 Results read routes by run, store and SKU, with the stored parameter version available.
+- [x] 7.4 Integration test on an isolated Postgres with the broker stubbed: a run persists a result per Product × Store, records both versions, survives one failing store, and is idempotent for the same inputs.
 
 ## 8. Backtest
 
