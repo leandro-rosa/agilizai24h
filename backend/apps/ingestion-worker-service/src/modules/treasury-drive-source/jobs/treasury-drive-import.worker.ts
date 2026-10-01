@@ -54,6 +54,6 @@ export class TreasuryDriveImportWorker extends HoldItWorkerHost<TreasuryDriveImp
       ? createGoogleDriveClient({ credential: this.config.credential } as DriveConfig)
       : new DisabledDriveClient()
 
-    return this.imports.runImport(job.data.fileId, client, job.data.accountId, job.data.period)
+    return this.imports.runImport(job.data.fileId, client, job.data.accountId, job.data.period, this.config.pdfPassword)
   }
 }

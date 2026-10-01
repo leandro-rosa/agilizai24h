@@ -2,6 +2,7 @@ import 'reflect-metadata'
 import { randomUUID } from 'node:crypto'
 import { ConfigModule } from '@nestjs/config'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { PDFDocument } from '@cantoo/pdf-lib'
 import { DbClientModule } from '../src/modules/db-client/db-client.module'
 import { PrismaClientService } from '../src/modules/db-client/prisma-client.service'
 import { InMemoryDriveClient } from '../src/modules/drive-source/testing/in-memory-drive.client'
@@ -36,6 +37,36 @@ const unrelatedSheet = (): SheetRows => ({
     ['just some', 'random content'],
   ],
 })
+
+const PAGBANK_SHEET: SheetRows = {
+  sheetName: 'Sheet1',
+  rows: [
+    ['Nome do Titular : AGILIZ.AI LTDA'],
+    ['Banco : 290 - PagSeguro Internet S/A'],
+    [],
+    ['Data', 'Tipo', 'Descrição', 'Entradas', 'Saidas', 'Saldo'],
+    ['01/09/2026', 'Vendas', 'Disponivel PIX', 5.86, null, null],
+  ],
+}
+
+/** A real, short, PDF-lib-built PDF. `drawText` lines are placed top-to-bottom (decreasing y) so
+ * pdf-parse extracts them in the same order they're listed here — if a future pdf-parse upgrade
+ * ever changes that ordering, the RED step below will show lines out of order, not missing text;
+ * widen the y gaps, don't change the assertions. Page width is 800pt (not a narrower size) — Task
+ * 7 measured directly that a 400pt-wide page truncates "CNPJ Agência Conta" down to "CNPJ Agê"
+ * once rendered text runs past the page's right edge, and this file's own Nubank fixture below
+ * reuses that exact 44-character CNPJ line, so the same truncation risk applies here.
+ * Imports from `@cantoo/pdf-lib`, not the plain `pdf-lib` already used elsewhere in this service's
+ * tests — confirmed directly that the plain package's `PDFDocument` has no `encrypt` method at
+ * all (only this fork adds it, with the exact `{ userPassword, ownerPassword }` shape used below),
+ * which the password-protected C6-invoice fixtures need. */
+async function buildPdf(lines: string[], password?: string): Promise<Buffer> {
+  const doc = await PDFDocument.create()
+  const page = doc.addPage([800, 50 + lines.length * 20])
+  lines.forEach((line, i) => page.drawText(line, { x: 10, y: page.getHeight() - 30 - i * 20 }))
+  if (password) await doc.encrypt({ userPassword: password, ownerPassword: password })
+  return Buffer.from(await doc.save())
+}
 
 const config = (overrides: Partial<TreasuryDriveConfig> = {}): TreasuryDriveConfig => ({
   enabled: true,
@@ -116,7 +147,7 @@ describe('TreasuryDriveImportService', () => {
       // The request path already claimed the file before a job would ever reach the worker.
       await repo.claimForImporting(file.id)
 
-      const result = await service().runImport(file.id, client, 42, '2026-08')
+      const result = await service().runImport(file.id, client, 42, '2026-08', undefined)
 
       expect(result?.status).toBe('imported')
       expect(published).toHaveLength(1)
@@ -145,7 +176,7 @@ describe('TreasuryDriveImportService', () => {
       const file = await tracked(client)
       // Never claimed (still "new") — nothing on the request path handed this job its slot.
 
-      const result = await service().runImport(file.id, client, 42, '2026-08')
+      const result = await service().runImport(file.id, client, 42, '2026-08', undefined)
 
       expect(result).toBeUndefined()
       expect(published).toHaveLength(0)
@@ -160,7 +191,7 @@ describe('TreasuryDriveImportService', () => {
       client.edit(file.drive_file_id, xlsxBuffer([unrelatedSheet()]))
       await repo.claimForImporting(file.id)
 
-      await expect(service().runImport(file.id, client, 42, '2026-08')).rejects.toMatchObject({
+      await expect(service().runImport(file.id, client, 42, '2026-08', undefined)).rejects.toMatchObject({
         response: expect.objectContaining({ code: 'unrecognized' }),
       })
 
@@ -169,6 +200,75 @@ describe('TreasuryDriveImportService', () => {
       const after = await repo.findById(file.id)
       expect(after?.status).toBe('error')
       expect(after?.error_detail).toMatch(/no recognizable signature/i)
+    })
+
+    it('imports a C6 invoice found as a password-protected PDF (the real September case), using the PDF parser', async () => {
+      const pdfBytes = await buildPdf(
+        ['Ola, AGILIZ.AI LTDA! Sua fatura com', 'vencimento em Outubro chegou', '05 set Compra Mercado 150,00'],
+        'inv-test-pw',
+      )
+      const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'fatura c6 setembro.pdf': { mimeType: 'application/pdf', content: pdfBytes } } } })
+      const file = await tracked(client)
+      await repo.claimForImporting(file.id)
+
+      const result = await service().runImport(file.id, client, 42, '2026-10', 'inv-test-pw')
+
+      expect(result?.status).toBe('imported')
+      expect(published[0].message.source).toBe('c6_invoice')
+      expect(published[0].message.rows).toHaveLength(1)
+      expect(published[0].message.rows[0]).toMatchObject({ occurredOn: '2026-09-05', amountCents: 15000, direction: 'outflow' })
+      const [, , contentType] = s3.uploadFile.mock.calls[0]
+      expect(contentType).toBe('application/pdf')
+    })
+
+    it('imports a Nubank statement found as a PDF, using parseNubankStatement', async () => {
+      const pdfBytes = await buildPdf([
+        'AGILIZ.AI LTDA',
+        '60.819.321/0001-44 0001  CNPJ Agência Conta',
+        'Movimentações',
+        '01 SET 2026 Total de entradas +100,00',
+        'PIX recebido JOAO 100,00',
+      ])
+      const client = InMemoryDriveClient.fromTree('root', { agosto: { nubank: { 'extrato nubank.pdf': { mimeType: 'application/pdf', content: pdfBytes } } } })
+      const file = await tracked(client)
+      await repo.claimForImporting(file.id)
+
+      const result = await service().runImport(file.id, client, 42, '2026-09', undefined)
+
+      expect(result?.status).toBe('imported')
+      expect(published[0].message.source).toBe('nubank_statement')
+      expect(published[0].message.rows).toHaveLength(1)
+      expect(published[0].message.rows[0]).toMatchObject({ occurredOn: '2026-09-01', amountCents: 10000, direction: 'inflow' })
+    })
+
+    it('imports a PagBank statement found as a mislabeled-PDF xlsx, using parsePagBankStatementSheet', async () => {
+      const client = InMemoryDriveClient.fromTree('root', { agosto: { pagseguro: { 'extrato.pdf': { mimeType: 'application/pdf', content: xlsxBuffer([PAGBANK_SHEET]) } } } })
+      const file = await tracked(client)
+      await repo.claimForImporting(file.id)
+
+      const result = await service().runImport(file.id, client, 42, '2026-09', undefined)
+
+      expect(result?.status).toBe('imported')
+      expect(published[0].message.source).toBe('pagbank_statement')
+      expect(published[0].message.rows).toHaveLength(1)
+      expect(published[0].message.rows[0]).toMatchObject({ amountCents: 586, direction: 'inflow' })
+      const [, , contentType] = s3.uploadFile.mock.calls[0]
+      expect(contentType).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    })
+
+    it('refuses import with "unrecognized" when a password-protected file has no configured password', async () => {
+      const pdfBytes = await buildPdf(['Ola, AGILIZ.AI LTDA! Sua fatura com', 'vencimento em Outubro chegou'], 'inv-test-pw')
+      const client = InMemoryDriveClient.fromTree('root', { agosto: { c6: { 'fatura c6.pdf': { mimeType: 'application/pdf', content: pdfBytes } } } })
+      const file = await tracked(client)
+      await repo.claimForImporting(file.id)
+
+      await expect(service().runImport(file.id, client, 42, '2026-10', undefined)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'unrecognized' }),
+      })
+
+      expect(published).toHaveLength(0)
+      const after = await repo.findById(file.id)
+      expect(after?.status).toBe('error')
     })
   })
 

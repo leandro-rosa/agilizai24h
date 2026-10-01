@@ -9,20 +9,31 @@ import { HoldItBullMQBroker } from '@app/hold-it'
 import { TREASURY_QUEUES, type TreasuryRawRowsJob } from '@app/treasury-ingestion-contracts'
 import type { DriveClient } from '../../drive-source/services/drive-client'
 import { XLSX_MIME } from '../../drive-source/constants/drive.constants'
-import { readWorkbookRows } from '../../ingestion/utils/read-workbook-rows'
-import { TREASURY_DRIVE_MAX_FILE_BYTES } from '../constants/treasury-drive.constants'
-import { detectTreasurySheetSource } from '../utils/detect-source'
 import { parseItauStatementSheet } from '../parsers/itau-statement-sheet.parser'
 import { parseC6StatementSheet } from '../parsers/c6-statement-sheet.parser'
 import { parseC6InvoiceSheet } from '../parsers/c6-invoice-sheet.parser'
+import { parsePagBankStatementSheet } from '../parsers/pagbank-statement-sheet.parser'
+import { readAndClassifyTreasuryDriveFile } from '../utils/read-treasury-drive-file'
+import { TREASURY_DRIVE_MAX_FILE_BYTES } from '../constants/treasury-drive.constants'
+import { parseNubankStatement } from '../../treasury-ingestion/parsers/nubank.parser'
+import { parseC6Invoice } from '../../treasury-ingestion/parsers/c6-invoice.parser'
 import { TreasuryDriveProducer } from './treasury-drive.producer'
 import { TreasuryDriveRepository } from './treasury-drive.repository'
 
-/** Only the 3 sources this Drive source can ever detect (see detect-source.ts) — the other 4 arrive as PDF/CSV uploads through the gateway's own `/treasury-imports` path. */
-const PARSERS = {
+/** Sheet-formatted sources — read via `readWorkbookRows`, parsed by row/column name. */
+const SHEET_PARSERS = {
   itau_statement: parseItauStatementSheet,
   c6_statement: parseC6StatementSheet,
   c6_invoice: parseC6InvoiceSheet,
+  pagbank_statement: parsePagBankStatementSheet,
+} as const
+
+/** PDF-formatted sources — read via `extractPdfPages`, parsed by line/text pattern. `c6_invoice`
+ * is the one source reachable through EITHER map (a native Sheet one month, a password-protected
+ * PDF the next — both real, confirmed against the real September file). */
+const PDF_PARSERS = {
+  nubank_statement: parseNubankStatement,
+  c6_invoice: parseC6Invoice,
 } as const
 
 const refusal = (code: string, message: string) => ({ code, message })
@@ -90,7 +101,7 @@ export class TreasuryDriveImportService {
   // The job: download, recompute every check, and only then write.
   // ---------------------------------------------------------------------------------------------
 
-  async runImport(id: string, client: DriveClient, accountId: number, period: string): Promise<{ status: 'imported'; jobId: string } | undefined> {
+  async runImport(id: string, client: DriveClient, accountId: number, period: string, pdfPassword: string | undefined): Promise<{ status: 'imported'; jobId: string } | undefined> {
     const file = await this.repository.findById(id)
     // A stale or repeated job: the request path already claimed this file: if it is no longer
     // `importing`, someone else finished it (or reset it) and there is nothing left to do here.
@@ -101,30 +112,27 @@ export class TreasuryDriveImportService {
       const destPath = join(tmp, file.drive_file_id)
 
       try {
-        await client.exportSheet(file.drive_file_id, destPath, TREASURY_DRIVE_MAX_FILE_BYTES)
-        const sheets = await readWorkbookRows(destPath)
-        const detectedSource = detectTreasurySheetSource(sheets, file.bank_folder_name)
+        const result = await readAndClassifyTreasuryDriveFile(client, file.drive_file_id, file.mime_type, file.bank_folder_name, destPath, TREASURY_DRIVE_MAX_FILE_BYTES, pdfPassword)
 
-        if (!detectedSource) {
+        if (!result.detectedSource) {
           await this.repository.markError(id, 'Re-check at import time found no recognizable signature')
           throw new BadRequestException({ code: 'unrecognized' })
         }
 
-        const parse = PARSERS[detectedSource as keyof typeof PARSERS]
-        const { rows, rejections } = parse(sheets[0].rows)
+        const detectedSource = result.detectedSource
+        const { rows, rejections } = result.sheets
+          ? SHEET_PARSERS[detectedSource as keyof typeof SHEET_PARSERS](result.sheets[0].rows)
+          : PDF_PARSERS[detectedSource as keyof typeof PDF_PARSERS](result.pages!, period)
 
         // Only now does anything leave this process — same discipline as drive-import.service.ts's
-        // own "nothing is written before the checks pass" comment. `exportSheet` only ever succeeds
-        // for a native Google Sheet (`GOOGLE_SHEET_MIME`) — Drive's `files.export` rejects any other
-        // mime type with a 403 (see `treasury-drive-scan.service.ts`'s own per-file mimeType guard,
-        // added after a real scan crash on a non-Sheet file) — so a file that reaches this point
-        // with a real `detectedSource` was always a native Sheet, and these re-downloaded bytes are
-        // always real xlsx. The original name always gets an .xlsx extension when the Drive item
-        // reports none of its own.
+        // own "nothing is written before the checks pass" comment. The original name always gets an
+        // .xlsx extension when the Drive item reports none of its own (a sheet-formatted source); a
+        // PDF-formatted source keeps whatever name/extension the Drive item already has.
         const bytes = await readFile(destPath)
         const originalName = extname(file.name) === '' ? `${file.name}.xlsx` : file.name
         const objectKey = `treasury-imports/${period}/${detectedSource}/${randomUUID()}-${originalName.replace(/[\\/]/g, '_')}`
-        await this.s3.uploadFile(objectKey, bytes, XLSX_MIME)
+        const contentType = result.sheets ? XLSX_MIME : 'application/pdf'
+        await this.s3.uploadFile(objectKey, bytes, contentType)
 
         const job: TreasuryRawRowsJob = {
           schemaVersion: 1,
