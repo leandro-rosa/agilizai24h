@@ -23,10 +23,10 @@
 
 ## 5. Baseline and packaging import
 
-- [ ] 5.1 Import route and parser for pricing-sheet rows (`SKU`, `qtd itens por loja`, `Medida`): tolerate `#ERROR!` rows, record baselines append-only with source and date, report rows rejected with reason.
-- [ ] 5.2 Conflicting duplicate SKUs (for example 6024, 9987 in the real sheet) are rejected and reported, never resolved by picking one.
-- [ ] 5.3 Write `Medida` to the product's `packageType` through `products-service`; leave units per package unknown.
-- [ ] 5.4 Tests with a fixture shaped like the real sheet, including the error rows and the conflicting duplicates; a re-import with a changed value keeps both values in history.
+- [x] 5.1 Import route and parser for pricing-sheet rows (`SKU`, `qtd itens por loja`, `Medida`): tolerate `#ERROR!` rows, record baselines append-only with source and date, report rows rejected with reason.
+- [x] 5.2 Conflicting duplicate SKUs (for example 6024, 9987 in the real sheet) are rejected and reported, never resolved by picking one.
+- [x] 5.3 Write `Medida` to the product's `packageType` through `products-service`; leave units per package unknown.
+- [x] 5.4 Tests with a fixture shaped like the real sheet, including the error rows and the conflicting duplicates; a re-import with a changed value keeps both values in history.
 - [ ] 5.5 Import the real pricing sheet from the owner's Drive file into the real service once, after review of the rejection report with the owner.
 
 ## 6. Engine, pure functions

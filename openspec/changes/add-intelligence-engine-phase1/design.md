@@ -20,7 +20,7 @@ Constraints from the repo: NestJS microservices with a database each (Prisma + a
 
 ### D1. A new `intelligence-service`, reading and never writing the others
 
-Own Postgres (host port 5446), Fastify bootstrap, Prisma + adapter-pg, module layout and per-module `CLAUDE.md` as in the repo skill. It reads `supply-service` (visits, period removals by reason), `sales-service` (monthly sales) and `products-service` (cost, packaging) over HTTP with `@app/http-client`. Alternatives: a module inside `supply-service` (rejected — mixes a decision engine with the owner of movement facts, and the owner chose a separate service); computing in the browser (rejected — rules live in the backend).
+Own Postgres (host port 5446), Fastify bootstrap, Prisma + adapter-pg, module layout and per-module `CLAUDE.md` as in the repo skill. It reads `supply-service` (visits, period removals by reason), `sales-service` (monthly sales) and `products-service` (cost, packaging) over HTTP with `@app/http-client`. Every call from the engine and the source clients is a read; **the only write to another service is the owner-triggered packaging import of D12** (`PATCH /products/:id` with the packaging type), isolated in one writer class that nothing in the engine imports, and guarded by a test that fails if any other file writes. Alternatives: a module inside `supply-service` (rejected — mixes a decision engine with the owner of movement facts, and the owner chose a separate service); computing in the browser (rejected — rules live in the backend).
 
 ### D2. Runs are queued and persisted
 
