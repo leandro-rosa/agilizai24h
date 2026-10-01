@@ -1,4 +1,4 @@
-import { PDFParse } from 'pdf-parse'
+import { PDFParse, PasswordException } from 'pdf-parse'
 
 export interface PdfPage {
   pageNumber: number
@@ -14,7 +14,7 @@ export class PdfPasswordRequiredError extends Error {
 }
 
 function isPasswordRequiredError(error: unknown): boolean {
-  return error instanceof Error && /password/i.test(error.message)
+  return error instanceof PasswordException
 }
 
 /**
