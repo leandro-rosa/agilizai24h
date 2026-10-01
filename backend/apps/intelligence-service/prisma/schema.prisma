@@ -187,3 +187,49 @@ model BacktestResult {
   @@index([run_id, origin])
   @@map("backtest_result")
 }
+
+/// One monthly refresh: an engine run over the history through a month plus the
+/// backtest (coverage and count-rule sensitivity included) as ONE linked set
+/// (design D14). A set is never overwritten or deleted; once `completed` its
+/// fields never change. Only `refresh_pointer` moves.
+model RefreshSet {
+  id                   String    @id
+  /// 'running' | 'completed' | 'failed'. Completed only when the engine run is
+  /// completed AND the backtest is completed.
+  status               String
+  /// The month the refresh was started for (the latest available month then).
+  target_month         String
+  /// The last month the set really covers, taken from what the engine run read.
+  /// Null until the set completes — a set never claims a month it did not read.
+  data_through         String?
+  range_from           String
+  range_to             String
+  as_of                DateTime
+  engine_version       String
+  parameter_version_id Int
+  engine_run_id        String?
+  /// The id the backtest port returned; the backtest tables are owned by the backtest module.
+  backtest_id          String?
+  /// 'event' | 'manual'
+  trigger              String
+  error                String?
+  /// How many times the set was checked for completion (bounded by a timeout).
+  polls                Int       @default(0)
+  created_at           DateTime  @default(now())
+  /// When the whole set finished — the "last updated" of every figure in it.
+  computed_at          DateTime?
+
+  @@index([target_month, status])
+  @@index([data_through, created_at])
+  @@map("refresh_set")
+}
+
+/// The single mutable row: which completed set is current. It moves only when a
+/// whole set has finished (and never backwards in `data_through`).
+model RefreshPointer {
+  id             Int      @id @default(1)
+  refresh_set_id String
+  moved_at       DateTime @default(now())
+
+  @@map("refresh_pointer")
+}

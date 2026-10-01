@@ -44,6 +44,16 @@ class EnvironmentVariables {
   @IsInt()
   @Min(1)
   PORT?: number
+
+  /** Monthly refresh: first month of the history (YYYY-MM, default 2026-01) and the debounce window of the period events. */
+  @IsOptional()
+  @IsString()
+  INTELLIGENCE_HISTORY_START?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  REFRESH_DEBOUNCE_SECONDS?: number
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

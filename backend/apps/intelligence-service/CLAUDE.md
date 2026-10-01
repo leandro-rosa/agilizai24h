@@ -19,8 +19,8 @@ Sem superfície pública: nenhuma rota no gateway ainda.
 
 Pronto: bootstrap, env, health, clientes de leitura, Docker, `agiliz-cli`,
 modelo de dados, parâmetros, o **motor** e as **runs** (fila + persistência +
-leitura). **Ainda não existe** backtest nem atualização mensal automática —
-grupos 8 e 9 da mudança. Sem rota no gateway e sem tela.
+leitura) e a **atualização mensal** (grupo 9). O backtest (grupo 8) entra pela
+porta `BACKTEST_PORT`. Sem rota no gateway e sem tela.
 
 ## Runs (`/runs`) — rotas internas
 
@@ -45,6 +45,44 @@ grupos 8 e 9 da mudança. Sem rota no gateway e sem tela.
   conflitos não disparam; o motor já os trata quando vierem.
 - `asOf` padrão é agora; sem importar setembro, uma run "ao vivo" tem toda contagem
   antiga (`last_count_too_old`) — rode com `asOf` do fim do último mês importado.
+
+## Atualização mensal (`src/modules/refresh/`) — rotas internas
+
+- **Mês disponível** = terminou antes do instante de referência **e** suprimento **e** venda
+  importados para pelo menos `refresh.availableStoreShare` (90%) das lojas **ativas** (com visita
+  nos 3 meses anteriores, sem as sintéticas). `dataThrough` = o último disponível; mês terminado
+  e não disponível = `pendingImport` (com as contagens). A regra é uma só (`availability.ts`) e a
+  `dataThroughOf` das runs a reutiliza. A sonda lê os serviços de origem do mês mais novo para
+  trás e para no primeiro disponível; resposta lembrada por 60 s.
+- **Gatilho**: fila `period.data-updated.intelligence` (assinante novo em
+  `@app/period-events-contracts`; supply e sales publicam nela sem mudar). O worker do evento é
+  barato: só agenda **uma** checagem por janela de 60 s (`REFRESH_DEBOUNCE_SECONDS`) com `jobId`
+  da janela, então centenas de eventos de uma importação viram um job; evento que chega durante a
+  checagem cai na janela seguinte. A checagem pergunta se `dataThrough` passou do conjunto atual e,
+  se sim, abre **um** conjunto. Manual: `POST /refresh {month?, force?}` (mês precisa ter
+  terminado; `force` só para mês que já tem conjunto concluído).
+- **Conjunto** (`refresh_set`): uma run do motor sobre o histórico (de `INTELLIGENCE_HISTORY_START`,
+  padrão 2026-01) até o mês + o backtest (cobertura e sensibilidade vêm dele) via `BACKTEST_PORT`,
+  nessa ordem. `asOf` = primeiro instante depois do mês (a data é do dado, não do relógio). Um
+  poll (`intelligence.refresh-advance`, 15 s) inicia o backtest quando a run termina e promove o
+  conjunto quando o backtest termina. Falha da run, do backtest, mês não lido ou 6 h sem
+  terminar = conjunto `failed` com o motivo; **o conjunto atual não muda**.
+- **Histórico só-append**: conjunto concluído nunca é alterado nem apagado; carrega período
+  (`dataThrough`, o que a run realmente leu), versão do motor, versão dos parâmetros e
+  `computedAt`. O "atual" é a única linha mutável (`refresh_pointer`), move só quando o conjunto
+  inteiro termina e nunca para um `dataThrough` mais antigo. Um conjunto por mês (running/concluído),
+  garantido por lock consultivo do Postgres.
+- **Leituras**: `GET /refresh/status` (atual, em andamento, última falha, `freshness`),
+  `GET /refresh/sets`, `GET /history/:storeId/:sku` (o resultado do par em cada conjunto concluído,
+  em ordem; `result: null` se o par não existe naquele conjunto).
+- **Frescor** em toda run/resultado/status: `dataThrough`, `computedAt`, `outOfDate` + `monthsLagged`
+  quando já existe mês disponível posterior, `pendingImport`; `GET /runs/:id` e `/runs/:id/results`
+  trazem o bloco. Fonte ilegível = `status: unknown` (nunca "em dia"); nada computado =
+  `not_computed`. Nunca se afirma cobrir mês não coberto.
+- **Conjunto com loja ignorada** é promovido, mas `currentStoresSkipped` em `/refresh/status`
+  mostra quantas; decisão a confirmar com o dono (bloquear impediria atualizar com uma loja fora do ar).
+- `BACKTEST_PORT` hoje é um placeholder que falha alto (`NotYetAvailableBacktest`): sem o módulo
+  de backtest todo conjunto vira `failed`, nunca "concluído sem backtest".
 
 ## O motor (`src/modules/engine/`, funções puras)
 

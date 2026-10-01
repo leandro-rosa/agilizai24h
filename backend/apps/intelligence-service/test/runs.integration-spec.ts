@@ -12,6 +12,7 @@ import { EngineStoreWorker } from '../src/modules/runs/engine-store.worker'
 import { RunFinalizer } from '../src/modules/runs/run-finalizer'
 import { RunInputBuilder } from '../src/modules/runs/run-input.builder'
 import type { EngineStoreJob } from '../src/modules/runs/runs.constants'
+import { FreshnessService } from '../src/modules/refresh/freshness.service'
 import { RunsService } from '../src/modules/runs/runs.service'
 import { ProductsClient } from '../src/modules/sources/products.client'
 import { SalesClient } from '../src/modules/sources/sales.client'
@@ -100,6 +101,7 @@ describe('engine runs', () => {
         RunsService,
         RunInputBuilder,
         RunFinalizer,
+        FreshnessService,
         { provide: SupplyClient, useValue: supplyStub },
         { provide: SalesClient, useValue: salesStub },
         { provide: ProductsClient, useValue: productsStub },
@@ -172,6 +174,19 @@ describe('engine runs', () => {
 
     // August has not fully ended before the as-of instant, so the run does not claim it.
     expect(done.dataThrough).toBe('2026-07')
+  })
+
+  it('states what the run covers and when it was computed, and never claims a month it did not read', async () => {
+    const queued = await runs.create({ rangeFrom: '2026-01', rangeTo: '2026-08', asOf: '2026-08-31T23:59:59Z' })
+    expect(queued.freshness).toMatchObject({ dataThrough: null, computedAt: null, status: 'not_computed' })
+
+    await drain()
+    const done = await runs.get(queued.id)
+
+    expect(done.freshness).toMatchObject({ dataThrough: '2026-07', computedAt: done.finishedAt })
+    // The fixtures hold nothing for September or later, so no later month is available: nothing is claimed.
+    expect(done.freshness.pendingImport.map(month => month.month)).toContain('2026-09')
+    expect((await runs.results(queued.id, {})).freshness).toMatchObject({ dataThrough: '2026-07' })
   })
 
   it('applies the baseline of record and marks results that rest on it, before the baseline existed', async () => {

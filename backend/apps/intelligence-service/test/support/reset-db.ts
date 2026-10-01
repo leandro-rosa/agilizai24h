@@ -14,6 +14,6 @@ export async function resetDisposableDb(prisma: PrismaClientService): Promise<vo
   }
 
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE backtest_result, backtest_run, recommendation, engine_run, product_store_flag, store_schedule, baseline_quantity, parameter_version RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE refresh_pointer, refresh_set, backtest_result, backtest_run, recommendation, engine_run, product_store_flag, store_schedule, baseline_quantity, parameter_version RESTART IDENTITY CASCADE',
   )
 }

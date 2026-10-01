@@ -3,6 +3,8 @@ import { PrismaClientService } from '../db-client/prisma-client.service'
 import type { PairResult } from '../engine/engine'
 import type { Parameters } from '../parameters/parameters.types'
 import { ParametersService } from '../parameters/parameters.service'
+import { summarizeAvailability } from '../refresh/availability'
+import { monthEnded } from '../refresh/months'
 import { damageScope, networkEvidenceBySku, removalPatternInNetwork, type SkuStoreFlags } from './network-evidence'
 
 interface StoredMonths {
@@ -11,29 +13,21 @@ interface StoredMonths {
   salesPresent: boolean
 }
 
-/** A month that has fully ended before the reference date. */
-export function monthEnded(month: string, asOf: Date): boolean {
-  const [year, number] = month.split('-').map(Number)
-  return asOf.getTime() >= Date.UTC(year, number, 1)
-}
+export { monthEnded }
 
 /**
  * The latest month for which supply AND sales are present at at least `share` of
  * the stores that were processed, and that has ended before the reference date.
  * Null when no month qualifies. A run never claims a month it did not read.
+ * (The rule itself lives in `refresh/availability.ts`, shared with the monthly refresh.)
  */
 export function dataThroughOf(stores: StoredMonths[][], share: number, rangeTo: string, asOf: Date): string | null {
   if (stores.length === 0) return null
 
-  const months = [...new Set(stores.flatMap(store => store.map(entry => entry.month)))].filter(month => month <= rangeTo).sort()
-  let through: string | null = null
+  const months = [...new Set(stores.flatMap(store => store.map(entry => entry.month)))].filter(month => month <= rangeTo)
+  const evidence = months.map(month => ({ month, stores: stores.map(store => ({ supplyPresent: store.some(entry => entry.month === month && entry.supplyPresent), salesPresent: store.some(entry => entry.month === month && entry.salesPresent) })) }))
 
-  for (const month of months) {
-    const present = stores.filter(store => store.some(entry => entry.month === month && entry.supplyPresent && entry.salesPresent)).length
-    if (present / stores.length >= share && monthEnded(month, asOf)) through = month
-  }
-
-  return through
+  return summarizeAvailability(evidence, share, asOf).dataThrough
 }
 
 /**

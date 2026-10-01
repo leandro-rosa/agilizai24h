@@ -4,7 +4,9 @@ import { HoldItBullMQBroker } from '@app/hold-it'
 import { isSynthetic } from '../../common/synthetic'
 import { PrismaClientService } from '../db-client/prisma-client.service'
 import { ENGINE_VERSION } from '../engine/engine'
+import { monthsBetween } from '../refresh/months'
 import { ParametersService } from '../parameters/parameters.service'
+import { FreshnessService } from '../refresh/freshness.service'
 import { StoresClient } from '../sources/stores.client'
 import { SupplyClient } from '../sources/supply.client'
 import { INTELLIGENCE_QUEUES, RETRY_OPTIONS, type EngineStoreJob } from './runs.constants'
@@ -19,22 +21,7 @@ export interface CreateRunInput {
   correlationId?: string
 }
 
-export function monthsBetween(from: string, to: string): string[] {
-  const months: string[] = []
-  let [year, month] = from.split('-').map(Number)
-  const [endYear, endMonth] = to.split('-').map(Number)
-
-  while (year < endYear || (year === endYear && month <= endMonth)) {
-    months.push(`${year}-${String(month).padStart(2, '0')}`)
-    month++
-    if (month > 12) {
-      month = 1
-      year++
-    }
-  }
-
-  return months
-}
+export { monthsBetween }
 
 /**
  * Starts engine runs and reads them back. A run is immutable once finished and
@@ -54,6 +41,7 @@ export class RunsService {
     private readonly supply: SupplyClient,
     private readonly stores: StoresClient,
     private readonly broker: HoldItBullMQBroker,
+    private readonly freshness: FreshnessService,
   ) {}
 
   async create(input: CreateRunInput) {
@@ -112,19 +100,27 @@ export class RunsService {
     const run = await this.prisma.engineRun.findUnique({ where: { id } })
     if (!run) throw new NotFoundException(`Run ${id} not found`)
 
-    const [stores, summary, version] = await Promise.all([
+    const [stores, summary, version, freshness] = await Promise.all([
       this.prisma.engineRunStore.findMany({ where: { run_id: id }, orderBy: { store_id: 'asc' }, select: { store_id: true, status: true, reason: true, pairs: true } }),
       this.summary(id),
       this.parameters.byId(run.parameter_version_id),
+      this.freshnessOfRun(run),
     ])
 
     return {
       ...toRunView(run),
       stores: stores.map(store => ({ storeId: store.store_id, status: store.status, reason: store.reason, pairs: store.pairs })),
       summary,
+      /** Which month the run covers, when it was computed, and whether a later month is already available. */
+      freshness,
       /** The values the run used — still readable after newer versions exist. */
       parameters: { id: version.id, createdAt: version.createdAt, values: version.values },
     }
+  }
+
+  private freshnessOfRun(run: { status: string; data_through: string | null; finished_at: Date | null }) {
+    // A run that has not finished covers nothing yet; it never claims a month.
+    return this.freshness.freshnessOf(run.status === 'completed' ? run.data_through : null, run.finished_at)
   }
 
   /** Counts per coverage category, Mix, Quantity action and tolerance status. */
@@ -151,7 +147,7 @@ export class RunsService {
   }
 
   async results(runId: string, filter: { storeId?: number; sku?: string; coverage?: string; limit?: number; offset?: number }) {
-    await this.get(runId)
+    const run = await this.get(runId)
 
     const where = { run_id: runId, ...(filter.storeId !== undefined ? { store_id: filter.storeId } : {}), ...(filter.sku ? { sku: filter.sku } : {}), ...(filter.coverage ? { coverage_category: filter.coverage } : {}) }
 
@@ -160,7 +156,7 @@ export class RunsService {
       this.prisma.recommendation.findMany({ where, orderBy: [{ store_id: 'asc' }, { sku: 'asc' }], take: Math.min(filter.limit ?? 100, 1000), skip: filter.offset ?? 0 }),
     ])
 
-    return { runId, total, results: rows.map(row => row.result) }
+    return { runId, dataThrough: run.dataThrough, computedAt: run.finishedAt, freshness: run.freshness, total, results: rows.map(row => row.result) }
   }
 }
 
