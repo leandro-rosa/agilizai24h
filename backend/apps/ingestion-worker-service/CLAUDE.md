@@ -471,26 +471,29 @@ Google real. A aceitação com a pasta real é do operador (tarefa 13.3).
 
 Um segundo Drive root folder — "Extratos" (id `1m-79pKJqmE7nL9enlLb_ncAFHe7BBccq`) —
 organizado como `<mês>/<banco>/<arquivo>`, onde a operadora coloca mensalmente
-extratos bancários e faturas de cartão (Itaú, C6) em vez de fazer upload manual
+extratos bancários e faturas de cartão (Itaú, C6, Nubank, PagBank) em vez de fazer upload manual
 via `/treasury/imports/upload`. O mesmo "drop it in Drive, click sync"
 que sales/abastecimento já têm. Módulo paralelo, `src/modules/treasury-drive-source/`,
 não generaliza o `drive-source` existente — sua validação por cobertura de dia
 é vendas-específica e não se aplica aqui.
 
-**A pasta é uma segunda fonte, as 3 primeiras (Itaú PDF, C6 PDF, etc.) continuam
-via upload manual.** Esta primeira fase cobre Itaú statement, C6 statement e C6
-invoice — três novos parsers em `parsers/`, lendo células de Google Sheet em vez
-de texto extraído de PDF. As outras 4 fontes (Nubank, PagBank, Bradesco,
-PagSeguro fatura) virão depois, quando real-file groundwork confirmar seu layout
-no Drive.
+**A pasta é uma segunda fonte, as 7 fontes de PDF/fatura continuam via upload manual.** Esta fase cobre
+Itaú statement, C6 statement, C6 invoice (como Sheet nativa **ou** PDF com senha conforme o mês),
+Nubank statement (PDF) e PagBank statement (mislabeled-PDF-xlsx detectado em scan como XLSX no Drive
+mas tratado pelo parser de PDF). C6 invoice, quando em PDF, é desbloqueada via `TREASURY_DRIVE_PDF_PASSWORD`
+se definida (requerida só em C6; o arquivo real de Nubank não tem senha). Nubank e PagBank reusam os
+parsers de PDF e XLSX das fontes de upload manual — PagBank ganhou um parser Sheet-específico para
+o formato mislabeled.
+Bradesco permanece explicitamente fora de escopo — nenhum arquivo real ainda no Drive para validar layout.
+Ver [docs/superpowers/specs/2026-09-29-treasury-statement-drive-sync-design.md](../../../docs/superpowers/specs/2026-09-29-treasury-statement-drive-sync-design.md)
+e [docs/superpowers/plans/2026-09-29-treasury-statement-drive-sync.md](../../../docs/superpowers/plans/2026-09-29-treasury-statement-drive-sync.md).
 
 **Allowlist de meses é manual, não computado** — `TREASURY_DRIVE_MONTH_FOLDERS`
-lista os meses explicitamente (e.g. `agosto,setembro`), estendido à mão cada
-período. Motivo: os nomes das pastas carregam só o mês ("agosto"), nunca o ano,
-então "agosto" num Drive poderia ser 2026 ou 2025 e não tem como descobrir qual
-sem ler o conteúdo — automatizar isso criaria um vetor de ambiguidade em uma
-feature financeira. Só pastas nessa allowlist são escaneadas; uma pasta real
-"julho" não nomeada voltaria a ser invisível, nunca listada como "não reconhecido".
+lista os meses explicitamente (e.g. `agosto-26,setembro-26`), com sufixo de ano (não bare `agosto`),
+estendido à mão cada período. Motivo: os nomes das pastas carregam mês+ano (`agosto-26`), e os bancos
+não mudam de padrão sem aviso — "agosto" sem ano poderia referir-se a múltiplos anos se houvesse. 
+Só pastas nessa allowlist são escaneadas; uma pasta real de mês anterior não nomeada voltaria a ser 
+invisível, nunca listada como "não reconhecido".
 
 **As linhas vêm todas na mesma fila (`treasury.raw-rows`) que as 7 fontes PDF
 já alimentam**, unchanged — `treasury-service` não diferencia origem (PDF manual
