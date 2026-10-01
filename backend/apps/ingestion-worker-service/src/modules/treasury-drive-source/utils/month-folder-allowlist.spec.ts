@@ -23,10 +23,21 @@ describe('isRecognizedBankFolder', () => {
   })
 
   it('does not recognize a bank not covered by this phase', () => {
-    expect(isRecognizedBankFolder('nubank')).toBe(false)
+    expect(isRecognizedBankFolder('bradesco')).toBe(false)
   })
 
   it('does not recognize a non-bank folder (noise like "comprovantes itau" living at the wrong level)', () => {
     expect(isRecognizedBankFolder('comprovantes itau')).toBe(false)
+  })
+
+  describe('isRecognizedBankFolder — multi-bank', () => {
+    it('recognizes nubank and pagseguro, case-insensitively', () => {
+      expect(isRecognizedBankFolder('nubank')).toBe(true)
+      expect(isRecognizedBankFolder('PagSeguro')).toBe(true)
+    })
+
+    it('still does not recognize bradesco — no real file to verify against yet', () => {
+      expect(isRecognizedBankFolder('bradesco')).toBe(false)
+    })
   })
 })

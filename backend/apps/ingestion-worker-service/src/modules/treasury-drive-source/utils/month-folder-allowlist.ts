@@ -1,4 +1,4 @@
-const RECOGNIZED_BANK_FOLDERS = ['itau', 'c6']
+const RECOGNIZED_BANK_FOLDERS = ['itau', 'c6', 'nubank', 'pagseguro']
 
 export function isAllowedMonthFolder(name: string, allowlist: string[]): boolean {
   const normalized = name.trim().toLowerCase()

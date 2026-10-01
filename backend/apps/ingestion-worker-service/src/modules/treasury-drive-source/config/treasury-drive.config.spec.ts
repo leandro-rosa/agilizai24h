@@ -44,4 +44,19 @@ describe('loadTreasuryDriveConfig', () => {
       loadTreasuryDriveConfig({ TREASURY_DRIVE_ROOT_FOLDER_ID: 'folder-1', GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: 'not-base64-json' }),
     ).toThrow(/GOOGLE_SERVICE_ACCOUNT_JSON_BASE64/)
   })
+
+  it('reads an optional PDF password, undefined when unset', () => {
+    const withPassword = loadTreasuryDriveConfig({
+      TREASURY_DRIVE_ROOT_FOLDER_ID: 'folder-1',
+      GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: validCredential,
+      TREASURY_DRIVE_PDF_PASSWORD: '608193',
+    })
+    expect(withPassword.pdfPassword).toBe('608193')
+
+    const withoutPassword = loadTreasuryDriveConfig({
+      TREASURY_DRIVE_ROOT_FOLDER_ID: 'folder-1',
+      GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: validCredential,
+    })
+    expect(withoutPassword.pdfPassword).toBeUndefined()
+  })
 })

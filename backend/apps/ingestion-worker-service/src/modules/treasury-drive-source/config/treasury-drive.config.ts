@@ -7,6 +7,7 @@ export interface TreasuryDriveConfig {
   credential?: DriveCredential
   monthFolders: string[]
   scanCron: string
+  pdfPassword?: string
 }
 
 export const TREASURY_DRIVE_CONFIG = Symbol('TREASURY_DRIVE_CONFIG')
@@ -39,5 +40,6 @@ export function loadTreasuryDriveConfig(source: Source): TreasuryDriveConfig {
     credential,
     monthFolders,
     scanCron: text(source, 'TREASURY_DRIVE_SCAN_CRON') ?? TREASURY_DRIVE_DEFAULT_SCAN_CRON,
+    pdfPassword: text(source, 'TREASURY_DRIVE_PDF_PASSWORD'),
   }
 }
