@@ -294,16 +294,14 @@ Seguindo a convenção do repo: abrir uma mudança OpenSpec que **substitui o es
 **Altera:** sugestão de reabastecimento (vira Quantidade + Próximo abastecimento), confiança (separa as três), janelas (unificar; corrigir a diferença entre data UTC e mês local), remover a segunda execução duplicada da Inteligência de Perdas.
 **Descarta:** "Aproveitamento" como indicador principal, o saldo derivado do inventory-service, os 95 parâmetros do motor antigo (continuam congelados).
 
-## Decisões que preciso de você antes de começar
+## Decisões aprovadas (30/09/2026)
 
-Respondidas nesta sessão: a planilha de precificação está no Drive (`preços/precificação(1).xlsx`); `Qtd. confirmada` é a contagem feita **antes** do abastecimento (você aceitou a leitura dos dados); 14 produtos descontinuados ficam fora.
-
-1. **`qtd itens por loja` varia por loja ou é o mesmo para todas as lojas do SKU?** Na planilha há um valor por SKU; o `par_level` do banco é por loja × SKU. O que vale como baseline?
-2. **Medida (caixa/fardo/unidade) por SKU:** posso importar da sua planilha como dado do produto (hoje 232 de 233 estão sem embalagem)? A preferência "caixa fechada nesta loja" vira um campo opcional por loja × SKU, sem efeito na matemática.
-3. **Backend:** novo `intelligence-service` (recomendado) ou um módulo dentro de `supply-service`?
-4. **Frequência de visita:** existe uma frequência ou data de próxima visita planejada em algum lugar? Se não, uso a mediana histórica por loja (4 a 8 dias) e deixo `planned_refill_interval_days` como parâmetro opcional seu.
-5. **Tolerância (gate do saldo):** com os números da tabela acima, qual divergência você aceita para liberar "saldo estimado" e "quanto levar"? Sugestão para conversar, não para fixar: decidir por faixa de giro e de saldo, já que saldo alto diverge mais. Até lá o saldo fica como "indisponível" nas telas.
-6. **Ordem das fases:** confirmar 1 (motor + backtest, sem tela) → 2 (Por Loja + drawer) → 3 (Por Produto + Matriz) → 4 (Próximo abastecimento, só se o gate passar) → 5 (registro de decisões).
+1. `qtd itens por loja` é **igual para todas as lojas** do mesmo SKU (baseline por SKU).
+2. **Medida** importada da planilha como atributo do produto; "caixa fechada nesta loja" é opcional por loja × SKU, sem efeito na matemática.
+3. Backend: **novo `intelligence-service`**.
+4. Visitas **sempre nos mesmos dias da semana: segunda, terça, quinta e sexta**, com mudanças esporádicas. Vira o padrão de visita planejada (configurável, com exceção por loja); o intervalo até a próxima visita sai daí, não só da mediana histórica.
+5. **Tolerância do saldo (configurável, nunca fixa no código):** divergência aceitável se `|diferença| ≤ máx(10% do saldo, 3 unidades)`, ou seja, vale o limite mais permissivo. Acima dos dois, o saldo é "não confiável" e **não** é usado automaticamente em "quanto levar"; continua visível para consulta como "saldo estimado — baixa confiabilidade". Para liberar a sugestão automática, o Produto × Loja precisa estar dentro da tolerância. Uma diferença de 1 ou 2 unidades nunca bloqueia só pelo percentual.
+6. Ordem das fases confirmada: 1 motor + backtest → 2 Por Loja + drawer → 3 Por Produto + Matriz → 4 Próximo abastecimento (só se o gate passar) → 5 registro de decisões.
 
 ## Adendo de 30/09/2026: resultado da auditoria de contagens (Fase 0, sem tolerância definida)
 
