@@ -71,8 +71,8 @@
 
 ## 10. Verification and closing
 
-- [ ] 10.1 Run the engine against real January to August history and sanity-check against the 12 plan examples; explain any difference.
-- [ ] 10.2 Run the backtest on the real history; read the report, list what it shows about the provisional defaults, and prepare it for review with the owner. Do not freeze any threshold.
-- [ ] 10.3 Present the coverage report (analysable, reliable, unreliable, not enough counts, conflicting data, insufficient history) and the count-rule sensitivity report on real history to the owner; keep 3 counts / minimum 1 / 45 days as provisional and choose no combination until the owner has chosen after seeing the sensitivity report.
-- [ ] 10.4 Lint, typecheck and tests for the affected packages compared with the baseline; update `intelligence-service/CLAUDE.md`, the root index and the memory notes.
-- [ ] 10.5 Commit and merge to the main branch in the same session after checking the target checkout's `git status`, without staging unrelated files.
+- [x] 10.1 Run the engine against real January to August history and sanity-check against the 12 plan examples; explain any difference.
+- [x] 10.2 Run the backtest on the real history; read the report, list what it shows about the provisional defaults, and prepare it for review with the owner. Do not freeze any threshold.
+- [x] 10.3 Present the coverage report (analysable, reliable, unreliable, not enough counts, conflicting data, insufficient history) and the count-rule sensitivity report on real history to the owner; keep 3 counts / minimum 1 / 45 days as provisional and choose no combination until the owner has chosen after seeing the sensitivity report.
+- [x] 10.4 Lint, typecheck and tests for the affected packages compared with the baseline; update `intelligence-service/CLAUDE.md`, the root index and the memory notes.
+- [x] 10.5 Commit and merge to the main branch in the same session after checking the target checkout's `git status`, without staging unrelated files.
