@@ -3,13 +3,11 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { GOOGLE_SHEET_MIME } from '../../drive-source/constants/drive.constants'
 import type { DriveClient, DriveItem } from '../../drive-source/services/drive-client'
-import { readWorkbookRows } from '../../ingestion/utils/read-workbook-rows'
 import type { TreasuryDriveConfig } from '../config/treasury-drive.config'
 import { TREASURY_DRIVE_MAX_FILE_BYTES } from '../constants/treasury-drive.constants'
 import { isAllowedMonthFolder, isRecognizedBankFolder } from '../utils/month-folder-allowlist'
-import { detectTreasurySheetSource } from '../utils/detect-source'
+import { readAndClassifyTreasuryDriveFile } from '../utils/read-treasury-drive-file'
 import { TreasuryDriveRepository } from './treasury-drive.repository'
 
 /**
@@ -48,27 +46,30 @@ export class TreasuryDriveScanService {
 
             seen++
 
-            // `files.export` (what `exportSheet` calls on the real Drive) only ever works for a
-            // native Google Sheet — every other mimeType (a PDF statement, an uploaded xlsx, a
-            // photo of a receipt — all real, seen in the actual "Extratos" folder tree) is
-            // rejected with a 403. Never attempted for those; recorded as unrecognized from
-            // metadata alone instead. And whatever DOES look like a Sheet is still wrapped in its
-            // own try/catch: a corrupt file or an export/read failure must never abort every file
-            // after it — the scan as a whole always completes (see this module's design doc,
-            // "unreadable/unrecognized file → detected_source: null, scan continues").
+            // Reads and classifies via the shared sniffing reader (Task 6), which reads any
+            // format — native Sheet, uploaded xlsx, PDF — by its real bytes, not just a native
+            // Sheet. Still wrapped in its own try/catch: a totally unexpected throw (e.g. a
+            // network error from `download` itself) must never abort every file after it — the
+            // scan as a whole always completes (see this module's design doc, "unreadable/
+            // unrecognized file → detected_source: null, scan continues"). The shared reader
+            // already has its own internal fallback for a password/unreadable PDF or a corrupt
+            // workbook, so this outer catch is strictly the unexpected-failure safety net.
             let detectedSource: string | null = null
             let contentSha256: string
 
             try {
-              if (fileItem.mimeType === GOOGLE_SHEET_MIME) {
-                const destPath = join(tmp, fileItem.id)
-                await client.exportSheet(fileItem.id, destPath, TREASURY_DRIVE_MAX_FILE_BYTES)
-                const sheets = await readWorkbookRows(destPath)
-                detectedSource = detectTreasurySheetSource(sheets, bankItem.name)
-                contentSha256 = createHash('sha256').update(JSON.stringify(sheets)).digest('hex')
-              } else {
-                contentSha256 = metadataFingerprint(fileItem)
-              }
+              const destPath = join(tmp, fileItem.id)
+              const result = await readAndClassifyTreasuryDriveFile(
+                client,
+                fileItem.id,
+                fileItem.mimeType,
+                bankItem.name,
+                destPath,
+                TREASURY_DRIVE_MAX_FILE_BYTES,
+                config.pdfPassword,
+              )
+              detectedSource = result.detectedSource
+              contentSha256 = result.contentSha256
             } catch (error) {
               this.logger.warn(
                 `Treasury Drive scan: could not read "${fileItem.name}" (${bankItem.name}/${monthItem.name}): ${(error as Error).message}`,
@@ -87,6 +88,7 @@ export class TreasuryDriveScanService {
               bankFolderName: bankItem.name,
               detectedSource,
               name: fileItem.name,
+              mimeType: fileItem.mimeType,
               modifiedTime: new Date(fileItem.modifiedTime),
               contentSha256,
             })

@@ -28,6 +28,7 @@ export class TreasuryDriveRepository {
     bankFolderName: string
     detectedSource: string | null
     name: string
+    mimeType: string
     modifiedTime: Date
     contentSha256: string
   }) {
@@ -41,6 +42,7 @@ export class TreasuryDriveRepository {
           bank_folder_name: input.bankFolderName,
           detected_source: input.detectedSource,
           name: input.name,
+          mime_type: input.mimeType,
           modified_time: input.modifiedTime,
           content_sha256: input.contentSha256,
           status: 'new',
@@ -54,7 +56,7 @@ export class TreasuryDriveRepository {
 
     return this.prisma.treasuryDriveFile.update({
       where: { id: existing.id },
-      data: { content_sha256: input.contentSha256, modified_time: input.modifiedTime, detected_source: input.detectedSource, status: 'changed' },
+      data: { content_sha256: input.contentSha256, modified_time: input.modifiedTime, detected_source: input.detectedSource, mime_type: input.mimeType, status: 'changed' },
     })
   }
 

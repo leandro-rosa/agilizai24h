@@ -176,4 +176,41 @@ describe('TreasuryDriveScanService', () => {
     expect(sheetFile).toMatchObject({ detected_source: 'c6_statement', status: 'new' })
     expect(pdfFile).toMatchObject({ detected_source: null, status: 'new' })
   })
+
+  it('tracks a real uploaded .xlsx (not a native Sheet) correctly, instead of marking it unrecognized', async () => {
+    const client = InMemoryDriveClient.fromTree('root', {
+      agosto: { c6: { 'extrato c6 agosto': xlsxBuffer([c6StatementSheet()]) } },
+    })
+    const repo = new TreasuryDriveRepository(prisma)
+    const service = new TreasuryDriveScanService(repo)
+
+    await service.scan(client, config())
+
+    const [tracked] = await repo.list()
+    expect(tracked).toMatchObject({ detected_source: 'c6_statement', mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  })
+
+  it('tracks a Nubank PDF found in a recognized nubank bank folder', async () => {
+    const { PDFDocument } = await import('pdf-lib')
+    const doc = await PDFDocument.create()
+    // Wide enough that the longest line never renders past the page's right edge — pdfjs-dist's
+    // text extraction silently truncates (and even drops) text positioned beyond the page bounds,
+    // confirmed with a scratch comparison (400pt cut "Agência Conta" down to "Agê"; 800pt kept it whole).
+    const page = doc.addPage([800, 120])
+    page.drawText('AGILIZ.AI LTDA', { x: 10, y: 90 })
+    page.drawText('60.819.321/0001-44 0001  CNPJ Agência Conta', { x: 10, y: 60 })
+    page.drawText('Movimentações', { x: 10, y: 30 })
+    const pdfBytes = Buffer.from(await doc.save())
+
+    const client = InMemoryDriveClient.fromTree('root', {
+      agosto: { nubank: { 'extrato nubank agosto.pdf': { mimeType: 'application/pdf', content: pdfBytes } } },
+    })
+    const repo = new TreasuryDriveRepository(prisma)
+    const service = new TreasuryDriveScanService(repo)
+
+    await service.scan(client, config())
+
+    const [tracked] = await repo.list()
+    expect(tracked).toMatchObject({ detected_source: 'nubank_statement', bank_folder_name: 'nubank', mime_type: 'application/pdf' })
+  })
 })
