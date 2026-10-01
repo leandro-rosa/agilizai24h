@@ -27,7 +27,7 @@
 - [x] 5.2 Conflicting duplicate SKUs (for example 6024, 9987 in the real sheet) are rejected and reported, never resolved by picking one.
 - [x] 5.3 Write `Medida` to the product's `packageType` through `products-service`; leave units per package unknown.
 - [x] 5.4 Tests with a fixture shaped like the real sheet, including the error rows and the conflicting duplicates; a re-import with a changed value keeps both values in history.
-- [ ] 5.5 Import the real pricing sheet from the owner's Drive file into the real service once, after review of the rejection report with the owner.
+- [x] 5.5 Import the real pricing sheet from the owner's Drive file into the real service once, after review of the rejection report with the owner.
 
 ## 6. Engine, pure functions
 
