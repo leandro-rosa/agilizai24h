@@ -24,4 +24,14 @@ describe('detectTreasuryPdfSource', () => {
     const lines = ['Olá, AGILIZ.AI LTDA! Sua fatura com', 'vencimento em Outubro chegou']
     expect(detectTreasuryPdfSource(pages(lines), 'pagseguro')).toBeNull()
   })
+
+  it('detects a Nubank statement with accent-variant "Agencia" (without accent)', () => {
+    const lines = ['AGILIZ.AI LTDA', '60.819.321/0001-44 0001\tCNPJ Agencia Conta', 'Movimentações']
+    expect(detectTreasuryPdfSource(pages(lines), 'nubank')).toBe('nubank_statement')
+  })
+
+  it('returns null for generic "vencimento" in c6 folder without "Sua fatura com"', () => {
+    const lines = ['Algum documento', 'com vencimento próximo', 'data X']
+    expect(detectTreasuryPdfSource(pages(lines), 'c6')).toBeNull()
+  })
 })

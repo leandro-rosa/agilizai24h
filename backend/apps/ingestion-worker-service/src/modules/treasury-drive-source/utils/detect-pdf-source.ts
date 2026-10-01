@@ -6,11 +6,11 @@ function fullText(pages: PdfPage[]): string {
 }
 
 function matchesNubankStatement(text: string): boolean {
-  return text.includes('CNPJ') && text.includes('Agência') && text.includes('Movimentações')
+  return text.includes('CNPJ') && /Ag[êe]ncia/.test(text) && text.includes('Movimentações')
 }
 
 function matchesC6Invoice(text: string): boolean {
-  return text.includes('Sua fatura com') || text.includes('vencimento')
+  return text.includes('Sua fatura com')
 }
 
 /**
