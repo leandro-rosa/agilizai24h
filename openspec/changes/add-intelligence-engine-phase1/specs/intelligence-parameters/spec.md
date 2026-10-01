@@ -24,6 +24,12 @@ The tolerance SHALL be defined by a percentage of the system balance and a numbe
 - **WHEN** the service starts with no change by the owner
 - **THEN** the effective tolerance is 10% or 3 units, whichever is more permissive
 
+#### Scenario: Count rules are provisional until their impact is shown
+
+- **WHEN** the number of counts considered, the minimum counts and the maximum age are read
+- **THEN** they are labelled provisional and not definitive
+- **AND** they stay so until the owner has reviewed the impact report on real coverage
+
 ### Requirement: Every result records the versions that produced it
 
 Each stored result SHALL record the engine version and the parameter version used, and SHALL be retrievable by them, so that a past recommendation can be explained with the rules in force when it was made.

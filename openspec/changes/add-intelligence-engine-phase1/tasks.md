@@ -38,6 +38,7 @@
 - [ ] 6.5 Mix and presence states (D7), contribution after losses counted once, network-level evaluation requiring the majority of exposed stores; never-tested is never low adherence; new products not penalised; loss alone never removes or reduces.
 - [ ] 6.6 Operational alerts (D8) as facts; "other reason" never inferred as theft; splitting and capacity alerts off with a stated reason.
 - [ ] 6.7 Estimated balance, anchor and tolerance status (D9): the 10%/3-unit rule including the "1 or 2 units never block" and "both limits exceeded" cases, `within_tolerance` / `outside_tolerance` / `not_verifiable` with reasons, the gate flag, and the label "estimated balance".
+- [ ] 6.8a Conflicting-data flag (balance rise without event, consumption with no imported sales, rejected SKU, conflicting baseline): lists the conflicts and blocks the balance gate regardless of tolerance status; tests for each conflict and for "within tolerance but conflicting".
 - [ ] 6.8 Confidence (D10): three separate values with reasons and caps that only lower; a high recommendation confidence with low balance reliability is valid.
 - [ ] 6.9 Result assembly: facts, evidence to keep, evidence to change, limitations; engine version constant; determinism test (same input, same output); test that running the engine writes nothing outside its own results.
 - [ ] 6.10 Cases from the 12 real examples of the plan as fixtures (healthy, excess, growth, low adherence, recurring expiry with falling demand, good sales plus "other reason", never tested, good history without recent restock, reliable balance, unreliable balance).
@@ -52,14 +53,18 @@
 ## 8. Backtest
 
 - [ ] 8.1 Data view that returns only records ending before an origin; a test asserting no later date is ever read.
-- [ ] 8.2 Rolling-origin replay (April to August 2026 origins) with demand-forecast error (censored actuals counted apart) and outcomes after each recommendation (stock-outs, expired units, baseline coverage).
-- [ ] 8.3 Stored report with per-pair results and aggregates, every figure with its coverage (origins, pairs, cycles) and no verdict or frozen threshold; test that no key reads like pass/fail.
-- [ ] 8.4 A command to run the backtest against the real local history and print a readable summary.
+- [ ] 8.2 Rolling-origin replay (April to August 2026 origins) recording, per Product × Store with enough data: baseline in force (with the "baseline of the time unknown" marker where it applies), recommended quantity, `H`, action and Mix state, and afterwards sales, losses by reason, stock-outs and economic result (loss counted once).
+- [ ] 8.3 Demand-forecast error as one metric (censored actuals counted apart and excluded).
+- [ ] 8.4 Coherence assessment per action (reduce, increase/test, keep, evaluate removal) with its rule shown, estimated units of loss avoided and sales at risk, classes coherent / incoherent / inconclusive; tests for the four scenarios of the spec (helpful reduction, harmful reduction, unsustained increase, too little afterwards).
+- [ ] 8.5 Coverage report with the five exclusive categories summing to the total; tests that conflicting data wins over balance status and that each pair appears once.
+- [ ] 8.6 Count-rule sensitivity report over the grid of counts considered, minimum counts, maximum age and tolerance, with the configured defaults marked; it selects nothing; test that the defaults appear in the grid.
+- [ ] 8.7 Stored report with per-pair results, aggregates, coverage and sensitivity tables, every figure with its coverage (origins, pairs, cycles) and no verdict or frozen threshold; test that no key reads like pass/fail and that "coherent" is not worded as approval.
+- [ ] 8.8 A command to run the backtest against the real local history and print a readable summary.
 
 ## 9. Verification and closing
 
 - [ ] 9.1 Run the engine against real January to August history and sanity-check against the 12 plan examples; explain any difference.
 - [ ] 9.2 Run the backtest on the real history; read the report, list what it shows about the provisional defaults, and prepare it for review with the owner. Do not freeze any threshold.
-- [ ] 9.3 Report how many Product × Store are within tolerance, outside and not verifiable, with count coverage, so the owner can calibrate `windowCounts`, `minCounts` and `maxAgeDays`.
+- [ ] 9.3 Present the coverage report (analysable, reliable, unreliable, not enough counts, conflicting data, insufficient history) and the count-rule sensitivity report on real history to the owner; do NOT treat 3 counts / minimum 1 / 45 days as definitive until the owner has chosen after seeing it.
 - [ ] 9.4 Lint, typecheck and tests for the affected packages compared with the baseline; update `intelligence-service/CLAUDE.md`, the root index and the memory notes.
 - [ ] 9.5 Commit and merge to the main branch in the same session after checking the target checkout's `git status`, without staging unrelated files.

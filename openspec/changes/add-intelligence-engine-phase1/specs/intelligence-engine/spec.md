@@ -138,6 +138,22 @@ The engine SHALL estimate the current balance of a Product × Store from the mos
 - **AND** it is flagged as not releasing balance-driven use
 - **AND** a Product × Store within tolerance is flagged as releasing it
 
+### Requirement: Conflicting data is detected and reported
+
+The engine SHALL flag a Product × Store as having conflicting data when its facts contradict each other: a balance that rose between visits with no recorded event, consumption in a month with no imported sales for the store, a SKU rejected at ingestion for the store's reports, or a baseline imported with conflicting values. The flag SHALL list the conflicts, and such a Product × Store SHALL NOT release balance-driven use regardless of its tolerance status.
+
+#### Scenario: Balance rose without an event
+
+- **GIVEN** a Product × Store whose balance before a visit exceeds the balance after the previous visit
+- **WHEN** the engine runs
+- **THEN** the result flags conflicting data and lists that interval
+
+#### Scenario: Conflict blocks the gate
+
+- **GIVEN** a Product × Store within tolerance but with conflicting data
+- **WHEN** the gate is evaluated
+- **THEN** balance-driven use is not released and the conflict is the stated reason
+
 ### Requirement: Confidences are separate and explained
 
 The result SHALL carry three separate values: confidence of the recommendation, reliability of the estimated balance, and priority, each with the facts behind it. A high recommendation confidence with a low balance reliability SHALL be a valid combination.

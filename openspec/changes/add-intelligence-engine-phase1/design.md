@@ -48,7 +48,7 @@ Presence per Product × Store: `sells` (demand at or above the low-demand rate),
 
 ### D8. Operational alerts are facts
 
-Expiry attention: expired loss in at least 2 of the last 3 months (parameter), shown with a stronger flag when demand is low or declining. Damage investigation: damaged loss in at least 2 of 3 months, with scope local, several stores or network (reuses the Loss Intelligence scoping idea; Loss Intelligence stays an input, not rebuilt). Loss investigation: "other reason" above a share of units restocked (parameter), classification preserved, never labelled theft. Review balance: tolerance status not within tolerance, or non-zero adjustment recurring. Incomplete data: missing sales month, store without visits, SKU rejected at ingestion. Splitting and capacity alerts stay off (package size mostly unknown; capacity empty) and say why.
+Expiry attention: expired loss in at least 2 of the last 3 months (parameter), shown with a stronger flag when demand is low or declining. Damage investigation: damaged loss in at least 2 of 3 months, with scope local, several stores or network (reuses the Loss Intelligence scoping idea; Loss Intelligence stays an input, not rebuilt). Loss investigation: "other reason" above a share of units restocked (parameter), classification preserved, never labelled theft. Review balance: tolerance status not within tolerance, or non-zero adjustment recurring. Incomplete data: missing sales month, store without visits, SKU rejected at ingestion. These same facts, plus a balance that rose between visits with no event and a conflicting baseline, form the **conflicting-data flag**, which blocks the balance gate whatever the tolerance status says. Splitting and capacity alerts stay off (package size mostly unknown; capacity empty) and say why.
 
 ### D9. Estimated balance, anchor and the configurable tolerance gate
 
@@ -66,9 +66,24 @@ Recommendation confidence: `high`/`medium`/`low` from the number of uncensored i
 
 An import accepts parsed sheet rows (`SKU`, `qtd itens por loja`, `Medida`), validates them and records baselines. The real sheet has `#ERROR!` rows and repeated SKUs with different packaging (for example 6024, 9987); a SKU with conflicting duplicates is **rejected and reported**, not resolved by picking one. `Medida` maps to the product's `packageType` through `products-service`; the number of units per package is not in the sheet and stays unknown, so splitting alerts remain off. The 14 discontinued products the owner told us to ignore are not required to exist.
 
-### D13. Backtest
+### D13. Backtest of the decision process
 
-Origins are the first day of each month from April to August 2026 (at least eight weeks of history). At each origin the engine reads through a data view that returns only records ending before the origin (a test asserts no later date is ever read). It is compared with the following month: predicted vs observed consumption per Product × Store (censored observations counted apart), and outcomes of each Quantity/Mix recommendation (stock-outs in the next cycles, expired units, coverage of demand by the baseline). Output is a stored `backtest_run` with per-pair results and aggregates, every figure with its coverage (origins, pairs, cycles). No threshold is frozen and no verdict is produced.
+Origins are the first day of each month from April to August 2026 (at least eight weeks of history). At each origin the engine reads through a data view that returns only records ending before the origin (a test asserts no later date is ever read) and its result is evaluated over the following period (up to the next origin, with the visits and monthly figures that ended in it).
+
+**What is recorded per Product × Store (when it has enough data):** baseline in force, recommended quantity and its `H`, action and Mix state, and afterwards units sold, units lost by reason, cycles observed, stock-outs (censored intervals), and economic result = margin on units sold − cost of lost units (loss reasons only, each lost unit counted once and never netted against sold units; one current cost version, so margin is stated as such). Forecast error is one metric: predicted consumption for the period vs consumption observed between visits, censored observations counted apart and excluded.
+
+**Coherence is an estimate**, because history cannot be replayed under another quantity. Rules, all parameters with provisional defaults, each shown beside its counts:
+- *Reduce* (baseline `B`, recommended `R`): `salesAtRisk = Σ over following cycles of max(0, cycleConsumption − R)` and `lossAvoided ≤ min(lossUnits, B − R)` per cycle as an upper bound. Coherent when `lossAvoided > 0` and `salesAtRisk` is at most a small share (parameter) of units sold; incoherent when `salesAtRisk` exceeds it; inconclusive with fewer following cycles than the minimum.
+- *Increase/test*: coherent when a stock-out or consumption at or above `B` occurred in the following cycles and loss stayed low; incoherent when neither happened and demand fell; inconclusive otherwise or with too few cycles.
+- *Keep*: coherent without stock-outs and without recurring loss; incoherent with either; inconclusive with too few cycles.
+- *Evaluate removal*: coherent when demand and economic result stayed low afterwards; incoherent when they recovered.
+Counts of coherent/incoherent/inconclusive are descriptive and per action; "coherent" is never an approval.
+
+**Baseline of the time:** the stored baseline history starts when it was first imported (September 2026), and the inventory `par_level` is a single snapshot (2026-09-24), so no earlier history exists. For every origin the backtest uses the baseline in force according to the history, and where none exists the baseline of record, marking every result that depends on it. Real history of the quantity accumulates from now on because the baseline is append-only.
+
+**Coverage report (also produced by every engine run)** with exclusive categories, evaluated in this order so each Product × Store appears once: insufficient history (too few intervals or cycles, or new within the window) → conflicting data (D8/D9 conflicts: balance rise without event, consumption with no imported sales, SKU rejected at ingestion, conflicting baseline) → analysable, split by tolerance status into reliable balance, unreliable balance and not enough counts. The five numbers sum to the Product × Store considered.
+
+**Count-rule sensitivity:** the same data is recomputed over a grid of counts considered (1, 2, 3, 5), minimum counts (1, 2, 3), maximum age (30, 45, 60, 90 days) and tolerance (5% or 2 units, 10% or 3, 15% or 5), producing the coverage split and the gate-release count for each combination, with the configured defaults marked as one of them. It selects and recommends nothing; the 3 / 1 / 45 defaults stay provisional until the owner has read it. Output is a stored `backtest_run` with per-pair results, aggregates, coverage and sensitivity tables, every figure with its coverage (origins, pairs, cycles). No threshold is frozen and no verdict is produced.
 
 ### D14. Synthetic and out-of-scope data
 
@@ -83,6 +98,8 @@ Stores and SKUs flagged synthetic by the convention already used in the admin (t
 - **Sales are monthly**, so cycle-level sales are not exact → consumption between visits is the cycle signal; monthly sales are used only for economics and cross-checks, and the Phase 0 audit already shows they agree at store-month level.
 - **Consumption and sales share the PDV source** → agreement shows alignment, not physical truth; the limitation is stated on every balance result.
 - **Pricing sheet conflicts** → rejected and reported, not guessed.
+- **Coherence is an estimate** and the baseline of the time is unknown before September → every coherence figure is labelled an estimate and every result using the baseline of record says so; the report is read with the owner, not used as proof.
+- **The count rules may be too strict or too loose** → the sensitivity report shows their real coverage before they are treated as definitive.
 - **Another service to run** (database, worker, compose, CLI registry) → follows the existing template; additive.
 
 ## Migration Plan
