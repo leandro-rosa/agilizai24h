@@ -6,8 +6,9 @@ Operação, saldo estimado com sua confiabilidade e as três confianças — tud
 determinístico, versionado e reproduzível. Ver
 [../../CLAUDE.md](../../CLAUDE.md) para as convenções do workspace backend e
 [docs/commercial-intelligence-v2-design.md](../../../docs/commercial-intelligence-v2-design.md)
-para o desenho aprovado. Mudança em andamento:
-`openspec/changes/add-intelligence-engine-phase1` (esta fase: motor +
+para o desenho aprovado. Mudança concluída e arquivada:
+`openspec/changes/archive/*-add-intelligence-engine-phase1` (specs principais em
+`openspec/specs/intelligence-{engine,parameters,backtest}`) (esta fase: motor +
 backtest, **sem tela, sem rota no gateway e sem "quanto levar"**).
 
 **Lê**: `supply-service` (visitas e linhas, remoções por
