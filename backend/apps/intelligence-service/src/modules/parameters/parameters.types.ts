@@ -42,6 +42,8 @@ export interface Parameters {
     lowRecurrenceShare: number
     noRecentRestockFactor: number
     networkMajorityShare: number
+    /** Contribution after losses at or below this share of revenue counts as "low" (0.05 = 5%). */
+    lowContributionShare: number
   }
   alerts: {
     expiredMonthsOfThree: number
@@ -51,6 +53,11 @@ export interface Parameters {
   confidence: {
     highIntervals: number
     mediumIntervals: number
+  }
+  priority: {
+    /** Priority is in R$ (excess stock at cost + recurring loss cost), independent of both confidences. */
+    highCents: number
+    mediumCents: number
   }
   backtest: {
     minFollowingCycles: number

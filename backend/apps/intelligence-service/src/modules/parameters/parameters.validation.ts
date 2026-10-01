@@ -67,6 +67,8 @@ export function validateParameters(parameters: Parameters): string[] {
   // An inverted pair would make "medium" confidence unreachable.
   check(parameters.confidence.highIntervals > parameters.confidence.mediumIntervals, 'confidence.highIntervals must exceed confidence.mediumIntervals')
 
+  check(parameters.priority.highCents > parameters.priority.mediumCents, 'priority.highCents must exceed priority.mediumCents')
+  check(parameters.mix.lowContributionShare <= 1, 'mix.lowContributionShare is a share between 0 and 1')
   check(parameters.backtest.salesAtRiskShare <= 1, 'backtest.salesAtRiskShare is a share between 0 and 1')
   check(parameters.refresh.availableStoreShare > 0 && parameters.refresh.availableStoreShare <= 1, 'refresh.availableStoreShare must be in (0, 1]')
 

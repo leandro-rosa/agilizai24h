@@ -31,17 +31,17 @@
 
 ## 6. Engine, pure functions
 
-- [ ] 6.1 Intervals and cycles from visits (D3): censoring, negative-consumption exclusion, short-interval merge, removals of every reason reducing the balance; tests including the plan's Trident Menta × Ascenty ADM sequence expressed as a fixture.
-- [ ] 6.2 Demand rates (D4): recency-weighted p25/p50/p80 from uncensored intervals, censoring flag and raised upper rate; tests that recency matters and that a plain mean is not used.
-- [ ] 6.3 Pattern (D5): the three example series classify as stable, declining, volatile; new and insufficient cases.
-- [ ] 6.4 Replenishment interval and quantity band (D6): Quantity decision with the assumed `H`, no rounding to package multiples, no claim of missing stock without censoring or growth.
-- [ ] 6.5 Mix and presence states (D7), contribution after losses counted once, network-level evaluation requiring the majority of exposed stores; never-tested is never low adherence; new products not penalised; loss alone never removes or reduces.
-- [ ] 6.6 Operational alerts (D8) as facts; "other reason" never inferred as theft; splitting and capacity alerts off with a stated reason.
-- [ ] 6.7 Estimated balance, anchor and tolerance status (D9): the 10%/3-unit rule including the "1 or 2 units never block" and "both limits exceeded" cases, `within_tolerance` / `outside_tolerance` / `not_verifiable` with reasons, the gate flag, and the label "estimated balance".
-- [ ] 6.8a Conflicting-data flag (balance rise without event, consumption with no imported sales, rejected SKU, conflicting baseline): lists the conflicts and blocks the balance gate regardless of tolerance status; tests for each conflict and for "within tolerance but conflicting".
-- [ ] 6.8 Confidence (D10): three separate values with reasons and caps that only lower; a high recommendation confidence with low balance reliability is valid.
-- [ ] 6.9 Result assembly: facts, evidence to keep, evidence to change, limitations; engine version constant; determinism test (same input, same output); test that running the engine writes nothing outside its own results.
-- [ ] 6.10 Cases from the 12 real examples of the plan as fixtures (healthy, excess, growth, low adherence, recurring expiry with falling demand, good sales plus "other reason", never tested, good history without recent restock, reliable balance, unreliable balance).
+- [x] 6.1 Intervals and cycles from visits (D3): censoring, negative-consumption exclusion, short-interval merge, removals of every reason reducing the balance; tests including the plan's Trident Menta × Ascenty ADM sequence expressed as a fixture.
+- [x] 6.2 Demand rates (D4): recency-weighted p25/p50/p80 from uncensored intervals, censoring flag and raised upper rate; tests that recency matters and that a plain mean is not used.
+- [x] 6.3 Pattern (D5): the three example series classify as stable, declining, volatile; new and insufficient cases.
+- [x] 6.4 Replenishment interval and quantity band (D6): Quantity decision with the assumed `H`, no rounding to package multiples, no claim of missing stock without censoring or growth.
+- [x] 6.5 Mix and presence states (D7), contribution after losses counted once, network-level evaluation requiring the majority of exposed stores; never-tested is never low adherence; new products not penalised; loss alone never removes or reduces.
+- [x] 6.6 Operational alerts (D8) as facts; "other reason" never inferred as theft; splitting and capacity alerts off with a stated reason.
+- [x] 6.7 Estimated balance, anchor and tolerance status (D9): the 10%/3-unit rule including the "1 or 2 units never block" and "both limits exceeded" cases, `within_tolerance` / `outside_tolerance` / `not_verifiable` with reasons, the gate flag, and the label "estimated balance".
+- [x] 6.8a Conflicting-data flag (balance rise without event, consumption with no imported sales, rejected SKU, conflicting baseline): lists the conflicts and blocks the balance gate regardless of tolerance status; tests for each conflict and for "within tolerance but conflicting".
+- [x] 6.8 Confidence (D10): three separate values with reasons and caps that only lower; a high recommendation confidence with low balance reliability is valid.
+- [x] 6.9 Result assembly: facts, evidence to keep, evidence to change, limitations; engine version constant; determinism test (same input, same output); test that running the engine writes nothing outside its own results.
+- [x] 6.10 Cases from the 12 real examples of the plan as fixtures (healthy, excess, growth, low adherence, recurring expiry with falling demand, good sales plus "other reason", never tested, good history without recent restock, reliable balance, unreliable balance).
 
 ## 7. Runs and results
 

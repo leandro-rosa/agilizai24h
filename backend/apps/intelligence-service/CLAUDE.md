@@ -17,12 +17,57 @@ Sem superfície pública: nenhuma rota no gateway ainda.
 
 ## Estado
 
-Pronto: bootstrap Fastify, validação de env, health, `DbClientModule`,
-clientes HTTP somente-leitura (`src/modules/sources/`), Docker/compose,
-registro no `agiliz-cli`, **modelo de dados** (`prisma/schema.prisma`: versões de
-parâmetros, baseline, agenda por loja, flag de caixa fechada, runs,
-recomendações, backtest) e **parâmetros** (`src/modules/parameters/`). **Ainda
-não existe** motor, fila nem backtest — vêm nos grupos 5 a 10 da mudança.
+Pronto: bootstrap, env, health, clientes de leitura, Docker, `agiliz-cli`,
+modelo de dados, parâmetros e o **motor** (`src/modules/engine/`). **Ainda não
+existe** fila de execução, persistência de runs, backtest nem atualização
+mensal — grupos 7 a 10 da mudança. Nenhuma rota do motor ainda; só testes.
+
+## O motor (`src/modules/engine/`, funções puras)
+
+`runPair(input)` devolve, para um Produto × Loja, tudo do desenho: ciclos,
+demanda, padrão, presença, Mix, Quantidade, Operação, economia, saldo estimado
+com tolerância, conflitos, cobertura, três confianças e a explicação
+(fatos, evidências a favor/contra, limitações). **Não lê banco, relógio nem
+rede**: a data de referência é entrada, e há teste que varre os imports e falha
+se o motor passar a poder agir. Mesmo input + `ENGINE_VERSION` + parâmetros =
+mesmo resultado. Nenhum campo diz "quanto levar" (isso é a Fase 4).
+
+- **Intervalos antes de ciclos**: entre duas aparições consecutivas do SKU,
+  consumo = `saldo_final(k) − saldo_anterior(k+1)`. Saldo zero antes da visita =
+  **censurado** (consumo é piso, nunca demanda); saldo que sobe sem evento =
+  **rise** (conflito, nunca consumo negativo); prateleira vazia o tempo todo não
+  diz nada. Intervalo menor que 1 dia funde com o vizinho.
+- **Demanda**: só intervalos não censurados, pesados por dias e por recência
+  (meia-vida 56 d), p25/p50/p80. Ruptura frequente só levanta o p80 pelo piso.
+  Nunca média simples de venda mensal.
+- **Quantidade** = comparação do baseline com a banda `[ceil(p50·(H+L)), ceil(p80·(H+L)+z·σ·√(H+L))]`,
+  sempre dita para um `H`. Nunca arredonda para múltiplo de caixa. Perda sozinha
+  não reduz; ausência de ruptura não afirma falta. Excesso **e** ruptura juntos
+  = "sem evidência", não escolhe lado.
+- **Mix**: retirada só é *avaliada*, nunca automática, e só com exposição
+  suficiente + baixa demanda recorrente + (contribuição baixa/negativa **ou**
+  validade recorrente). Da REDE exige mais da metade das lojas expostas.
+  "Nunca testado" não é baixa aderência; produto novo é `test`.
+- **Janela de perdas/validade** = últimos 3 meses **em que o SKU esteve presente**
+  (abastecido, vendido ou removido), não 3 meses de calendário.
+- **Saldo**: estimativa (nunca "estoque"); tolerância = o MAIOR entre 10% do saldo
+  e 3 unidades; gate liberado só `within_tolerance` + sem conflito + já teve
+  estoque. Aberto ou fechado, o saldo continua visível, com o rótulo
+  "saldo estimado — baixa confiabilidade" quando fechado.
+- **Cobertura**: cada par cai em UMA categoria (histórico insuficiente →
+  dados conflitantes → confiável / não confiável / sem contagem suficiente).
+
+### Achados ao rodar nos exemplos reais (ver `engine.examples.spec.ts`)
+
+Com os parâmetros provisórios, 9 dos 12 exemplos do desenho se comportam como
+previsto. Diferenças reais, para o backtest e o dono avaliarem — não escondidas:
+- **`H` é endógeno**: Trident Morango × ADM reduz só 21→19 (o plano estimava 7 a
+  10) porque o `H` do próprio SKU (~49 dias) alarga a banda. Remédio provável:
+  `H` da loja em vez do do SKU. Não mudado sem o backtest medir.
+- **Mentos Rainbow × ADM**: o plano sugeria "testar aumento" pela alta de jul/ago;
+  o motor mantém (baseline dentro da banda, sem ruptura, só 2 meses de alta).
+- Os exemplos 11 e 12 (ideal ≠ levar; zero no próximo abastecimento) só se
+  completam na Fase 4; aqui o motor só garante que não existe campo "levar".
 
 ## Parâmetros (`/parameters`, `/schedules`) — rotas internas, sem gateway
 

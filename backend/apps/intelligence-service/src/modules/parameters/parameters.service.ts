@@ -73,8 +73,21 @@ export class ParametersService implements OnModuleInit {
   }
 }
 
+/**
+ * A stored version written before a parameter existed lacks that key. Reading it
+ * fills the gap with the default WITHOUT touching the stored row, so history stays
+ * exactly as written and the engine never meets an undefined parameter.
+ */
+export function withDefaults(stored: unknown): Parameters {
+  const filled = structuredClone(DEFAULT_PARAMETERS) as unknown as Record<string, Record<string, unknown>>
+  for (const [group, entries] of Object.entries((stored ?? {}) as Record<string, Record<string, unknown>>)) {
+    if (group in filled && entries && typeof entries === 'object') Object.assign(filled[group], entries)
+  }
+  return filled as unknown as Parameters
+}
+
 function toView(row: { id: number; created_at: Date; note: string | null; values: unknown }): ParameterVersionView {
-  const values = row.values as Parameters
+  const values = withDefaults(row.values)
 
   return { id: row.id, createdAt: row.created_at.toISOString(), note: row.note, values, parameters: parameterMeta(values) }
 }
