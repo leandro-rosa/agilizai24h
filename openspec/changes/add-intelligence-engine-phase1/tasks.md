@@ -1,0 +1,65 @@
+## 1. Preparation
+
+- [ ] 1.1 Work in an isolated worktree; check the target checkout's `git status` before any merge and never stage unrelated files. Run jest with `--maxWorkers=2` and turbo with `--concurrency=1` (the owner asked not to overload the machine).
+- [ ] 1.2 Record the baseline of lint, typecheck and tests for the packages this change touches, so a new failure is attributable.
+- [ ] 1.3 Save a read-only extract of real history for tests and backtest development outside the repo (visits, monthly sales, monthly removals, cost) and note its control sums; never copy it into a real database.
+
+## 2. Service scaffold
+
+- [ ] 2.1 Scaffold `backend/apps/intelligence-service` following the repo's microservice skill: Fastify bootstrap, Prisma + adapter-pg, `DbClientModule`, env validation (`WITH_KAFKA_BROKERS`, service URLs, queue host), health, correlation-id middleware, per-module `CLAUDE.md`.
+- [ ] 2.2 Dockerfile (dev and runtime, `prisma:deploy` in the CMD), `docker-compose.yml` with its own Postgres (host port 5446) on `agiliz_network`, entries in `.env.example`, and the project registry of `cli/agiliz-cli` (maps, up and down order) with its tests.
+- [ ] 2.3 Add the service to `backend/CLAUDE.md` and the root `CLAUDE.md` index; register the HTTP clients for `supply-service`, `sales-service` and `products-service`.
+
+## 3. Data model
+
+- [ ] 3.1 Prisma schema and migration: `parameter_version`, `baseline_quantity` (append-only), `store_schedule`, `product_store_flag`, `engine_run`, `recommendation`, `backtest_run`, `backtest_result`.
+- [ ] 3.2 Repository tests on an isolated Postgres: append-only history, current baseline resolution, latest parameter version.
+
+## 4. Parameters
+
+- [ ] 4.1 Parameter schema with the defaults of the design (tolerance 10% or 3 units, windowCounts, minCounts, maxAgeDays, half-life, censoring shares, pattern thresholds, mix and alert parameters, `L`, `z`, visit weekdays), validation that rejects nonsense (inverted bands, negative values), and every default labelled provisional.
+- [ ] 4.2 Internal routes to read the current and any historical parameter version and to create a new one; creating never edits an earlier version; initial version created at first start.
+- [ ] 4.3 Tests: new version leaves the old readable, invalid document rejected, defaults equal the owner's 10% / 3 units, default visit weekdays Monday, Tuesday, Thursday, Friday and a per-store override.
+
+## 5. Baseline and packaging import
+
+- [ ] 5.1 Import route and parser for pricing-sheet rows (`SKU`, `qtd itens por loja`, `Medida`): tolerate `#ERROR!` rows, record baselines append-only with source and date, report rows rejected with reason.
+- [ ] 5.2 Conflicting duplicate SKUs (for example 6024, 9987 in the real sheet) are rejected and reported, never resolved by picking one.
+- [ ] 5.3 Write `Medida` to the product's `packageType` through `products-service`; leave units per package unknown.
+- [ ] 5.4 Tests with a fixture shaped like the real sheet, including the error rows and the conflicting duplicates; a re-import with a changed value keeps both values in history.
+- [ ] 5.5 Import the real pricing sheet from the owner's Drive file into the real service once, after review of the rejection report with the owner.
+
+## 6. Engine, pure functions
+
+- [ ] 6.1 Intervals and cycles from visits (D3): censoring, negative-consumption exclusion, short-interval merge, removals of every reason reducing the balance; tests including the plan's Trident Menta × Ascenty ADM sequence expressed as a fixture.
+- [ ] 6.2 Demand rates (D4): recency-weighted p25/p50/p80 from uncensored intervals, censoring flag and raised upper rate; tests that recency matters and that a plain mean is not used.
+- [ ] 6.3 Pattern (D5): the three example series classify as stable, declining, volatile; new and insufficient cases.
+- [ ] 6.4 Replenishment interval and quantity band (D6): Quantity decision with the assumed `H`, no rounding to package multiples, no claim of missing stock without censoring or growth.
+- [ ] 6.5 Mix and presence states (D7), contribution after losses counted once, network-level evaluation requiring the majority of exposed stores; never-tested is never low adherence; new products not penalised; loss alone never removes or reduces.
+- [ ] 6.6 Operational alerts (D8) as facts; "other reason" never inferred as theft; splitting and capacity alerts off with a stated reason.
+- [ ] 6.7 Estimated balance, anchor and tolerance status (D9): the 10%/3-unit rule including the "1 or 2 units never block" and "both limits exceeded" cases, `within_tolerance` / `outside_tolerance` / `not_verifiable` with reasons, the gate flag, and the label "estimated balance".
+- [ ] 6.8 Confidence (D10): three separate values with reasons and caps that only lower; a high recommendation confidence with low balance reliability is valid.
+- [ ] 6.9 Result assembly: facts, evidence to keep, evidence to change, limitations; engine version constant; determinism test (same input, same output); test that running the engine writes nothing outside its own results.
+- [ ] 6.10 Cases from the 12 real examples of the plan as fixtures (healthy, excess, growth, low adherence, recurring expiry with falling demand, good sales plus "other reason", never tested, good history without recent restock, reliable balance, unreliable balance).
+
+## 7. Runs and results
+
+- [ ] 7.1 Source readers: visits per store from `supply-service`, period removals by reason, monthly sales, cost; a failing store is reported as skipped with the reason, never as zero; synthetic stores and SKUs skipped and listed.
+- [ ] 7.2 `POST /runs` creating an `engine_run` with versions, as-of date and `dataThrough`, one queue job per store, a worker that computes and persists results, and run status endpoints.
+- [ ] 7.3 Results read routes by run, store and SKU, with the stored parameter version available.
+- [ ] 7.4 Integration test on an isolated Postgres with the broker stubbed: a run persists a result per Product × Store, records both versions, survives one failing store, and is idempotent for the same inputs.
+
+## 8. Backtest
+
+- [ ] 8.1 Data view that returns only records ending before an origin; a test asserting no later date is ever read.
+- [ ] 8.2 Rolling-origin replay (April to August 2026 origins) with demand-forecast error (censored actuals counted apart) and outcomes after each recommendation (stock-outs, expired units, baseline coverage).
+- [ ] 8.3 Stored report with per-pair results and aggregates, every figure with its coverage (origins, pairs, cycles) and no verdict or frozen threshold; test that no key reads like pass/fail.
+- [ ] 8.4 A command to run the backtest against the real local history and print a readable summary.
+
+## 9. Verification and closing
+
+- [ ] 9.1 Run the engine against real January to August history and sanity-check against the 12 plan examples; explain any difference.
+- [ ] 9.2 Run the backtest on the real history; read the report, list what it shows about the provisional defaults, and prepare it for review with the owner. Do not freeze any threshold.
+- [ ] 9.3 Report how many Product × Store are within tolerance, outside and not verifiable, with count coverage, so the owner can calibrate `windowCounts`, `minCounts` and `maxAgeDays`.
+- [ ] 9.4 Lint, typecheck and tests for the affected packages compared with the baseline; update `intelligence-service/CLAUDE.md`, the root index and the memory notes.
+- [ ] 9.5 Commit and merge to the main branch in the same session after checking the target checkout's `git status`, without staging unrelated files.
