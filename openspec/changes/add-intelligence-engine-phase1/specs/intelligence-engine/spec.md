@@ -173,6 +173,51 @@ For the same input data, engine version and parameter version the engine SHALL r
 - **WHEN** the engine runs twice over unchanged data and parameters
 - **THEN** the two results are identical
 
+### Requirement: Every closed month refreshes all of the intelligence
+
+When a new month is closed and imported, the intelligence SHALL recalculate everything it produces over the history including that month: sales history, restocks, losses, cycles, demand patterns, Mix and Quantity recommendations, estimated balance and its reliability, the backtest, the coverage report and the count-rule sensitivity report, and SHALL make the figures that the screens present reflect the same period. A month SHALL be considered available only when both its supply and its sales data have been imported for it.
+
+#### Scenario: A new month arrives
+
+- **GIVEN** results computed through August
+- **WHEN** September's supply and sales are imported and the month is closed
+- **THEN** a new computation covers January through September
+- **AND** the backtest, coverage and sensitivity reports are recomputed to include September
+
+### Requirement: A new month is added to the history, never substituted for it
+
+A refresh SHALL incorporate the new period into the existing history. Earlier results SHALL remain stored and readable with the period they covered, the engine version and the parameter version they used, so the evolution of the data and of the recommendations can be followed across months.
+
+#### Scenario: Evolution is preserved
+
+- **GIVEN** a computation through August and a new one through September
+- **WHEN** the history of a Product × Store is read
+- **THEN** both computations are available, each stating the period it covers
+- **AND** the September computation did not overwrite or delete the August one
+
+### Requirement: Freshness is stated and an out-of-date analysis is not presented as current
+
+Every result and report SHALL state the last closed month it covers ("data updated through") and when it was computed ("last updated"). When a later month has closed in the platform's data but the intelligence has not been refreshed to include it, the analysis SHALL be marked out of date by the number of months it lags and SHALL NOT be presented as updated through that period. When a month has not yet been imported or closed, no analysis SHALL claim to cover it.
+
+#### Scenario: Up to date
+
+- **GIVEN** a computation through September finished on 5 October
+- **WHEN** it is read after September closed
+- **THEN** it states "data updated through September/2026" and "last updated 05/10/2026"
+- **AND** it is not marked out of date
+
+#### Scenario: A month closed but not yet incorporated
+
+- **GIVEN** a computation through August while September is already closed and imported
+- **WHEN** it is read
+- **THEN** it is marked out of date by one month and does not claim to cover September
+
+#### Scenario: A month not yet imported
+
+- **GIVEN** a month that has ended but has not been imported
+- **WHEN** the intelligence is read
+- **THEN** it does not claim to cover that month
+
 ### Requirement: The engine takes no action
 
 The engine SHALL NOT change a baseline, a parameter, a restock plan or any other system data as a consequence of a result. Every result SHALL be a recommendation for a person to accept or ignore.

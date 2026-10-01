@@ -40,23 +40,44 @@ For every Product × Store with enough data at an origin, the backtest SHALL rec
 - **WHEN** the backtest replays it
 - **THEN** it is not given a recommendation outcome and is counted under its coverage category instead
 
-### Requirement: Coherence of a recommendation with what followed is assessed and labelled as an estimate
+### Requirement: Coherence means only "compatible with the data that followed"
 
-The backtest SHALL assess whether each recommendation would have been coherent with the following behavior, and SHALL label every such assessment as an estimate, because history cannot be replayed under another quantity. A reduction SHALL be assessed on whether losses that followed exceed the recommended quantity's reduction headroom while no following cycle sold more than the recommended quantity — that is, whether it would have cut losses without hurting sales — and the report SHALL show the estimated units of loss avoided and of sales at risk. An increase SHALL be assessed on whether the following behavior sustains it: stock-outs or consumption above the baseline, with low loss. A keep SHALL be assessed on the absence of stock-outs and of recurring loss. An evaluate-removal SHALL be assessed on whether demand and economic result stayed low afterwards. Each recommendation SHALL be classed coherent, incoherent or inconclusive with the rule used shown beside the count.
+The backtest SHALL assess each recommendation against the data that followed and class it coherent, incoherent or inconclusive. **Coherent SHALL mean only that the following data are compatible with the recommendation under the stated criteria.** It SHALL NOT be presented, worded or counted as proof that the recommendation was correct or that it would have worked, because history cannot be replayed under another quantity. Every assessment SHALL be labelled an estimate and SHALL show the criteria used. Where the evidence points in conflicting directions, the class SHALL be inconclusive.
 
-#### Scenario: A reduction that would have helped
+#### Scenario: Wording of the class
 
-- **GIVEN** a reduce recommendation after which expired units were lost and no cycle sold more than the recommended quantity
+- **WHEN** the report shows a coherent recommendation
+- **THEN** it states that the following data are compatible with it under the criteria shown
+- **AND** nothing in the report says it was correct, validated or would have worked
+
+#### Scenario: Conflicting evidence
+
+- **GIVEN** a recommendation whose following data support it on one criterion and contradict it on another
 - **WHEN** coherence is assessed
-- **THEN** it is classed coherent, with the estimated units of loss avoided and zero sales at risk, labelled as an estimate
+- **THEN** it is classed inconclusive
 
-#### Scenario: A reduction that would have hurt
+### Requirement: Reduction recommendations show their evidence separately
 
-- **GIVEN** a reduce recommendation after which a cycle consumed more than the recommended quantity
+For every reduce recommendation the report SHALL show, as separate figures and never combined into one score: the losses that followed (by reason), the sales that followed, the following cycles in which demand exceeded the recommended quantity, the units of loss that were potentially avoidable, and the units of sales potentially at risk. Potentially avoidable loss SHALL be an upper bound limited by the headroom between the baseline and the recommended quantity, and potentially at-risk sales SHALL be the units consumed in a cycle above the recommended quantity.
+
+#### Scenario: A reduction with mixed evidence
+
+- **GIVEN** a reduce recommendation followed by expired units lost and by one cycle that consumed more than the recommended quantity
+- **WHEN** the report is read
+- **THEN** it shows the losses, the sales, the one cycle above the recommended quantity, the potentially avoidable units and the units potentially at risk, each separately
+- **AND** the class is inconclusive because the evidence conflicts
+
+#### Scenario: A reduction compatible with the data
+
+- **GIVEN** a reduce recommendation followed by lost units and no cycle above the recommended quantity
 - **WHEN** coherence is assessed
-- **THEN** it is classed incoherent, with the units of sales at risk shown
+- **THEN** the class is coherent under the criteria shown, with zero units at risk and the potentially avoidable units labelled an estimate
 
-#### Scenario: An increase that is not sustained
+### Requirement: Other actions are assessed with their own stated criteria
+
+An increase or test SHALL be assessed on whether stock-outs or consumption above the baseline followed, with low loss. A keep SHALL be assessed on the absence of stock-outs and of recurring loss. An evaluate-removal SHALL be assessed on whether demand and the economic result stayed low afterwards. Each SHALL be classed coherent, incoherent or inconclusive with the criteria shown beside the counts, and a recommendation with fewer following cycles than the minimum needed SHALL be inconclusive.
+
+#### Scenario: An increase not supported afterwards
 
 - **GIVEN** an increase recommendation after which no stock-out occurred and demand fell
 - **WHEN** coherence is assessed
@@ -64,7 +85,7 @@ The backtest SHALL assess whether each recommendation would have been coherent w
 
 #### Scenario: Too little afterwards
 
-- **GIVEN** a recommendation with fewer following cycles than the minimum needed to judge it
+- **GIVEN** a recommendation with fewer following cycles than the minimum
 - **WHEN** coherence is assessed
 - **THEN** it is classed inconclusive
 
@@ -117,7 +138,7 @@ The backtest SHALL NOT freeze a threshold, label the engine as accepted or rejec
 
 - **WHEN** the backtest report is produced
 - **THEN** every aggregate shows how many origins, pairs and cycles it covers
-- **AND** no figure is labelled as passing or failing, and "coherent" is never presented as an approval
+- **AND** no figure is labelled as passing or failing, and "coherent" is never presented as an approval or as proof
 
 ### Requirement: Backtest uses real history and writes no synthetic data
 

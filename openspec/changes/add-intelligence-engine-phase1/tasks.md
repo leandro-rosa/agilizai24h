@@ -55,16 +55,24 @@
 - [ ] 8.1 Data view that returns only records ending before an origin; a test asserting no later date is ever read.
 - [ ] 8.2 Rolling-origin replay (April to August 2026 origins) recording, per Product × Store with enough data: baseline in force (with the "baseline of the time unknown" marker where it applies), recommended quantity, `H`, action and Mix state, and afterwards sales, losses by reason, stock-outs and economic result (loss counted once).
 - [ ] 8.3 Demand-forecast error as one metric (censored actuals counted apart and excluded).
-- [ ] 8.4 Coherence assessment per action (reduce, increase/test, keep, evaluate removal) with its rule shown, estimated units of loss avoided and sales at risk, classes coherent / incoherent / inconclusive; tests for the four scenarios of the spec (helpful reduction, harmful reduction, unsustained increase, too little afterwards).
+- [ ] 8.4 Coherence assessment per action (reduce, increase/test, keep, evaluate removal) with the criteria shown, labelled an estimate and worded as "compatible with the data that followed", never as correct or proven; for reductions show separately the losses and sales that followed, the cycles in which demand exceeded the recommended quantity, the potentially avoidable loss units and the units of sales at risk; conflicting criteria → inconclusive. Tests: reduction compatible with the data, reduction with mixed evidence (inconclusive), harmful reduction, unsupported increase, too little afterwards, and that no output wording claims correctness.
 - [ ] 8.5 Coverage report with the five exclusive categories summing to the total; tests that conflicting data wins over balance status and that each pair appears once.
 - [ ] 8.6 Count-rule sensitivity report over the grid of counts considered, minimum counts, maximum age and tolerance, with the configured defaults marked; it selects nothing; test that the defaults appear in the grid.
 - [ ] 8.7 Stored report with per-pair results, aggregates, coverage and sensitivity tables, every figure with its coverage (origins, pairs, cycles) and no verdict or frozen threshold; test that no key reads like pass/fail and that "coherent" is not worded as approval.
 - [ ] 8.8 A command to run the backtest against the real local history and print a readable summary.
 
-## 9. Verification and closing
+## 9. Monthly refresh
 
-- [ ] 9.1 Run the engine against real January to August history and sanity-check against the 12 plan examples; explain any difference.
-- [ ] 9.2 Run the backtest on the real history; read the report, list what it shows about the provisional defaults, and prepare it for review with the owner. Do not freeze any threshold.
-- [ ] 9.3 Present the coverage report (analysable, reliable, unreliable, not enough counts, conflicting data, insufficient history) and the count-rule sensitivity report on real history to the owner; do NOT treat 3 counts / minimum 1 / 45 days as definitive until the owner has chosen after seeing it.
-- [ ] 9.4 Lint, typecheck and tests for the affected packages compared with the baseline; update `intelligence-service/CLAUDE.md`, the root index and the memory notes.
-- [ ] 9.5 Commit and merge to the main branch in the same session after checking the target checkout's `git status`, without staging unrelated files.
+- [ ] 9.1 Month availability (calendar month ended, supply and sales both imported for at least the parameterised share of active stores), `dataThrough`, `pendingImport`; tests including a partially imported month.
+- [ ] 9.2 Subscribe to `period.data-updated` events of supply and sales, and a manual trigger; when `dataThrough` advances enqueue one refresh that runs engine, coverage, backtest (origins extended to the new month) and sensitivity as a linked, immutable set; a failed refresh leaves the previous current set in place.
+- [ ] 9.3 History: sets are never overwritten, each stamped with the period covered, engine version, parameter version and computation time; a "current" pointer moves only when the whole set has finished; read a Product × Store's evolution across sets. Test: the September set does not alter or delete the August set.
+- [ ] 9.4 Freshness on every result and report (`dataThrough`, `computedAt`) and `outOfDate` by number of months lagged when a later month is available; tests for up to date, a closed month not yet incorporated and a month not yet imported (never claimed as covered).
+- [ ] 9.5 Add to the Phase 2 requirements (in `docs/commercial-intelligence-v2-design.md`) that every screen shows "Dados atualizados até <month>", "Última atualização da inteligência <date>" and the out-of-date mark.
+
+## 10. Verification and closing
+
+- [ ] 10.1 Run the engine against real January to August history and sanity-check against the 12 plan examples; explain any difference.
+- [ ] 10.2 Run the backtest on the real history; read the report, list what it shows about the provisional defaults, and prepare it for review with the owner. Do not freeze any threshold.
+- [ ] 10.3 Present the coverage report (analysable, reliable, unreliable, not enough counts, conflicting data, insufficient history) and the count-rule sensitivity report on real history to the owner; keep 3 counts / minimum 1 / 45 days as provisional and choose no combination until the owner has chosen after seeing the sensitivity report.
+- [ ] 10.4 Lint, typecheck and tests for the affected packages compared with the baseline; update `intelligence-service/CLAUDE.md`, the root index and the memory notes.
+- [ ] 10.5 Commit and merge to the main branch in the same session after checking the target checkout's `git status`, without staging unrelated files.
