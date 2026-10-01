@@ -1,7 +1,8 @@
 # common/nest-libs/period-events-contracts
 
 Contrato do evento "o período de uma loja mudou". Publicado por
-`supply-service`; consumido por `finance-service` e `inventory-service`.
+`supply-service` e `sales-service`; consumido por `inventory-service` (que encadeia
+para `finance-service`) e `intelligence-service` (gatilho da atualização mensal).
 
 Escopo por **família de evento**, não por par de serviços: isso se espalha para
 dois consumidores hoje e pode alcançar mais, então um pacote pareado (o
@@ -9,7 +10,9 @@ precedente `quote-search-match`) não generalizaria.
 
 ## Public API
 
-- `PERIOD_EVENT_QUEUES.PERIOD_DATA_UPDATED`
+- `PERIOD_EVENT_QUEUES` (uma fila por assinante: `.inventory`, `.intelligence`) e
+  `PERIOD_DATA_UPDATED_SUBSCRIBERS` (os publicadores iteram essa lista: assinante
+  novo = fila nova aqui, sem tocar supply/sales).
 - `PeriodDataUpdatedEvent` — `schemaVersion`, `storeId`, `period`, `source`,
   `correlationId`, `changedAt`.
 

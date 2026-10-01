@@ -30,6 +30,8 @@
 export const PERIOD_EVENT_QUEUES = {
   /** Consumed by inventory-service. */
   PERIOD_DATA_UPDATED_INVENTORY: 'period.data-updated.inventory',
+  /** Consumed by intelligence-service (monthly refresh trigger; debounced there). */
+  PERIOD_DATA_UPDATED_INTELLIGENCE: 'period.data-updated.intelligence',
   /** Consumed by finance-service. */
   INVENTORY_PERIOD_DERIVED_FINANCE: 'inventory.period-derived.finance',
 } as const
@@ -40,7 +42,10 @@ export const PERIOD_EVENT_QUEUES = {
  * Publishers iterate this rather than naming queues, so a new subscriber never
  * requires touching supply-service or sales-service.
  */
-export const PERIOD_DATA_UPDATED_SUBSCRIBERS = [PERIOD_EVENT_QUEUES.PERIOD_DATA_UPDATED_INVENTORY] as const
+export const PERIOD_DATA_UPDATED_SUBSCRIBERS = [
+  PERIOD_EVENT_QUEUES.PERIOD_DATA_UPDATED_INVENTORY,
+  PERIOD_EVENT_QUEUES.PERIOD_DATA_UPDATED_INTELLIGENCE,
+] as const
 
 /** Every queue an inventory-period-derived event must be published to. */
 export const INVENTORY_PERIOD_DERIVED_SUBSCRIBERS = [
