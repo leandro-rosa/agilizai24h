@@ -5,7 +5,7 @@ visão geral do monorepo.
 
 ## Estado atual
 
-- `apps/` — 14 microserviços:
+- `apps/` — 15 microserviços:
   [iam-service](apps/iam-service/CLAUDE.md) (contas, sessões, permissões),
   [stores-service](apps/stores-service/CLAUDE.md) (registro de lojas) e
   [products-service](apps/products-service/CLAUDE.md) (catálogo + custo datado)
@@ -17,7 +17,9 @@ visão geral do monorepo.
   [ingestion-worker-service](apps/ingestion-worker-service/CLAUDE.md)
   (upload → parse → filas) e
   [inventory-service](apps/inventory-service/CLAUDE.md) (estoque derivado) e
-  [finance-service](apps/finance-service/CLAUDE.md) (a reconciliação mensal).
+  [finance-service](apps/finance-service/CLAUDE.md) (a reconciliação mensal) e
+  [intelligence-service](apps/intelligence-service/CLAUDE.md) (motor Produto ×
+  Loja da Inteligência Comercial v2; em construção, sem rota no gateway).
   `iam-service` foi o primeiro e serve de molde para os próximos.
 - **Back-office** — 5 serviços que saíram da planilha de relatórios, cada um
   com seu Postgres (portas 5441-5445). Quatro ainda sem ingestão de arquivo;

@@ -1,14 +1,14 @@
 ## 1. Preparation
 
-- [ ] 1.1 Work in an isolated worktree; check the target checkout's `git status` before any merge and never stage unrelated files. Run jest with `--maxWorkers=2` and turbo with `--concurrency=1` (the owner asked not to overload the machine).
-- [ ] 1.2 Record the baseline of lint, typecheck and tests for the packages this change touches, so a new failure is attributable.
-- [ ] 1.3 Save a read-only extract of real history for tests and backtest development outside the repo (visits, monthly sales, monthly removals, cost) and note its control sums; never copy it into a real database.
+- [x] 1.1 Work in an isolated worktree; check the target checkout's `git status` before any merge and never stage unrelated files. Run jest with `--maxWorkers=2` and turbo with `--concurrency=1` (the owner asked not to overload the machine).
+- [x] 1.2 Record the baseline of lint, typecheck and tests for the packages this change touches, so a new failure is attributable.
+- [x] 1.3 Save a read-only extract of real history for tests and backtest development outside the repo (visits, monthly sales, monthly removals, cost) and note its control sums; never copy it into a real database.
 
 ## 2. Service scaffold
 
-- [ ] 2.1 Scaffold `backend/apps/intelligence-service` following the repo's microservice skill: Fastify bootstrap, Prisma + adapter-pg, `DbClientModule`, env validation (`WITH_KAFKA_BROKERS`, service URLs, queue host), health, correlation-id middleware, per-module `CLAUDE.md`.
-- [ ] 2.2 Dockerfile (dev and runtime, `prisma:deploy` in the CMD), `docker-compose.yml` with its own Postgres (host port 5446) on `agiliz_network`, entries in `.env.example`, and the project registry of `cli/agiliz-cli` (maps, up and down order) with its tests.
-- [ ] 2.3 Add the service to `backend/CLAUDE.md` and the root `CLAUDE.md` index; register the HTTP clients for `supply-service`, `sales-service` and `products-service`.
+- [x] 2.1 Scaffold `backend/apps/intelligence-service` following the repo's microservice skill: Fastify bootstrap, Prisma + adapter-pg, `DbClientModule`, env validation (`WITH_KAFKA_BROKERS`, service URLs, queue host), health, correlation-id middleware, per-module `CLAUDE.md`.
+- [x] 2.2 Dockerfile (dev and runtime, `prisma:deploy` in the CMD), `docker-compose.yml` with its own Postgres (host port 5446) on `agiliz_network`, entries in `.env.example`, and the project registry of `cli/agiliz-cli` (maps, up and down order) with its tests.
+- [x] 2.3 Add the service to `backend/CLAUDE.md` and the root `CLAUDE.md` index; register the HTTP clients for `supply-service`, `sales-service` and `products-service`.
 
 ## 3. Data model
 

@@ -1,0 +1,11 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Models arrive with the data-model group of add-intelligence-engine-phase1
+// (parameter versions, baseline, schedule, runs, recommendations, backtest).

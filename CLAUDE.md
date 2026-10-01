@@ -10,7 +10,7 @@ observability.
 
 | Pasta | Estado hoje | Conteúdo |
 |---|---|---|
-| `backend/apps/` | 14 serviços | ver [backend/CLAUDE.md](backend/CLAUDE.md) |
+| `backend/apps/` | 15 serviços | ver [backend/CLAUDE.md](backend/CLAUDE.md) |
 | `backend/common/nest-libs/` | 8 libs reais | ver [backend/CLAUDE.md](backend/CLAUDE.md) |
 | `frontend/apps/site/` | app real | site institucional — ver [CLAUDE.md](frontend/apps/site/CLAUDE.md) / [DESIGN.md](frontend/apps/site/DESIGN.md) |
 | `frontend/apps/admin/` | app real | painel de gestão (vendas, financeiro, abastecimento, estoque, produtos, lojas), Next.js — ver [CLAUDE.md](frontend/apps/admin/CLAUDE.md) / [DESIGN.md](frontend/apps/admin/DESIGN.md) |
