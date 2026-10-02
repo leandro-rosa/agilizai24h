@@ -108,7 +108,10 @@ export function parsePagBankStatementSheet(rows: unknown[][]): { rows: TreasuryR
 
     result.push({
       occurredOn,
-      amountCents: entradas > 0 ? entradas : saidas,
+      // The real September file stores "Saidas" as a negative number (the column already carries
+      // its own sign) — `amount_cents` must stay positive regardless, same invariant every other
+      // source in this pipeline follows (the sign lives in `direction`, never in the amount).
+      amountCents: entradas > 0 ? Math.abs(entradas) : Math.abs(saidas),
       direction: entradas > 0 ? 'inflow' : 'outflow',
       counterpartyRaw: cellText(row[columnIndex['Descrição']]),
       sourceRef: rowReference,

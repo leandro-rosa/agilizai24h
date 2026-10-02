@@ -27,6 +27,13 @@ describe('parsePagBankStatementSheet', () => {
     expect(result.rows[0].amountCents).toBe(12050)
   })
 
+  it('takes the absolute value of a negative Saidas cell — the real September file stores debits as negative numbers, and amount_cents must always be positive (the sign lives in direction)', () => {
+    const rows = [HEADER, [null, '02/09/2026', 'Transferência', 'F&r Solucoes Experience', null, -2168.98, null]]
+    const result = parsePagBankStatementSheet(rows)
+    expect(result.rows[0].direction).toBe('outflow')
+    expect(result.rows[0].amountCents).toBe(216898)
+  })
+
   it('rejects a row with neither Entradas nor Saidas populated', () => {
     const rows = [HEADER, [null, '02/09/2026', 'Tipo', 'Descrição', null, null, 100]]
     const result = parsePagBankStatementSheet(rows)
