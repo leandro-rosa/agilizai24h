@@ -30,6 +30,7 @@ import {
   Percent,
   Plus,
   Receipt,
+  Search,
   SquareParking,
   Trash2,
   Truck,
@@ -56,6 +57,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Combobox } from "@/components/ui/combobox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -138,6 +140,12 @@ export default function TreasuryPage() {
   // um range de um mês combinado com o período de outro, o que voltaria a
   // tabela vazia sem nenhuma explicação.
   const [dateRange, setDateRange] = useState<DayRange>({});
+  // Mesmo fornecedor pode ter pagamentos com naturezas diferentes (ex.: Wilson
+  // é estoque numa compra e coffee break noutra) — a regra de de-para não
+  // distingue isso, então encontrar o lançamento específico pra corrigir
+  // precisa de busca por texto, não só filtro de natureza/data. Client-side,
+  // sobre o que a tabela já buscou — sem endpoint novo.
+  const [counterpartySearch, setCounterpartySearch] = useState("");
   const [editing, setEditing] = useState<BankTransaction | null>(null);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null);
@@ -194,6 +202,17 @@ export default function TreasuryPage() {
   const canWrite = useHasPermission("treasury:write");
 
   const mappingById = useMemo(() => new Map((mappings ?? []).map((m) => [m.id, m])), [mappings]);
+  // Alimenta o preenchimento automático do formulário: escolher uma categoria já usada em
+  // alguma regra de de-para sugere o kind/natureza/tipo que ela sempre levou junto, em vez da
+  // pessoa ter que lembrar qual combinação é a certa. Última regra encontrada por categoria
+  // vence — na prática uma categoria tem uma combinação só, então a ordem não importa.
+  const classificationByCategory = useMemo(() => {
+    const map: Record<string, Partial<TransactionForm>> = {};
+    for (const m of mappings ?? []) {
+      map[m.category] = { kind: m.kind, nature: m.nature ?? undefined, entry_type: m.entry_type };
+    }
+    return map;
+  }, [mappings]);
   const importById = useMemo(() => new Map((importsForPeriod ?? []).map((i) => [i.id, i])), [importsForPeriod]);
 
   // `useCallback` (não só uma função comum) é o que mantém a referência
@@ -254,6 +273,8 @@ export default function TreasuryPage() {
       kind: "combobox",
       options: ["Outros", ...(categories ?? [])],
       placeholder: "estoque geral",
+      deriveFrom: classificationByCategory,
+      hint: "Escolher uma categoria já usada antes preenche tipo/natureza sozinho — mas continua editável.",
     },
     {
       name: "kind",
@@ -291,6 +312,15 @@ export default function TreasuryPage() {
   }
 
   const pendentes = useMemo(() => (periodTransactions ?? []).filter((t) => t.kind === "pending"), [periodTransactions]);
+
+  const normalizedCounterpartySearch = counterpartySearch.trim().toLowerCase();
+  const visibleTransactions = useMemo(
+    () =>
+      normalizedCounterpartySearch
+        ? (transactions ?? []).filter((t) => t.counterparty_raw.toLowerCase().includes(normalizedCounterpartySearch))
+        : (transactions ?? []),
+    [transactions, normalizedCounterpartySearch],
+  );
   // Despesa de verdade (kind: expense) + o único bucket de `movement` que
   // entra aqui de propósito — empréstimo de sócio não é resultado (não soma
   // ao DRE), mas o operador quer acompanhar Josias/Gerson no mesmo painel;
@@ -419,6 +449,16 @@ export default function TreasuryPage() {
         </Select>
 
         <DateRangePicker value={dateRange} onChange={setDateRange} />
+
+        <div className="relative w-64">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={counterpartySearch}
+            onChange={(e) => setCounterpartySearch(e.target.value)}
+            placeholder="Buscar por favorecido..."
+            className="pl-8"
+          />
+        </div>
       </div>
 
       <RequestState
@@ -675,14 +715,20 @@ export default function TreasuryPage() {
             {summary.unresolved_count} lançamento(s) sem fornecedor cadastrado vinculado.
           </p>
         )}
-        <TransactionsTable
-          transactions={transactions ?? []}
-          accountById={accountById}
-          canWrite={canWrite}
-          onEdit={setEditing}
-          onDelete={deleteTransaction}
-          provenanceLabel={provenanceLabel}
-        />
+        {normalizedCounterpartySearch && visibleTransactions.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Nenhum lançamento com favorecido contendo &quot;{counterpartySearch}&quot; neste período.
+          </p>
+        ) : (
+          <TransactionsTable
+            transactions={visibleTransactions}
+            accountById={accountById}
+            canWrite={canWrite}
+            onEdit={setEditing}
+            onDelete={deleteTransaction}
+            provenanceLabel={provenanceLabel}
+          />
+        )}
       </RequestState>
 
       {editing && (
@@ -859,11 +905,11 @@ const TransactionsTable = memo(function TransactionsTable({
               ))}
             </SelectContent>
           </Select>
-          <Input
-            placeholder="Aplicar categoria"
+          <Combobox
+            options={["Outros", ...(categories ?? [])]}
             value={bulkCategory}
-            onChange={(e) => setBulkCategory(e.target.value)}
-            list="treasury-categories"
+            onChange={setBulkCategory}
+            placeholder="Aplicar categoria"
             className="w-48"
           />
           <Button size="sm" onClick={applyBulk} disabled={bulkApplying || (!bulkNature && !bulkCategory)}>
@@ -874,11 +920,6 @@ const TransactionsTable = memo(function TransactionsTable({
           </Button>
         </div>
       )}
-      <datalist id="treasury-categories">
-        {(categories ?? []).map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
       <Table>
         <TableHeader>
           <TableRow>
@@ -956,16 +997,15 @@ const TransactionsTable = memo(function TransactionsTable({
               </TableCell>
               <TableCell>
                 {canWrite ? (
-                  <Input
-                    defaultValue={transaction.category}
-                    list="treasury-categories"
-                    className="w-40"
-                    onBlur={(e) => {
-                      const value = e.target.value.trim();
+                  <Combobox
+                    options={["Outros", ...(categories ?? [])]}
+                    value={transaction.category}
+                    onChange={(value) => {
                       if (value && value !== transaction.category) {
                         updateTransaction({ id: transaction.id, category: value });
                       }
                     }}
+                    className="w-40"
                   />
                 ) : (
                   transaction.category

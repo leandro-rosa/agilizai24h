@@ -34,6 +34,14 @@ export type FieldSpec<T extends FieldValues> =
       options: string[];
       placeholder?: string;
       hint?: string;
+      /**
+       * When the person picks/types a value that's a key here, patch the other fields listed —
+       * e.g. picking a category that's always paired with one kind/nature elsewhere in the data
+       * fills those in too, without locking them (still editable after). Only fires on an active
+       * change to THIS field, never on mount/reset — editing an already-classified record must
+       * never have its existing kind/nature silently overwritten just because the dialog opened.
+       */
+      deriveFrom?: Record<string, Partial<T>>;
     };
 
 /**
@@ -150,7 +158,11 @@ export function ResourceFormDialog<T extends FieldValues>({
                           <Combobox
                             options={spec.options}
                             value={field.value ?? ""}
-                            onChange={field.onChange}
+                            onChange={(value) => {
+                              field.onChange(value);
+                              const derived = spec.deriveFrom?.[value];
+                              if (derived) form.reset({ ...form.getValues(), [spec.name]: value, ...derived } as T);
+                            }}
                             placeholder={spec.placeholder}
                           />
                         ) : spec.kind === "checkbox" ? (
