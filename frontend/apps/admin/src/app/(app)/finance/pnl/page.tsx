@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, Lock, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
+import { Info, Lock, Pencil, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -15,9 +15,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { z } from "zod";
 
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
+import { ResourceFormDialog, toCents, type FieldSpec } from "@/components/resource-form-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,6 +34,7 @@ import {
   useComputePnlMutation,
   useGetPnlQuery,
   useGetPnlSeriesQuery,
+  usePutEntryMutation,
   type AccountNode,
   type PnlView,
 } from "@/lib/api/accounting";
@@ -117,6 +120,14 @@ const OPERATIONS = [
 type OperationKey = (typeof OPERATIONS)[number]["key"] | "consolidada";
 
 const EXPENSE_SECTIONS = new Set(["deductions", "cogs", "variable_expenses", "fixed_expenses", "financial_expenses"]);
+
+const manualEntrySchema = z.object({
+  amount: z.string().min(1, "Informe o valor"),
+});
+type ManualEntryForm = z.infer<typeof manualEntrySchema>;
+const MANUAL_ENTRY_FIELDS: FieldSpec<ManualEntryForm>[] = [
+  { name: "amount", label: "Valor (R$)", kind: "number", hint: "Lançamento manual — nunca sobrescrito por uma busca automática futura." },
+];
 
 export default function PnlPage() {
   // Chegada por link direto (ex: "Ações" em /finance/stores) já abre no
@@ -544,6 +555,8 @@ export default function PnlPage() {
                           section={section}
                           netRevenue={data.totals.net_revenue_cents}
                           compareView={compareData}
+                          period={period}
+                          canWrite={canWrite}
                         />
                       ))}
                     </TableBody>
@@ -672,10 +685,14 @@ function SectionRows({
   section,
   netRevenue,
   compareView,
+  period,
+  canWrite,
 }: {
   section: { section: string; amount_cents: number; accounts: AccountNode[] };
   netRevenue: number;
   compareView?: PnlView;
+  period: string;
+  canWrite: boolean;
 }) {
   const comparePct = pctOfNet(section.amount_cents, netRevenue);
   const compareSection = compareView?.sections.find((s) => s.section === section.section);
@@ -703,7 +720,15 @@ function SectionRows({
         )}
       </TableRow>
       {section.accounts.map((account) => (
-        <AccountRow key={account.id} node={account} depth={0} netRevenue={netRevenue} compareView={compareView} />
+        <AccountRow
+          key={account.id}
+          node={account}
+          depth={0}
+          netRevenue={netRevenue}
+          compareView={compareView}
+          period={period}
+          canWrite={canWrite}
+        />
       ))}
     </>
   );
@@ -714,12 +739,18 @@ function AccountRow({
   depth,
   netRevenue,
   compareView,
+  period,
+  canWrite,
 }: {
   node: AccountNode;
   depth: number;
   netRevenue: number;
   compareView?: PnlView;
+  period: string;
+  canWrite: boolean;
 }) {
+  const [putEntry] = usePutEntryMutation();
+  const [open, setOpen] = useState(false);
   const pct = pctOfNet(node.amount_cents, netRevenue);
   const compareNode = compareView ? findAccount(compareView, node.code) : undefined;
   const compareAmount = compareNode?.amount_cents ?? 0;
@@ -732,6 +763,30 @@ function AccountRow({
         <TableCell style={{ paddingLeft: `${1 + depth * 1.5}rem` }}>
           <span className="text-sm">{node.label}</span>
           <span className="ml-2 text-xs text-muted-foreground">{node.code}</span>
+          {canWrite && !node.allocated && (
+            <ResourceFormDialog
+              title={`Lançar ${node.label} manualmente`}
+              description="Substitui o valor atual desta conta e nunca é sobrescrito por uma busca automática futura."
+              trigger={
+                <Button variant="ghost" size="icon" className="ml-1 size-5">
+                  <Pencil className="size-3" />
+                </Button>
+              }
+              open={open}
+              onOpenChange={setOpen}
+              schema={manualEntrySchema}
+              fields={MANUAL_ENTRY_FIELDS}
+              defaultValues={{ amount: node.amount_cents ? (node.amount_cents / 100).toFixed(2) : "" } as ManualEntryForm}
+              onSubmit={(values) =>
+                putEntry({
+                  account_id: node.id,
+                  period,
+                  amount_cents: toCents(values.amount),
+                  origin: "manual",
+                }).unwrap()
+              }
+            />
+          )}
         </TableCell>
         <TableCell>
           {node.allocated ? (
@@ -779,7 +834,15 @@ function AccountRow({
         )}
       </TableRow>
       {node.children.map((child) => (
-        <AccountRow key={child.id} node={child} depth={depth + 1} netRevenue={netRevenue} compareView={compareView} />
+        <AccountRow
+          key={child.id}
+          node={child}
+          depth={depth + 1}
+          netRevenue={netRevenue}
+          compareView={compareView}
+          period={period}
+          canWrite={canWrite}
+        />
       ))}
     </>
   );
