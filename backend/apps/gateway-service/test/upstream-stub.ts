@@ -24,11 +24,13 @@ export class UpstreamStub {
   private server?: Server
   private routes = new Map<string, StubRoute>()
   private calls: string[] = []
+  private rawCalls: string[] = []
 
   async start(): Promise<number> {
     this.server = createServer((req, res) => {
       const key = `${req.method} ${(req.url ?? '').split('?')[0]}`
       this.calls.push(key)
+      this.rawCalls.push(`${req.method} ${req.url ?? ''}`)
 
       const route = this.routes.get(key)
 
@@ -65,8 +67,14 @@ export class UpstreamStub {
     return this.calls.includes(`${method} ${path}`)
   }
 
+  /** Like calledWith, but the path must include the exact query string. */
+  calledWithQuery(method: string, pathWithQuery: string): boolean {
+    return this.rawCalls.includes(`${method} ${pathWithQuery}`)
+  }
+
   resetCalls(): void {
     this.calls = []
+    this.rawCalls = []
   }
 
   async stop(): Promise<void> {

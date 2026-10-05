@@ -85,8 +85,7 @@ describe('accounting compute route', () => {
         .send({})
         .expect(201)
 
-      // Verify the upstream was called (the stub strips query string from the key)
-      expect(stub.calledWith('POST', '/accounting/pnl/2026-09/compute')).toBe(true)
+      expect(stub.calledWithQuery('POST', '/accounting/pnl/2026-09/compute?store_count=20&close=true')).toBe(true)
     })
   })
 })
