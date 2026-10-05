@@ -711,20 +711,36 @@ export class AccountingService {
     storeCount: number,
     close: boolean,
     correlationId?: string,
-  ): Promise<ReturnType<typeof this.computeSnapshot> extends Promise<infer T> ? T & { synced: { stores_ok: number[]; stores_failed: number[] } } : never> {
+  ): Promise<ReturnType<typeof this.computeSnapshot> extends Promise<infer T> ? T & { synced: { stores_ok: number[]; stores_failed: number[]; close_failed: number[] } } : never> {
     if (storeId !== undefined) {
       const snapshot = await this.computeSnapshot(period, storeId, storeCount, close)
-      return { ...snapshot, synced: { stores_ok: [], stores_failed: [] } }
+      return { ...snapshot, synced: { stores_ok: [], stores_failed: [], close_failed: [] } }
     }
 
     const synced = await this.syncFromUpstreams(period, correlationId)
     const networkSnapshot = await this.computeSnapshot(period, undefined, storeCount, close)
 
+    // Cada loja fecha isolada das demais — uma falha no meio do laço (ex.:
+    // erro transiente de banco) nunca pode perder o `synced` já correto nem
+    // abortar o fechamento das lojas seguintes. A rede já fechou acima, e
+    // fica fechada independente do resultado deste laço; o operador vê
+    // `close_failed` na resposta e pode reprocessar só aquela loja via
+    // `closeMonth(period, storeId, 1, true)`, que já é idempotente.
+    const closeFailed: number[] = []
     for (const okStoreId of synced.stores_ok) {
-      await this.computeSnapshot(period, okStoreId, 1, close)
+      try {
+        await this.computeSnapshot(period, okStoreId, 1, close)
+      } catch (error) {
+        this.logger.error(
+          `Fechamento em cascata falhou para a loja ${okStoreId} no período ${period}` +
+            (correlationId ? ` (correlationId=${correlationId})` : '') +
+            `: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        closeFailed.push(okStoreId)
+      }
     }
 
-    return { ...networkSnapshot, synced }
+    return { ...networkSnapshot, synced: { ...synced, close_failed: closeFailed } }
   }
 
   /** Congela o mês. Um DRE fechado não muda quando alguém corrige o passado. */
