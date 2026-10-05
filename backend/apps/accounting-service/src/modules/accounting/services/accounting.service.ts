@@ -713,8 +713,27 @@ export class AccountingService {
     correlationId?: string,
   ): Promise<ReturnType<typeof this.computeSnapshot> extends Promise<infer T> ? T & { synced: { stores_ok: number[]; stores_failed: number[]; close_failed: number[] } } : never> {
     if (storeId !== undefined) {
+      const mappedAccounts = await this.prisma.account.findMany({
+        where: { statement: 'pnl', auto_source: { not: null } },
+      })
+
+      let stores_failed: number[] = []
+      try {
+        await this.syncStoreAccounts(period, storeId, mappedAccounts, correlationId)
+      } catch (error) {
+        this.logger.error(
+          `Sincronização automática do DRE falhou para a loja ${storeId} no período ${period}` +
+            (correlationId ? ` (correlationId=${correlationId})` : '') +
+            `: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        stores_failed = [storeId]
+      }
+
       const snapshot = await this.computeSnapshot(period, storeId, storeCount, close)
-      return { ...snapshot, synced: { stores_ok: [], stores_failed: [], close_failed: [] } }
+      return {
+        ...snapshot,
+        synced: { stores_ok: stores_failed.length === 0 ? [storeId] : [], stores_failed, close_failed: [] },
+      }
     }
 
     const synced = await this.syncFromUpstreams(period, correlationId)

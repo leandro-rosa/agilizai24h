@@ -122,7 +122,10 @@ type OperationKey = (typeof OPERATIONS)[number]["key"] | "consolidada";
 const EXPENSE_SECTIONS = new Set(["deductions", "cogs", "variable_expenses", "fixed_expenses", "financial_expenses"]);
 
 const manualEntrySchema = z.object({
-  amount: z.string().min(1, "Informe o valor"),
+  amount: z
+    .string()
+    .min(1, "Informe o valor")
+    .refine((v) => Number(v.replace(",", ".")) >= 0, "O valor não pode ser negativo"),
 });
 type ManualEntryForm = z.infer<typeof manualEntrySchema>;
 const MANUAL_ENTRY_FIELDS: FieldSpec<ManualEntryForm>[] = [
@@ -250,23 +253,25 @@ export default function PnlPage() {
   }, [data, compareData]);
 
   async function close() {
-    const result = await compute({ period, storeId, storeCount: activeStores, close: true })
-      .unwrap()
-      .catch(() => null);
-    if (result) {
+    const storeName = (id: number) => stores?.find((s) => s.id === id)?.name ?? `loja ${id}`;
+
+    try {
+      const result = await compute({ period, storeId, storeCount: activeStores, close: true }).unwrap();
       const { stores_failed, close_failed } = result.synced;
       const parts: string[] = [];
       if (stores_failed.length > 0) {
-        parts.push(`${stores_failed.length} loja(s) sem dado automático: ${stores_failed.join(", ")}`);
+        parts.push(`${stores_failed.length} loja(s) não fecharam (sem dado automático): ${stores_failed.map(storeName).join(", ")}`);
       }
       if (close_failed.length > 0) {
-        parts.push(`${close_failed.length} loja(s) não fecharam: ${close_failed.join(", ")}`);
+        parts.push(`${close_failed.length} loja(s) não fecharam (falha ao fechar): ${close_failed.map(storeName).join(", ")}`);
       }
       toast.success(
         parts.length === 0
           ? `DRE de ${fmtPeriod(period)} fechado.`
           : `DRE de ${fmtPeriod(period)} fechado — ${parts.join("; ")}.`,
       );
+    } catch {
+      toast.error(`Não foi possível fechar o DRE de ${fmtPeriod(period)}. Tente novamente.`);
     }
   }
 
@@ -769,7 +774,7 @@ function AccountRow({
         <TableCell style={{ paddingLeft: `${1 + depth * 1.5}rem` }}>
           <span className="text-sm">{node.label}</span>
           <span className="ml-2 text-xs text-muted-foreground">{node.code}</span>
-          {canWrite && isNetwork && !node.allocated && (
+          {canWrite && isNetwork && !node.allocated && !node.per_store && node.children.length === 0 && (
             <ResourceFormDialog
               title={`Lançar ${node.label} manualmente`}
               description="Substitui o valor atual desta conta e nunca é sobrescrito por uma busca automática futura."

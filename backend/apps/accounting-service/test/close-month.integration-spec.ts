@@ -71,6 +71,12 @@ describe('closeMonth', () => {
     expect(upstream.activeStores).not.toHaveBeenCalled()
     const network = await prisma.pnlSnapshot.findFirst({ where: { period, store_id: null } })
     expect(network).toBeNull()
+
+    // Finding 3: a single-store close now syncs that store's own data
+    // before closing — it just never touches the network or other stores
+    // (asserted above via `activeStores` not being called).
+    expect(result.synced).toEqual({ stores_ok: [603], stores_failed: [], close_failed: [] })
+    expect(upstream.salesRevenueCents).toHaveBeenCalledWith(603, period, undefined)
   })
 
   it('excludes a failed-sync store from the per-store close loop', async () => {
