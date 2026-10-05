@@ -13,6 +13,23 @@ class EnvironmentVariables {
   @IsNotEmpty()
   DATABASE_URL: string
 
+  /** Upstreams this service reads to auto-fill the DRE. A 404 is "no data", never a failure. */
+  @IsString()
+  @IsNotEmpty()
+  STORES_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  SALES_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  FINANCE_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  TREASURY_SERVICE_URL: string
+
   @IsOptional()
   @IsInt()
   @Min(1)

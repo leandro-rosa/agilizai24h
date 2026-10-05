@@ -43,6 +43,10 @@ services:
     environment:
       DATABASE_URL: postgresql://${ACCOUNTING_POSTGRES_USER:-agiliz}:${ACCOUNTING_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-accounting-postgres:5432/${ACCOUNTING_POSTGRES_DB:-accounting}
       PORT: 3000
+      STORES_SERVICE_URL: http://agiliz-stores-dev:3000
+      SALES_SERVICE_URL: http://agiliz-sales-dev:3000
+      FINANCE_SERVICE_URL: http://agiliz-finance-dev:3000
+      TREASURY_SERVICE_URL: http://agiliz-treasury-dev:3000
     # No published host port: domain services stay internal to agiliz_network,
     # reachable only through gateway-service.
     expose:
@@ -71,6 +75,10 @@ services:
     environment:
       DATABASE_URL: postgresql://${ACCOUNTING_POSTGRES_USER:-agiliz}:${ACCOUNTING_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-accounting-postgres:5432/${ACCOUNTING_POSTGRES_DB:-accounting}
       PORT: 3000
+      STORES_SERVICE_URL: http://agiliz-stores-prod:3000
+      SALES_SERVICE_URL: http://agiliz-sales-prod:3000
+      FINANCE_SERVICE_URL: http://agiliz-finance-prod:3000
+      TREASURY_SERVICE_URL: http://agiliz-treasury-prod:3000
     expose:
       - "3000"
     networks:
