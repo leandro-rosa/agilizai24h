@@ -13,6 +13,8 @@ describe('syncFromUpstreams', () => {
   const period = '2099-04'
   const luzAccountCode = '4.3.04' // real seeded account, auto_source: treasury_category, category "Luz"
   const vendasAccountCode = '3.1.01' // real seeded account, auto_source: sales_revenue, per_store
+  const cogsAccountCode = '4.1.01' // real seeded account, auto_source: finance_cogs, per_store
+  const lossAccountCode = '4.2.02' // real seeded account, auto_source: finance_loss, per_store
 
   const upstream = {
     activeStores: jest.fn(),
@@ -117,6 +119,22 @@ describe('syncFromUpstreams', () => {
     const luz = await prisma.account.findUnique({ where: { code: luzAccountCode } })
     const entry = await prisma.ledgerEntry.findFirst({ where: { account_id: luz!.id, period, store_id: null } })
     expect(entry).toMatchObject({ amount_cents: 0, origin: 'treasury' })
+  })
+
+  it('writes a real zero for finance_cogs/finance_loss when the reconciliation says exactly 0 — distinct from "no reconciliation yet" (null)', async () => {
+    upstream.activeStores.mockResolvedValue([{ id: 506, name: 'Loja Sem CMV Nem Perda' }])
+    upstream.treasuryCategoryTotals.mockResolvedValue(new Map())
+    upstream.salesRevenueCents.mockResolvedValue(0)
+    upstream.financeFor.mockResolvedValue({ cogs_cents: 0, loss_value_cents: 0 }) // real reconciliation, not the 404 fallback (null)
+
+    await accounting.syncFromUpstreams(period)
+
+    const cogs = await prisma.account.findUnique({ where: { code: cogsAccountCode } })
+    const loss = await prisma.account.findUnique({ where: { code: lossAccountCode } })
+    const cogsEntry = await prisma.ledgerEntry.findFirst({ where: { account_id: cogs!.id, period, store_id: 506 } })
+    const lossEntry = await prisma.ledgerEntry.findFirst({ where: { account_id: loss!.id, period, store_id: 506 } })
+    expect(cogsEntry).toMatchObject({ amount_cents: 0, origin: 'finance' })
+    expect(lossEntry).toMatchObject({ amount_cents: 0, origin: 'finance' })
   })
 
   it('re-running the sync overwrites a PREVIOUS non-manual value with the newer total', async () => {

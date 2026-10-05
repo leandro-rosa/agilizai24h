@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import {
   computePnl,
@@ -82,6 +82,8 @@ export interface StorePnlSummary {
 
 @Injectable()
 export class AccountingService {
+  private readonly logger = new Logger(AccountingService.name)
+
   constructor(
     private readonly prisma: PrismaClientService,
     private readonly upstream: UpstreamClient,
@@ -595,7 +597,15 @@ export class AccountingService {
       try {
         await this.syncStoreAccounts(period, store.id, mappedAccounts, correlationId)
         stores_ok.push(store.id)
-      } catch {
+      } catch (error) {
+        // Nunca aborta o laço por causa de UMA loja — mas o erro precisa
+        // ficar observável em log, senão "falhou" fica só o id, sem como
+        // investigar depois (revisão 2026-10-05: antes era um catch mudo).
+        this.logger.error(
+          `Sincronização automática do DRE falhou para a loja ${store.id} no período ${period}` +
+            (correlationId ? ` (correlationId ${correlationId})` : '') +
+            `: ${error instanceof Error ? error.message : String(error)}`,
+        )
         stores_failed.push(store.id)
       }
     }
@@ -616,9 +626,8 @@ export class AccountingService {
     for (const account of treasuryAccounts) {
       const amount = totals.get(account.treasury_category!)
       if (amount === undefined) continue // sem transação neste período para essa categoria — nunca escrever 0 para "ausente"
-      if (await this.isManual(account.id, period, null)) continue
 
-      await this.putEntry({ account_id: account.id, period, amount_cents: amount, origin: 'treasury' })
+      await this.putAutoEntry({ account_id: account.id, period, store_id: null, amount_cents: amount, origin: 'treasury' })
     }
   }
 
@@ -632,29 +641,60 @@ export class AccountingService {
     const cogsAccount = accounts.find(a => a.auto_source === 'finance_cogs')
     const lossAccount = accounts.find(a => a.auto_source === 'finance_loss')
 
-    if (salesAccount && !(await this.isManual(salesAccount.id, period, storeId))) {
+    if (salesAccount) {
       const revenue = await this.upstream.salesRevenueCents(storeId, period, correlationId)
       if (revenue > 0) {
-        await this.putEntry({ account_id: salesAccount.id, period, store_id: storeId, amount_cents: revenue, origin: 'sales' })
+        await this.putAutoEntry({ account_id: salesAccount.id, period, store_id: storeId, amount_cents: revenue, origin: 'sales' })
       }
     }
 
     if (cogsAccount || lossAccount) {
       const finance = await this.upstream.financeFor(storeId, period, correlationId)
+      // `finance` só é null no 404 de "sem reconciliação ainda" (tratado
+      // dentro do UpstreamClient) — a partir daqui já é dado real, então um
+      // `cogs_cents`/`loss_value_cents` igual a 0 é um zero de verdade (mês
+      // sem CMV/perda) e precisa ser escrito, não pulado, igual ao zero real
+      // do rateio de tesouraria em `syncNetworkAccounts`.
       if (finance) {
-        if (cogsAccount && finance.cogs_cents > 0 && !(await this.isManual(cogsAccount.id, period, storeId))) {
-          await this.putEntry({ account_id: cogsAccount.id, period, store_id: storeId, amount_cents: finance.cogs_cents, origin: 'finance' })
+        if (cogsAccount) {
+          await this.putAutoEntry({ account_id: cogsAccount.id, period, store_id: storeId, amount_cents: finance.cogs_cents, origin: 'finance' })
         }
-        if (lossAccount && finance.loss_value_cents > 0 && !(await this.isManual(lossAccount.id, period, storeId))) {
-          await this.putEntry({ account_id: lossAccount.id, period, store_id: storeId, amount_cents: finance.loss_value_cents, origin: 'finance' })
+        if (lossAccount) {
+          await this.putAutoEntry({ account_id: lossAccount.id, period, store_id: storeId, amount_cents: finance.loss_value_cents, origin: 'finance' })
         }
       }
     }
   }
 
-  private async isManual(accountId: number, period: string, storeId: number | null): Promise<boolean> {
-    const existing = await this.prisma.ledgerEntry.findFirst({ where: { account_id: accountId, period, store_id: storeId } })
-    return existing?.origin === 'manual'
+  /**
+   * Mesma regra idempotente do `putEntry`, mas checagem de `manual` e
+   * escrita na MESMA transação — correção de revisão: a versão anterior
+   * lia `isManual()` numa chamada e escrevia com `putEntry()` noutra,
+   * deixando uma janela em que um salvamento manual feito entre as duas
+   * chamadas seria sobrescrito e rotulado com a origem automática em
+   * silêncio. "Nunca toca numa conta manual" é regra do operador sem
+   * exceção — não admite essa corrida. Não valida `getAccount` como
+   * `putEntry` faz: quem chama aqui já leu a conta do banco segundos antes
+   * (`mappedAccounts`), uma segunda consulta só repetiria trabalho.
+   */
+  private async putAutoEntry(dto: {
+    account_id: number
+    period: string
+    store_id: number | null
+    amount_cents: number
+    origin: string
+  }): Promise<void> {
+    const key = { account_id: dto.account_id, period: dto.period, store_id: dto.store_id }
+
+    await this.prisma.$transaction(async tx => {
+      const existing = await tx.ledgerEntry.findFirst({ where: key })
+      if (existing?.origin === 'manual') return
+
+      const data = { ...key, amount_cents: dto.amount_cents, origin: dto.origin }
+      return existing
+        ? tx.ledgerEntry.update({ where: { id: existing.id }, data })
+        : tx.ledgerEntry.create({ data })
+    })
   }
 
   /** Congela o mês. Um DRE fechado não muda quando alguém corrige o passado. */
