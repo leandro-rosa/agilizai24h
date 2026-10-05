@@ -13,6 +13,7 @@ import type {
   UpdateAccountDto,
   UpsertCashFlowDto,
 } from '../dto/accounting.dto'
+import { UpstreamClient } from './upstream.client'
 
 export interface AccountNode {
   id: number
@@ -81,7 +82,10 @@ export interface StorePnlSummary {
 
 @Injectable()
 export class AccountingService {
-  constructor(private readonly prisma: PrismaClientService) {}
+  constructor(
+    private readonly prisma: PrismaClientService,
+    private readonly upstream: UpstreamClient,
+  ) {}
 
   // ----- plano de contas ----------------------------------------------------
 
@@ -564,6 +568,93 @@ export class AccountingService {
     }
 
     return allocated
+  }
+
+  /**
+   * Puxa para dentro do LedgerEntry o dado real que já existe no sistema,
+   * antes de um fechamento, para toda conta que `Account.auto_source` marca
+   * como automática. Nunca toca numa conta cujo lançamento ATUAL seja
+   * `origin: 'manual'` — aprovado pelo operador em 2026-10-05, sem exceção
+   * nesta passada. Um 404 de um upstream (tratado dentro do próprio
+   * `UpstreamClient`, que chega aqui como "sem dado") nunca escreve nada; um
+   * erro lançado por uma loja é capturado e nomeado, sem nunca abortar as
+   * demais.
+   */
+  async syncFromUpstreams(period: string, correlationId?: string): Promise<{ stores_ok: number[]; stores_failed: number[] }> {
+    const mappedAccounts = await this.prisma.account.findMany({
+      where: { statement: 'pnl', auto_source: { not: null } },
+    })
+
+    await this.syncNetworkAccounts(period, mappedAccounts, correlationId)
+
+    const stores = await this.upstream.activeStores(correlationId)
+    const stores_ok: number[] = []
+    const stores_failed: number[] = []
+
+    for (const store of stores) {
+      try {
+        await this.syncStoreAccounts(period, store.id, mappedAccounts, correlationId)
+        stores_ok.push(store.id)
+      } catch {
+        stores_failed.push(store.id)
+      }
+    }
+
+    return { stores_ok, stores_failed }
+  }
+
+  private async syncNetworkAccounts(
+    period: string,
+    accounts: { id: number; auto_source: string | null; treasury_category: string | null }[],
+    correlationId?: string,
+  ): Promise<void> {
+    const treasuryAccounts = accounts.filter(a => a.auto_source === 'treasury_category')
+    if (treasuryAccounts.length === 0) return
+
+    const totals = await this.upstream.treasuryCategoryTotals(period, correlationId)
+
+    for (const account of treasuryAccounts) {
+      const amount = totals.get(account.treasury_category!)
+      if (amount === undefined) continue // sem transação neste período para essa categoria — nunca escrever 0 para "ausente"
+      if (await this.isManual(account.id, period, null)) continue
+
+      await this.putEntry({ account_id: account.id, period, amount_cents: amount, origin: 'treasury' })
+    }
+  }
+
+  private async syncStoreAccounts(
+    period: string,
+    storeId: number,
+    accounts: { id: number; auto_source: string | null }[],
+    correlationId?: string,
+  ): Promise<void> {
+    const salesAccount = accounts.find(a => a.auto_source === 'sales_revenue')
+    const cogsAccount = accounts.find(a => a.auto_source === 'finance_cogs')
+    const lossAccount = accounts.find(a => a.auto_source === 'finance_loss')
+
+    if (salesAccount && !(await this.isManual(salesAccount.id, period, storeId))) {
+      const revenue = await this.upstream.salesRevenueCents(storeId, period, correlationId)
+      if (revenue > 0) {
+        await this.putEntry({ account_id: salesAccount.id, period, store_id: storeId, amount_cents: revenue, origin: 'sales' })
+      }
+    }
+
+    if (cogsAccount || lossAccount) {
+      const finance = await this.upstream.financeFor(storeId, period, correlationId)
+      if (finance) {
+        if (cogsAccount && finance.cogs_cents > 0 && !(await this.isManual(cogsAccount.id, period, storeId))) {
+          await this.putEntry({ account_id: cogsAccount.id, period, store_id: storeId, amount_cents: finance.cogs_cents, origin: 'finance' })
+        }
+        if (lossAccount && finance.loss_value_cents > 0 && !(await this.isManual(lossAccount.id, period, storeId))) {
+          await this.putEntry({ account_id: lossAccount.id, period, store_id: storeId, amount_cents: finance.loss_value_cents, origin: 'finance' })
+        }
+      }
+    }
+  }
+
+  private async isManual(accountId: number, period: string, storeId: number | null): Promise<boolean> {
+    const existing = await this.prisma.ledgerEntry.findFirst({ where: { account_id: accountId, period, store_id: storeId } })
+    return existing?.origin === 'manual'
   }
 
   /** Congela o mês. Um DRE fechado não muda quando alguém corrige o passado. */
