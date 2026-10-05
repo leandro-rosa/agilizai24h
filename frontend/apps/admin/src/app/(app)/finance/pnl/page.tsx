@@ -242,7 +242,21 @@ export default function PnlPage() {
     const result = await compute({ period, storeId, storeCount: activeStores, close: true })
       .unwrap()
       .catch(() => null);
-    if (result) toast.success(`DRE de ${fmtPeriod(period)} fechado.`);
+    if (result) {
+      const { stores_failed, close_failed } = result.synced;
+      const parts: string[] = [];
+      if (stores_failed.length > 0) {
+        parts.push(`${stores_failed.length} loja(s) sem dado automático: ${stores_failed.join(", ")}`);
+      }
+      if (close_failed.length > 0) {
+        parts.push(`${close_failed.length} loja(s) não fecharam: ${close_failed.join(", ")}`);
+      }
+      toast.success(
+        parts.length === 0
+          ? `DRE de ${fmtPeriod(period)} fechado.`
+          : `DRE de ${fmtPeriod(period)} fechado — ${parts.join("; ")}.`,
+      );
+    }
   }
 
   const emptyConfig: ChartConfig = {};
@@ -256,7 +270,7 @@ export default function PnlPage() {
           canWrite ? (
             <Button variant="outline" onClick={close} disabled={computing}>
               {data?.status === "closed" ? <Lock /> : <RefreshCw />}
-              {computing ? "Apurando..." : data?.status === "closed" ? "Reapurar e fechar" : "Fechar o mês"}
+              {computing ? "Buscando dados e apurando..." : data?.status === "closed" ? "Reapurar e fechar" : "Fechar o mês"}
             </Button>
           ) : null
         }

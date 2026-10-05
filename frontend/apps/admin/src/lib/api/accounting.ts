@@ -168,7 +168,10 @@ export const accountingApi = createApi({
       query: (body) => ({ url: "/accounting/entries", method: "PUT", body }),
       invalidatesTags: ["Ledger"],
     }),
-    computePnl: builder.mutation<PnlSnapshot, { period: string; storeId?: number; storeCount: number; close?: boolean }>({
+    computePnl: builder.mutation<
+      PnlSnapshot & { synced: { stores_ok: number[]; stores_failed: number[]; close_failed: number[] } },
+      { period: string; storeId?: number; storeCount: number; close?: boolean }
+    >({
       query: ({ period, storeId, storeCount, close }) => {
         const params = new URLSearchParams({ store_count: String(storeCount) });
         if (storeId !== undefined) params.set("store_id", String(storeId));
