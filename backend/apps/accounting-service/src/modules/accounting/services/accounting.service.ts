@@ -697,6 +697,36 @@ export class AccountingService {
     })
   }
 
+  /**
+   * O entry point real de "Fechar o mês"/"Reapurar e fechar". Sincroniza o
+   * dado real primeiro (Task 3), depois congela o snapshot. Fechar pela
+   * visão da REDE (sem storeId) cascateia para toda loja ativa na mesma
+   * chamada — fecha a lacuna que o próprio CLAUDE.md deste serviço nomeia
+   * ("fechar 24 lojas são 24 chamadas"). Fechar UMA loja pela própria visão
+   * continua restrito só a ela, igual hoje.
+   */
+  async closeMonth(
+    period: string,
+    storeId: number | undefined,
+    storeCount: number,
+    close: boolean,
+    correlationId?: string,
+  ): Promise<ReturnType<typeof this.computeSnapshot> extends Promise<infer T> ? T & { synced: { stores_ok: number[]; stores_failed: number[] } } : never> {
+    if (storeId !== undefined) {
+      const snapshot = await this.computeSnapshot(period, storeId, storeCount, close)
+      return { ...snapshot, synced: { stores_ok: [], stores_failed: [] } }
+    }
+
+    const synced = await this.syncFromUpstreams(period, correlationId)
+    const networkSnapshot = await this.computeSnapshot(period, undefined, storeCount, close)
+
+    for (const okStoreId of synced.stores_ok) {
+      await this.computeSnapshot(period, okStoreId, 1, close)
+    }
+
+    return { ...networkSnapshot, synced }
+  }
+
   /** Congela o mês. Um DRE fechado não muda quando alguém corrige o passado. */
   async computeSnapshot(period: string, storeId: number | undefined, storeCount: number, close = false) {
     const view = await this.pnl(period, storeId)
