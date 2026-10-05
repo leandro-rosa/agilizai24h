@@ -144,11 +144,17 @@ export class AccountingController {
 
   @Post('pnl/:period/compute')
   @RequiresPermission(PERMISSIONS.ACCOUNTING_WRITE)
-  @ApiOperation({ summary: 'Freeze the period' })
-  async postPnlByPeriodCompute(@Param('period') period: string, @Body() body: unknown, @Req() request: FastifyRequest) {
+  @ApiOperation({ summary: 'Sync real data in, then freeze the period' })
+  async postPnlByPeriodCompute(
+    @Param('period') period: string,
+    @Query() query: Record<string, string>,
+    @Body() body: unknown,
+    @Req() request: FastifyRequest,
+  ) {
+    const search = new URLSearchParams(query).toString()
     const result = await this.domains.accounting({
       method: 'post',
-      path: `/accounting/pnl/${encodeURIComponent(period)}/compute`,
+      path: `/accounting/pnl/${encodeURIComponent(period)}/compute${search ? `?${search}` : ''}`,
       payload: body,
       correlationId: correlationOf(request),
     })
