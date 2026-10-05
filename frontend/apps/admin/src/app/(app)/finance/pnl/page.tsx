@@ -557,6 +557,7 @@ export default function PnlPage() {
                           compareView={compareData}
                           period={period}
                           canWrite={canWrite}
+                          isNetwork={scope === NETWORK}
                         />
                       ))}
                     </TableBody>
@@ -687,12 +688,14 @@ function SectionRows({
   compareView,
   period,
   canWrite,
+  isNetwork,
 }: {
   section: { section: string; amount_cents: number; accounts: AccountNode[] };
   netRevenue: number;
   compareView?: PnlView;
   period: string;
   canWrite: boolean;
+  isNetwork: boolean;
 }) {
   const comparePct = pctOfNet(section.amount_cents, netRevenue);
   const compareSection = compareView?.sections.find((s) => s.section === section.section);
@@ -728,6 +731,7 @@ function SectionRows({
           compareView={compareView}
           period={period}
           canWrite={canWrite}
+          isNetwork={isNetwork}
         />
       ))}
     </>
@@ -741,6 +745,7 @@ function AccountRow({
   compareView,
   period,
   canWrite,
+  isNetwork,
 }: {
   node: AccountNode;
   depth: number;
@@ -748,6 +753,7 @@ function AccountRow({
   compareView?: PnlView;
   period: string;
   canWrite: boolean;
+  isNetwork: boolean;
 }) {
   const [putEntry] = usePutEntryMutation();
   const [open, setOpen] = useState(false);
@@ -763,12 +769,12 @@ function AccountRow({
         <TableCell style={{ paddingLeft: `${1 + depth * 1.5}rem` }}>
           <span className="text-sm">{node.label}</span>
           <span className="ml-2 text-xs text-muted-foreground">{node.code}</span>
-          {canWrite && !node.allocated && (
+          {canWrite && isNetwork && !node.allocated && (
             <ResourceFormDialog
               title={`Lançar ${node.label} manualmente`}
               description="Substitui o valor atual desta conta e nunca é sobrescrito por uma busca automática futura."
               trigger={
-                <Button variant="ghost" size="icon" className="ml-1 size-5">
+                <Button variant="ghost" size="icon" className="ml-1 size-5" title="Lançar manualmente">
                   <Pencil className="size-3" />
                 </Button>
               }
@@ -842,6 +848,7 @@ function AccountRow({
           compareView={compareView}
           period={period}
           canWrite={canWrite}
+          isNetwork={isNetwork}
         />
       ))}
     </>
