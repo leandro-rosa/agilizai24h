@@ -20,8 +20,8 @@ function input(): OverviewInput {
   return {
     period: "2026-10",
     months: [
-      month("2026-10", { pnl: pnl(12_450_000, 5_320_000, 3_140_000), cash: { openingCents: 1_890_000, inflowCents: 11_240_000, outflowCents: 12_709_000, closingCents: 420_960 }, finance: finance(410_000), treasury: { byCategory: [{ category: "Estoque", outflowCents: 2_360_000 }, { category: "Combustível", outflowCents: 90_000 }], unresolvedCount: 0, pendingCount: 0 }, capex: { totalCents: 1_240_000, byCategory: [{ category: "fridge", cents: 900_000 }, { category: "led", cents: 340_000 }], unassignedCents: 0 } }),
-      month("2026-09", { pnl: pnl(11_485_000, 5_062_000, 2_823_000), cash: { openingCents: 1_000_000, inflowCents: 1, outflowCents: 1, closingCents: 1_890_000 }, finance: finance(481_000), treasury: { byCategory: [{ category: "Estoque", outflowCents: 2_000_000 }, { category: "Combustível", outflowCents: 88_000 }], unresolvedCount: 0, pendingCount: 0 }, capex: { totalCents: 1_900_000, byCategory: [] , unassignedCents: 0 } }),
+      month("2026-10", { pnl: pnl(12_450_000, 5_320_000, 3_140_000), cash: { openingCents: 1_890_000, inflowCents: 11_240_000, outflowCents: 12_709_000, closingCents: 420_960 }, finance: finance(410_000), treasury: { byCategory: [{ category: "Estoque", outflowCents: 2_360_000 }, { category: "Combustível", outflowCents: 90_000 }], unresolvedCount: 0, pendingCount: 0, investmentCents: 1_240_000, investmentByCategory: [{ category: "Investimento (cartão sócio)", cents: 900_000 }, { category: "Equipamento", cents: 340_000 }] }, capex: { totalCents: 1_240_000, byCategory: [{ category: "fridge", cents: 900_000 }, { category: "led", cents: 340_000 }], unassignedCents: 0 } }),
+      month("2026-09", { pnl: pnl(11_485_000, 5_062_000, 2_823_000), cash: { openingCents: 1_000_000, inflowCents: 1, outflowCents: 1, closingCents: 1_890_000 }, finance: finance(481_000), treasury: { byCategory: [{ category: "Estoque", outflowCents: 2_000_000 }, { category: "Combustível", outflowCents: 88_000 }], unresolvedCount: 0, pendingCount: 0, investmentCents: 1_900_000, investmentByCategory: [] }, capex: { totalCents: 1_900_000, byCategory: [] , unassignedCents: 0 } }),
       month("2026-08", { pnl: pnl(11_000_000, 4_800_000, 2_600_000), finance: finance(450_000) }),
       month("2026-07", { pnl: pnl(10_800_000, 4_700_000, 2_500_000), finance: finance(440_000) }),
     ],
@@ -140,6 +140,13 @@ describe("buildOverview", () => {
     inp.months[0].finance = { ...finance(410_000), lossByReason: [{ reason: "expired", valueCents: 300_000 }, { reason: "other_reason", valueCents: 200_000 }] };
     const x = buildOverview(inp);
     expect(x.loss!.byReason.reduce((s, r) => s + (r.share ?? 0), 0)).toBeCloseTo(1);
+  });
+
+  it("CAPEX follows the cash-flow classification (investment outflows), including the partners' card", () => {
+    expect(o.capex!.investment).toMatchObject({ totalCents: 1_240_000, previousCents: 1_900_000, partnerCardCents: 900_000 });
+    expect(o.capex!.investment!.top.map((t) => t.category)).toEqual(["Investimento (cartão sócio)", "Equipamento"]);
+    // O cadastro por loja (capex-service) continua separado, sem somar com o do fluxo de caixa.
+    expect(o.capex!.current!.totalCents).toBe(1_240_000);
   });
 
   it("capex stays separate from stock purchases and shows its own delta", () => {

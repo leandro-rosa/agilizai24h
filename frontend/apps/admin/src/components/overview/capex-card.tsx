@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { signedPct } from "@/lib/overview/compare";
 import { period as fmtPeriod } from "@/lib/format";
-import { ITEM_CATEGORY_LABELS, CONTRIBUTION_KIND_LABELS, type ItemCategory } from "@/lib/api/capex";
+import { CONTRIBUTION_KIND_LABELS } from "@/lib/api/capex";
 import type { CapexSummary, InvestorsSummary } from "@/lib/overview/types";
 import { Block, moneyRound, Unavailable } from "./shared";
 
@@ -11,22 +11,29 @@ export function CapexCard({ capex, investors, previousPeriod }: { capex: CapexSu
   return (
     <Block title="CAPEX e investidores" icon={<HardHat className="size-4 text-primary" />} href="/capex" linkLabel="Ver CAPEX por loja">
       <div className="flex flex-col gap-1.5">
-        <p className="text-xs font-semibold text-muted-foreground">CAPEX do mês</p>
-        {!capex?.current ? (
-          <Unavailable what="itens de CAPEX" />
+        <p className="text-xs font-semibold text-muted-foreground">CAPEX do mês — saídas de investimento (como no Fluxo de caixa)</p>
+        {!capex?.investment ? (
+          <Unavailable what="tesouraria" />
         ) : (
           <>
             <p className="tabular text-xl font-semibold">
-              {moneyRound(capex.current.totalCents)}{" "}
-              <span className="text-sm font-normal text-muted-foreground">{capex.deltaPct === null ? "sem comparação" : `${signedPct(capex.deltaPct)} vs. ${fmtPeriod(previousPeriod)}`}</span>
+              {moneyRound(capex.investment.totalCents)}{" "}
+              <span className="text-sm font-normal text-muted-foreground">{capex.investment.deltaPct === null ? "sem comparação" : `${signedPct(capex.investment.deltaPct)} vs. ${fmtPeriod(previousPeriod)}`}</span>
             </p>
-            {capex.top.map((t) => (
-              <p key={t.category} className="flex justify-between text-sm"><span>{ITEM_CATEGORY_LABELS[t.category as ItemCategory] ?? t.category}</span><span className="tabular">{moneyRound(t.cents)}</span></p>
+            {capex.investment.top.map((t) => (
+              <p key={t.category} className="flex justify-between text-sm"><span>{t.category}</span><span className="tabular">{moneyRound(t.cents)}</span></p>
             ))}
-            {capex.current.unassignedCents > 0 && <p className="text-xs text-muted-foreground">{moneyRound(capex.current.unassignedCents)} sem loja atribuída.</p>}
-            {capex.current.totalCents === 0 && <p className="text-sm text-muted-foreground">Nenhum item de CAPEX datado neste mês.</p>}
+            {capex.investment.partnerCardCents > 0 && (
+              <p className="text-xs text-muted-foreground">Dos quais {moneyRound(capex.investment.partnerCardCents)} pagos no cartão de sócios (Bárbara e Josias).</p>
+            )}
+            {capex.investment.totalCents === 0 && <p className="text-sm text-muted-foreground">Nenhuma saída de investimento neste mês.</p>}
           </>
         )}
+        <p className="pt-1 text-xs text-muted-foreground">
+          Itens de CAPEX com loja atribuída (capex-service):{" "}
+          {!capex?.current ? "indisponível" : capex.current.totalCents === 0 ? "nenhum item datado neste mês" : `${moneyRound(capex.current.totalCents)}${capex.current.unassignedCents > 0 ? ` (${moneyRound(capex.current.unassignedCents)} sem loja)` : ""}`}.
+          {" "}Esse cadastro por loja é separado da classificação do Fluxo de caixa e pode ficar atrás dela.
+        </p>
       </div>
       <div className="flex flex-col gap-1.5 border-t pt-4">
         <p className="flex items-center justify-between text-xs font-semibold text-muted-foreground">

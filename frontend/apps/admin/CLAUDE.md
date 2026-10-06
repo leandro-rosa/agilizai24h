@@ -474,8 +474,12 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   Margem operacional = resultado operacional ÷ receita líquida; perda sempre com
   os dois denominadores (÷ receita líquida, ÷ custo abastecido); participação por
   motivo/SKU usa a soma do próprio detalhamento (nunca > 100%); CAPEX =
-  `capex-service` itens `fixed`/`initial` datados no mês (`operating_expense` é
-  despesa, fora); compras de estoque = categoria `Estoque` da tesouraria (caixa),
+  **o que o Fluxo de caixa classifica como investimento** (tesouraria, `nature = investment`),
+  que inclui o que Bárbara e Josias pagam no cartão de sócios (categoria "Investimento (cartão
+  sócio)", ex.: R$ 24.867 em ago/2026). Os itens de CAPEX por loja do `capex-service`
+  (`fixed`/`initial` datados; `operating_expense` é despesa, fora) aparecem à parte e NÃO se somam —
+  em ago e set/2026 não havia nenhum item datado, e o card mostrava R$ 0 enquanto o Fluxo de caixa
+  tinha R$ 26.703 (ago) e R$ 1.311 (set); compras de estoque = categoria `Estoque` da tesouraria (caixa),
   distinta do CMV do finance — nunca somadas; aportes de investidores nunca são
   receita.
 - **PDF**: `src/lib/overview/pdf/report.tsx` (`@react-pdf/renderer`, carregado só

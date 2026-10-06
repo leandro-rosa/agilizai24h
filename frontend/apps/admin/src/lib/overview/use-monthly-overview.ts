@@ -84,7 +84,7 @@ export function useMonthlyOverview(period: string | null) {
       period: per,
       pnl: pnlMonth(pnlSeries.data, per),
       cash: cashMonth(treasuryByPeriod.get(per)?.cash),
-      treasury: treasuryMonth(treasuryByPeriod.get(per)?.summary),
+      treasury: treasuryMonth(treasuryByPeriod.get(per)?.summary, treasuryByPeriod.get(per)?.investments),
       finance: financeMonth(finance.data, per),
       capex: capexMonth(items.data, per),
       investors: investorMonth(contributions.data, per),
