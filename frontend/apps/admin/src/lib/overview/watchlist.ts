@@ -21,6 +21,8 @@ export interface WatchInput {
   cash: CashSummary;
   coverage: { current: SalesCoverage | null; previous: SalesCoverage | null };
   pendingSkuSuggestions: number;
+  /** O faturamento da competência caiu vs. o mês anterior. */
+  revenueFell?: boolean;
 }
 
 interface Candidate extends WatchItem {
@@ -38,6 +40,12 @@ export function buildWatchlist(i: WatchInput): WatchItem[] {
 
   for (const x of i.insights.filter((n) => n.tone === "negative")) {
     c.push({ id: `insight:${x.id}`, kind: "achado", title: x.title, observation: x.detail, href: x.href ?? "/", score: x.score });
+  }
+
+  // Faturamento caiu com reajuste de preço no período: acompanhar se o volume volta ou se o novo preço sustenta a receita.
+  const pvx = i.insights.find((n) => n.id === "price-volume");
+  if (pvx && i.revenueFell) {
+    c.push({ id: "preco:reajuste", kind: "achado", title: "Acompanhar o efeito dos reajustes de preço", observation: pvx.detail, href: pvx.href ?? "/commercial-intelligence", score: pvx.score + 0.1 });
   }
 
   for (const p of i.products?.falling.filter((r) => r.behavior === "queda_consistente").slice(0, 3) ?? []) {

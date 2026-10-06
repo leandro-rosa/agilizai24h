@@ -479,6 +479,12 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   limiares são PREMISSA a validar. Percentual que distorce mostra a base ("1 → 12 un.", `needsBase`/`baseText`).
   Dado × zero × sem dados: `null` = sem dados (cartão "Sem dados"), erro de busca = "Indisponível", zero só com fonte existente.
   O PDF repete a mesma lógica em 4 páginas (`pdf/report.tsx`), não imprime a tela.
+- **Preço × volume** (`lib/overview/price-volume.ts`): decompõe a variação da receita de produtos por SKU em efeito
+  preço `(p1−p0)·q1` e volume `(q1−q0)·p0`, com preço REALIZADO = receita ÷ unidades do mês (vem das vendas, porque o
+  catálogo só tem preço datado de parte dos produtos). Reajustado = variou ≥ 3% com ≥ 10 un. nos dois meses (PREMISSA).
+  Compara unidades dos reajustados × demais e cita o calendário (31 × 30 dias); é observação, nunca causa. Faturamento
+  caindo com reajuste entra em "O que acompanhar". set/2026 real: 51 reajustados (50 subiram), unidades −14,2% nos
+  reajustados × +2,4% nos demais, preço +R$ 5,3 mil, volume −R$ 8,9 mil (estimativa).
 - **Definições fixas** (aparecem na tela): Faturamento = receita líquida do DRE;
   Margem operacional = resultado operacional ÷ receita líquida; perda sempre com
   os dois denominadores (÷ receita líquida, ÷ custo abastecido); participação por
