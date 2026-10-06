@@ -44,3 +44,9 @@
 - [ ] 6.1 Bring up the stack and check the page against real data in the browser; cross-check one product against /supply Perdas
 - [x] 6.2 Confirm no synthetic data reached real databases
 - [x] 6.3 Commit, merge and push in the same session
+
+## 7. Supplier names from the pricing spreadsheet
+
+- [x] 7.1 Pure review core: group sheet names, suggest without deciding, plan what would be written (with specs)
+- [x] 7.2 Review card on the catalogue sync page: link, create, skip; confirmation dialog; alias on confirm; never overwrite an existing supplier
+- [ ] 7.3 Operator runs the review on the real spreadsheet (writes to real data, needs the owner)
