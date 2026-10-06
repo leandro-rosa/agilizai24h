@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useUpdatePurchaseItemMutation, type Condition, type Purchase } from "@/lib/api/purchases";
 import { supplierAnalysisApi } from "@/lib/api/supplier-analysis";
 import { useAppDispatch } from "@/lib/hooks";
+import { STAGE_LABEL, orderAlerts } from "@/lib/purchases/stages";
 import { CONDITION_LABEL, CONDITION_SHORT, formatCents, formatDate } from "@/lib/purchases/money";
 
 const CONDITION_TONE = { paid: "neutral", bonus: "positive", on_sale: "attention" } as const;
@@ -55,7 +56,17 @@ export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
           const rows = [
             <TableRow key={purchase.id}>
               <TableCell className="tabular">{formatDate(purchase.ordered_on)}</TableCell>
-              <TableCell className="font-medium">{purchase.supplier_name ?? `Fornecedor ${purchase.supplier_id}`}</TableCell>
+              <TableCell className="font-medium">
+                {purchase.supplier_name ?? `Fornecedor ${purchase.supplier_id}`}
+                <div className="flex flex-wrap gap-1 pt-0.5 font-normal">
+                  <StatusBadge tone={purchase.status === "received" ? "positive" : "neutral"}>{STAGE_LABEL[purchase.status]}</StatusBadge>
+                  {orderAlerts(purchase).map((alert) => (
+                    <StatusBadge key={alert} tone="critical">
+                      {alert}
+                    </StatusBadge>
+                  ))}
+                </div>
+              </TableCell>
               <TableCell>{purchase.invoice_number ? `NF ${purchase.invoice_number}` : <span className="text-xs text-muted-foreground">sem nota</span>}</TableCell>
               <TableCell className="tabular text-right">{purchase.items.length}</TableCell>
               <TableCell className="tabular text-right">{formatCents(purchase.paid_cents)}</TableCell>

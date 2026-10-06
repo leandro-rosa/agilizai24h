@@ -135,3 +135,5 @@ custo/preço**; nunca reescreve nome, categoria ou EAN de produto existente.
   como `unknown_sku` só entram numa NOVA importação de vendas/abastecimento.
 
 `ProductView` agora devolve `ean` (casamento das linhas de NF-e de compra) além de `supplier_id`.
+
+`POST /products` aceita `ean` (8–14 dígitos; duplicado → 409) e `supplierId`, para cadastrar produto novo dentro do formulário de compra.

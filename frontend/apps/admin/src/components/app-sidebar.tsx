@@ -24,6 +24,7 @@ import {
   Upload,
   Users,
   Warehouse,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
@@ -90,6 +91,7 @@ export const navGroups: NavGroup[] = [
       { title: "Compras e Fornecedores", href: "/purchases", icon: PackageSearch, permission: "supply:read" },
       { title: "Pedidos", href: "/purchases/orders", icon: ClipboardList, permission: "suppliers:read" },
       { title: "Notas fiscais de compra", href: "/purchases/invoices", icon: FileInput, permission: "suppliers:read" },
+      { title: "A pagar", href: "/purchases/payments", icon: Wallet, permission: "suppliers:read" },
       { title: "Acerto semanal", href: "/purchases/settlements", icon: Scale, permission: "suppliers:read" },
     ],
   },

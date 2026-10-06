@@ -28,6 +28,10 @@ export interface CreateProductInput {
   unitsPerPackage?: number
   packageType?: string
   fractionable?: boolean
+  /** Barcode: unique, because the PDV resolves a sale by it. */
+  ean?: string
+  /** Declared supplier, when the product is registered from a purchase. */
+  supplierId?: number
 }
 
 export interface NameMatch {
@@ -72,9 +76,16 @@ export class ProductsService {
     const existing = await this.prisma.product.findUnique({ where: { sku: input.sku } })
     if (existing) throw new ConflictException(`A product with SKU ${input.sku} already exists`)
 
+    if (input.ean) {
+      const sameEan = await this.prisma.product.findUnique({ where: { ean: input.ean } })
+      if (sameEan) throw new ConflictException(`The barcode ${input.ean} already belongs to product ${sameEan.sku}`)
+    }
+
     const created = await this.prisma.product.create({
       data: {
         sku: input.sku,
+        ean: input.ean ?? null,
+        supplier_id: input.supplierId ?? null,
         name: input.name,
         category: input.category,
         normalized_name: normalizeName(input.name),

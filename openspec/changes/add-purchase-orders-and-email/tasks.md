@@ -24,14 +24,14 @@
 
 ## 4. Admin
 
-- [ ] 4.1 Orders board with five columns, cards and next-step buttons; list view kept
-- [ ] 4.2 New-requisition form reusing the purchase form
-- [ ] 4.3 Send dialog: preview, editable recipient with save-to-supplier option, PDF generated in the browser, confirm
+- [x] 4.1 Orders board with five columns, cards and next-step buttons; list view kept
+- [x] 4.2 New-requisition form reusing the purchase form
+- [x] 4.3 Send dialog: preview, editable recipient with save-to-supplier option, PDF generated in the browser, confirm
 - [ ] 4.4 Invoicing step (number or NF-e import) and receiving step (received quantities, difference highlighted)
-- [ ] 4.5 Entry stage selector (default invoiced with a number or NF-e), "já recebi", delivery date and payment term in the forms; late and overdue badges on cards and list
-- [ ] 4.6 Pending payments view by due date
-- [ ] 4.7 Register a new product from the requisition, manual and import forms (selectable at once; optional reference cost)
-- [ ] 4.8 Component specs; docs in the CLAUDE.md files
+- [x] 4.5 Entry stage selector (default invoiced with a number or NF-e), "já recebi", delivery date and payment term in the forms; late and overdue badges on cards and list
+- [x] 4.6 Pending payments view by due date
+- [x] 4.7 Register a new product from the requisition, manual and import forms (selectable at once; optional reference cost)
+- [x] 4.8 Component specs; docs in the CLAUDE.md files
 
 ## 5. Verification
 
