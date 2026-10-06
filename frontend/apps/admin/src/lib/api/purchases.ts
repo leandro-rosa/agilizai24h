@@ -128,6 +128,8 @@ export interface TransitionBody {
   without_invoice?: boolean;
   received_on?: string;
   received?: { item_id: number; quantity: number }[];
+  /** Ao receber, registra também o pagamento (quem paga na entrega). */
+  pay_on_receipt?: boolean;
   note?: string;
 }
 
@@ -164,7 +166,7 @@ export interface PendingPaymentGroup {
   items: { purchase_id: number; item_id: number; supplier_name: string | null; sku: string; description: string | null; quantity: number; total_cents: number }[];
 }
 
-export type PayableState = "overdue" | "upcoming" | "on_delivery" | "undated" | "paid";
+export type PayableState = "overdue" | "due_today" | "upcoming" | "on_delivery" | "undated" | "paid";
 export type PayableForm = "on_delivery" | PaymentMethod | null;
 
 export interface PayableOrder {

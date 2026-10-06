@@ -198,6 +198,11 @@ export class TransitionDto {
   @Type(() => ReceivedItemDto)
   received?: ReceivedItemDto[]
 
+  @ApiPropertyOptional({ description: 'Ao receber: registra também o pagamento dos itens pagos (quem paga na entrega). Não vale para boleto com vencimento.' })
+  @IsOptional()
+  @IsBoolean()
+  pay_on_receipt?: boolean
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

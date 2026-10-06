@@ -32,6 +32,16 @@ describe('payables — orders', () => {
   })
 })
 
+describe('payables — due today', () => {
+  it('received today and paid on delivery is due TODAY (not overdue, not "to fall due"), and counts in the next 7 days', () => {
+    const received = purchase({ status: 'received', payment_term: 'on_receipt', payment_due_on: null, received_on: TODAY })
+    const orders = buildOrders([received], TODAY, '2026-10')
+
+    expect(orders[0]).toMatchObject({ state: 'due_today', due_on: TODAY })
+    expect(summarize([received], orders, TODAY, '2026-10')).toMatchObject({ due_7d_cents: 1000, overdue_cents: 0 })
+  })
+})
+
 describe('payables — summary, series, reconciliation', () => {
   const list: PayablePurchase[] = [
     purchase({ id: 1, payment_due_on: '2026-10-05' }),

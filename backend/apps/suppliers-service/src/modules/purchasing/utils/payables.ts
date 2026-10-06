@@ -34,7 +34,7 @@ export interface PayablePurchase {
   items: PayableItem[]
 }
 
-export type PayableState = 'overdue' | 'upcoming' | 'on_delivery' | 'undated' | 'paid'
+export type PayableState = 'overdue' | 'due_today' | 'upcoming' | 'on_delivery' | 'undated' | 'paid'
 /** How it is paid, for the filter and the tag: on delivery (the term), or the method; null when nobody said. */
 export type PayableForm = 'on_delivery' | PaymentMethod | null
 
@@ -96,7 +96,7 @@ export function buildOrders(purchases: PayablePurchase[], today: string, month: 
     const due = waitingDelivery ? purchase.expected_delivery_on : dueByTerm
     const open = pending.reduce((s, i) => s + valueOf(purchase.status, i), 0)
     const state: PayableState =
-      pending.length === 0 ? 'paid' : waitingDelivery ? 'on_delivery' : dueByTerm === null ? 'undated' : dueByTerm < today ? 'overdue' : 'upcoming'
+      pending.length === 0 ? 'paid' : waitingDelivery ? 'on_delivery' : dueByTerm === null ? 'undated' : dueByTerm < today ? 'overdue' : dueByTerm === today ? 'due_today' : 'upcoming'
 
     orders.push({
       purchase_id: purchase.id,
@@ -138,7 +138,7 @@ export function summarize(purchases: PayablePurchase[], orders: PayableOrder[], 
   const sum = (list: PayableOrder[]) => list.reduce((s, o) => s + o.open_cents, 0)
   const overdue = open.filter(o => o.state === 'overdue')
   const horizon = addDays(today, 7)
-  const due7 = open.filter(o => o.state === 'upcoming' && o.due_on !== null && o.due_on >= today && o.due_on <= horizon)
+  const due7 = open.filter(o => (o.state === 'upcoming' || o.state === 'due_today') && o.due_on !== null && o.due_on >= today && o.due_on <= horizon)
   const onDelivery = open.filter(o => o.state === 'on_delivery')
 
   let paidCents = 0

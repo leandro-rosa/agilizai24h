@@ -115,4 +115,20 @@ describe("OrdersBoard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Excluir pedido" }));
     await waitFor(() => expect(removeOrder).toHaveBeenCalledWith(1));
   });
+
+  it("receber um pedido pago na entrega oferece 'Já paguei' e manda o pagamento junto; boleto com vencimento não oferece", async () => {
+    const paidItem = [{ id: 20, sku: "Q1", description: "Wrap", quantity: 10, unit_cost_cents: 500, total_cents: 5000, condition: "paid", payment_status: "pending", received_quantity: null }];
+    const { unmount } = render(<OrdersBoard purchases={[order(2, "awaiting_receipt", { payment_term: "on_receipt", items: paidItem })]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Receber" }));
+    fireEvent.click(screen.getByLabelText(/Já paguei na entrega/));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+
+    await waitFor(() => expect(transition).toHaveBeenCalledTimes(1));
+    expect(transition.mock.calls[0][0]).toMatchObject({ id: 2, to: "received", pay_on_receipt: true });
+    unmount();
+
+    render(<OrdersBoard purchases={[order(3, "awaiting_receipt", { payment_term: "due_date", items: paidItem })]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Receber" }));
+    expect(screen.queryByLabelText(/Já paguei na entrega/)).not.toBeInTheDocument();
+  });
 });

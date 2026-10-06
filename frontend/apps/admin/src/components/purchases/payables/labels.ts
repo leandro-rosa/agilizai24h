@@ -4,8 +4,8 @@ import type { StatusTone } from "@/components/status-badge";
 export const FORM_LABEL: Record<NonNullable<PayableForm>, string> = { on_delivery: "Na entrega", boleto: "Boleto", transfer: "Transferência", other: "Outra" };
 export const formLabel = (form: PayableForm): string => (form ? FORM_LABEL[form] : "Não informada");
 
-export const STATE_LABEL: Record<PayableState, string> = { overdue: "Vencido", upcoming: "A vencer", on_delivery: "Na entrega", undated: "Sem data", paid: "Pago" };
-export const STATE_TONE: Record<PayableState, StatusTone> = { overdue: "critical", upcoming: "neutral", on_delivery: "attention", undated: "neutral", paid: "positive" };
+export const STATE_LABEL: Record<PayableState, string> = { overdue: "Vencido", due_today: "Vence hoje", upcoming: "A vencer", on_delivery: "Na entrega", undated: "Sem data", paid: "Pago" };
+export const STATE_TONE: Record<PayableState, StatusTone> = { overdue: "critical", due_today: "attention", upcoming: "neutral", on_delivery: "attention", undated: "neutral", paid: "positive" };
 
 /** `2026-10` → "Out/2026". */
 export function monthLabel(month: string): string {

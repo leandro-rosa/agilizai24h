@@ -21,6 +21,7 @@ export function TransitionDialog({ order, to, open, onOpenChange }: { order: Pur
   const [key, setKey] = useState("");
   const [noInvoice, setNoInvoice] = useState(false);
   const [receivedOn, setReceivedOn] = useState(today());
+  const [payNow, setPayNow] = useState(false);
   const [quantities, setQuantities] = useState<Record<number, string>>({});
 
   const quantityOf = (itemId: number, ordered: number) => {
@@ -28,6 +29,8 @@ export function TransitionDialog({ order, to, open, onOpenChange }: { order: Pur
     return typed === undefined || typed === "" ? ordered : Number(typed);
   };
   const invalidQuantity = order.items.some((item) => !Number.isInteger(quantityOf(item.id, item.quantity)) || quantityOf(item.id, item.quantity) < 0);
+  // Quem paga na entrega pode registrar o pagamento no mesmo passo (não vale para boleto com vencimento).
+  const canPayNow = to === "received" && order.payment_term !== "due_date" && order.items.some((item) => item.condition === "paid" && item.payment_status === "pending");
   const needsInvoice = to === "invoiced" && !order.invoice_number && !order.invoice_key && !order.without_invoice;
   const missingInvoice = needsInvoice && !invoice.trim() && !key.trim() && !noInvoice;
 
@@ -38,7 +41,7 @@ export function TransitionDialog({ order, to, open, onOpenChange }: { order: Pur
         to,
         ...(to === "invoiced" ? { invoice_number: invoice.trim() || undefined, invoice_key: key.trim() || undefined, without_invoice: noInvoice || undefined } : {}),
         ...(to === "received"
-          ? { received_on: receivedOn, received: order.items.map((item) => ({ item_id: item.id, quantity: quantityOf(item.id, item.quantity) })) }
+          ? { received_on: receivedOn, received: order.items.map((item) => ({ item_id: item.id, quantity: quantityOf(item.id, item.quantity) })), pay_on_receipt: canPayNow && payNow ? true : undefined }
           : {}),
       }).unwrap();
       toast.success(`Pedido movido para “${STAGE_LABEL[to]}”.`);
@@ -82,6 +85,12 @@ export function TransitionDialog({ order, to, open, onOpenChange }: { order: Pur
               Recebido em
               <Input type="date" value={receivedOn} onChange={(e) => setReceivedOn(e.target.value)} aria-label="Recebido em" />
             </label>
+            {canPayNow && (
+              <label className="flex items-center gap-1.5 text-sm">
+                <input type="checkbox" checked={payNow} onChange={(e) => setPayNow(e.target.checked)} />
+                Já paguei na entrega (registra o pagamento junto com o recebimento)
+              </label>
+            )}
             <ul className="flex flex-col gap-1">
               {order.items.map((item) => {
                 const received = quantityOf(item.id, item.quantity);

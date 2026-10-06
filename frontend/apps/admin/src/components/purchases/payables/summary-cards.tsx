@@ -10,7 +10,7 @@ export function SummaryCards({ summary }: { summary: Payables["summary"] }) {
   const cards = [
     { label: "Total em aberto", value: summary.open_cents, note: plural(summary.open_orders) },
     { label: "Vencidos", value: summary.overdue_cents, note: plural(summary.overdue_orders), tone: summary.overdue_cents > 0 ? "critical" : undefined },
-    { label: "Vence em 7 dias", value: summary.due_7d_cents, note: plural(summary.due_7d_orders) },
+    { label: "Hoje e próximos 7 dias", value: summary.due_7d_cents, note: plural(summary.due_7d_orders) },
     { label: "Pagar na entrega", value: summary.on_delivery_cents, note: plural(summary.on_delivery_orders) },
     { label: "Pago no mês", value: summary.paid_month_cents, note: plural(summary.paid_month_orders), tone: "positive" },
     { label: "Total previsto no mês", value: summary.forecast_month_cents, note: "Aberto + Pago" },

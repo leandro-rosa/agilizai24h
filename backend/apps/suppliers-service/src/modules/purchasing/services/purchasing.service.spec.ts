@@ -418,6 +418,37 @@ describe('editing an order', () => {
   })
 })
 
+describe('receiving and paying in the same step', () => {
+  const make = () => {
+    const { prisma, db } = fakePrisma()
+    const service = new PurchasesService(prisma as never, catalogue as never)
+    jest.spyOn(service, 'today').mockReturnValue('2026-10-12')
+
+    return { service, db }
+  }
+
+  it('"paid on delivery" records the payment on the receipt day, with the order\'s method, and leaves other conditions alone', async () => {
+    const { service, db } = make()
+    const order = await service.create({ supplier_id: 5, ordered_on: '2026-10-05', stage: 'awaiting_receipt', invoice_number: 'NF-1', payment_term: 'on_receipt', payment_method: 'transfer', items: [item({ condition: 'paid' }), item({ sku: 'Q2', condition: 'on_sale' })] })
+
+    const received = await service.transition(order.id, { to: 'received', received_on: '2026-10-11', pay_on_receipt: true, actor: 'ana' })
+
+    expect(received.items[0]).toMatchObject({ payment_status: 'paid', paid_on: '2026-10-11' })
+    expect(received.items[1].payment_status).toBe('pending')
+    expect(db.items[0]).toMatchObject({ paid_method: 'transfer' })
+    expect(db.events.at(-1).note).toMatch(/paid on receipt/)
+  })
+
+  it('refuses it for a boleto with a due date, or on any step other than receiving', async () => {
+    const { service } = make()
+    const boleto = await service.create({ supplier_id: 5, ordered_on: '2026-10-05', stage: 'awaiting_receipt', invoice_number: 'NF-2', payment_term: 'due_date', payment_due_on: '2026-10-30', items: [item({ condition: 'paid' })] })
+    await expect(service.transition(boleto.id, { to: 'received', pay_on_receipt: true })).rejects.toThrow(/Paying on receipt/)
+
+    const early = await service.create({ supplier_id: 5, ordered_on: '2026-10-05', stage: 'requisition', items: [item({ condition: 'paid' })] })
+    await expect(service.transition(early.id, { to: 'awaiting_invoice', pay_on_receipt: true })).rejects.toThrow(/Paying on receipt/)
+  })
+})
+
 describe('deleting an order', () => {
   const make = () => {
     const { prisma, db } = fakePrisma()

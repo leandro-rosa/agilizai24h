@@ -52,7 +52,7 @@ export function Agenda({ payables, onSeeAll }: { payables: Payables; onSeeAll: (
           <CardTitle className="text-sm">Compromissos no caixa</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2 text-sm">
-          <Row label="Próximos 7 dias" value={commitments.next_7_days_cents} />
+          <Row label="Hoje e próximos 7 dias" value={commitments.next_7_days_cents} />
           <Row label="Próximos 30 dias" value={commitments.next_30_days_cents} />
           <Row label="Pago no mês" value={commitments.paid_month_cents} />
           {commitments.next_7_days_cents > 0 && (

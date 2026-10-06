@@ -336,6 +336,10 @@ export class PurchasesService {
       if (clash && clash.id !== id) throw new ConflictException(`Invoice ${dto.invoice_number.trim()} of this supplier is already recorded (purchase ${clash.id})`)
     }
 
+    if (dto.pay_on_receipt && (dto.to !== 'received' || order.payment_term === 'due_date')) {
+      throw new BadRequestException('Paying on receipt only applies when receiving an order that is not a boleto with a due date')
+    }
+
     const now = new Date()
     const data: Record<string, unknown> = { status: dto.to }
     if (dto.to === 'awaiting_invoice') Object.assign(data, { sent_at: now, sent_by: dto.actor })
@@ -353,6 +357,12 @@ export class PurchasesService {
       if (receipt && 'lines' in receipt) for (const line of receipt.lines) await tx.purchaseItem.update({ where: { id: line.itemId }, data: { received_quantity: line.received } })
       await tx.purchase.update({ where: { id }, data })
       await tx.purchaseEvent.create({ data: { purchase_id: id, from_status: from, to_status: dto.to, actor: dto.actor, note: dto.note } })
+      if (dto.pay_on_receipt) {
+        // Paid on delivery: the same click that records the receipt records the payment, on the receipt day.
+        const open = order.items.filter(i => i.condition === 'paid' && i.payment_status === 'pending')
+        for (const item of open) await tx.purchaseItem.update({ where: { id: item.id }, data: { payment_status: 'paid', paid_on: asDate(dto.received_on ?? this.today()), paid_method: order.payment_method } })
+        if (open.length > 0) await tx.purchaseEvent.create({ data: { purchase_id: id, from_status: dto.to, to_status: dto.to, actor: dto.actor, note: `payment recorded: ${open.length} item(s) paid on receipt` } })
+      }
 
       return tx.purchase.findUnique({ where: { id }, include: { items: { orderBy: { id: 'asc' } }, supplier: true } })
     })
