@@ -50,7 +50,11 @@ export default function PurchasesPage() {
   const labelOf = (product: { name: string; sku: string }) => `${product.name} (${product.sku})`;
   const product = products.find((p) => labelOf(p) === productLabel);
   const supplier = suppliers.find((s) => s.id === supplierId);
-  const visibleSuppliers = category === ALL ? suppliers : suppliers.filter((s) => s.category === category);
+  // Só entra no seletor quem tem produto vinculado (o vínculo vem da planilha de precificação):
+  // o cadastro tem banco, software e outros que nunca aparecem em compra de mercadoria.
+  const linkedSupplierIds = useMemo(() => new Set(products.flatMap((p) => (p.supplier_id == null ? [] : [p.supplier_id]))), [products]);
+  const analysedSuppliers = suppliers.filter((s) => linkedSupplierIds.has(s.id));
+  const visibleSuppliers = category === ALL ? analysedSuppliers : analysedSuppliers.filter((s) => s.category === category);
   const store = storeId === ALL ? undefined : Number(storeId);
 
   const base = { period, compareTo, storeId: store };
