@@ -37,4 +37,4 @@
 
 - [ ] 5.1 End to end on the dev stack with the mail catcher: requisition, send, invoice, receive; check the e-mail and the analysis (no test data in the real database)
 - [ ] 5.2 Owner configures real SMTP and approves the first real send
-- [ ] 5.3 Commit, merge and push in the same session
+- [x] 5.3 Commit, merge and push in the same session
