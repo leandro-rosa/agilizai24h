@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import type { Figure, Insight, MonthlyPoint, Variation } from "@/lib/api/supplier-analysis";
 import { DataQualityNote } from "./data-quality-note";
@@ -7,6 +7,7 @@ import { EvolutionTable } from "./evolution-table";
 import { InsightList } from "./insight-list";
 import { KpiStrip } from "./kpi-strip";
 import { MovementBars } from "./movement-bars";
+import { SupplierProductsTable } from "./supplier-products-table";
 
 const ok = (value: number, partial?: boolean): Figure => (partial ? { available: true, value, partial } : { available: true, value });
 const noPurchases: Figure = { available: false, reason: "no_purchase_history" };
@@ -144,5 +145,40 @@ describe("DataQualityNote", () => {
 
     expect(screen.getByText(/ainda não registrada/)).toBeInTheDocument();
     expect(screen.getByText(/ago\/2026 \(lojas 7 sem vendas\)/)).toBeInTheDocument();
+  });
+});
+
+describe("SupplierProductsTable", () => {
+  const base = { purchasedUnits: noPurchases, purchasedCents: noPurchases, revenueCents: ok(0), lossCents: ok(0), marginShare: noBase.change, avgCostCents: noBase.change };
+  const line = (sku: string, name: string, restocked: number, sold: number, lost: number) => ({
+    sku,
+    name,
+    supplierId: 1,
+    movement: { ...base, restocked: ok(restocked), sold: ok(sold), lost: ok(lost) },
+    comparison: { sold: noBase } as never,
+  });
+  const lines = [line("1", "Chocolate vendido", 10, 8, 1), line("2", "Wafer parado", 0, 0, 0), line("3", "Café parado", 0, 0, 0)];
+
+  it("esconde por padrão os produtos sem movimento e diz quantos ficaram de fora", () => {
+    render(<SupplierProductsTable lines={lines as never} />);
+
+    expect(screen.getByText("Chocolate vendido")).toBeInTheDocument();
+    expect(screen.queryByText("Wafer parado")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mostrar 2 produtos sem movimento no mês" })).toBeInTheDocument();
+  });
+
+  it("mostra os parados sob pedido e permite ocultar de novo", () => {
+    render(<SupplierProductsTable lines={lines as never} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Mostrar 2 produtos/ }));
+    expect(screen.getByText("Wafer parado")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar produtos sem movimento" }));
+    expect(screen.queryByText("Wafer parado")).not.toBeInTheDocument();
+  });
+
+  it("avisa quando nenhum produto do fornecedor teve movimento", () => {
+    render(<SupplierProductsTable lines={lines.slice(1) as never} />);
+
+    expect(screen.getByText(/Nenhum produto deste fornecedor teve compra, abastecimento, venda ou perda/)).toBeInTheDocument();
   });
 });

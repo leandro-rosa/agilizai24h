@@ -1,13 +1,21 @@
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { ProductLine } from "@/lib/api/supplier-analysis";
-import { changeTone, formatChange, formatFigure } from "@/lib/supplier-analysis/format";
+import { changeTone, formatChange, formatFigure, hasMovement } from "@/lib/supplier-analysis/format";
 import { cn } from "@/lib/utils";
 
 const TONE_CLASS = { positive: "text-success", critical: "text-destructive", neutral: "text-muted-foreground" } as const;
 
 /** Produtos do fornecedor: comprado, abastecido, vendido, perdido, custo, receita, margem e variação das vendas. */
 export function SupplierProductsTable({ lines, onSelect }: { lines: ProductLine[]; onSelect?: (sku: string) => void }) {
+  const [showIdle, setShowIdle] = useState(false);
+  const active = lines.filter((line) => hasMovement(line.movement));
+  const idle = lines.length - active.length;
+  const visible = showIdle ? lines : active;
+
   return (
     <Card>
       <CardHeader>
@@ -32,7 +40,7 @@ export function SupplierProductsTable({ lines, onSelect }: { lines: ProductLine[
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lines.map((line) => {
+              {visible.map((line) => {
                 const change = line.comparison.sold.change;
                 const label = formatChange(change);
 
@@ -60,6 +68,14 @@ export function SupplierProductsTable({ lines, onSelect }: { lines: ProductLine[
               })}
             </TableBody>
           </Table>
+        )}
+        {lines.length > 0 && active.length === 0 && (
+          <p className="text-sm text-muted-foreground">Nenhum produto deste fornecedor teve compra, abastecimento, venda ou perda neste mês.</p>
+        )}
+        {idle > 0 && (
+          <Button variant="ghost" size="sm" className="mt-2" onClick={() => setShowIdle((value) => !value)}>
+            {showIdle ? "Ocultar produtos sem movimento" : `Mostrar ${idle} ${idle === 1 ? "produto sem movimento" : "produtos sem movimento"} no mês`}
+          </Button>
         )}
         <p className="mt-2 text-xs text-muted-foreground">Variação = vendas contra o período de comparação. Margem sobre os SKUs com custo cadastrado.</p>
       </CardContent>

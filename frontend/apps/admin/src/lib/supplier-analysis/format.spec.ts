@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 
 import type { Figure } from "@/lib/api/supplier-analysis";
-import { changeTone, formatChange, formatFigure, formatMonth, funnelShares } from "./format";
+import { changeTone, formatChange, formatFigure, formatMonth, funnelShares, hasMovement } from "./format";
 
 const ok = (value: number, partial?: boolean): Figure => (partial ? { available: true, value, partial } : { available: true, value });
 const none = (reason: "no_purchase_history" | "never_ingested" | "no_cost" | "no_base"): Figure => ({ available: false, reason });
@@ -59,4 +59,32 @@ describe("funnelShares", () => {
 
 describe("formatMonth", () => {
   it("abrevia em português", () => expect(formatMonth("2026-10")).toBe("out/2026"));
+});
+
+describe("hasMovement", () => {
+  const movement = (over: Record<string, Figure> = {}) =>
+    ({
+      purchasedUnits: none("no_purchase_history"),
+      purchasedCents: none("no_purchase_history"),
+      restocked: ok(0),
+      sold: ok(0),
+      lost: ok(0),
+      revenueCents: ok(0),
+      lossCents: ok(0),
+      marginShare: none("no_base"),
+      avgCostCents: none("no_base"),
+      ...over,
+    }) as Parameters<typeof hasMovement>[0];
+
+  it("produto com tudo zerado, ou sem dado, é parado", () => {
+    expect(hasMovement(movement())).toBe(false);
+    expect(hasMovement(movement({ restocked: none("never_ingested"), sold: none("never_ingested"), lost: none("never_ingested") }))).toBe(false);
+  });
+
+  it("qualquer abastecimento, venda, perda ou compra é movimento — inclusive só venda de estoque antigo", () => {
+    expect(hasMovement(movement({ sold: ok(1) }))).toBe(true);
+    expect(hasMovement(movement({ lost: ok(2) }))).toBe(true);
+    expect(hasMovement(movement({ restocked: ok(5) }))).toBe(true);
+    expect(hasMovement(movement({ purchasedUnits: ok(30) }))).toBe(true);
+  });
 });
