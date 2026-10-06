@@ -45,8 +45,11 @@ export function ExportPdfButton({ overview }: { overview: Overview | null }) {
       URL.revokeObjectURL(url);
       toast.success(`Resumo ${overview.period} — versão ${reg.version}${reg.reused ? " (mesma base e conteúdo da versão já gerada)" : " gerada"}`);
     } catch (e) {
-      const status = (e as { status?: number })?.status;
-      toast.error(status === 409 ? "O mês não está fechado na rede — feche o mês antes de exportar." : "Não foi possível gerar o PDF. Tente novamente.");
+      // A mensagem genérica escondia a causa: registrar a versão (rede) e montar o PDF (renderizador) falham por motivos diferentes.
+      console.error("Exportar PDF falhou", e);
+      const status = (e as { status?: number | string })?.status;
+      const detail = status ? `Falha ao registrar a versão (HTTP ${status}).` : e instanceof Error ? `Falha ao montar o PDF: ${e.message}` : "Erro desconhecido.";
+      toast.error(status === 409 ? "O mês não está fechado na rede — feche o mês antes de exportar." : "Não foi possível gerar o PDF.", { description: detail });
     } finally {
       setBusy(false);
     }
