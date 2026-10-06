@@ -4,6 +4,8 @@ import { useMemo } from "react";
 
 import { useGetPnlByStoreQuery, useGetPnlSeriesQuery } from "@/lib/api/accounting";
 import { useGetAgingQuery, useGetInvoicesQuery } from "@/lib/api/billing";
+import { useGetNetworkSalesTransactionsQuery } from "@/lib/api/sales";
+import { buildTicketMonth } from "./ticket";
 import { useGetAllContributionsQuery, useGetItemsQuery } from "@/lib/api/capex";
 import { useGetNetworkFinanceSeriesQuery } from "@/lib/api/finance";
 import { useGetCostsAsOfQuery, useGetProductsQuery, useGetSkuLinksQuery } from "@/lib/api/products";
@@ -61,6 +63,16 @@ export function useMonthlyOverview(period: string | null) {
   const byStorePrev = useGetPnlByStoreQuery({ period: previous }, { skip });
   const items = useGetItemsQuery(undefined, { skip });
   const contributions = useGetAllContributionsQuery(undefined, { skip });
+  // Compras do mês e do anterior (transações por loja) só para o ticket médio; se falharem, o bloco de ticket some, o resto continua.
+  const txCurrent = useGetNetworkSalesTransactionsQuery({ stores: stores.data ?? EMPTY, period: p }, { skip: skip || !stores.data });
+  const txPrevious = useGetNetworkSalesTransactionsQuery({ stores: stores.data ?? EMPTY, period: previous }, { skip: skip || !stores.data });
+  const tickets = useMemo(
+    () =>
+      txCurrent.data && txPrevious.data
+        ? { current: buildTicketMonth(txCurrent.data.flatMap((s) => s.transactions)), previous: buildTicketMonth(txPrevious.data.flatMap((s) => s.transactions)) }
+        : null,
+    [txCurrent.data, txPrevious.data],
+  );
   const aging = useGetAgingQuery(undefined, { skip });
   // Notas em aberto (emitidas e não pagas): dão o cliente e os dias de atraso por trás do total vencido.
   const openInvoices = useGetInvoicesQuery({ status: "issued" }, { skip });
@@ -103,6 +115,7 @@ export function useMonthlyOverview(period: string | null) {
       },
       sales: sales.data ? { cells, ingestedPeriods: ingested, seriesPeriods: monthsInRange(salesRange) } : null,
       costBySku: costs.data ? Object.fromEntries(costs.data.resolved.map((r) => [r.sku, r.cost_cents])) : null,
+      tickets,
       storeList: stores.data ? stores.data.filter((x) => x.status === "active").map((x) => ({ id: x.id, name: x.name })) : null,
       catalogue: (products.data ?? EMPTY).map((x) => ({ sku: x.sku, name: x.name })),
       skuLinks: (skuLinks.data ?? EMPTY).map((l) => ({ old_sku: l.old_sku, new_sku: l.new_sku, decision: l.decision })),
@@ -126,7 +139,7 @@ export function useMonthlyOverview(period: string | null) {
       closed: pnlSeries.data.some((s) => s.period === period && s.store_id === null && s.status === "closed"),
     };
     return buildOverview(input);
-  }, [period, periods, pnlSeries.data, stores.data, treasury.data, finance.data, items.data, contributions.data, byStoreNow.data, byStorePrev.data, sales.data, cells, salesRange, costs.data, products.data, aging.data, openInvoices.data, skuLinks.data, supply.data, previous]);
+  }, [period, periods, pnlSeries.data, stores.data, treasury.data, finance.data, items.data, contributions.data, byStoreNow.data, byStorePrev.data, sales.data, cells, salesRange, costs.data, products.data, aging.data, openInvoices.data, tickets, skuLinks.data, supply.data, previous]);
 
   const unavailable: SectionState = {
     pnl: pnlSeries.isError,
@@ -145,7 +158,7 @@ export function useMonthlyOverview(period: string | null) {
     unavailable,
     isLoading: !skip && (pnlSeries.isLoading || stores.isLoading),
     /** Produtos/finance ainda chegando — a tela mostra esqueleto no bloco, não bloqueia o resto. */
-    productsLoading: sales.isLoading || costs.isLoading || products.isLoading,
+    productsLoading: sales.isLoading || costs.isLoading || products.isLoading || txCurrent.isLoading || txPrevious.isLoading,
     supplyLoading: supply.isLoading,
     financeLoading: finance.isLoading,
     refetch: () => {

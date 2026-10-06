@@ -427,7 +427,19 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
             </View>
           )}
         </View>
-        {o.priceChanges ? (
+        {o.skuSuggestions.length > 0 ? (
+          <View style={[s.card, s.cardGap]}>
+            <Text style={s.h3}>Troca de código de barras a confirmar</Text>
+            <Text style={s.small}>{o.skuSuggestions.length} produto(s) parecem novos, mas têm um código antigo de nome parecido que vendia bem e quase parou. Confirme na tela antes de tratá-los como lançamento.</Text>
+          </View>
+        ) : null}
+        <Footer o={o} meta={meta} />
+      </Page>
+
+      {/* 3b — Reajustes de preço */}
+      {o.priceChanges ? (
+        <Page size="A4" orientation="landscape" style={s.page}>
+          <Header o={o} meta={meta} />
           <View style={[s.card, s.cardGap]}>
             <Title hint="preço realizado = receita ÷ unidades, já com descontos">Reajustes de preço no mês</Title>
             {(() => {
@@ -443,6 +455,24 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
                     <Text style={s.small}>Vendeu menos — o lucro compensou?</Text>
                     <Text style={{ fontSize: 12, fontFamily: "Helvetica-Bold", color: rd.verdict.margin === "sim" ? C.good : rd.verdict.margin === "nao" ? C.bad : C.ink, marginVertical: 2 }}>{t(rd.verdict.title)}</Text>
                     <Text>{t(rd.verdict.detail)}</Text>
+                  </View>
+                  <View style={[s.row, { marginBottom: 6 }]}>
+                    <View style={[s.col, { borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 8 }]}>
+                      <Text style={s.small}>E se os dois meses tivessem o mesmo número de dias?</Text>
+                      <Text style={{ fontFamily: "Helvetica-Bold", marginVertical: 2 }}>{t(rd.days.title)}</Text>
+                      <Text style={s.small}>{t(rd.days.detail)}</Text>
+                    </View>
+                    <View style={[s.col, { borderWidth: 1, borderRadius: 8, padding: 8, borderColor: rd.ticket ? (rd.ticket.up ? C.good : C.bad) : C.border }]}>
+                      <Text style={s.small}>O ticket médio subiu — e o reajuste explica?</Text>
+                      {rd.ticket ? (
+                        <>
+                          <Text style={{ fontFamily: "Helvetica-Bold", marginVertical: 2, color: rd.ticket.up ? C.good : C.bad }}>{t(rd.ticket.title)}</Text>
+                          <Text style={s.small}>{t(rd.ticket.detail)}</Text>
+                        </>
+                      ) : (
+                        <Text style={s.small}>Sem as compras do mês para calcular o ticket médio.</Text>
+                      )}
+                    </View>
                   </View>
                   <View style={[s.row, { marginBottom: 6 }]}>
                     <Stat label="Dinheiro que entrou (faturamento)" value={brl(im.revenueAfterCents)} color={dRev < 0 ? C.bad : C.good} note={`${brl(im.revenueBeforeCents)} -> ${brl(im.revenueAfterCents)} (${dRev < 0 ? "-" : "+"}${brl(Math.abs(dRev))})`} />
@@ -461,7 +491,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
               <Text style={[s.thText, { flex: 1.6, textAlign: "right" }]}>Lucro bruto %</Text>
               <Text style={[s.thText, { flex: 1.4, textAlign: "right" }]}>Faturamento</Text>
             </View>
-            {o.priceChanges.rows.slice(0, 8).map((r) => (
+            {o.priceChanges.rows.slice(0, 6).map((r) => (
               <View key={r.sku} style={{ flexDirection: "row", marginBottom: 4 }} wrap={false}>
                 <Text style={{ flex: 3.4 }}>{t(r.name).slice(0, 40)}</Text>
                 <Text style={{ flex: 2.4, textAlign: "right" }}>R$ {(r.priceBeforeCents / 100).toFixed(2).replace(".", ",")} {"->"} {(r.priceAfterCents / 100).toFixed(2).replace(".", ",")} <Text style={s.small}>({t(signedPct(r.pricePct, 0))})</Text></Text>
@@ -470,17 +500,11 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
                 <Text style={{ flex: 1.4, textAlign: "right", color: r.revenueDeltaCents < 0 ? C.bad : C.good }}>{r.revenueDeltaCents < 0 ? "-" : "+"}{brl(Math.abs(r.revenueDeltaCents))}</Text>
               </View>
             ))}
-            <Text style={[s.small, { marginTop: 3 }]}>Mostrando 8 de {o.priceChanges.count} reajustados (maior receita).</Text>
+            <Text style={[s.small, { marginTop: 3 }]}>Mostrando 6 de {o.priceChanges.count} reajustados (maior receita); a lista completa está na tela.</Text>
           </View>
-        ) : null}
-        {o.skuSuggestions.length > 0 ? (
-          <View style={[s.card, s.cardGap]}>
-            <Text style={s.h3}>Troca de código de barras a confirmar</Text>
-            <Text style={s.small}>{o.skuSuggestions.length} produto(s) parecem novos, mas têm um código antigo de nome parecido que vendia bem e quase parou. Confirme na tela antes de tratá-los como lançamento.</Text>
-          </View>
-        ) : null}
-        <Footer o={o} meta={meta} />
-      </Page>
+          <Footer o={o} meta={meta} />
+        </Page>
+      ) : null}
 
       {/* 4 — Por que merece atenção? Abastecimento e perdas */}
       <Page size="A4" orientation="landscape" style={s.page}>
