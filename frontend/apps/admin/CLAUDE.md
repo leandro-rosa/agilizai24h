@@ -143,7 +143,10 @@ não sabia mexer no sistema de abastecimento, vai ter muita coisa errada antes d
 (e o link no aviso da visão de uma loja) abre os produtos cujo saldo ficaria negativo se a conta recomeçasse na CONTAGEM de fim de junho
 (`recorded_closing_balance`) e somasse só julho em diante (`PENDING_BASELINE`). Produto sem contagem conta como 0 e é dito; "nunca abastecido"
 é marcado. É só uma lista para achar onde corrigir: NÃO muda o saldo do serviço de estoque nem as cifras da reconciliação, e não diz a causa.
-Medido em set/2026: 699 pares loja×produto negativos desde janeiro caem para ~265 desde julho (3.262 → 764 unidades sem abastecimento).
+Medido em set/2026: 699 pares loja×produto negativos desde janeiro caem para 229 desde julho (667 unidades sem abastecimento, 19 lojas; conferido nos registros de estoque).
+**Armadilha do `/inventory/:storeId?period=`**: o serviço devolve, por produto, o ÚLTIMO registro até o mês pedido; um produto sem movimento em jul–set volta com o
+registro (e os movimentos) de fevereiro. `sumStock` somava isso em cada mês (venda de fevereiro contada 3×: o "Suco de uva Ades vendeu 6" que o operador estranhou) —
+agora só entra o item cujo `item.period` é o do mês, e a contagem de junho só vale se for do próprio junho (`inventory.spec.ts`, `reconciliation-pending.spec.ts`).
 Mudar o cálculo do saldo no `inventory-service` para começar em julho ficou decidido como passo posterior (muda cifras; pede aprovação).
 
 **`Perdas`** (`src/components/supply/loss-tab.tsx` + `src/lib/

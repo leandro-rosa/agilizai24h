@@ -42,7 +42,9 @@ export interface PendingSummary {
  */
 export function buildPending(movements: StockItem[], opening: StockItem[] | null, baseline: string = PENDING_BASELINE): PendingSummary {
   const countBySku = new Map<string, number | null>();
-  for (const i of opening ?? []) countBySku.set(i.sku, i.recorded_closing_balance);
+  // O serviço devolve o último registro até o mês pedido: a "contagem de junho" de um produto sem registro em junho seria a de um mês antigo.
+  const openingPeriod = addMonths(baseline, -1);
+  for (const i of opening ?? []) if (i.period === openingPeriod) countBySku.set(i.sku, i.recorded_closing_balance);
 
   const rows: PendingRow[] = [];
   for (const m of movements) {
@@ -64,7 +66,7 @@ export function buildPending(movements: StockItem[], opening: StockItem[] | null
   rows.sort((a, b) => b.missing - a.missing);
   return {
     baseline,
-    openingPeriod: addMonths(baseline, -1),
+    openingPeriod,
     rows,
     productCount: rows.length,
     missingUnits: rows.reduce((s, r) => s + r.missing, 0),
