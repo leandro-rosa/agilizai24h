@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
+import { normalizeAlias } from '../../suppliers/constants/supplier-vocabulary'
 import { ProductsClient, type CatalogueProduct } from '../clients/products.client'
 
 /** What the ingestion service read from an NF-e (see `ParsedInvoice` there). */
@@ -34,6 +35,8 @@ export interface InvoicePreview {
   issued_on: string
   issuer: { tax_id: string; name: string }
   supplier: { id: number; name: string } | null
+  /** How the supplier was found: the exact tax id, the issuer's name registered as an alias (a de-para the operator made), or the same company root (filial). */
+  matched_by: 'tax_id' | 'alias' | 'cnpj_root' | null
   /// The invoice was already recorded for this supplier.
   duplicate_of: number | null
   items: PreviewItem[]
@@ -56,7 +59,7 @@ export class PurchaseImportService {
 
   async preview(invoice: InvoiceInput, correlationId?: string): Promise<InvoicePreview> {
     const suppliers = await this.prisma.supplier.findMany({ where: { tax_id: { not: null } }, select: { id: true, name: true, tax_id: true } })
-    const supplier = suppliers.find(s => digits(s.tax_id) === digits(invoice.issuer.taxId)) ?? null
+    const { supplier, matchedBy } = await this.findSupplier(invoice, suppliers)
     const duplicate = supplier ? await this.prisma.purchase.findFirst({ where: { supplier_id: supplier.id, invoice_number: invoice.number } }) : null
 
     const catalogue = await this.products.products(correlationId)
@@ -69,9 +72,29 @@ export class PurchaseImportService {
       issued_on: invoice.issuedOn,
       issuer: { tax_id: digits(invoice.issuer.taxId), name: invoice.issuer.name },
       supplier: supplier ? { id: supplier.id, name: supplier.name } : null,
+      matched_by: matchedBy,
       duplicate_of: duplicate?.id ?? null,
       items: invoice.items.map(item => resolveItem(item, (item.ean && byEan.get(item.ean)) || bySku.get(item.code))),
     }
+  }
+
+  /** Which supplier issued the invoice, by what is certain: the exact tax id, then the name registered as an alias, then the same company (CNPJ root) when only one registered supplier has it. */
+  private async findSupplier(invoice: InvoiceInput, withTaxId: { id: number; name: string; tax_id: string | null }[]): Promise<{ supplier: { id: number; name: string } | null; matchedBy: InvoicePreview['matched_by'] }> {
+    const taxId = digits(invoice.issuer.taxId)
+    const exact = withTaxId.find(s => digits(s.tax_id) === taxId)
+    if (exact) return { supplier: exact, matchedBy: 'tax_id' }
+
+    // The operator's own de-para: "SPAL INDUSTRIA BRASILEIRA DE BEBIDAS S/A" registered as an alias of a supplier.
+    const alias = await this.prisma.supplierAlias.findUnique({ where: { normalized_alias: normalizeAlias(invoice.issuer.name) }, include: { supplier: true } })
+    if (alias) return { supplier: { id: alias.supplier.id, name: alias.supplier.name }, matchedBy: 'alias' }
+
+    // Filiais of one company share the first 8 digits. Only a single match counts: two suppliers with one root is ambiguous, not a guess.
+    if (taxId.length === 14) {
+      const sameRoot = withTaxId.filter(s => digits(s.tax_id).length === 14 && digits(s.tax_id).slice(0, 8) === taxId.slice(0, 8))
+      if (sameRoot.length === 1) return { supplier: sameRoot[0], matchedBy: 'cnpj_root' }
+    }
+
+    return { supplier: null, matchedBy: null }
   }
 }
 
