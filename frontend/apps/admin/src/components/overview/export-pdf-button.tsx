@@ -14,12 +14,16 @@ import type { Overview } from "@/lib/overview/types";
 /** Versão da lógica do motor — sobe quando uma regra muda, para o hash e os parâmetros registrados refletirem isso. */
 const LOGIC_VERSION = "overview/1.0.0";
 
-export function ExportPdfButton({ overview }: { overview: Overview | null }) {
+/**
+ * `loading` = vendas, abastecimento ou finance ainda chegando. O resumo já existe antes disso (só com o DRE),
+ * e exportar nesse intervalo gerava um PDF sem produtos, sem destaque de produto e sem produtos em teste.
+ */
+export function ExportPdfButton({ overview, loading = false }: { overview: Overview | null; loading?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [register] = useRegisterMonthlySummaryMutation();
 
   async function onClick() {
-    if (!overview) return;
+    if (!overview || loading) return;
     setBusy(true);
     try {
       const hash = await sha256Hex(stableStringify(overview));
@@ -56,8 +60,8 @@ export function ExportPdfButton({ overview }: { overview: Overview | null }) {
   }
 
   return (
-    <Button onClick={onClick} disabled={!overview || busy} variant="outline">
-      {busy ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />} Exportar PDF
+    <Button onClick={onClick} disabled={!overview || busy || loading} variant="outline" title={loading ? "Aguarde: vendas e abastecimento ainda estão carregando" : undefined}>
+      {busy || loading ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />} {loading ? "Carregando dados…" : "Exportar PDF"}
     </Button>
   );
 }

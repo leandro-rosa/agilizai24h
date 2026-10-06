@@ -34,7 +34,7 @@ export default function OverviewPage() {
   const closed = useClosedPeriods();
   const [selected, setSelected] = useState<string | null>(null);
   const period = selected ?? closed.periods[0] ?? null;
-  const { overview, unavailable, isLoading, productsLoading, supplyLoading, refetch } = useMonthlyOverview(period);
+  const { overview, unavailable, isLoading, productsLoading, supplyLoading, financeLoading, refetch } = useMonthlyOverview(period);
   // Instante em que a tela carregou os dados — não é o horário do fechamento.
   const [loadedAt] = useState(() => new Date());
 
@@ -55,7 +55,7 @@ export default function OverviewPage() {
                 ))}
               </SelectContent>
             </Select>
-            <ExportPdfButton overview={overview} />
+            <ExportPdfButton overview={overview} loading={productsLoading || supplyLoading || financeLoading} />
           </>
         }
       />
