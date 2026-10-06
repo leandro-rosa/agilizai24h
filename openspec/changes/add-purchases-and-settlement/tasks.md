@@ -35,4 +35,4 @@
 
 - [ ] 6.1 Import a real NF-e and enter a manual purchase on the dev stack; check the analysis against them (needs the owner's real NF-e; read-only paths and a throwaway database were verified)
 - [x] 6.2 Confirm no synthetic data reached real databases (purchase table in the real DB stays at 0 rows; SQL verified on a throwaway database)
-- [ ] 6.3 Update CLAUDE.md files; commit, merge and push in the same session
+- [x] 6.3 Update CLAUDE.md files; commit, merge and push in the same session
