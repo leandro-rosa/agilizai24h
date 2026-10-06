@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { DateRangePicker, type DayRange as PickerRange } from "@/components/date-range-picker";
@@ -10,6 +10,7 @@ import { InvoiceImportDialog } from "@/components/purchases/invoice-import-dialo
 import { PurchaseFormDialog } from "@/components/purchases/purchase-form-dialog";
 import { RequestState } from "@/components/request-state";
 import { ProductView } from "@/components/supplier-analysis/product-view";
+import { SuppliersOverview } from "@/components/supplier-analysis/suppliers-overview";
 import { SupplierView } from "@/components/supplier-analysis/supplier-view";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -98,11 +99,12 @@ export default function PurchasesPage() {
     { fromDate: range.from, toDate: range.to, compareTo, supplierId: supplierId ?? 0, sku: product?.sku ?? "" },
     { skip: mode !== "supplier" || supplierId === null || !product },
   );
-  const productQuery = useGetProductAnalysisQuery({ ...base, sku: product?.sku ?? "" }, { skip: mode !== "product" || !product });
+  const productQuery = useGetProductAnalysisQuery({ ...base, sku: product?.sku ?? "" }, { skip: !product || (mode === "supplier" && supplierId !== null) });
 
   // O produto de um fornecedor sai da lista de produtos: o filtro cruzado só oferece os que ele tem.
   const supplierProductLabels = products.filter((p) => p.supplier_id === supplierId).map(labelOf);
-  const productOptions = mode === "supplier" ? supplierProductLabels : products.map(labelOf);
+  // Sem fornecedor escolhido, o filtro de produto oferece o catálogo todo (e abre o produto); com fornecedor, só os dele (e cruza).
+  const productOptions = mode === "supplier" && supplierId !== null ? supplierProductLabels : products.map(labelOf);
 
   function applyRange(next: DayRange) {
     const { range: fitted, clamped } = clampRange(next);
@@ -206,9 +208,25 @@ export default function PurchasesPage() {
                     setProductLabel("");
                   }}
                 >
+                  <div className="flex items-center gap-1">
                   <SelectTrigger className="w-64" aria-label="Fornecedor">
-                    <SelectValue placeholder="Escolha o fornecedor" />
+                    <SelectValue placeholder="Todos os fornecedores" />
                   </SelectTrigger>
+                  {supplierId !== null && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Limpar fornecedor"
+                      title="Limpar fornecedor"
+                      onClick={() => {
+                        setSupplierId(null);
+                        setProductLabel("");
+                      }}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  )}
+                  </div>
                   <SelectContent>
                     {[...visibleSuppliers].sort((a, b) => labelOfSupplier(a).localeCompare(labelOfSupplier(b), "pt-BR")).map((s) => (
                       <SelectItem key={s.id} value={String(s.id)}>
@@ -222,13 +240,20 @@ export default function PurchasesPage() {
           )}
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             Produto
-            <Combobox
-              options={productOptions}
-              value={productLabel}
-              onChange={setProductLabel}
-              placeholder={mode === "supplier" ? "Todos (ou cruzar com um produto)" : "Pesquise um produto"}
-              className="w-72"
-            />
+            <div className="flex items-center gap-1">
+              <Combobox
+                options={productOptions}
+                value={productLabel}
+                onChange={setProductLabel}
+                placeholder={mode === "supplier" ? "Todos (ou cruzar com um produto)" : "Pesquise um produto"}
+                className="w-72"
+              />
+              {productLabel && (
+                <Button variant="ghost" size="icon" aria-label="Limpar produto" title="Limpar produto" onClick={() => setProductLabel("")}>
+                  <X className="size-4" />
+                </Button>
+              )}
+            </div>
           </label>
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             Loja
@@ -272,11 +297,26 @@ export default function PurchasesPage() {
 
       {mode === "supplier" ? (
         supplierId === null || !supplier ? (
-          <RequestState isLoading={suppliersQuery.isLoading} error={suppliersQuery.error} isEmpty emptyMessage="Escolha um fornecedor para ver a movimentação.">
-            {null}
-          </RequestState>
+          product ? (
+            <>
+              <p className="text-xs text-muted-foreground">Nenhum fornecedor escolhido: mostrando o produto. Escolha um fornecedor para cruzar.</p>
+              <RequestState isLoading={productQuery.isFetching && !productQuery.data} error={productQuery.error} onRetry={productQuery.refetch} loadingRows={6}>
+                {productQuery.data && (
+                  <ProductView product={product} analysis={productQuery.data} supplier={suppliers.find((s) => s.id === product.supplier_id)} suppliers={suppliers} compareTo={compareTo} />
+                )}
+              </RequestState>
+            </>
+          ) : (
+            <RequestState isLoading={suppliersQuery.isLoading || productsQuery.isLoading} error={suppliersQuery.error}>
+              <SuppliersOverview
+                suppliers={visibleSuppliers.map((s) => ({ id: s.id, label: labelOfSupplier(s) })).sort((a, b) => a.label.localeCompare(b.label, "pt-BR"))}
+                base={base}
+                onSelect={(id) => setSupplierId(id)}
+              />
+            </RequestState>
+          )
         ) : (
-          <RequestState isLoading={supplierQuery.isFetching && !supplierQuery.data} error={supplierQuery.error} onRetry={supplierQuery.refetch} loadingRows={6}>
+        <RequestState isLoading={supplierQuery.isFetching && !supplierQuery.data} error={supplierQuery.error} onRetry={supplierQuery.refetch} loadingRows={6}>
             {supplierQuery.data && (
               <SupplierView
                 supplier={supplier}
