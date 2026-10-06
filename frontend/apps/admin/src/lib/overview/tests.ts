@@ -1,8 +1,10 @@
 /**
  * Produtos em teste. NÃO existe cadastro: a evidência é o abastecimento. Um
  * SKU é candidato quando seu PRIMEIRO abastecimento na rede (mês) caiu na
- * janela recente, depois de o histórico importado já existir, e ele está em
- * poucas lojas. Limiares abaixo são PREMISSA inicial a validar com a lista real.
+ * janela recente, depois de o histórico importado já existir. NÃO há limite de
+ * lojas: o operador testa produto em 12-13 de 20 lojas (Irreal, pipoca, batata-doce
+ * de set/2026) e um teto de 9 lojas, que eu tinha chutado, os escondia. Limiares
+ * abaixo são PREMISSA inicial a validar com a lista real.
  * O sinal nunca é aprovado/reprovado: é evidência com os fatos ao lado.
  */
 import { addMonths } from "../period-range";
@@ -11,8 +13,6 @@ import type { SalesCell } from "./types";
 export const TESTS = {
   /** Primeiro abastecimento nos últimos N meses (incluindo a competência). */
   WINDOW_MONTHS: 3,
-  /** No máximo N lojas já abastecidas com o SKU (acima disso é rollout, não teste). */
-  MAX_STORES: 9,
   /** Abaixo disso, sinal = "Mais dados". */
   MIN_MONTHS: 2,
   MIN_UNITS: 20,
@@ -96,7 +96,6 @@ export function buildTests(a: BuildTestsArgs): TestsSummary {
   for (const [sku, i] of info) {
     // Só é "novo" se apareceu DEPOIS de o histórico existir e dentro da janela.
     if (i.first <= historyStart || i.first < windowStart || i.first > a.period) continue;
-    if (i.stores.size > TESTS.MAX_STORES) continue;
 
     const cells = a.sales.filter((s) => canon(s.sku) === sku && s.period >= i.first && s.period <= a.period);
     const storesSold = new Set(cells.filter((c) => c.quantity > 0).map((c) => c.storeId)).size;

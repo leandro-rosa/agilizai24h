@@ -35,9 +35,11 @@ describe("buildTests", () => {
     expect(r.rows[0].reasons[0]).toBe("vendeu em 3 de 4 lojas abastecidas");
   });
 
-  it("rolled out to many stores is not a test", () => {
-    const cells = Array.from({ length: 12 }, (_, i) => sup(i + 1, "2026-09", "T"));
-    expect(buildTests(args({ supply: { cells: [sup(1, "2026-05", "OLD"), ...cells], ingestedPeriods: ["2026-05", "2026-09"] } })).rows).toEqual([]);
+  it("a SKU restocked in most of the network is still a test (Irreal/pipoca were in 12-13 of 20 stores)", () => {
+    const cells = Array.from({ length: 13 }, (_, i) => sup(i + 1, "2026-09", "T"));
+    const r = buildTests(args({ supply: { cells: [sup(1, "2026-05", "OLD"), ...cells], ingestedPeriods: ["2026-05", "2026-09"] } }));
+    expect(r.rows.map((x) => x.sku)).toEqual(["T"]);
+    expect(r.rows[0].storesRestocked).toBe(13);
   });
 
   it("too little history or units says 'mais dados', never a verdict", () => {

@@ -42,7 +42,7 @@ export function TestsCard({ tests, loading, unavailable }: { tests: TestsSummary
         <Unavailable what="abastecimento" />
       ) : tests.rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nenhum SKU com primeiro abastecimento nos últimos {TESTS.WINDOW_MONTHS} meses em até {TESTS.MAX_STORES} lojas
+          Nenhum SKU com primeiro abastecimento nos últimos {TESTS.WINDOW_MONTHS} meses
           {tests.historyStart ? ` (histórico de abastecimento importado desde ${fmtPeriod(tests.historyStart)})` : ""}.
         </p>
       ) : (
@@ -64,7 +64,7 @@ export function TestsCard({ tests, loading, unavailable }: { tests: TestsSummary
         </div>
       )}
       <p className="text-xs text-muted-foreground">
-        Candidato = primeiro abastecimento na rede nos últimos {TESTS.WINDOW_MONTHS} meses, depois do início do histórico importado, em até {TESTS.MAX_STORES} lojas
+        Candidato = primeiro abastecimento na rede nos últimos {TESTS.WINDOW_MONTHS} meses, depois do início do histórico importado, em qualquer número de lojas
         (regra provisória). O sistema guarda só o mês do abastecimento, não a data da visita. Se o código de barras mudou, confirme a troca abaixo para o produto deixar de aparecer como novo.
         Sinal é evidência, não decisão.
       </p>

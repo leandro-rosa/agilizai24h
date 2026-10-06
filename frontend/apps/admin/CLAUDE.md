@@ -490,7 +490,8 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
 - **Produtos em teste** (`lib/overview/tests.ts`, `components/overview/tests-card.tsx`):
   não há cadastro; a lista é DERIVADA do abastecimento (9 meses, fan-out por loja):
   SKU cujo primeiro abastecimento na rede caiu nos últimos 3 meses, depois do início
-  do histórico importado, em até 9 lojas. Constantes `TESTS` são PREMISSA provisória
+  do histórico importado, **em qualquer número de lojas** (o teto de 9 lojas que eu tinha chutado
+  escondia Irreal/pipoca/batata-doce, abastecidos em 12-13 de 20). Constantes `TESTS` são PREMISSA provisória
   (validar com a lista real). O supply guarda só o MÊS, não a data da visita. Sinal
   (positivo/atenção/mais dados) vem com os fatos ao lado, nunca aprovado/reprovado.
 - **Troca de código de barras** (`lib/overview/sku-match.ts`, `sku-links-card.tsx`):
