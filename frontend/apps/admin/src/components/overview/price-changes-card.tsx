@@ -77,6 +77,7 @@ export function PriceChangesCard({ changes }: { changes: PriceChanges | null }) 
               <TableHead className="text-right">Preço</TableHead>
               <TableHead className="text-right">Unidades</TableHead>
               <TableHead className="text-right" title="Lucro bruto ÷ preço: quanto de cada R$ vendido sobra depois do custo">Lucro bruto (% do preço)</TableHead>
+              <TableHead className="text-right" title="Lucro bruto do produto no mês em R$: (preço realizado menos o custo) vezes as unidades">Lucro bruto (R$)</TableHead>
               <TableHead className="text-right" title="Faturamento do produto no mês menos o do mês anterior">Faturamento (mudança)</TableHead>
             </TableRow>
           </TableHeader>
@@ -94,6 +95,16 @@ export function PriceChangesCard({ changes }: { changes: PriceChanges | null }) 
                 </TableCell>
                 <TableCell className="tabular text-right">
                   {pctText(r.marginBefore, 0)} → {pctText(r.marginAfter, 0)}
+                </TableCell>
+                <TableCell className="tabular text-right">
+                  {r.profitBeforeCents !== null && r.profitAfterCents !== null ? (
+                    <>
+                      {moneyRound(r.profitBeforeCents)} → {moneyRound(r.profitAfterCents)}
+                      <p className={`text-[11px] ${r.profitAfterCents < r.profitBeforeCents ? "text-destructive" : "text-success"}`}>{signedMoney(r.profitAfterCents - r.profitBeforeCents)}</p>
+                    </>
+                  ) : (
+                    "—"
+                  )}
                 </TableCell>
                 <TableCell className={`tabular text-right ${r.revenueDeltaCents < 0 ? "text-destructive" : "text-success"}`}>{signedMoney(r.revenueDeltaCents)}</TableCell>
               </TableRow>
