@@ -28,7 +28,14 @@ Purchases (`add-purchases-and-settlement`) are facts recorded after the fact: `P
 9. **Dev sends to a catcher** (Mailpit in the compose). Real credentials are set only by the owner; no real e-mail is sent during development or tests.
 10. **Board without drag and drop**: columns plus the next-step button per card makes each step's requirements explicit (a number, quantities) and avoids accidental skips.
 
+11. **Entry at any stage.** The creation call takes the initial stage; the stage machine validates the requirements of that stage, and the event log records "created at X". NF-e import and manual entry default to `invoiced` (the owner records after the invoice is issued) and show a one-click "Receber" (quantities default to what was ordered) plus "já recebi" at entry. Alternative: always start at requisition — rejected, it is not how the owner works.
+12. **Order-level delivery and payment fields**: `expected_delivery_on`, `payment_term` (`on_receipt | due_date`), `payment_due_on`. Payment status stays per item as today; the pending-payments view reads paid-condition items of orders by `payment_due_on` (receipt date for `on_receipt`). Lateness and overdue are derived at read time (no stored flags).
+13. **New product from the form** calls the existing products-service create (`POST /products`), then refreshes the selector; the optional reference cost uses the existing dated cost route with the purchase date. Permission follows products:write; no new backend capability.
+
 ## Risks / Trade-offs
+
+- [Entering at `invoiced` and forgetting to receive hides the purchase from the analysis] → the board keeps it in "Aguardando recebimento" with a reminder after the expected delivery date, the receive button is one click, and "já recebi" is offered at entry.
+- [A new product with no registered cost shows no margin] → the form offers to register the purchase cost as reference; otherwise the analysis keeps saying "Sem custo cadastrado".
 
 - [Changing what "purchased" means] → existing purchases migrate as received, so numbers do not move; only new open orders are excluded.
 - [A real e-mail is an outward, irreversible action] → preview, explicit confirm, no repeat without "send again", send log, and dev goes to a catcher.
@@ -41,6 +48,8 @@ Purchases (`add-purchases-and-settlement`) are facts recorded after the fact: `P
 Additive columns and two tables in suppliers-service; a data migration sets existing purchases to `received`. Rollback: the stage column can be ignored (all rows read as received), and the mail module can be disabled by leaving SMTP unset (the send action reports "not configured").
 
 ## Open Questions
+
+- Whether the payment term should also support instalments (several due dates for one order); assumed one due date per order.
 
 - Receiving in parts: does a partial receipt close the order or keep a balance? Assumed: it closes at what was received, with the difference visible (no balance).
 - Copy (CC) to the owner on each send: assumed no, one recipient.

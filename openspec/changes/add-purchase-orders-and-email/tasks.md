@@ -6,6 +6,10 @@
 - [ ] 1.4 Only received orders count: `summary()` and the settlement use `received_on` and `received_quantity`; list open orders separately
 - [ ] 1.5 Routes and tests (fakes), and the throwaway-database integration spec extended
 
+- [ ] 1.6 Entry at any stage: creation takes the initial stage; requirements per stage; event "created at X"; tests
+- [ ] 1.7 Delivery deadline and payment term fields; due date from the receipt for `on_receipt`; derived late and overdue flags
+- [ ] 1.8 Pending-payments listing by due date with totals (paid-condition items only)
+
 ## 2. Gateway
 
 - [ ] 2.1 `/purchase-orders/*` routes that set the actor from the session and ignore a client-sent actor
@@ -24,7 +28,10 @@
 - [ ] 4.2 New-requisition form reusing the purchase form
 - [ ] 4.3 Send dialog: preview, editable recipient with save-to-supplier option, PDF generated in the browser, confirm
 - [ ] 4.4 Invoicing step (number or NF-e import) and receiving step (received quantities, difference highlighted)
-- [ ] 4.5 Component specs; docs in the CLAUDE.md files
+- [ ] 4.5 Entry stage selector (default invoiced with a number or NF-e), "já recebi", delivery date and payment term in the forms; late and overdue badges on cards and list
+- [ ] 4.6 Pending payments view by due date
+- [ ] 4.7 Register a new product from the requisition, manual and import forms (selectable at once; optional reference cost)
+- [ ] 4.8 Component specs; docs in the CLAUDE.md files
 
 ## 5. Verification
 
