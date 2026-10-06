@@ -1,4 +1,4 @@
-import { classifyBehavior, distribution } from "./product-behavior";
+import { classifyBehavior, distribution, distributionText } from "./product-behavior";
 
 describe("classifyBehavior", () => {
   it("100,102,98,101,100 is estavel", () => expect(classifyBehavior([100, 102, 98, 101, 100])).toBe("estavel"));
@@ -24,4 +24,13 @@ describe("distribution", () => {
     expect(d.topShare).toBeCloseTo(0.78);
   });
   it("no net movement is flat", () => expect(distribution([5, -5]).direction).toBe("flat"));
+});
+
+describe("distributionText", () => {
+  it("says what is distributed and where", () => {
+    expect(distributionText(distribution([50, 28, 6, 6, 5, 5]))).toBe("78% do aumento de unidades veio de 2 lojas");
+    expect(distributionText(distribution([5, 5, 5, 5, 5, 5, 5, 5]))).toBe("aumento de unidades em 8 lojas");
+    expect(distributionText(distribution([-5, -5, -5]))).toBe("queda de unidades em 3 lojas");
+  });
+  it("is null when nothing moved", () => expect(distributionText(distribution([5, -5]))).toBeNull());
 });

@@ -32,7 +32,7 @@ export const BEHAVIOR_LABELS: Record<ProductBehavior, string> = {
   queda_consistente: "Queda consistente",
   volatil: "Volátil",
   mudanca_recente: "Mudança recente",
-  novo: "Novo no período",
+  novo: "SKU sem histórico",
   dados_insuficientes: "Histórico insuficiente",
 };
 
@@ -103,4 +103,17 @@ export function distribution(deltaByStore: number[]): Distribution {
     topShare,
     concentrated: topShare !== null && aligned.length > DISTRIBUTION.CONCENTRATED_TOP_N && topShare >= DISTRIBUTION.CONCENTRATED_SHARE,
   };
+}
+
+/**
+ * Texto da distribuição, sempre dizendo O QUE se distribui (unidades vendidas)
+ * e em quantas lojas: "70% do aumento de unidades veio de 2 lojas".
+ */
+export function distributionText(d: Distribution | null): string | null {
+  if (!d || d.direction === "flat" || d.storesAffected === 0) return null;
+  const word = d.direction === "up" ? "aumento" : "queda";
+  if (d.concentrated && d.topShare !== null) {
+    return `${Math.round(d.topShare * 100)}% do ${word} de unidades veio de ${DISTRIBUTION.CONCENTRATED_TOP_N} lojas`;
+  }
+  return `${word} de unidades em ${d.storesAffected} ${d.storesAffected === 1 ? "loja" : "lojas"}`;
 }

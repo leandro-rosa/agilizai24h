@@ -33,6 +33,7 @@ function input(): OverviewInput {
     sales: null,
     costBySku: null,
     productNames: { A: "Produto A", B: "Produto B" },
+    storeList: null,
     aging: { referenceDate: "2026-11-03", overdueCents: 0, notDueCents: 1_250_000, openCents: 1_250_000 },
     closed: true,
   };

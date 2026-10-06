@@ -25,7 +25,7 @@ export function buildOverview(input: OverviewInput): Overview {
 
   const kpis = buildKpis(months);
   const stores = buildStoreSummary(input.stores.current, input.stores.previous, input.stores.activeCount, prev.pnl?.netRevenueCents ?? null);
-  const products = input.sales ? buildProducts(period, previousPeriod, input.sales, input.costBySku, input.productNames) : null;
+  const products = input.sales ? buildProducts(period, previousPeriod, input.sales, input.costBySku, input.productNames, input.storeList) : null;
   const loss = buildLoss(cur, prev, input.productNames);
   const cash = buildCashSummary(cur, prev, input.aging);
   const cashUses = buildCashUses(months);

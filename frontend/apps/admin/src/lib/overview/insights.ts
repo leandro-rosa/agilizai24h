@@ -1,6 +1,6 @@
 import { moneyCompact, period as fmtPeriod } from "../format";
 import { signedPct } from "./compare";
-import { BEHAVIOR_LABELS } from "./product-behavior";
+import { BEHAVIOR_LABELS, distributionText } from "./product-behavior";
 import { reasonLabel } from "../removal-reasons";
 import type { CapexSummary, CashSummary, CashUses, Insight, KpiResult, LossSummary, ProductsSummary, StoreSummary } from "./types";
 import type { ValueDelta } from "./compare";
@@ -114,11 +114,8 @@ export function buildInsights(i: InsightInput): Insight[] {
   const drop = i.products?.falling[0] ?? null;
   for (const [p, up] of [[lead, true], [drop, false]] as const) {
     if (!p || p.deltaRevenuePct === null || p.deltaRevenueCents === null) continue;
-    const dist = p.distribution && p.distribution.storesAffected > 0
-      ? p.distribution.concentrated
-        ? ` ${Math.round((p.distribution.topShare ?? 0) * 100)}% do movimento ficou em 2 lojas.`
-        : ` Movimento observado em ${p.distribution.storesAffected} lojas.`
-      : "";
+    const distTxt = distributionText(p.distribution);
+    const dist = distTxt ? ` ${distTxt[0].toUpperCase()}${distTxt.slice(1)}.` : "";
     const consistent = p.behavior === "crescimento_consistente" || p.behavior === "queda_consistente" ? ` ${BEHAVIOR_LABELS[p.behavior]} nos últimos 4 meses.` : "";
     out.push({
       id: `product:${p.sku}`,

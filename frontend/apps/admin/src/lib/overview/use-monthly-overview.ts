@@ -93,6 +93,7 @@ export function useMonthlyOverview(period: string | null) {
       },
       sales: sales.data ? { cells, ingestedPeriods: ingested, seriesPeriods: monthsInRange(salesRange) } : null,
       costBySku: costs.data ? Object.fromEntries(costs.data.resolved.map((r) => [r.sku, r.cost_cents])) : null,
+      storeList: stores.data ? stores.data.filter((x) => x.status === "active").map((x) => ({ id: x.id, name: x.name })) : null,
       productNames: Object.fromEntries((products.data ?? EMPTY).map((x) => [x.sku, x.name])),
       aging: aging.data
         ? {

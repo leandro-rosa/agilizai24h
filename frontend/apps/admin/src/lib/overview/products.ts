@@ -36,6 +36,7 @@ export function buildProducts(
   sales: { cells: SalesCell[]; ingestedPeriods: string[]; seriesPeriods: string[] },
   costBySku: Record<string, number> | null,
   names: Record<string, string>,
+  storeList: { id: number; name: string }[] | null = null,
 ): ProductsSummary | null {
   if (!sales.ingestedPeriods.includes(period)) return null;
   const hasComparison = sales.ingestedPeriods.includes(previousPeriod);
@@ -75,6 +76,19 @@ export function buildProducts(
     const m0 = marginPct(a);
     const m1 = p ? marginPct(p) : null;
 
+    const nameOf = new Map((storeList ?? []).map((x) => [x.id, x.name]));
+    const listed = new Set([...(storeList ?? []).map((x) => x.id), ...storeIds]);
+    const byStore = [...listed].map((id) => {
+      const rev = cur.filter((c) => c.storeId === id).reduce((acc, c) => acc + c.revenueCents, 0);
+      return {
+        storeId: id,
+        name: nameOf.get(id) ?? `Loja ${id}`,
+        units: curByStore.get(id) ?? 0,
+        unitsPrevious: hasComparison ? (prevByStore.get(id) ?? 0) : null,
+        revenueCents: rev,
+      };
+    });
+
     rows.push({
       sku,
       name: names[sku] ?? sku,
@@ -91,6 +105,7 @@ export function buildProducts(
       series,
       behavior: classifyBehavior(series),
       distribution: p ? distribution(deltas) : null,
+      byStore,
       material: isMaterial({ deltaAbs: dr.abs, deltaPct: dr.pct, base: totalPrevRevenue }),
     });
   }

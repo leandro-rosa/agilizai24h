@@ -91,6 +91,8 @@ export interface OverviewInput {
   /** SKU → custo unitário em centavos (só resolvidos). */
   costBySku: Record<string, number> | null;
   productNames: Record<string, string>;
+  /** Lojas ativas (id + nome) — base para dizer em quais lojas um produto vendeu ou não. */
+  storeList: { id: number; name: string }[] | null;
   aging: { referenceDate: string; overdueCents: number; notDueCents: number; openCents: number } | null;
   /** Fechamento do mês na rede. */
   closed: boolean;
@@ -149,6 +151,15 @@ export interface StoreSummary {
   attention: StoreAttention[];
 }
 
+export interface ProductStoreRow {
+  storeId: number;
+  name: string;
+  units: number;
+  /** null = mês anterior não importado (sem base). */
+  unitsPrevious: number | null;
+  revenueCents: number;
+}
+
 export interface ProductRow {
   sku: string;
   name: string;
@@ -166,6 +177,8 @@ export interface ProductRow {
   series: (number | null)[];
   behavior: ProductBehavior;
   distribution: Distribution | null;
+  /** Toda loja ativa, com ou sem venda do SKU no mês — alimenta o detalhe clicável. */
+  byStore: ProductStoreRow[];
   material: boolean;
 }
 

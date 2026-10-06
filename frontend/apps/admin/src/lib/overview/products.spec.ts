@@ -43,6 +43,16 @@ describe("buildProducts", () => {
     expect(r.rising[0].distribution).toMatchObject({ storesAffected: 3, concentrated: false });
   });
 
+  it("lists every active store, with and without sales of the SKU", () => {
+    const cells = [cell(1, "2026-10", "A", 10, 1_000), cell(1, "2026-09", "A", 10, 1_000), cell(2, "2026-09", "A", 4, 400)];
+    const stores = [{ id: 1, name: "Loja 1" }, { id: 2, name: "Loja 2" }, { id: 3, name: "Loja 3" }];
+    const r = buildProducts("2026-10", "2026-09", sales(cells), null, {}, stores)!;
+    const by = Object.fromEntries(r.topSold[0].byStore.map((x) => [x.name, x]));
+    expect(by["Loja 1"]).toMatchObject({ units: 10, unitsPrevious: 10 });
+    expect(by["Loja 2"]).toMatchObject({ units: 0, unitsPrevious: 4 }); // vendeu e parou
+    expect(by["Loja 3"]).toMatchObject({ units: 0, unitsPrevious: 0 }); // nunca vendeu
+  });
+
   it("an ingestion hole in the series is null, not a fall to zero", () => {
     const cells = [cell(1, "2026-10", "A", 10, 1_000), cell(1, "2026-09", "A", 10, 1_000)];
     const r = buildProducts("2026-10", "2026-09", sales(cells, ["2026-07", "2026-08", "2026-09", "2026-10"]), null, {})!;
