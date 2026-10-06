@@ -275,13 +275,35 @@ export function toCents(value: unknown): number | null {
  * are accepted.
  */
 export function toExcelDate(value: unknown): Date | null {
-  if (value instanceof Date) return value
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+  // A `Date` that crossed the queue (BullMQ serialises jobs as JSON) arrives as an ISO string — which is how every
+  // transaction timestamp was lost (`occurred_at` null on all of Aug/Sep). The Brazilian display form is read too.
+  if (typeof value === 'string') return parseDateText(value)
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
 
   const EXCEL_EPOCH_MS = Date.UTC(1899, 11, 30)
   const MS_PER_DAY = 86_400_000
 
   return new Date(EXCEL_EPOCH_MS + value * MS_PER_DAY)
+}
+
+/** `2026-09-30T23:58:34.000Z`, or `30/09/2026 23:58[:34]` read as wall-clock time (same convention as the serial dates: UTC fields). */
+function parseDateText(text: string): Date | null {
+  const value = text.trim()
+  if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    const parsed = new Date(value)
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  const br = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(value)
+  if (!br) return null
+
+  const [, day, month, year, hour = '0', minute = '0', second = '0'] = br
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)))
+
+  // Reject 31/02 and the like: a rolled-over date is a wrong date.
+  return date.getUTCMonth() === Number(month) - 1 && date.getUTCDate() === Number(day) ? date : null
 }
 
 export function toQuantity(value: unknown): number | null {

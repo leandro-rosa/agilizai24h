@@ -10,7 +10,7 @@ import { gatewayBaseQuery } from "./base-query";
 export type UnavailableReason = "no_purchase_history" | "never_ingested" | "no_cost" | "no_base";
 
 export type Figure =
-  | { available: true; value: number; partial?: boolean }
+  | { available: true; value: number; partial?: boolean; /** Rateado, não registrado (a perda de um dia). */ estimated?: boolean }
   | { available: false; reason: UnavailableReason };
 
 export type CompareTo = "prev_month" | "avg_3m";
@@ -82,6 +82,15 @@ export interface AnalysisMeta {
   /** Primeiro mês do intervalo (igual a `period` quando é um mês só). */
   from: string;
   months: number;
+  /** `day` quando o intervalo foi pedido por datas que não são meses inteiros. */
+  granularity: "month" | "day";
+  fromDate: string;
+  toDate: string;
+  days: number;
+  /** Como a comparação se chama: "mês anterior", "média de 3 meses" ou "período anterior". */
+  comparisonLabel: string;
+  /** Presente num intervalo de dias: o que o número do dia é e não é. */
+  daily: { salesDetailMissingMonths: string[]; lossEstimated: boolean } | null;
   /** Período com o qual se compara, quando o intervalo tem vários meses. */
   previous: { from: string; to: string } | null;
   compareTo: CompareTo;
@@ -131,10 +140,9 @@ export interface CrossAnalysis {
 }
 
 export interface AnalysisArgs {
-  /** Último mês. */
-  period: string;
-  /** Primeiro mês, quando o filtro cobre mais de um. */
-  from?: string;
+  /** Primeiro e último dia (`YYYY-MM-DD`). Meses inteiros usam o registro mensal; pontas de mês, as visitas e os recibos. */
+  fromDate: string;
+  toDate: string;
   compareTo: CompareTo;
   /** Restringe os números a uma loja. Compras são da rede e ficam como "—" quando há loja. */
   storeId?: number;
@@ -147,18 +155,18 @@ export const supplierAnalysisApi = createApi({
   tagTypes: ["Analysis"],
   endpoints: (builder) => ({
     getSupplierAnalysis: builder.query<SupplierAnalysis, AnalysisArgs & { supplierId: number }>({
-      query: ({ supplierId, period, from, compareTo, storeId }) =>
-        `/analysis/suppliers/${supplierId}?period=${period}${from ? `&from=${from}` : ""}&compareTo=${compareTo}${storeId ? `&storeId=${storeId}` : ""}`,
+      query: ({ supplierId, fromDate, toDate, compareTo, storeId }) =>
+        `/analysis/suppliers/${supplierId}?fromDate=${fromDate}&toDate=${toDate}&compareTo=${compareTo}${storeId ? `&storeId=${storeId}` : ""}`,
       providesTags: ["Analysis"],
     }),
     getProductAnalysis: builder.query<ProductAnalysis, AnalysisArgs & { sku: string }>({
-      query: ({ sku, period, from, compareTo, storeId }) =>
-        `/analysis/products/${encodeURIComponent(sku)}?period=${period}${from ? `&from=${from}` : ""}&compareTo=${compareTo}${storeId ? `&storeId=${storeId}` : ""}`,
+      query: ({ sku, fromDate, toDate, compareTo, storeId }) =>
+        `/analysis/products/${encodeURIComponent(sku)}?fromDate=${fromDate}&toDate=${toDate}&compareTo=${compareTo}${storeId ? `&storeId=${storeId}` : ""}`,
       providesTags: ["Analysis"],
     }),
     getCrossAnalysis: builder.query<CrossAnalysis, AnalysisArgs & { supplierId: number; sku: string }>({
-      query: ({ supplierId, sku, period, from, compareTo }) =>
-        `/analysis/cross?supplierId=${supplierId}&sku=${encodeURIComponent(sku)}&period=${period}${from ? `&from=${from}` : ""}&compareTo=${compareTo}`,
+      query: ({ supplierId, sku, fromDate, toDate, compareTo }) =>
+        `/analysis/cross?supplierId=${supplierId}&sku=${encodeURIComponent(sku)}&fromDate=${fromDate}&toDate=${toDate}&compareTo=${compareTo}`,
       providesTags: ["Analysis"],
     }),
   }),

@@ -20,9 +20,19 @@ const TONE_CLASS = { positive: "text-success", critical: "text-destructive", neu
 const REFERENCE_LABEL: Record<CompareTo, string> = { prev_month: "mês anterior", avg_3m: "média de 3 meses" };
 
 /** Faixa de indicadores com a variação contra a comparação escolhida e o valor de referência à vista. */
-export function KpiStrip({ items, compareTo, columns = 6, rangeMonths = 1 }: { items: Kpi[]; compareTo: CompareTo; columns?: 4 | 6; rangeMonths?: number }) {
-  // Um intervalo de vários meses se compara com o período imediatamente anterior, do mesmo tamanho.
-  const referenceLabel = rangeMonths > 1 ? "período anterior" : REFERENCE_LABEL[compareTo];
+export function KpiStrip({
+  items,
+  compareTo,
+  columns = 6,
+  comparisonLabel,
+}: {
+  items: Kpi[];
+  compareTo: CompareTo;
+  columns?: 4 | 6;
+  /** Como a comparação se chama (vem da API: um intervalo se compara com o período anterior). */
+  comparisonLabel?: string;
+}) {
+  const referenceLabel = comparisonLabel ?? REFERENCE_LABEL[compareTo];
   return (
     <div className={cn("grid gap-3 sm:grid-cols-2", columns === 6 ? "xl:grid-cols-6" : "xl:grid-cols-4")} data-testid="kpi-strip">
       {items.map((kpi) => {

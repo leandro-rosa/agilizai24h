@@ -30,7 +30,8 @@ export function formatValue(value: number, kind: FigureKind): string {
 /** Texto de uma cifra: o valor (com ~ quando parcial) ou o motivo da ausência. */
 export function formatFigure(figure: Figure, kind: FigureKind): string {
   if (!figure.available) return REASON_TEXT[figure.reason];
-  return `${figure.partial ? "~" : ""}${formatValue(figure.value, kind)}`;
+  // "~" = falta dado de algum mês/loja; "≈" = o número foi rateado (perda de um dia), não registrado.
+  return `${figure.estimated ? "≈" : figure.partial ? "~" : ""}${formatValue(figure.value, kind)}`;
 }
 
 /** Variação relativa, com sinal. `null` quando não há como comparar. */

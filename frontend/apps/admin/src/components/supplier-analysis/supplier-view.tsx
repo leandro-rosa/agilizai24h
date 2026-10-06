@@ -101,8 +101,8 @@ export function SupplierView({
           <DataQualityNote meta={analysis.meta} />
         </CardContent>
       </Card>
-      <KpiStrip items={movementKpis(analysis.totals, { linkedProducts: analysis.products.length })} compareTo={compareTo} rangeMonths={analysis.meta.months} />
-      <ProfitabilityStrip totals={analysis.totals} compareTo={compareTo} rangeMonths={analysis.meta.months} attention={analysis.attention} />
+      <KpiStrip items={movementKpis(analysis.totals, { linkedProducts: analysis.products.length })} compareTo={compareTo} comparisonLabel={analysis.meta.comparisonLabel} />
+      <ProfitabilityStrip totals={analysis.totals} compareTo={compareTo} comparisonLabel={analysis.meta.comparisonLabel} attention={analysis.attention} />
       <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
         <InsightList title="Principais insights deste fornecedor" insights={analysis.insights} />
         <MovementBars movement={analysis.totals.current} />

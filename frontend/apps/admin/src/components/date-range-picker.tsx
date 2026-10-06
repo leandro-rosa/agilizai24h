@@ -54,7 +54,7 @@ export function DateRangePicker({ value, onChange }: { value: DayRange; onChange
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="start">
-          <Calendar mode="range" selected={selected} onSelect={handleSelect} numberOfMonths={2} />
+          <Calendar mode="range" selected={selected} defaultMonth={selected?.from} onSelect={handleSelect} numberOfMonths={2} />
         </PopoverContent>
       </Popover>
       {value.from && (

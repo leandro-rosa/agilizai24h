@@ -136,6 +136,28 @@ describe("InsightList", () => {
   });
 });
 
+describe("KpiStrip comparison label", () => {
+  it("usa o rótulo da API: um intervalo se compara com o período anterior", () => {
+    render(
+      <KpiStrip
+        compareTo="prev_month"
+        comparisonLabel="período anterior"
+        items={[{ label: "Unidades vendidas", figure: ok(100), kind: "units", variation: { reference: ok(80), change: ok(0.25) }, higherIsBetter: true }]}
+      />,
+    );
+
+    expect(screen.getByText(/\+25%/)).toBeInTheDocument();
+    expect(screen.getByText(/período anterior: 80 un\./)).toBeInTheDocument();
+    expect(screen.queryByText(/mês anterior/)).not.toBeInTheDocument();
+  });
+
+  it("marca com ≈ a perda rateada de um intervalo de dias", () => {
+    render(<KpiStrip compareTo="prev_month" items={[{ label: "Perdas", figure: { available: true, value: 4, estimated: true }, kind: "units", variation: noBase, higherIsBetter: false }]} />);
+
+    expect(screen.getByText("≈4 un.")).toBeInTheDocument();
+  });
+});
+
 describe("DataQualityNote", () => {
   it("lista os meses incompletos e a base de compras ausente", () => {
     render(
@@ -214,7 +236,7 @@ describe("ProfitabilityStrip", () => {
   } as never;
 
   it("mostra lucro bruto, margem, markup, produtos com atenção e a cobertura do custo", () => {
-    render(<ProfitabilityStrip totals={totals} compareTo="prev_month" rangeMonths={1} attention={{ threshold: 0.2, count: 3, rated: 40 }} />);
+    render(<ProfitabilityStrip totals={totals} compareTo="prev_month" attention={{ threshold: 0.2, count: 3, rated: 40 }} />);
 
     expect(screen.getByText("Lucro bruto")).toBeInTheDocument();
     expect(screen.getByText("57,5%")).toBeInTheDocument();
@@ -225,8 +247,42 @@ describe("ProfitabilityStrip", () => {
   });
 
   it("sem o bloco de atenção (produto), não inventa 'produtos com atenção'", () => {
-    render(<ProfitabilityStrip totals={totals} compareTo="prev_month" rangeMonths={1} />);
+    render(<ProfitabilityStrip totals={totals} compareTo="prev_month" />);
 
     expect(screen.queryByText("Produtos com atenção")).not.toBeInTheDocument();
+  });
+});
+
+describe("DataQualityNote — intervalo de dias", () => {
+  const meta = (daily: { salesDetailMissingMonths: string[]; lossEstimated: boolean } | null) =>
+    ({
+      period: "2026-10",
+      from: "2026-10",
+      months: 1,
+      granularity: "day",
+      fromDate: "2026-10-01",
+      toDate: "2026-10-10",
+      days: 10,
+      comparisonLabel: "período anterior",
+      daily,
+      previous: { from: "2026-09-21", to: "2026-09-30" },
+      compareTo: "prev_month",
+      parameterVersion: 1,
+      dataQuality: { monthsWithGaps: [], purchaseBaseFrom: null },
+    }) as never;
+
+  it("explica o que o número do dia é: perda estimada e meses sem recibo com data", () => {
+    render(<DataQualityNote meta={meta({ salesDetailMissingMonths: ["2026-07"], lossEstimated: true })} />);
+
+    const note = screen.getByTestId("daily-note");
+    expect(note).toHaveTextContent("A perda do dia é uma estimativa (≈)");
+    expect(note).toHaveTextContent("Sem recibos com data em jul/2026");
+    expect(note).toHaveTextContent("não como zero");
+  });
+
+  it("não mostra a nota num intervalo de meses inteiros", () => {
+    render(<DataQualityNote meta={meta(null)} />);
+
+    expect(screen.queryByTestId("daily-note")).not.toBeInTheDocument();
   });
 });

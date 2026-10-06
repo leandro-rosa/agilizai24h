@@ -14,12 +14,12 @@ const NO_BASE = { reference: { available: false, reason: "no_base" }, change: { 
 export function ProfitabilityStrip({
   totals,
   compareTo,
-  rangeMonths,
+  comparisonLabel,
   attention,
 }: {
   totals: MovementWithComparison;
   compareTo: CompareTo;
-  rangeMonths: number;
+  comparisonLabel?: string;
   attention?: { threshold: number; count: number; rated: number };
 }) {
   const { current, comparison } = totals;
@@ -54,7 +54,7 @@ export function ProfitabilityStrip({
         </div>
       </CardHeader>
       <CardContent>
-        <KpiStrip items={kpis} compareTo={compareTo} rangeMonths={rangeMonths} columns={attention ? 6 : 4} />
+        <KpiStrip items={kpis} compareTo={compareTo} comparisonLabel={comparisonLabel} columns={attention ? 6 : 4} />
       </CardContent>
     </Card>
   );

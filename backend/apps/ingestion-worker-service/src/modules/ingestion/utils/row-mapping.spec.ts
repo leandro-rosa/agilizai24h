@@ -261,3 +261,25 @@ describe('the silent-zero trap', () => {
     expect(toQuantity(value)).toBeNull()
   })
 })
+
+describe('toExcelDate', () => {
+  it('reads a serial number, a Date, and a Date that went through the queue as an ISO string', () => {
+    expect(toExcelDate(46295.9989814815)?.toISOString()).toBe('2026-09-30T23:58:32.000Z')
+    const date = new Date('2026-09-30T23:58:34.000Z')
+    expect(toExcelDate(date)).toBe(date)
+    expect(toExcelDate('2026-09-30T23:58:34.000Z')?.toISOString()).toBe('2026-09-30T23:58:34.000Z')
+  })
+
+  it('reads the Brazilian text form as wall-clock time and refuses impossible dates', () => {
+    expect(toExcelDate('30/09/2026 23:58:34')?.toISOString()).toBe('2026-09-30T23:58:34.000Z')
+    expect(toExcelDate('05/10/2026')?.toISOString()).toBe('2026-10-05T00:00:00.000Z')
+    expect(toExcelDate('31/02/2026')).toBeNull()
+  })
+
+  it('gives null, not an epoch date, for anything else', () => {
+    expect(toExcelDate('hoje')).toBeNull()
+    expect(toExcelDate('')).toBeNull()
+    expect(toExcelDate(null)).toBeNull()
+    expect(toExcelDate(new Date('x'))).toBeNull()
+  })
+})
