@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCreatePurchaseMutation, usePreviewInvoiceMutation, type Condition, type InvoicePreview } from "@/lib/api/purchases";
 import { useGetProductsQuery } from "@/lib/api/products";
+import { useAddAliasMutation, useGetSuppliersQuery, useUpdateSupplierMutation } from "@/lib/api/suppliers";
 import { supplierAnalysisApi } from "@/lib/api/supplier-analysis";
 import { useAppDispatch } from "@/lib/hooks";
 import { CONDITION_LABEL, formatCents, formatDate } from "@/lib/purchases/money";
@@ -29,6 +30,11 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
   const dispatch = useAppDispatch();
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<InvoicePreview | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [linkTo, setLinkTo] = useState("");
+  const suppliers = useGetSuppliersQuery({ status: "active" }).data ?? [];
+  const [addAlias, { isLoading: linking }] = useAddAliasMutation();
+  const [updateSupplier] = useUpdateSupplierMutation();
   const [conditions, setConditions] = useState<Record<number, Condition>>({});
   const [chosen, setChosen] = useState<Record<number, string>>({});
   const [read, { isLoading: reading }] = usePreviewInvoiceMutation();
@@ -39,16 +45,35 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
   const labelOf = (p: { name: string; sku: string }) => `${p.name} (${p.sku})`;
   const labels = useMemo(() => products.map(labelOf), [products]);
 
-  async function onFile(file: File | undefined) {
-    if (!file) return;
+  async function onFile(next: File | undefined) {
+    if (!next) return;
+    setFile(next);
     setPreview(null);
     try {
-      setPreview(await read(file).unwrap());
+      setPreview(await read(next).unwrap());
       setConditions({});
       setChosen({});
     } catch (failure) {
       const message = (failure as { data?: { message?: string } })?.data?.message;
       toast.error(message ?? "Não foi possível ler a nota. Confirme que é um XML de NF-e.");
+    }
+  }
+
+  /**
+   * O de-para do fornecedor: o nome do emitente da nota vira alias do fornecedor escolhido (e o CNPJ dele, se ainda não tiver um), então
+   * esta e as próximas notas desse emitente (de qualquer filial) são reconhecidas sozinhas. Depois relê a nota.
+   */
+  async function linkSupplier() {
+    const target = suppliers.find((s) => String(s.id) === linkTo);
+    if (!preview || !target || !file) return;
+    try {
+      await addAlias({ id: target.id, alias: preview.issuer.name }).unwrap();
+      if (!target.tax_id) await updateSupplier({ id: target.id, tax_id: preview.issuer.tax_id, legal_name: target.legal_name ?? preview.issuer.name }).unwrap().catch(() => undefined);
+      toast.success(`${preview.issuer.name} agora é reconhecido como ${target.name}.`);
+      setPreview(await read(file).unwrap());
+      setLinkTo("");
+    } catch (failure) {
+      toast.error((failure as { data?: { message?: string } })?.data?.message ?? "Não foi possível vincular o emitente a esse fornecedor.");
     }
   }
 
@@ -106,7 +131,31 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
               <p className="text-muted-foreground">
                 Emitente: {preview.issuer.name} (CNPJ/CPF {preview.issuer.tax_id}) · {preview.supplier ? `fornecedor cadastrado: ${preview.supplier.name}` : "fornecedor NÃO cadastrado"}
               </p>
-              {!preview.supplier && <p className="mt-1 text-destructive">Cadastre este fornecedor (com o CNPJ) em Fornecedores e importe de novo.</p>}
+              {preview.supplier && preview.matched_by === "alias" && <p className="mt-1 text-xs text-muted-foreground">Reconhecido pelo nome do emitente cadastrado em {preview.supplier.name}.</p>}
+              {preview.supplier && preview.matched_by === "cnpj_root" && <p className="mt-1 text-xs text-muted-foreground">Mesma empresa de {preview.supplier.name} (outra filial: mesma raiz de CNPJ).</p>}
+              {!preview.supplier && (
+                <div className="mt-2 flex flex-col gap-2 rounded-md border border-dashed p-2">
+                  <p className="text-destructive">Este emitente ainda não é um fornecedor cadastrado. Quem ele é?</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select value={linkTo} onValueChange={setLinkTo}>
+                      <SelectTrigger className="w-64" aria-label="Fornecedor deste emitente">
+                        <SelectValue placeholder="Escolha o fornecedor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[...suppliers].sort((a, b) => a.name.localeCompare(b.name, "pt-BR")).map((s) => (
+                          <SelectItem key={s.id} value={String(s.id)}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" onClick={linkSupplier} disabled={!linkTo || linking}>
+                      {linking ? "Vinculando..." : "Vincular emitente"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Ex.: {preview.issuer.name} é o fornecedor “Juntos+”. O vínculo fica salvo: as próximas notas dele são reconhecidas sozinhas. Se ele não existe, cadastre em Fornecedores.</p>
+                </div>
+              )}
               {preview.duplicate_of !== null && <p className="mt-1 text-destructive">Esta nota já foi registrada (compra {preview.duplicate_of}). Não será duplicada.</p>}
             </div>
 

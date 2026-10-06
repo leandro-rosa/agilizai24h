@@ -74,6 +74,8 @@ export interface InvoicePreview {
   issued_on: string;
   issuer: { tax_id: string; name: string };
   supplier: { id: number; name: string } | null;
+  /** Como o fornecedor foi reconhecido: CNPJ exato, nome do emitente cadastrado como alias (de-para) ou raiz do CNPJ (outra filial). */
+  matched_by: "tax_id" | "alias" | "cnpj_root" | null;
   duplicate_of: number | null;
   items: InvoicePreviewItem[];
 }
