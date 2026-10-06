@@ -119,7 +119,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
         ...termsPayload(terms),
         items: resolved.map((item) => {
           const converted = conversionOf(item) as { units: number; unitCostCents: number };
-          return { sku: skuFor(item) as string, description: item.description, quantity: converted.units, unit_cost_cents: converted.unitCostCents, condition: conditions[item.line] ?? "paid" };
+          return { sku: skuFor(item) as string, supplier_code: item.sku ? undefined : item.code, description: item.description, quantity: converted.units, unit_cost_cents: converted.unitCostCents, condition: conditions[item.line] ?? "paid" };
         }),
       }).unwrap();
       // A embalagem digitada vira dado do produto (só onde ainda não havia): a próxima nota já vem sugerida.
@@ -215,11 +215,30 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                         </TableCell>
                         <TableCell>
                           {item.sku ? (
-                            <span className="text-sm">{item.product_name}</span>
+                            <>
+                              <span className="text-sm">{item.product_name}</span>
+                              {item.matched_by === "supplier_code" && <p className="text-xs text-muted-foreground">pelo código deste fornecedor, vinculado antes</p>}
+                            </>
                           ) : (
                             <>
                               <Combobox options={labels} value={chosen[item.line] ?? ""} onChange={(label) => setChosen((c) => ({ ...c, [item.line]: label }))} placeholder="Escolha o produto" className="w-56" />
                               {fixable && !sku && <p className="text-xs text-muted-foreground">{NO_MATCH}; fica de fora se não escolher.</p>}
+                              {fixable && !sku && item.suggestions.length > 0 && (
+                                <div className="flex flex-col gap-0.5 pt-1" aria-label="Parecidos no catálogo">
+                                  <p className="text-xs text-muted-foreground">Parecidos (confira antes de aceitar):</p>
+                                  {item.suggestions.map((suggestion) => (
+                                    <button
+                                      key={suggestion.sku}
+                                      type="button"
+                                      className="w-fit text-left text-xs text-primary underline-offset-2 hover:underline"
+                                      onClick={() => setChosen((c) => ({ ...c, [item.line]: labelOf(suggestion) }))}
+                                    >
+                                      {suggestion.name} ({suggestion.sku})
+                                      {suggestion.measure_differs && <span className="text-warning"> · medida diferente da nota</span>}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                               {fixable && !sku && canCreateProduct && (
                                 <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setNewProductLine(item.line)}>
                                   Cadastrar produto novo

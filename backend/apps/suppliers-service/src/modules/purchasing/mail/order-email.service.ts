@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException, ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import type { SendOrderEmailDto } from '../dto/purchase.dto'
 import { PurchasesService, type PurchaseView } from '../services/purchases.service'

@@ -62,6 +62,8 @@ export interface Purchase {
 
 export interface NewPurchaseItem {
   sku: string;
+  /** Código do item na nota do fornecedor; quando a pessoa escolheu o produto à mão, o vínculo fica salvo para as próximas notas. */
+  supplier_code?: string;
   description?: string;
   quantity: number;
   unit_cost_cents: number;
@@ -151,6 +153,10 @@ export interface InvoicePreviewItem {
   sku: string | null;
   product_name: string | null;
   unresolved_reason: "no_match" | null;
+  /** Como a linha achou o produto: código de barras, código do fornecedor já vinculado, ou código igual ao SKU. */
+  matched_by: "ean" | "supplier_code" | "sku" | null;
+  /** Só para linha sem produto: parecidos do catálogo. SUGESTÃO; nada é aplicado sem a pessoa aceitar. */
+  suggestions: { sku: string; name: string; score: number; measure_differs: boolean }[];
   /** Unidades dentro de uma unidade da nota, só como SUGESTÃO (cadastro do produto, senão lida da descrição: "6P", "12UN"). */
   pack_size_suggested: number | null;
   pack_source: "catalogue" | "description" | null;

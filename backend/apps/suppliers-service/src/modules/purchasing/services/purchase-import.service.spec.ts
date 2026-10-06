@@ -8,11 +8,12 @@ const invoice = (over: Partial<InvoiceInput['items'][number]>[] = [{}]): Invoice
   items: over.map((o, i) => ({ line: i + 1, code: 'QW-01', ean: '7891234567895', description: 'Wrap', unit: 'UN', quantity: 100, quantityIsWhole: true, unitCostCents: 800, totalCents: 80000, ...o })),
 })
 
-const make = (existing: { id: number } | null = null, options: { alias?: { id: number; name: string } | null; suppliers?: { id: number; name: string; tax_id: string }[] } = {}) => {
+const make = (existing: { id: number } | null = null, options: { links?: { code: string; sku: string }[]; alias?: { id: number; name: string } | null; suppliers?: { id: number; name: string; tax_id: string }[] } = {}) => {
   const prisma = {
     supplier: { findMany: async () => options.suppliers ?? [{ id: 75, name: 'Quinoa', tax_id: '35.370.333/0001-00' }, { id: 1, name: 'Outro', tax_id: '11111111000111' }] },
     supplierAlias: { findUnique: async () => (options.alias ? { supplier: options.alias } : null) },
     purchase: { findFirst: async () => existing },
+    supplierProductCode: { findMany: async () => options.links ?? [] },
   }
   const products = { products: async () => [{ id: 1, sku: 'Q1', name: 'Wrap', ean: '7891234567895', units_per_package: null }, { id: 2, sku: 'B2', name: 'Barra', ean: null, units_per_package: 24 }, { id: 3, sku: 'C3', name: 'Cola', ean: null, units_per_package: null }] }
 
@@ -110,5 +111,28 @@ describe('packHintFromDescription', () => {
     expect(packHintFromDescription('Suco 1L')).toBeNull()
     expect(packHintFromDescription('Barra 40g')).toBeNull()
     expect(packHintFromDescription('Produto 1UN')).toBeNull()
+  })
+})
+
+describe('PurchaseImportService.preview — lines without a barcode match', () => {
+  const line = (over: Partial<InvoiceInput['items'][number]>) => invoice([{ ean: null, ...over }])
+
+  it('uses the code the operator linked for this supplier, ahead of a SKU that happens to be equal', async () => {
+    const preview = await make(null, { links: [{ code: '118463', sku: 'C3' }] }).preview(line({ code: '118463', description: 'Cola 2L' }))
+
+    expect(preview.items[0]).toMatchObject({ sku: 'C3', matched_by: 'supplier_code', suggestions: [] })
+  })
+
+  it('suggests by name, without choosing: the line stays unresolved', async () => {
+    const preview = await make().preview(line({ code: '999', description: 'BARRA LT 30G CP' }))
+
+    expect(preview.items[0].sku).toBeNull()
+    expect(preview.items[0].unresolved_reason).toBe('no_match')
+    expect(preview.items[0].suggestions.map(s => s.sku)).toContain('B2')
+  })
+
+  it('marks which rule found the product', async () => {
+    expect((await make().preview(invoice())).items[0].matched_by).toBe('ean')
+    expect((await make().preview(line({ code: 'Q1' }))).items[0].matched_by).toBe('sku')
   })
 })

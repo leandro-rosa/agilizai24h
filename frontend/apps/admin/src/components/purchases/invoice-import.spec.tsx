@@ -7,7 +7,7 @@ const updateProduct = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }))
 
 const item = (over: Record<string, unknown> = {}) => ({
   line: 1, code: "118463", description: "Monster Energy LT 473ml 6P F. LISO CP", quantity: 25, unit_cost_cents: 4349, total_cents: 108725, unit: "UN",
-  sku: "M1", product_name: "Energético Monster", unresolved_reason: null, pack_size_suggested: 6, pack_source: "description", ...over,
+  sku: "M1", product_name: "Energético Monster", unresolved_reason: null, matched_by: "ean", suggestions: [], pack_size_suggested: 6, pack_source: "description", ...over,
 });
 let preview: Record<string, unknown> = {
   object_key: "k", number: "4990356", key: null, issued_on: "2026-09-03", issuer: { tax_id: "61186888009220", name: "SPAL" }, supplier: { id: 130, name: "Juntos+" }, matched_by: "alias", duplicate_of: null, items: [item()],
@@ -97,5 +97,41 @@ describe("InvoiceImportDialog — o preço da nota é do fardo", () => {
     expect(screen.getByText(/Este emitente ainda não é um fornecedor cadastrado/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Vincular emitente" })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Registrar/ })).toBeDisabled();
+  });
+});
+
+describe("InvoiceImportDialog — sugestões por nome", () => {
+  const unmatched = () => item({ sku: null, product_name: null, unresolved_reason: "no_match", matched_by: null, suggestions: [{ sku: "M1", name: "Energético Monster", score: 0.8, measure_differs: false }, { sku: "M2", name: "Monster 269ml", score: 0.6, measure_differs: true }] });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    preview = { ...preview, items: [unmatched()], supplier: { id: 130, name: "Juntos+" }, duplicate_of: null };
+  });
+
+  it("mostra os parecidos sem escolher nenhum: a linha fica de fora até a pessoa aceitar", async () => {
+    await openWithFile();
+
+    expect(screen.getByText("Energético Monster (M1)")).toBeInTheDocument();
+    expect(screen.getByText(/medida diferente da nota/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Registrar 0 itens" })).toBeDisabled();
+  });
+
+  it("aceitar a sugestão registra a linha e envia o código do fornecedor para o vínculo", async () => {
+    await openWithFile();
+    fireEvent.click(screen.getByText("Energético Monster (M1)"));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar 1 item" }));
+
+    await waitFor(() => expect(createPurchase).toHaveBeenCalledTimes(1));
+    const sent = createPurchase.mock.calls[0][0] as { items: { sku: string; supplier_code?: string }[] };
+    expect(sent.items[0]).toMatchObject({ sku: "M1", supplier_code: "118463" });
+  });
+
+  it("linha que já casou por código de barras não manda vínculo", async () => {
+    preview = { ...preview, items: [item()] };
+    await openWithFile();
+    fireEvent.click(screen.getByRole("button", { name: "Registrar 1 item" }));
+
+    await waitFor(() => expect(createPurchase).toHaveBeenCalledTimes(1));
+    expect((createPurchase.mock.calls[0][0] as { items: { supplier_code?: string }[] }).items[0].supplier_code).toBeUndefined();
   });
 });

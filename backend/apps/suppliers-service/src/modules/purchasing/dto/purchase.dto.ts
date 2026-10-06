@@ -15,6 +15,12 @@ export class PurchaseItemDto {
   @MaxLength(300)
   description?: string
 
+  @ApiPropertyOptional({ description: 'Código do item na nota do fornecedor (cProd). Quando o operador escolheu o produto à mão, o vínculo fica salvo para as próximas notas.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  supplier_code?: string
+
   @ApiProperty({ description: 'Unidades (caixa já convertida).', example: 300 })
   @IsInt()
   @Min(1)

@@ -37,6 +37,8 @@ model Supplier {
 
   @@index([status])
   @@index([category])
+  product_codes SupplierProductCode[]
+
   @@map("supplier")
 }
 
@@ -141,6 +143,22 @@ model PurchaseItem {
   @@index([purchase_id])
   @@index([sku])
   @@map("purchase_item")
+}
+
+/// "No catálogo deste fornecedor, o código X é o produto Y". Criado quando o operador escolhe o produto de uma linha de nota que não
+/// casou por código de barras; nas próximas notas do fornecedor a linha casa sozinha. Nunca é inferido.
+model SupplierProductCode {
+  id          Int      @id @default(autoincrement())
+  supplier_id Int
+  /// `cProd` da nota, como veio.
+  code        String
+  sku         String
+  created_at  DateTime @default(now())
+
+  supplier Supplier @relation(fields: [supplier_id], references: [id], onDelete: Cascade)
+
+  @@unique([supplier_id, code])
+  @@map("supplier_product_code")
 }
 
 /// Acerto semanal de um fornecedor com itens `on_sale`. Nasce como proposta,

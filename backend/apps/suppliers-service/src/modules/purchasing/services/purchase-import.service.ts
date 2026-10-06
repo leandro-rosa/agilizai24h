@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { normalizeAlias } from '../../suppliers/constants/supplier-vocabulary'
 import { ProductsClient, type CatalogueProduct } from '../clients/products.client'
+import { suggestProducts, type Suggestion } from '../utils/product-suggestions'
 
 /** What the ingestion service read from an NF-e (see `ParsedInvoice` there). */
 export interface InvoiceInput {
@@ -27,6 +28,10 @@ export interface PreviewItem {
   sku: string | null
   product_name: string | null
   unresolved_reason: UnresolvedReason | null
+  /** How the line found its product: the barcode, the supplier's code the operator linked before, or the code equal to a SKU. */
+  matched_by: 'ean' | 'supplier_code' | 'sku' | null
+  /** For a line with no product: catalogue products that look like it, to be accepted by the operator. Never applied by themselves. */
+  suggestions: Suggestion[]
   /**
    * Units in one invoiced unit, as a SUGGESTION: the catalogue's `units_per_package`, else read from the description ("6P", "12UN").
    * The operator confirms or corrects it per line; the purchase records units and the cost of ONE unit.
@@ -52,7 +57,7 @@ const digits = (value: string | null | undefined) => (value ?? '').replace(/\D/g
 
 /**
  * Resolves an invoice to the registry — never by fuzzy matching (the same rule as product names): the supplier by tax id, each line
- * by barcode, then by the supplier's product code equal to a SKU. Lines that do not resolve stay in the list with the reason, so the
+ * by barcode, then by a code the operator linked for this supplier, then by the supplier's product code equal to a SKU. Lines left over get SUGGESTIONS by name (`suggestProducts`), which the operator must accept. Lines that do not resolve stay in the list with the reason, so the
  * operator decides; nothing is recorded here.
  */
 @Injectable()
@@ -70,6 +75,8 @@ export class PurchaseImportService {
     const catalogue = await this.products.products(correlationId)
     const byEan = new Map(catalogue.filter(p => p.ean).map(p => [p.ean as string, p]))
     const bySku = new Map(catalogue.map(p => [p.sku, p]))
+    // The operator's own links: this supplier's code → a product, made when they picked a product for an unmatched line.
+    const linked = new Map((supplier ? await this.prisma.supplierProductCode.findMany({ where: { supplier_id: supplier.id } }) : []).map(link => [link.code, link.sku]))
 
     return {
       number: invoice.number,
@@ -79,7 +86,13 @@ export class PurchaseImportService {
       supplier: supplier ? { id: supplier.id, name: supplier.name } : null,
       matched_by: matchedBy,
       duplicate_of: duplicate?.id ?? null,
-      items: invoice.items.map(item => resolveItem(item, (item.ean && byEan.get(item.ean)) || bySku.get(item.code))),
+      items: invoice.items.map(item => {
+        const linkedSku = linked.get(item.code)
+        const found: [CatalogueProduct | undefined, PreviewItem['matched_by']] =
+          item.ean && byEan.get(item.ean) ? [byEan.get(item.ean), 'ean'] : linkedSku && bySku.get(linkedSku) ? [bySku.get(linkedSku), 'supplier_code'] : bySku.get(item.code) ? [bySku.get(item.code), 'sku'] : [undefined, null]
+
+        return resolveItem(item, found[0], found[1], found[0] ? [] : suggestProducts(item.description, catalogue))
+      }),
     }
   }
 
@@ -114,7 +127,7 @@ export function packHintFromDescription(description: string): number | null {
   return size !== null && size >= 2 ? size : null
 }
 
-function resolveItem(item: InvoiceInput['items'][number], product: CatalogueProduct | undefined): PreviewItem {
+function resolveItem(item: InvoiceInput['items'][number], product: CatalogueProduct | undefined, matchedBy: PreviewItem['matched_by'], suggestions: Suggestion[]): PreviewItem {
   const hint = packHintFromDescription(item.description)
   const catalogue = product?.units_per_package && product.units_per_package >= 2 ? product.units_per_package : null
 
@@ -129,6 +142,8 @@ function resolveItem(item: InvoiceInput['items'][number], product: CatalogueProd
     sku: product?.sku ?? null,
     product_name: product?.name ?? null,
     unresolved_reason: product ? null : 'no_match',
+    matched_by: matchedBy,
+    suggestions,
     pack_size_suggested: catalogue ?? hint,
     pack_source: catalogue ? 'catalogue' : hint ? 'description' : null,
   }

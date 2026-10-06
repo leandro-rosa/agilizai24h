@@ -3,7 +3,7 @@ import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { ProductsClient } from '../clients/products.client'
 import { PAYMENT_TERMS, type Condition, type Origin, type PaymentStatus, type PaymentTerm, type Stage } from '../constants/purchase-vocabulary'
 import type { CreatePurchaseDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
-import { checkInvoice, checkMove, effectiveDueDate, hasInvoice, isLate, isOverdue, resolveReceipt } from '../utils/order-flow'
+import { checkInvoice, checkMove, effectiveDueDate, isLate, isOverdue, resolveReceipt } from '../utils/order-flow'
 import { isDay } from '../utils/week'
 
 export interface PurchaseItemView {
@@ -228,6 +228,13 @@ export class PurchasesService {
     const now = new Date()
     const beyondRequisition = stage !== 'requisition'
     const beyondSent = stage !== 'requisition' && stage !== 'awaiting_invoice'
+
+    // The operator picked a product for a line the invoice did not resolve: remember it for this supplier's next invoices.
+    for (const item of dto.items) {
+      const code = item.supplier_code?.trim()
+      if (!code) continue
+      await this.prisma.supplierProductCode.upsert({ where: { supplier_id_code: { supplier_id: dto.supplier_id, code } }, create: { supplier_id: dto.supplier_id, code, sku: item.sku }, update: { sku: item.sku } })
+    }
 
     const created = await this.prisma.purchase.create({
       data: {
