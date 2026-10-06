@@ -35,7 +35,7 @@ export function ExportPdfButton({ overview }: { overview: Overview | null }) {
 
       // Carrega o renderizador só no clique (é pesado), nunca no bundle da página.
       const [{ pdf }, { MonthlyReport }] = await Promise.all([import("@react-pdf/renderer"), import("@/lib/overview/pdf/report")]);
-      const blob = await pdf(<MonthlyReport o={overview} meta={{ version: reg.version, generatedAt: reg.generated_at, baseAt: reg.base_at }} />).toBlob();
+      const blob = await pdf(<MonthlyReport o={overview} meta={{ version: reg.version, generatedAt: reg.generated_at, baseAt: reg.base_at, logoSrc: `${window.location.origin}/brand/lockup-dark.png` }} />).toBlob();
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
