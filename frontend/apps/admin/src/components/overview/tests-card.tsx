@@ -46,7 +46,7 @@ export function TestsCard({ tests, loading, unavailable, networkStores }: { test
         <Unavailable what="abastecimento" />
       ) : tests.rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nenhum SKU com primeiro abastecimento nos últimos {TESTS.WINDOW_MONTHS} meses
+          Nenhum produto com primeiro abastecimento nos últimos {TESTS.WINDOW_MONTHS} meses
           {tests.historyStart ? ` (histórico de abastecimento importado desde ${fmtPeriod(tests.historyStart)})` : ""}.
         </p>
       ) : (
@@ -59,7 +59,7 @@ export function TestsCard({ tests, loading, unavailable, networkStores }: { test
                 <TableHead className="text-right" title="Lojas abastecidas ÷ lojas ativas da rede">Cobertura do teste</TableHead>
                 <TableHead className="text-right">Unid. vendidas</TableHead>
                 <TableHead className="text-right">Perdas</TableHead>
-                <TableHead className="text-right">Margem</TableHead>
+                <TableHead className="text-right" title="Margem">Lucro bruto %</TableHead>
                 <TableHead className="text-right">Tempo de teste</TableHead>
                 <TableHead>Sinal</TableHead>
               </TableRow>

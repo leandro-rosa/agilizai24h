@@ -1,13 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
+import { AreasCard } from "@/components/overview/areas-card";
+import { BriefCard } from "@/components/overview/brief-card";
 import { CapexCard } from "@/components/overview/capex-card";
 import { CashCard } from "@/components/overview/cash-card";
 import { ExportPdfButton } from "@/components/overview/export-pdf-button";
 import { HighlightsCard } from "@/components/overview/highlights-card";
+import { GlossaryCard } from "@/components/overview/glossary-card";
 import { InsightsCard } from "@/components/overview/insights-card";
+import { IntroStrip } from "@/components/overview/intro-strip";
 import { KpiStrip } from "@/components/overview/kpi-strip";
 import { LossCard } from "@/components/overview/loss-card";
 import { PriceChangesCard } from "@/components/overview/price-changes-card";
@@ -22,6 +26,8 @@ import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { date, period as fmtPeriod } from "@/lib/format";
+import { buildAreaQuestions } from "@/lib/overview/areas";
+import { buildBrief, buildPageIntros } from "@/lib/overview/brief";
 import { monthName } from "@/lib/overview/reading";
 import { useClosedPeriods, useMonthlyOverview } from "@/lib/overview/use-monthly-overview";
 
@@ -36,6 +42,9 @@ export default function OverviewPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const period = selected ?? closed.periods[0] ?? null;
   const { overview, unavailable, isLoading, productsLoading, supplyLoading, financeLoading, refetch } = useMonthlyOverview(period);
+  const brief = useMemo(() => (overview ? buildBrief(overview) : null), [overview]);
+  const intros = useMemo(() => (overview ? buildPageIntros(overview) : null), [overview]);
+  const areas = useMemo(() => (overview ? buildAreaQuestions(overview) : null), [overview]);
   // Instante em que a tela carregou os dados — não é o horário do fechamento.
   const [loadedAt] = useState(() => new Date());
 
@@ -68,7 +77,7 @@ export default function OverviewPage() {
         isEmpty={!closed.isLoading && closed.periods.length === 0}
         emptyMessage="Nenhum mês fechado ainda. Feche um mês em DRE (“Fechar o mês”) para ver o resumo."
       >
-        {overview && period && (
+        {overview && period && brief && intros && areas && (
           <>
             <p className="-mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
               <span>Último fechamento do mês: {date(overview.closedAt)}</span>
@@ -92,6 +101,9 @@ export default function OverviewPage() {
                 ),
             )}
 
+            <BriefCard brief={brief} />
+
+            <p className="text-sm font-semibold text-muted-foreground">Os números por trás — {intros.detalhe.answer}</p>
             <KpiStrip
               kpis={overview.kpis}
               previousPeriod={overview.previousPeriod}
@@ -100,6 +112,7 @@ export default function OverviewPage() {
 
             <HighlightsCard highlights={overview.highlights} />
 
+            <IntroStrip intro={intros.comercial} />
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
               <div className="xl:col-span-3"><InsightsCard insights={overview.insights} /></div>
               <div className="xl:col-span-2"><StoresCard stores={overview.stores} unavailable={unavailable.stores} /></div>
@@ -107,25 +120,33 @@ export default function OverviewPage() {
 
             <ProductsCard products={overview.products} loading={productsLoading} previousPeriod={overview.previousPeriod} unavailable={unavailable.sales} />
 
+            {overview.priceChanges && <IntroStrip intro={intros.precos} />}
             <PriceChangesCard changes={overview.priceChanges} />
 
+            <IntroStrip intro={intros.testes} />
             <TestsCard tests={overview.tests} loading={supplyLoading} unavailable={unavailable.supply} networkStores={overview.stores?.activeCount ?? null} />
 
             <SkuLinksCard suggestions={overview.skuSuggestions} />
 
+            <IntroStrip intro={intros.perdas} />
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
               <LossCard loss={overview.loss} previousPeriod={overview.previousPeriod} />
               <CashCard cash={overview.cash} />
             </div>
 
+            <IntroStrip intro={intros.financeiro} />
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
               <UsesCard uses={overview.cashUses} previousPeriod={overview.previousPeriod} unavailable={unavailable.treasury} />
               <CapexCard capex={overview.capex} investors={overview.investors} previousPeriod={overview.previousPeriod} />
             </div>
 
-            <ReadingCard reading={overview.reading} limitations={overview.limitations} />
+            <ReadingCard reading={overview.reading} />
+
+            <AreasCard areas={areas} />
 
             <WatchlistCard items={overview.watchlist} />
+
+            <GlossaryCard limitations={overview.limitations} />
           </>
         )}
       </RequestState>

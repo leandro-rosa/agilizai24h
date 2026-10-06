@@ -501,6 +501,13 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   (`ticket.ts`: faturamento ÷ compras, regra de compra da tela de Vendas; o ticket sem o reajuste = mesmas compras aos preços do mês anterior).
   O ticket vem das transações por loja (`useGetNetworkSalesTransactionsQuery`, mês e anterior). Ago e set/2026 vieram SEM cupom: cada linha
   conta como uma compra e a tela avisa que o ticket é aproximado. Real: ticket R$ 9,07 → R$ 9,58 (+5,7%), reajuste explica R$ 0,51 dos R$ 0,51.
+- **Linguagem simples** (relatório para sócios que não são de números; do CEO à operação): PDF e tela em CAMADAS. Página 1 = "O mês em 1 minuto"
+  (`brief.ts`: frase-resumo, 6 cards com pergunta e semáforo, "3 coisas para saber"); cada bloco abre com uma pergunta, a resposta em uma frase e
+  "para Sócios/Operação/Financeiro" (`buildPageIntros`); "O que cada área pode olhar" (`areas.ts`, PERGUNTAS, nunca ordens nem causa, ≤ 3 por área);
+  "Como ler este relatório" (glossário em `plain.ts`). `plain.ts` guarda o dicionário (`KPI_PLAIN`, `GLOSSARY`), `friendlyMoney` ("R$ 120 mil"),
+  `moreOrLess` e `plainify` (troca DRE/CAPEX/SKU/p.p./margem de contribuição… no texto de apresentação; o motor continua com os nomes técnicos).
+  Semáforo `trafficLight`: melhor / parecido / pior que o normal (mês anterior + média 3 meses; faixa `PLAIN.SAME_BAND` 3% e 1 p.p., PREMISSA);
+  se as duas comparações discordam vale "parecido"; sem dado = "sem dados", nunca "parecido". `brief.spec.ts` varre todo o texto atrás de jargão e de causa.
 - **Definições fixas** (aparecem na tela): Faturamento = receita líquida do DRE;
   Margem operacional = resultado operacional ÷ receita líquida; perda sempre com
   os dois denominadores (÷ receita líquida, ÷ custo abastecido); participação por
