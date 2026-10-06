@@ -74,6 +74,13 @@ describe("buildOverview", () => {
     expect(o.loss!.byReason.map((r) => r.reason)).toEqual(["expired", "other_reason"]);
   });
 
+  it("loss shares never exceed 100% even when the breakdown does not add up to the total", () => {
+    const inp = input();
+    inp.months[0].finance = { ...finance(410_000), lossByReason: [{ reason: "expired", valueCents: 300_000 }, { reason: "other_reason", valueCents: 200_000 }] };
+    const x = buildOverview(inp);
+    expect(x.loss!.byReason.reduce((s, r) => s + (r.share ?? 0), 0)).toBeCloseTo(1);
+  });
+
   it("capex stays separate from stock purchases and shows its own delta", () => {
     expect(o.cashUses!.capex!.deltaPct).toBeCloseTo((1_240_000 - 1_900_000) / 1_900_000);
     expect(o.cashUses!.stock!.currentCents).toBe(2_360_000);
