@@ -7,7 +7,7 @@ import { baseText } from "../ranking";
 import { signedPct, signedPp, type RateDelta, type ValueDelta } from "../compare";
 import { monthName } from "../reading";
 import { overdueSummary } from "../overdue";
-import { priceChangesObservation } from "../price-volume";
+import { priceImpactReading } from "../price-volume";
 import { SIGNAL_LABELS } from "../tests";
 import type { CashUseLine, Highlight, Insight, KpiResult, LossChange, Overview, ProductRow, StoreExplainers } from "../types";
 
@@ -430,11 +430,26 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
         {o.priceChanges ? (
           <View style={[s.card, s.cardGap]}>
             <Title hint="preço realizado = receita ÷ unidades, já com descontos">Reajustes de preço no mês</Title>
-            <Text style={{ marginBottom: 6 }}>
-              <Text style={s.bold}>{o.priceChanges.count} produtos reajustados</Text> ({o.priceChanges.raised} subiram, {o.priceChanges.lowered} baixaram): efeito do preço{" "}
-              <Text style={[s.bold, { color: C.good }]}>{o.priceChanges.priceEffectCents < 0 ? "-" : "+"}{brl(Math.abs(o.priceChanges.priceEffectCents))}</Text> e das unidades{" "}
-              <Text style={[s.bold, { color: o.priceChanges.volumeEffectCents < 0 ? C.bad : C.good }]}>{o.priceChanges.volumeEffectCents < 0 ? "-" : "+"}{brl(Math.abs(o.priceChanges.volumeEffectCents))}</Text> na receita deles (estimativa).
-            </Text>
+            {(() => {
+              const pc = o.priceChanges;
+              const rd = priceImpactReading(pc, brl);
+              const im = pc.impact;
+              const dRev = im.revenueAfterCents - im.revenueBeforeCents;
+              const dMar = im.margin ? im.margin.afterCents - im.margin.beforeCents : null;
+              const unitsPct = pc.unitsBefore > 0 ? (pc.unitsAfter - pc.unitsBefore) / pc.unitsBefore : null;
+              return (
+                <>
+                  <Text style={[s.bold, { marginBottom: 6 }]}>{t(rd.headline)}</Text>
+                  <View style={[s.row, { marginBottom: 6 }]}>
+                    <Stat label="Faturamento dos reajustados" value={brl(im.revenueAfterCents)} color={dRev < 0 ? C.bad : C.good} note={`${brl(im.revenueBeforeCents)} -> ${brl(im.revenueAfterCents)} (${dRev < 0 ? "-" : "+"}${brl(Math.abs(dRev))})`} />
+                    <Stat label="Margem de contribuição (R$)" value={im.margin ? brl(im.margin.afterCents) : "-"} color={dMar === null ? undefined : dMar < 0 ? C.bad : C.good} note={im.margin && dMar !== null ? `${brl(im.margin.beforeCents)} -> ${brl(im.margin.afterCents)} (${dMar < 0 ? "-" : "+"}${brl(Math.abs(dMar))})` : "sem custo resolvido"} />
+                    <Stat label="Margem sobre a receita" value={im.margin ? pct(im.margin.pctAfter, 0) : "-"} note={im.margin ? `era ${pct(im.margin.pctBefore, 0)}` : undefined} />
+                    <Stat label="Unidades dos reajustados" value={num(pc.unitsAfter)} color={pc.unitsAfter < pc.unitsBefore ? C.bad : C.good} note={`${num(pc.unitsBefore)} -> ${num(pc.unitsAfter)} (${dpct(unitsPct)})`} />
+                  </View>
+                  <View style={{ marginBottom: 8 }}>{rd.lines.map((l) => <Text key={l} style={[s.small, { marginBottom: 1.5 }]}>{t(l)}</Text>)}</View>
+                </>
+              );
+            })()}
             <View style={s.th}>
               <Text style={[s.thText, { flex: 3.4 }]}>Produto</Text>
               <Text style={[s.thText, { flex: 2.4, textAlign: "right" }]}>Preço</Text>
@@ -451,7 +466,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
                 <Text style={{ flex: 1.4, textAlign: "right", color: r.revenueDeltaCents < 0 ? C.bad : C.good }}>{r.revenueDeltaCents < 0 ? "-" : "+"}{brl(Math.abs(r.revenueDeltaCents))}</Text>
               </View>
             ))}
-            <Text style={[s.small, { marginTop: 3 }]}>Mostrando 8 de {o.priceChanges.count} reajustados (maior receita). Observação: {t(priceChangesObservation(o.priceChanges))}</Text>
+            <Text style={[s.small, { marginTop: 3 }]}>Mostrando 8 de {o.priceChanges.count} reajustados (maior receita).</Text>
           </View>
         ) : null}
         {o.skuSuggestions.length > 0 ? (

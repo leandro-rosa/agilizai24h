@@ -3,8 +3,8 @@ import { Tag } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { count } from "@/lib/format";
 import { signedPct } from "@/lib/overview/compare";
-import { priceChangesObservation, type PriceChanges } from "@/lib/overview/price-volume";
-import { Block, moneyRound, pctText } from "./shared";
+import { priceImpactReading, type PriceChanges } from "@/lib/overview/price-volume";
+import { Block, moneyRound, pctText, Stat } from "./shared";
 
 const price = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
 const signedMoney = (cents: number) => `${cents < 0 ? "−" : "+"}${moneyRound(Math.abs(cents))}`;
@@ -15,13 +15,35 @@ const signedMoney = (cents: number) => `${cents < 0 ? "−" : "+"}${moneyRound(M
  */
 export function PriceChangesCard({ changes }: { changes: PriceChanges | null }) {
   if (!changes) return null;
+  const impact = changes.impact;
+  const reading = priceImpactReading(changes, moneyRound);
   return (
     <Block title="Reajustes de preço no mês" icon={<Tag className="size-4 text-primary" />} href="/products" linkLabel="Ver produtos">
-      <p className="text-sm">
-        <span className="font-medium">{changes.count} produtos reajustados</span> ({changes.raised} subiram, {changes.lowered} baixaram): efeito do preço{" "}
-        <span className="tabular font-semibold">{signedMoney(changes.priceEffectCents)}</span> e das unidades{" "}
-        <span className="tabular font-semibold">{signedMoney(changes.volumeEffectCents)}</span> na receita dos reajustados (estimativa).
-      </p>
+      <p className="text-sm font-medium">{reading.headline}</p>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat
+          label="Faturamento dos reajustados"
+          value={moneyRound(impact.revenueAfterCents)}
+          hint={`${moneyRound(impact.revenueBeforeCents)} → ${moneyRound(impact.revenueAfterCents)} (${signedMoney(impact.revenueAfterCents - impact.revenueBeforeCents)})`}
+          tone={impact.revenueAfterCents < impact.revenueBeforeCents ? "critical" : "positive"}
+        />
+        <Stat
+          label="Margem de contribuição (R$)"
+          value={impact.margin ? moneyRound(impact.margin.afterCents) : "—"}
+          hint={impact.margin ? `${moneyRound(impact.margin.beforeCents)} → ${moneyRound(impact.margin.afterCents)} (${signedMoney(impact.margin.afterCents - impact.margin.beforeCents)})` : "sem custo resolvido"}
+          tone={impact.margin ? (impact.margin.afterCents < impact.margin.beforeCents ? "critical" : "positive") : undefined}
+        />
+        <Stat label="Margem sobre a receita" value={impact.margin ? pctText(impact.margin.pctAfter, 0) : "—"} hint={impact.margin ? `era ${pctText(impact.margin.pctBefore, 0)}` : undefined} />
+        <Stat
+          label="Unidades dos reajustados"
+          value={count(changes.unitsAfter)}
+          hint={`${count(changes.unitsBefore)} → ${count(changes.unitsAfter)} (${signedPct(changes.unitsBefore > 0 ? (changes.unitsAfter - changes.unitsBefore) / changes.unitsBefore : null, 0)})`}
+          tone={changes.unitsAfter < changes.unitsBefore ? "critical" : "positive"}
+        />
+      </div>
+      <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+        {reading.lines.map((l) => <li key={l}>{l}</li>)}
+      </ul>
       <div className="overflow-x-auto">
         <Table>
           <TableHeader>
@@ -55,7 +77,7 @@ export function PriceChangesCard({ changes }: { changes: PriceChanges | null }) 
         </Table>
       </div>
       <p className="text-xs text-muted-foreground">
-        Mostra os {changes.rows.length} de maior receita entre {changes.count} reajustados. Observação: {priceChangesObservation(changes)} Margem sobre o preço realizado, com o custo datado do produto; “—” = custo não resolvido.
+        Mostra os {changes.rows.length} de maior receita entre {changes.count} reajustados. Margem sobre o preço realizado, com o custo datado do produto; “—” = custo não resolvido.
       </p>
     </Block>
   );

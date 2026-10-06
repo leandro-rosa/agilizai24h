@@ -493,6 +493,9 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   produto (preço antes → depois, unidades antes → depois, margem, Δ receita) dos SKUs reajustados, além da frase-resumo nos insights.
   O preço é o REALIZADO (receita ÷ unidades, com descontos), não a etiqueta: por isso aparece "R$ 15,71" onde o cadastro diz R$ 15,90.
   Para mostrar a etiqueta seria preciso ler as transações; o histórico datado do catálogo (`price_version`) ainda está incompleto.
+  O topo do bloco é o SALDO do reajuste (`priceImpactReading`, `PriceImpact`): faturamento dos reajustados antes → depois, margem de
+  contribuição em R$ e % (custo datado do catálogo; só SKUs com custo), ganho de preço × efeito das unidades na margem (fecham com a
+  variação), unidades dos reajustados × demais. set/2026 real: faturamento −R$ 3,6 mil (−6%), margem +R$ 1,4 mil (46% → 52%), unidades −14%.
 - **Definições fixas** (aparecem na tela): Faturamento = receita líquida do DRE;
   Margem operacional = resultado operacional ÷ receita líquida; perda sempre com
   os dois denominadores (÷ receita líquida, ÷ custo abastecido); participação por
