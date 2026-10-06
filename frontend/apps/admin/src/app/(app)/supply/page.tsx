@@ -23,12 +23,14 @@ import {
   type NetworkReconciliationRangeRow,
   type Reconciliation,
 } from "@/lib/api/finance";
+import { useGetNetworkStockMonthsQuery, useGetStockMonthsQuery } from "@/lib/api/inventory";
 import { useGetProductsQuery } from "@/lib/api/products";
 import { useGetNetworkSalesRangeQuery, useGetSalesRangeQuery } from "@/lib/api/sales";
 import { useGetNetworkSupplyRangeQuery, useGetSupplyRangeQuery } from "@/lib/api/supply";
 import { useGetStoresQuery } from "@/lib/api/stores";
 import { formatPct, grossMarginPct, shrinkagePctOfCost, shrinkagePctOfRevenue } from "@/lib/financial-kpis";
 import { defaultRange, monthsInRange, type PeriodRange } from "@/lib/period-range";
+import { buildMonthlyPending, pendingFetchRange, pendingMonths } from "@/lib/reconciliation-pending";
 import { aggregateAcrossStores, sumReconciliations, type ReconciliationTotals } from "@/lib/reconciliation-aggregate";
 import { LOSS_COUNTING_REASONS, reasonLabel } from "@/lib/removal-reasons";
 import { unvaluedReasonLabel } from "@/lib/unvalued-reasons";
@@ -192,6 +194,7 @@ function IncompleteBanner({ totals, subject }: { totals: ReconciliationTotals; s
 function StoreReconciliationView({ storeId, range }: { storeId: number; range: PeriodRange }) {
   const { data: allStores } = useGetStoresQuery();
   const [showPending, setShowPending] = useState(false);
+  const stockMonths = useGetStockMonthsQuery({ storeId, range: pendingFetchRange(range.end) }, { skip: !showPending || pendingMonths(range.end).length === 0 });
   const { data: series, isLoading, error, refetch } = useGetReconciliationSeriesQuery({ storeId });
   const { data: salesRange } = useGetSalesRangeQuery({ storeId, range });
 
@@ -217,10 +220,10 @@ function StoreReconciliationView({ storeId, range }: { storeId: number; range: P
           {!totals.complete && <IncompleteBanner totals={totals} subject="Reconciliação" />}
           {!totals.complete && (
             <button type="button" onClick={() => setShowPending(true)} className="self-start text-sm font-medium text-primary hover:underline">
-              Ver quais produtos estão pendentes desde julho →
+              Ver quais produtos estão pendentes, mês a mês →
             </button>
           )}
-          <PendingDialog store={showPending ? { id: storeId, name: allStores?.find((s) => s.id === storeId)?.name ?? `Loja ${storeId}` } : null} endPeriod={range.end} onClose={() => setShowPending(false)} />
+          <PendingDialog store={showPending ? { id: storeId, name: allStores?.find((s) => s.id === storeId)?.name ?? `Loja ${storeId}` } : null} endPeriod={range.end} months={stockMonths.data} isLoading={stockMonths.isLoading} error={stockMonths.error} onRetry={stockMonths.refetch} onClose={() => setShowPending(false)} />
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <Figure label="Valor abastecido" cents={totals.restocked_value_cents} incomplete={!totals.complete} />
@@ -337,6 +340,14 @@ function NetworkReconciliationView({ range }: { range: PeriodRange }) {
   const [sortKey, setSortKey] = useState<NetworkSortKey>("revenue");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [pendingStore, setPendingStore] = useState<{ id: number; name: string } | null>(null);
+  // Estoque mês a mês (julho em diante + a contagem do mês anterior) para contar as pendências do mês selecionado em cada loja.
+  const analyzable = pendingMonths(range.end).length > 0;
+  const stockMonths = useGetNetworkStockMonthsQuery({ stores: stores ?? [], range: pendingFetchRange(range.end) }, { skip: !stores || !analyzable });
+  const pendingByStore = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const s of stockMonths.data ?? []) map.set(s.storeId, buildMonthlyPending(s.months, range.end).productCount);
+    return map;
+  }, [stockMonths.data, range.end]);
 
   const revenueByStore = useMemo(() => {
     const map = new Map<number, number>();
@@ -517,8 +528,8 @@ function NetworkReconciliationView({ range }: { range: PeriodRange }) {
                           {totals.complete ? (
                             <StatusBadge tone="positive">Completo</StatusBadge>
                           ) : (
-                            <button type="button" onClick={() => setPendingStore({ id: store.id, name: store.name })} title="Ver quais produtos estão pendentes desde julho" className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
-                              <StatusBadge tone="attention">Pendente — ver</StatusBadge>
+                            <button type="button" onClick={() => setPendingStore({ id: store.id, name: store.name })} title="Ver quais produtos estão pendentes neste mês" className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+                              <StatusBadge tone="attention">{pendingByStore.has(store.id) ? `Pendente · ${pendingByStore.get(store.id)} produtos` : "Pendente — ver"}</StatusBadge>
                             </button>
                           )}
                         </TableCell>
@@ -532,9 +543,9 @@ function NetworkReconciliationView({ range }: { range: PeriodRange }) {
 
           <p className="text-sm text-muted-foreground">
             Perda por motivo, por produto e a investigação detalhada por loja estão na aba{" "}
-            <span className="font-medium text-foreground">Perdas</span>. Clique em “Pendente” na linha de uma loja para ver quais produtos estão com saldo negativo desde julho.
+            <span className="font-medium text-foreground">Perdas</span>. Clique em “Pendente” na linha de uma loja para ver, mês a mês desde julho, quais produtos saíram mais do que entraram (já contando o estoque que veio do mês anterior).
           </p>
-          <PendingDialog store={pendingStore} endPeriod={range.end} onClose={() => setPendingStore(null)} />
+          <PendingDialog store={pendingStore} endPeriod={range.end} months={stockMonths.data?.find((s) => s.storeId === pendingStore?.id)?.months} isLoading={stockMonths.isLoading} error={stockMonths.error} onRetry={stockMonths.refetch} onClose={() => setPendingStore(null)} />
         </div>
       )}
     </RequestState>

@@ -138,16 +138,19 @@ motivo/produto que antes vivia aqui (`LossTables`/`ReasonSkuBreakdown`,
 o drill-down por loja em `NetworkStoreDetail`) foi removido daqui — ficou
 só em `Perdas`, pra não duplicar a mesma informação em duas abas.
 
-**Pendências desde julho** (`src/lib/reconciliation-pending.ts`, `components/supply/pending-dialog.tsx`; pedido do operador 2026-10-07: "o time
-não sabia mexer no sistema de abastecimento, vai ter muita coisa errada antes de julho"): em `Reconciliação`, o badge "Pendente" de cada loja
-(e o link no aviso da visão de uma loja) abre os produtos cujo saldo ficaria negativo se a conta recomeçasse na CONTAGEM de fim de junho
-(`recorded_closing_balance`) e somasse só julho em diante (`PENDING_BASELINE`). Produto sem contagem conta como 0 e é dito; "nunca abastecido"
-é marcado. É só uma lista para achar onde corrigir: NÃO muda o saldo do serviço de estoque nem as cifras da reconciliação, e não diz a causa.
-Medido em set/2026: 699 pares loja×produto negativos desde janeiro caem para 229 desde julho (667 unidades sem abastecimento, 19 lojas; conferido nos registros de estoque).
-**Armadilha do `/inventory/:storeId?period=`**: o serviço devolve, por produto, o ÚLTIMO registro até o mês pedido; um produto sem movimento em jul–set volta com o
-registro (e os movimentos) de fevereiro. `sumStock` somava isso em cada mês (venda de fevereiro contada 3×: o "Suco de uva Ades vendeu 6" que o operador estranhou) —
-agora só entra o item cujo `item.period` é o do mês, e a contagem de junho só vale se for do próprio junho (`inventory.spec.ts`, `reconciliation-pending.spec.ts`).
-Mudar o cálculo do saldo no `inventory-service` para começar em julho ficou decidido como passo posterior (muda cifras; pede aprovação).
+**Pendências mês a mês, desde julho** (`src/lib/reconciliation-pending.ts`, `components/supply/pending-dialog.tsx`; pedido do operador 2026-10-07: "o time não sabia mexer no
+sistema de abastecimento, vai ter muita coisa errada antes de julho" e, depois, "venda sem abastecimento no mês pode ser estoque que sobrou do mês anterior"): em `Reconciliação`,
+o selo "Pendente · N produtos" de cada loja (e o link no aviso da visão de uma loja) abre a lista do MÊS (abas jul/ago/set + tendência). Em cada mês, `esperado = contagem de fim do mês
+anterior (`recorded_closing_balance`) + abastecido − vendido − retirado + ajuste`; só entra quem fica negativo, e a contagem de fim de mês reancora o mês seguinte (o erro de um mês não se acumula).
+Classifica **entrada não lançada** (há estoque contado no fim: o produto existia; faltam `contagem_fim − esperado` un. de entrada) × **saiu mais do que entrou**. Produto sem contagem do mês
+anterior conta como 0 e é dito. É só uma lista para achar onde corrigir: NÃO muda o saldo do serviço de estoque nem as cifras da reconciliação e não diz a causa.
+Medido (SQL em `stock_snapshot`): negativos jul 117 (3,5%), ago 65 (1,9%), set 70 (1,9%) — bem menos que as visões acumuladas (699 desde janeiro; 229 acumulando jul–set) e em queda.
+Ex.: Sprite Zero (100114), loja 17: abastecido 0, vendido 15, contagem de fim de set = 5 ⇒ faltam ~20 un. de entrada lançada; nenhuma linha de abastecimento dele existe em mês algum
+e as importações recentes não recusaram nenhuma. As "visitas sem Cliente" (`no_client_*`: jul 40 / ago 27 / set 10 ops) são contagens do centro de distribuição, NÃO abastecimento de loja.
+Mudar o cálculo do saldo no `inventory-service` para reancorar a cada mês ficou como passo posterior (muda cifras; pede aprovação).
+**Armadilha do `/inventory/:storeId?period=`**: o serviço devolve, por produto, o ÚLTIMO registro até o mês pedido; um produto sem movimento em jul–set volta com o registro (e os
+movimentos) de fevereiro. `sumStock` somava isso em cada mês (venda de fevereiro contada 3×: o "Suco de uva Ades vendeu 6" que o operador estranhou) — agora só entra o item cujo
+`item.period` é o do mês (`getStockMonths`/`getNetworkStockMonths` já devolvem só registros do próprio mês; `inventory.spec.ts`, `reconciliation-pending.spec.ts`).
 
 **`Perdas`** (`src/components/supply/loss-tab.tsx` + `src/lib/
 loss-insights.ts`) é o centro de investigação de perda: 6 KPIs com

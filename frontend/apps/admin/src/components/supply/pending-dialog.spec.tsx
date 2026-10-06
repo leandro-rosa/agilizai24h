@@ -1,54 +1,54 @@
-import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, jest } from "@jest/globals";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentType } from "react";
 
-import type { StockItem } from "@/lib/api/inventory";
+import type { MonthItems, StockItem } from "@/lib/api/inventory";
 
-const item = (sku: string, over: Partial<StockItem> = {}): StockItem => ({
-  store_id: 1, sku, period: "2026-09", restocked: 0, sold: 0, removed: 0, adjustment: 0, closing_stock: 0, inconsistent: false, recorded_closing_balance: null, ...over,
+const item = (sku: string, period: string, over: Partial<StockItem> = {}): StockItem => ({
+  store_id: 1, sku, period, restocked: 0, sold: 0, removed: 0, adjustment: 0, closing_stock: 0, inconsistent: false, recorded_closing_balance: null, ...over,
 });
 
-let MOVEMENTS: StockItem[] = [];
-let OPENING: StockItem[] = [];
-const mockStock = jest.fn();
+jest.doMock("../../lib/api/products", () => ({ useGetProductsQuery: () => ({ data: [{ sku: "100114", name: "Sprite zero" }, { sku: "B", name: "Produto B" }, { sku: "S", name: "Produto S" }] }) }));
 
-jest.doMock("../../lib/api/inventory", () => ({ useGetStockRangeQuery: mockStock }));
-jest.doMock("../../lib/api/products", () => ({ useGetProductsQuery: () => ({ data: [{ sku: "B", name: "Produto B" }, { sku: "C", name: "Produto C" }] }) }));
-
+type Props = { store: { id: number; name: string } | null; endPeriod: string; months: MonthItems[] | undefined; isLoading: boolean; error: undefined; onRetry: () => void; onClose: () => void };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { PendingDialog }: { PendingDialog: ComponentType<{ store: { id: number; name: string } | null; endPeriod: string; onClose: () => void }> } = require("./pending-dialog");
+const { PendingDialog }: { PendingDialog: ComponentType<Props> } = require("./pending-dialog");
 
-beforeEach(() => {
-  MOVEMENTS = [item("A", { restocked: 10, sold: 8 }), item("B", { restocked: 4, sold: 9, removed: 1 }), item("C", { sold: 3 })];
-  OPENING = [item("B", { period: "2026-06", recorded_closing_balance: 0 })];
-  // 1ª chamada = movimentos de julho em diante; 2ª = contagem de junho.
-  mockStock.mockImplementation((args: unknown) => {
-    const a = args as { range: { start: string; end: string } };
-    const items = a.range.start === "2026-06" ? OPENING : MOVEMENTS;
-    return { data: { items }, isLoading: false, error: undefined, refetch: jest.fn() };
-  });
-});
+const base = (months: MonthItems[], endPeriod = "2026-09"): Props => ({ store: { id: 17, name: "Plena Saude - Franco da Rocha" }, endPeriod, months, isLoading: false, error: undefined, onRetry: () => undefined, onClose: () => undefined });
 
-describe("PendingDialog", () => {
-  it("lista os produtos com saldo negativo desde julho, com o que olhar e sem afirmar causa", () => {
-    render(<PendingDialog store={{ id: 1, name: "Ascenty ADM" }} endPeriod="2026-09" onClose={() => undefined} />);
-    expect(screen.getByText(/Pendências de Ascenty ADM desde julho/)).toBeInTheDocument();
-    expect(screen.getByText(/2 produtos/)).toBeInTheDocument();
-    expect(screen.getByText(/9 unidades/)).toBeInTheDocument(); // B falta 6, C falta 3
-    expect(screen.getByText("Produto B")).toBeInTheDocument();
-    expect(screen.getByText("Vendeu sem nenhum abastecimento lançado")).toBeInTheDocument(); // C
-    expect(screen.getByText(/Faltam 6 un\./)).toBeInTheDocument();
+const MONTHS: MonthItems[] = [
+  { period: "2026-06", items: [] },
+  { period: "2026-07", items: [item("B", "2026-07", { sold: 4, recorded_closing_balance: 0 })] }, // pendente em julho
+  { period: "2026-08", items: [item("S", "2026-08", { restocked: 18, sold: 15, recorded_closing_balance: 3 })] },
+  { period: "2026-09", items: [item("S", "2026-09", { sold: 3, recorded_closing_balance: 0 }), item("100114", "2026-09", { sold: 15, recorded_closing_balance: 5 })] },
+];
+
+describe("PendingDialog (mês a mês)", () => {
+  it("setembro: o produto coberto pelo estoque do mês anterior NÃO aparece; o Sprite Zero aparece como entrada não lançada", () => {
+    render(<PendingDialog {...base(MONTHS)} />);
+    expect(screen.getByText(/Pendências de Plena Saude - Franco da Rocha em setembro/)).toBeInTheDocument();
+    expect(screen.getByText("Sprite zero")).toBeInTheDocument();
+    expect(screen.queryByText("Produto S")).not.toBeInTheDocument(); // 3 sobraram de agosto e vendeu 3
+    expect(screen.getByText(/faltam ~20 un\. de entrada lançada/)).toBeInTheDocument();
+    expect(screen.getByText(/1 de 2 produtos/)).toBeInTheDocument();
     expect(screen.getByText(/não diz o motivo e não altera os números/)).toBeInTheDocument();
   });
 
-  it("sem pendências diz isso, em verde", () => {
-    MOVEMENTS = [item("A", { restocked: 10, sold: 8 })];
-    render(<PendingDialog store={{ id: 1, name: "Loja X" }} endPeriod="2026-09" onClose={() => undefined} />);
-    expect(screen.getByText(/Nenhuma pendência desde julho/)).toBeInTheDocument();
+  it("mostra a tendência jul → ago → set e troca de mês pelas abas", () => {
+    render(<PendingDialog {...base(MONTHS)} />);
+    expect(screen.getByText(/jul 1 → ago 0 → set 1/)).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "julho" }), { button: 0 });
+    expect(screen.getByText("Produto B")).toBeInTheDocument();
+    expect(screen.getByText(/Saíram 4 e só havia 0 do mês anterior/)).toBeInTheDocument();
+  });
+
+  it("mês sem registro não vira 'sem pendências'", () => {
+    render(<PendingDialog {...base([{ period: "2026-06", items: [] }])} />);
+    expect(screen.getByText(/Nenhum registro de estoque de setembro/)).toBeInTheDocument();
   });
 
   it("período que termina antes de julho não é analisado", () => {
-    render(<PendingDialog store={{ id: 1, name: "Loja X" }} endPeriod="2026-05" onClose={() => undefined} />);
+    render(<PendingDialog {...base(MONTHS, "2026-05")} />);
     expect(screen.getByText(/termina antes de julho/)).toBeInTheDocument();
   });
 });
