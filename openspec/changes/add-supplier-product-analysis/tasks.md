@@ -19,7 +19,7 @@
 
 - [x] 3.1 Implement insight rules with evidence and labels; suppress purchase-dependent ones when unavailable
 - [x] 3.2 Tests: evidence numerators/denominators, estimate labelling, parameter version recorded
-- [ ] 3.3 Calibration script: real sold/restocked distribution per store × SKU stratified by turnover; present to owner before fixing cut-offs
+- [x] 3.3 Calibration script: real sold/restocked distribution per store × SKU stratified by turnover; present to owner before fixing cut-offs
 
 ## 4. Gateway
 
@@ -42,5 +42,5 @@
 ## 6. Verification
 
 - [ ] 6.1 Bring up the stack and check the page against real data in the browser; cross-check one product against /supply Perdas
-- [ ] 6.2 Confirm no synthetic data reached real databases
+- [x] 6.2 Confirm no synthetic data reached real databases
 - [ ] 6.3 Commit, merge and push in the same session

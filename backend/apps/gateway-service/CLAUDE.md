@@ -52,6 +52,7 @@ request) e, por rota, dos 12 serviços de domínio — `stores`, `products`,
 | `GET /treasury-drive-files`, `GET /treasury-drive-files/status` | `treasury:read` | Arquivos de extrato bancário/fatura de cartão (Itaú, C6) do segundo Google Drive root folder, "Extratos" (`add-treasury-drive-statement-sync`). Mesma pattern que `/drive-files` — metadados + listagem sem download. Caminho de topo de propósito: sob `/treasury/…` colidiria com a permissão `treasury:*` mas os arquivos são recurso separado, e `/treasury-drive-files` espelha `/drive-files` (ambos top-level). Nenhuma resposta carrega credencial |
 | `POST /treasury-drive-files/scan`, `/:id/import`, `/:id/ignore` | `treasury:write` | Só repassa ao `ingestion-worker-service` (`@Body() body: unknown`, sem injetar nada na sessão — diferente de `/drive-files`, este controller nunca sobrescreve `confirmed_by`). `scan` enfileira um job, `import` e `ignore` alteram o status. Sem `:id/validate` — não há conceito de cobertura por dia para extrato; "reconhecido" ou "não" é decidido na leitura, não numa segunda passagem |
 | `GET /overview` | `stores:read` | Agrega, com falha parcial explícita |
+| `GET /analysis/suppliers/:id`, `/analysis/products/:sku`, `/analysis/cross` | `supply:read` | Proxy p/ intelligence-service; orçamento próprio `INTELLIGENCE_TIMEOUT_MS` (60 s) — a análise lê todas as lojas num cache frio |
 | `GET /health`, `GET /docs` | pública | |
 
 **Análise (`/analysis/*`)** → `intelligence-service` (`INTELLIGENCE_SERVICE_URL`, obrigatória), `supply:read`.

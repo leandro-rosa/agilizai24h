@@ -913,6 +913,15 @@ pelo vínculo cadastrado (`link-supplier.tsx` grava `supplierId` via `PATCH /pro
 255 produtos têm vínculo, então o modo fornecedor começa vazio até alguém vincular. Sem botões de
 Importar nota/Lançar compra nem itens Pedidos/Notas fiscais no menu até a Fase 2.
 
+## `/purchases` — Compras e Fornecedores (`add-supplier-product-analysis`)
+
+Grupo "Compras" no menu (`supply:read`). Abas **Por fornecedor / Por produto**, filtros (categoria, fornecedor, produto, loja), período com mês anterior, comparação *Mês anterior | Média 3 meses*. Consome `GET /analysis/{suppliers/:id,products/:sku,cross}` do gateway → `intelligence-service` (`lib/api/supplier-analysis.ts`); **o frontend só renderiza**: situação por loja, "perda acima da média" e insights (com `evidence` e rótulo FATO/MÉTRICA DERIVADA/ESTIMATIVA) vêm do backend, com limiares em `parameters.analysis` (provisórios).
+
+- Cifra é `Figure` (`available` ou `reason`), nunca número solto: sem compra registrada vira "Sem histórico de compras" (`lib/supplier-analysis/format.ts`), nunca 0; parcial leva `~`. Compras são da rede: com loja filtrada ficam "—".
+- Não existe modelo de compras (Fase 2: nota fiscal + lançamento manual). Por isso não há botões "Importar nota fiscal"/"Lançar compra" nem itens Pedidos/Notas fiscais no menu.
+- Produto só pertence a um fornecedor pelo vínculo cadastrado (`Product.supplier_id`, gravado por `components/supplier-analysis/link-supplier.tsx`); nada é inferido. Na base real nenhum produto tinha vínculo (2026-10-06), então "Por fornecedor" nasce vazio até vincular.
+- Gaps: comparação entre fornecedores do mesmo produto depende de compras; venda/abastecimento passa de 100% porque a venda do mês também sai de estoque anterior (ver intelligence-service); sem gráfico de linhas na evolução (só tabela).
+
 ## Scripts
 
 `pnpm dev` (Turbopack) / `build` / `start` / `lint` / `typecheck`. ESLint flat
