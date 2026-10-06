@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config'
 import { Test, type TestingModule } from '@nestjs/testing'
 import { AppModule } from '../src/app.module'
 import { PrismaClientService } from '../src/modules/db-client/prisma-client.service'
+import { PurchaseImportService } from '../src/modules/purchasing/services/purchase-import.service'
 import { ProductsClient } from '../src/modules/purchasing/clients/products.client'
 import { SalesClient } from '../src/modules/purchasing/clients/sales.client'
 import { PurchasesService } from '../src/modules/purchasing/services/purchases.service'
@@ -26,6 +27,7 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
 
   const fakeMail = { from: () => 'pedidos@agiliz.local', send: jest.fn(async () => ({ messageId: '<sint@mail>' })) }
   let emails: OrderEmailService
+  let importer: PurchaseImportService
   const sold = { from: '2026-10-05', to: '2026-10-11', rows: [{ sku: 'SINT-1', quantity: 62, revenue_cents: 1 }], months_without_dated_receipts: [] as string[], stores_missing: 0 }
 
   beforeAll(async () => {
@@ -42,6 +44,7 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
     purchases = app.get(PurchasesService)
     settlements = app.get(SettlementService)
     emails = app.get(OrderEmailService)
+    importer = app.get(PurchaseImportService)
     supplierId = (await prisma.supplier.create({ data: { name: '[SINTÉTICO] fornecedor', category: 'grocery' } })).id
   }, 60000)
 
@@ -132,5 +135,20 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
     expect(sent.order.status).toBe('awaiting_invoice')
     await expect(emails.send(order.id, { to: 'sint@example.com' })).rejects.toThrow(/already sent/)
     expect((await emails.log(order.id)).map(e => e.result)).toEqual(['sent', 'failed'])
+  })
+
+  it('remembers the supplier code the operator picked, so the next invoice resolves the line alone (real SQL)', async () => {
+    await prisma.supplier.update({ where: { id: supplierId }, data: { tax_id: '99.999.999/0001-99' } })
+    const line = { line: 1, code: 'SINT-COD-7', ean: null, description: 'PRODUTO SINT 473ML', unit: 'CX', quantity: 2, quantityIsWhole: true, unitCostCents: 1000, totalCents: 2000 }
+    const invoice = (number: string) => ({ key: null, number, issuedOn: '2026-10-05', issuer: { taxId: '99999999000199', name: 'EMITENTE SINT' }, items: [line] })
+
+    expect((await importer.preview(invoice('SINT-NF-A'))).items[0]).toMatchObject({ sku: null, matched_by: null })
+    await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-05', invoice_number: 'SINT-NF-A', items: [{ sku: 'SINT-1', supplier_code: 'SINT-COD-7', quantity: 2, unit_cost_cents: 1000, condition: 'paid' }] })
+
+    expect((await importer.preview(invoice('SINT-NF-B'))).items[0]).toMatchObject({ sku: 'SINT-1', matched_by: 'supplier_code' })
+
+    // A purchase that is refused leaves no link behind.
+    await expect(purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-05', invoice_number: 'SINT-NF-A', items: [{ sku: 'SINT-1', supplier_code: 'SINT-COD-8', quantity: 1, unit_cost_cents: 1, condition: 'paid' }] })).rejects.toThrow()
+    expect(await prisma.supplierProductCode.count({ where: { supplier_id: supplierId, code: 'SINT-COD-8' } })).toBe(0)
   })
 })

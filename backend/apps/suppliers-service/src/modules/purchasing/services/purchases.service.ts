@@ -229,13 +229,6 @@ export class PurchasesService {
     const beyondRequisition = stage !== 'requisition'
     const beyondSent = stage !== 'requisition' && stage !== 'awaiting_invoice'
 
-    // The operator picked a product for a line the invoice did not resolve: remember it for this supplier's next invoices.
-    for (const item of dto.items) {
-      const code = item.supplier_code?.trim()
-      if (!code) continue
-      await this.prisma.supplierProductCode.upsert({ where: { supplier_id_code: { supplier_id: dto.supplier_id, code } }, create: { supplier_id: dto.supplier_id, code, sku: item.sku }, update: { sku: item.sku } })
-    }
-
     const created = await this.prisma.purchase.create({
       data: {
         supplier_id: dto.supplier_id,
@@ -268,6 +261,13 @@ export class PurchasesService {
       },
       include: { items: { orderBy: { id: 'asc' } }, supplier: true },
     })
+
+    // Once the purchase is recorded, the operator's OK on each manual pick sticks: the operator picked a product for a line the invoice did not resolve: remember it for this supplier's next invoices.
+    for (const item of dto.items) {
+      const code = item.supplier_code?.trim()
+      if (!code) continue
+      await this.prisma.supplierProductCode.upsert({ where: { supplier_id_code: { supplier_id: dto.supplier_id, code } }, create: { supplier_id: dto.supplier_id, code, sku: item.sku }, update: { sku: item.sku } })
+    }
 
     return toView(created, this.today())
   }

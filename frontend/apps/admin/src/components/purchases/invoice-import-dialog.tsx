@@ -145,7 +145,11 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
           }),
         );
       dispatch(supplierAnalysisApi.util.invalidateTags(["Analysis"]));
-      toast.success(`Nota ${preview.number} registrada com ${resolved.length} ${resolved.length === 1 ? "item" : "itens"}.`);
+      const linked = resolved.filter((item) => !item.sku).length;
+      toast.success(
+        `Nota ${preview.number} registrada com ${resolved.length} ${resolved.length === 1 ? "item" : "itens"}.` +
+          (linked > 0 ? ` ${linked} ${linked === 1 ? "associação guardada" : "associações guardadas"}: na próxima nota deste fornecedor ${linked === 1 ? "o item vem" : "os itens vêm"} preenchido${linked === 1 ? "" : "s"}.` : ""),
+      );
       setOpen(false);
       setPreview(null);
     } catch (failure) {
