@@ -52,11 +52,14 @@ export function compareRate(current: number | null, previous: number | null, las
 export function signedPct(pct: number | null, digits = 1): string {
   if (pct === null) return "sem comparação";
   const v = Math.abs(pct * 100).toFixed(digits).replace(".", ",");
+  // Variação que arredonda para zero não tem sinal: "−0%" daria a entender uma queda que não existe.
+  if (Number(Math.abs(pct * 100).toFixed(digits)) === 0) return `${v}%`;
   return `${pct >= 0 ? "+" : "−"}${v}%`;
 }
 
 export function signedPp(pp: number | null, digits = 1): string {
   if (pp === null) return "sem comparação";
   const v = Math.abs(pp).toFixed(digits).replace(".", ",");
+  if (Number(Math.abs(pp).toFixed(digits)) === 0) return `${v} p.p.`;
   return `${pp >= 0 ? "+" : "−"}${v} p.p.`;
 }

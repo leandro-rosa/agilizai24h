@@ -7,6 +7,7 @@ import { baseText } from "../ranking";
 import { signedPct, signedPp, type RateDelta, type ValueDelta } from "../compare";
 import { monthName } from "../reading";
 import { overdueSummary } from "../overdue";
+import { priceChangesObservation } from "../price-volume";
 import { SIGNAL_LABELS } from "../tests";
 import type { CashUseLine, Highlight, Insight, KpiResult, LossChange, Overview, ProductRow, StoreExplainers } from "../types";
 
@@ -156,7 +157,7 @@ function HighlightCard({ label, h, color }: { label: string; h: Highlight | null
       {h ? (
         <>
           <Text style={[s.bold, { marginBottom: 2 }]}>{t(h.title)}</Text>
-          <Text style={s.small}>{clip(t(h.detail), 150)}</Text>
+          <Text style={s.small}>{clip(t(h.detail), 110)}</Text>
         </>
       ) : (
         <Text style={s.small}>Sem dados suficientes para esta competência.</Text>
@@ -173,7 +174,7 @@ function InsightItem({ i, n }: { i: Insight; n: number }) {
         <Text style={[s.small, { color: toneColor(i.tone), fontFamily: "Helvetica-Bold" }]}>{n}. {label}</Text>
       </View>
       <Text style={[s.bold, { marginBottom: 2 }]}>{t(i.title)}</Text>
-      <Text style={s.small}>{clip(t(i.detail))}</Text>
+      <Text style={s.small}>{clip(t(i.detail), 120)}</Text>
     </View>
   );
 }
@@ -426,6 +427,33 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
             </View>
           )}
         </View>
+        {o.priceChanges ? (
+          <View style={[s.card, s.cardGap]}>
+            <Title hint="preço realizado = receita ÷ unidades, já com descontos">Reajustes de preço no mês</Title>
+            <Text style={{ marginBottom: 6 }}>
+              <Text style={s.bold}>{o.priceChanges.count} produtos reajustados</Text> ({o.priceChanges.raised} subiram, {o.priceChanges.lowered} baixaram): efeito do preço{" "}
+              <Text style={[s.bold, { color: C.good }]}>{o.priceChanges.priceEffectCents < 0 ? "-" : "+"}{brl(Math.abs(o.priceChanges.priceEffectCents))}</Text> e das unidades{" "}
+              <Text style={[s.bold, { color: o.priceChanges.volumeEffectCents < 0 ? C.bad : C.good }]}>{o.priceChanges.volumeEffectCents < 0 ? "-" : "+"}{brl(Math.abs(o.priceChanges.volumeEffectCents))}</Text> na receita deles (estimativa).
+            </Text>
+            <View style={s.th}>
+              <Text style={[s.thText, { flex: 3.4 }]}>Produto</Text>
+              <Text style={[s.thText, { flex: 2.4, textAlign: "right" }]}>Preço</Text>
+              <Text style={[s.thText, { flex: 2.2, textAlign: "right" }]}>Unidades</Text>
+              <Text style={[s.thText, { flex: 1.6, textAlign: "right" }]}>Margem</Text>
+              <Text style={[s.thText, { flex: 1.4, textAlign: "right" }]}>Receita</Text>
+            </View>
+            {o.priceChanges.rows.slice(0, 8).map((r) => (
+              <View key={r.sku} style={{ flexDirection: "row", marginBottom: 4 }} wrap={false}>
+                <Text style={{ flex: 3.4 }}>{t(r.name).slice(0, 40)}</Text>
+                <Text style={{ flex: 2.4, textAlign: "right" }}>R$ {(r.priceBeforeCents / 100).toFixed(2).replace(".", ",")} {"->"} {(r.priceAfterCents / 100).toFixed(2).replace(".", ",")} <Text style={s.small}>({t(signedPct(r.pricePct, 0))})</Text></Text>
+                <Text style={{ flex: 2.2, textAlign: "right" }}>{num(r.unitsBefore)} {"->"} {num(r.unitsAfter)} <Text style={{ color: r.unitsPct < 0 ? C.bad : C.good }}>({t(signedPct(r.unitsPct, 0))})</Text></Text>
+                <Text style={{ flex: 1.6, textAlign: "right" }}>{pct(r.marginBefore, 0)} {"->"} {pct(r.marginAfter, 0)}</Text>
+                <Text style={{ flex: 1.4, textAlign: "right", color: r.revenueDeltaCents < 0 ? C.bad : C.good }}>{r.revenueDeltaCents < 0 ? "-" : "+"}{brl(Math.abs(r.revenueDeltaCents))}</Text>
+              </View>
+            ))}
+            <Text style={[s.small, { marginTop: 3 }]}>Mostrando 8 de {o.priceChanges.count} reajustados (maior receita). Observação: {t(priceChangesObservation(o.priceChanges))}</Text>
+          </View>
+        ) : null}
         {o.skuSuggestions.length > 0 ? (
           <View style={[s.card, s.cardGap]}>
             <Text style={s.h3}>Troca de código de barras a confirmar</Text>

@@ -51,3 +51,12 @@ describe("formatting", () => {
     expect(signedPp(-0.7)).toBe("−0,7 p.p.");
   });
 });
+
+describe("sinal de variação que arredonda para zero", () => {
+  it("não mostra −0%", () => {
+    expect(signedPct(-0.003, 0)).toBe("0%");
+    expect(signedPct(0.0004, 1)).toBe("0,0%");
+    expect(signedPct(-0.021, 1)).toBe("−2,1%");
+    expect(signedPp(-0.02, 1)).toBe("0,0 p.p.");
+  });
+});

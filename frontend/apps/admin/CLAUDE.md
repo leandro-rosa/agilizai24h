@@ -489,6 +489,10 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   (notas em aberto de `GET /billing/invoices?status=issued`). Ascenty e Rolls-Royce pagam 30 dias após a emissão. O billing grava
   `paid_on` = `due_on` nas notas baixadas (não é a data real do banco), então o histórico não mostra o atraso habitual. Atraso de até
   `OVERDUE.SHORT_DAYS` (5, PREMISSA) é tratado como baixa pendente (extrato não lançado) e NÃO entra em "O que acompanhar"; só o que passa disso.
+- **Reajustes de preço no mês** (`price-changes-card.tsx`, página 3 do PDF; `buildPriceChanges` em `price-volume.ts`): lista produto a
+  produto (preço antes → depois, unidades antes → depois, margem, Δ receita) dos SKUs reajustados, além da frase-resumo nos insights.
+  O preço é o REALIZADO (receita ÷ unidades, com descontos), não a etiqueta: por isso aparece "R$ 15,71" onde o cadastro diz R$ 15,90.
+  Para mostrar a etiqueta seria preciso ler as transações; o histórico datado do catálogo (`price_version`) ainda está incompleto.
 - **Definições fixas** (aparecem na tela): Faturamento = receita líquida do DRE;
   Margem operacional = resultado operacional ÷ receita líquida; perda sempre com
   os dois denominadores (÷ receita líquida, ÷ custo abastecido); participação por

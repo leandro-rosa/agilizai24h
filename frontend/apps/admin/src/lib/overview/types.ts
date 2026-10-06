@@ -8,6 +8,7 @@ import type { Distribution, ProductBehavior } from "./product-behavior";
 import type { SalesCoverage } from "./sales-coverage";
 import type { CatalogueItem, LinkDecision, SkuSuggestion } from "./sku-match";
 import type { OpenInvoice, OverdueDetail } from "./overdue";
+import type { PriceChanges } from "./price-volume";
 import type { SupplyCell, TestsSummary } from "./tests";
 
 export interface NetworkPnlMonth {
@@ -372,6 +373,8 @@ export interface Overview {
   watchlist: WatchItem[];
   stores: StoreSummary | null;
   products: ProductsSummary | null;
+  /** Reajustes de preço do mês (produto a produto); null = sem reajuste relevante ou sem vendas dos dois meses. */
+  priceChanges: PriceChanges | null;
   /** Vendas do mês (e do anterior) que parecem importadas pela metade em alguma loja. */
   salesCoverage: { current: SalesCoverage | null; previous: SalesCoverage | null };
   /** null = abastecimento indisponível; rows vazio = nenhum candidato com as regras atuais. */
