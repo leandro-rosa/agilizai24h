@@ -480,7 +480,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
                     <Stat label="Lucro de cada R$ 100 vendidos" value={im.margin && im.margin.pctAfter !== null ? `R$ ${Math.round(im.margin.pctAfter * 100)}` : "-"} note={im.margin && im.margin.pctBefore !== null ? `antes: R$ ${Math.round(im.margin.pctBefore * 100)}` : undefined} />
                     <Stat label="Unidades vendidas" value={num(pc.unitsAfter)} color={pc.unitsAfter < pc.unitsBefore ? C.bad : C.good} note={`${num(pc.unitsBefore)} -> ${num(pc.unitsAfter)} (${dpct(unitsPct)})`} />
                   </View>
-                  <View style={{ marginBottom: 8 }}>{rd.lines.map((l) => <Text key={l} style={[s.small, { marginBottom: 2 }]}>- {t(l)}</Text>)}</View>
+                  <View style={{ marginBottom: 8 }}>{rd.lines.filter((l) => !l.startsWith("De cada R$ 100")).map((l) => <Text key={l} style={[s.small, { marginBottom: 2 }]}>- {t(l)}</Text>)}</View>
                 </>
               );
             })()}
@@ -488,7 +488,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
               <Text style={[s.thText, { flex: 3.4 }]}>Produto</Text>
               <Text style={[s.thText, { flex: 2.4, textAlign: "right" }]}>Preço</Text>
               <Text style={[s.thText, { flex: 2.2, textAlign: "right" }]}>Unidades</Text>
-              <Text style={[s.thText, { flex: 1.6, textAlign: "right" }]}>Lucro bruto %</Text>
+              <Text style={[s.thText, { flex: 3.4, textAlign: "right" }]}>Lucro bruto (R$)</Text>
               <Text style={[s.thText, { flex: 1.4, textAlign: "right" }]}>Faturamento</Text>
             </View>
             {o.priceChanges.rows.slice(0, 6).map((r) => (
@@ -496,7 +496,15 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
                 <Text style={{ flex: 3.4 }}>{t(r.name).slice(0, 40)}</Text>
                 <Text style={{ flex: 2.4, textAlign: "right" }}>R$ {(r.priceBeforeCents / 100).toFixed(2).replace(".", ",")} {"->"} {(r.priceAfterCents / 100).toFixed(2).replace(".", ",")} <Text style={s.small}>({t(signedPct(r.pricePct, 0))})</Text></Text>
                 <Text style={{ flex: 2.2, textAlign: "right" }}>{num(r.unitsBefore)} {"->"} {num(r.unitsAfter)} <Text style={{ color: r.unitsPct < 0 ? C.bad : C.good }}>({t(signedPct(r.unitsPct, 0))})</Text></Text>
-                <Text style={{ flex: 1.6, textAlign: "right" }}>{pct(r.marginBefore, 0)} {"->"} {pct(r.marginAfter, 0)}</Text>
+                <Text style={{ flex: 3.4, textAlign: "right" }}>
+                  {r.profitBeforeCents !== null && r.profitAfterCents !== null ? (
+                    <>
+                      {brl(r.profitBeforeCents)} {"->"} {brl(r.profitAfterCents)} <Text style={{ color: r.profitAfterCents < r.profitBeforeCents ? C.bad : C.good }}>({r.profitAfterCents < r.profitBeforeCents ? "-" : "+"}{brl(Math.abs(r.profitAfterCents - r.profitBeforeCents))})</Text>
+                    </>
+                  ) : (
+                    "-"
+                  )}
+                </Text>
                 <Text style={{ flex: 1.4, textAlign: "right", color: r.revenueDeltaCents < 0 ? C.bad : C.good }}>{r.revenueDeltaCents < 0 ? "-" : "+"}{brl(Math.abs(r.revenueDeltaCents))}</Text>
               </View>
             ))}

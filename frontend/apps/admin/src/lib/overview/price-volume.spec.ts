@@ -53,8 +53,11 @@ describe("buildPriceChanges", () => {
     expect(a.unitsPct).toBeCloseTo(-0.2);
     expect(a.marginBefore).toBeCloseTo(0.5);
     expect(a.marginAfter).toBeCloseTo(1 - 500 / 1200);
+    // Lucro bruto em R$: (1000-500)*100 = 50.000 ; (1200-500)*80 = 56.000.
+    expect([a.profitBeforeCents, a.profitAfterCents]).toEqual([50_000, 56_000]);
     // Sem custo resolvido a margem é null, nunca 0.
     expect(pc.rows.find((r) => r.sku === "B")!.marginBefore).toBeNull();
+    expect(pc.rows.find((r) => r.sku === "B")!.profitAfterCents).toBeNull();
   });
 
   it("sem reajuste relevante não há bloco", () => {

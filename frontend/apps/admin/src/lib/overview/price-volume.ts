@@ -143,6 +143,9 @@ export interface PriceChangeRow {
   /** Margem sobre o preço realizado com o custo datado do SKU; null = custo não resolvido. */
   marginBefore: number | null;
   marginAfter: number | null;
+  /** Lucro bruto do produto no mês, em R$: (preço realizado − custo) × unidades; null = custo não resolvido. */
+  profitBeforeCents: number | null;
+  profitAfterCents: number | null;
 }
 
 /**
@@ -242,6 +245,8 @@ export function buildPriceChanges(pv: PriceVolume | null, names: Record<string, 
         revenueDeltaCents: x.priceAfterCents * x.unitsAfter - x.priceBeforeCents * x.unitsBefore,
         marginBefore: cost !== undefined && x.priceBeforeCents > 0 ? 1 - cost / x.priceBeforeCents : null,
         marginAfter: cost !== undefined && x.priceAfterCents > 0 ? 1 - cost / x.priceAfterCents : null,
+        profitBeforeCents: cost !== undefined ? Math.round((x.priceBeforeCents - cost) * x.unitsBefore) : null,
+        profitAfterCents: cost !== undefined ? Math.round((x.priceAfterCents - cost) * x.unitsAfter) : null,
       };
     });
   let revBefore = 0;
