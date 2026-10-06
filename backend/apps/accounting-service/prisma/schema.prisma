@@ -157,3 +157,25 @@ model CashFlowSnapshot {
 
   @@map("cash_flow_snapshot")
 }
+
+/// Registro de cada versão do Resumo Executivo Mensal gerado (Visão Geral +
+/// PDF). Guarda só METADADOS e parâmetros — nunca o conteúdo calculado, que é
+/// re-derivável dos serviços. `base_at` é o `computed_at` do DRE da rede no
+/// momento da geração: se o mês for reapurado, o `base_at` muda e a próxima
+/// geração vira a versão seguinte. `content_hash` detecta mudança de qualquer
+/// outra fonte (vendas, perdas, caixa) com a mesma base do DRE.
+model MonthlySummary {
+  id           Int      @id @default(autoincrement())
+  /// "YYYY-MM" — a competência do resumo.
+  period       String
+  version      Int
+  base_at      DateTime
+  content_hash String
+  /// Parâmetros que moldaram os números (comparações, limiares de materialidade, versão da lógica).
+  params       Json
+  generated_at DateTime @default(now())
+
+  @@unique([period, version])
+  @@index([period])
+  @@map("monthly_summary")
+}

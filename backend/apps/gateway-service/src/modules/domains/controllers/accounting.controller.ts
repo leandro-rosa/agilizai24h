@@ -128,6 +128,33 @@ export class AccountingController {
     return result.data
   }
 
+  @Get('monthly-summary/:period')
+  @RequiresPermission(PERMISSIONS.ACCOUNTING_READ)
+  @ApiOperation({ summary: 'Versions already generated of a month executive summary' })
+  async getMonthlySummaries(@Param('period') period: string, @Req() request: FastifyRequest) {
+    const result = await this.domains.accounting({
+      method: 'get',
+      path: `/accounting/monthly-summary/${encodeURIComponent(period)}`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Post('monthly-summary/:period')
+  @RequiresPermission(PERMISSIONS.ACCOUNTING_READ)
+  @ApiOperation({ summary: 'Register the generation of a closed month executive summary (metadata only)' })
+  async postMonthlySummary(@Param('period') period: string, @Body() body: unknown, @Req() request: FastifyRequest) {
+    const result = await this.domains.accounting({
+      method: 'post',
+      path: `/accounting/monthly-summary/${encodeURIComponent(period)}`,
+      payload: body,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
   @Get('pnl/series')
   @RequiresPermission(PERMISSIONS.ACCOUNTING_READ)
   @ApiOperation({ summary: 'P&L snapshots over a range' })

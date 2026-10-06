@@ -4,6 +4,7 @@ import {
   CreateAccountDto,
   ListEntriesDto,
   PutEntryDto,
+  RegisterMonthlySummaryDto,
   UpdateAccountDto,
   UpsertCashFlowDto,
 } from '../dto/accounting.dto'
@@ -55,6 +56,23 @@ export class AccountingController {
   @ApiOperation({ summary: 'Remove a ledger entry' })
   deleteEntry(@Param('id', ParseIntPipe) id: number) {
     return this.accounting.deleteEntry(id)
+  }
+
+  @Get('monthly-summary/:period')
+  @ApiOperation({ summary: 'Versions already generated of a month\'s executive summary' })
+  listMonthlySummaries(@Param('period') period: string) {
+    return this.accounting.listMonthlySummaries(period)
+  }
+
+  @Post('monthly-summary/:period')
+  @ApiOperation({
+    summary: 'Register the generation of a closed month\'s executive summary',
+    description:
+      'Same DRE base and same content hash reuse the version; a reclosed month or changed content creates the next one. Only metadata is stored.',
+  })
+  @ApiResponse({ status: 409, description: 'Month is not closed' })
+  registerMonthlySummary(@Param('period') period: string, @Body() dto: RegisterMonthlySummaryDto) {
+    return this.accounting.registerMonthlySummary(period, dto)
   }
 
   @Get('pnl/series')

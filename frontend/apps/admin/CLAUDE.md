@@ -450,6 +450,50 @@ clustering, não um filtro) e PDVs/máquinas com alerta automático de
 comportamento anômalo (seção 17's "criar alertas") — ambos exigiriam um
 modelo dedicado, não só leitura+agregação como o resto da tela.
 
+## `/` — Visão geral = Resumo Executivo Mensal
+
+A rota `/` não tem mais KPIs soltos: é o resumo mensal da rede, só de **meses
+fechados** (DRE da rede com `status = closed` no `accounting-service`; o
+seletor "Competência" lista só esses). Dado + variação (vs. mês anterior e vs.
+média dos 3 meses anteriores; `%` para valor, `p.p.` para margem) + insight +
+ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
+
+- **Motor puro** em `src/lib/overview/` (sem React/fetch; um spec por módulo):
+  `compare` (delta %/p.p., `null` nunca vira 0), `materiality` (limiares
+  **PREMISSA inicial, validar com a distribuição real antes de fixar** — AND de
+  relevância no todo e no item), `product-behavior` (série de 4+ meses →
+  estável/crescimento ou queda consistente/volátil/mudança recente/novo, e
+  distribuição entre lojas), `kpis`, `stores`, `products`, `loss`, `cash-uses`,
+  `insights` (≤ 6, todo texto vem de fato calculado), `reading`, `build`
+  (`buildOverview` → o objeto único que a tela **e** o PDF renderizam).
+  `assemble.ts` adapta respostas de API → entrada do motor; `use-monthly-overview.ts`
+  compõe as queries existentes (fan-out de vendas por loja × mês, série de
+  finance por loja, caixa/resumo da tesouraria por mês). Seção que falhou entra
+  como `null` e vira "Indisponível".
+- **Definições fixas** (aparecem na tela): Faturamento = receita líquida do DRE;
+  Margem operacional = resultado operacional ÷ receita líquida; perda sempre com
+  os dois denominadores (÷ receita líquida, ÷ custo abastecido); participação por
+  motivo/SKU usa a soma do próprio detalhamento (nunca > 100%); CAPEX =
+  `capex-service` itens `fixed`/`initial` datados no mês (`operating_expense` é
+  despesa, fora); compras de estoque = categoria `Estoque` da tesouraria (caixa),
+  distinta do CMV do finance — nunca somadas; aportes de investidores nunca são
+  receita.
+- **PDF**: `src/lib/overview/pdf/report.tsx` (`@react-pdf/renderer`, carregado só
+  no clique em `export-pdf-button.tsx`). Helvetica padrão não tem `−`/setas/`≥`:
+  `t()` troca por equivalentes. Cada exportação chama
+  `POST /accounting/monthly-summary/:period` (hash do conteúdo + parâmetros);
+  a versão sobe só se a base do DRE ou o conteúdo mudaram.
+- **Lacunas declaradas na própria tela** (`PHASE1_LIMITATIONS`): **Produtos em
+  teste** (não existe flag nem data de lançamento de SKU), investidores só têm
+  aporte, notas fiscais a emitir não existem, "a vencer" é o total em aberto
+  (sem corte em 30 dias), categorias de despesa são rótulo livre do de-para.
+- Drill-down: links "Ver … →" levam às telas especializadas sem período
+  (`/supply` e `/commercial-intelligence` guardam período/aba em estado local;
+  só `/finance/pnl` lê `?period=`).
+- Verificado no browser contra um gateway **mock sintético** (nunca banco real);
+  falta a conferência número a número contra o stack real depois do rebuild das
+  imagens `admin` (nova dependência) e `accounting` (migration).
+
 ## `/commercial-intelligence` — Inteligência Comercial
 
 Página somente-leitura, item de Operação logo depois de Vendas (`sales:read`).

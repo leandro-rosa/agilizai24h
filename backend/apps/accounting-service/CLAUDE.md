@@ -95,3 +95,18 @@ sairia dobrada.
 
 - **`pnl()` não valida que a soma das lojas bate com o consolidado.** Uma
   linha `per_store` lançada só na rede, ou só por loja, passa sem alerta.
+
+
+## Resumo Mensal — versionamento (`MonthlySummary`)
+
+`GET/POST /accounting/monthly-summary/:period` (gateway: `accounting:read`).
+Registra cada geração do Resumo Executivo Mensal da Visão Geral/PDF: versão,
+`base_at` (= `computed_at` do `PnlSnapshot` da rede), `content_hash` (SHA-256 do
+conteúdo calculado no navegador), `params` (comparações, limiares, versão da
+lógica) e `generated_at`. **Só metadados** — o conteúdo é re-derivável dos
+serviços. O POST exige o mês **fechado** na rede (409 caso contrário); mesma
+base + mesmo hash devolve a versão existente (`reused: true`), qualquer mudança
+cria a seguinte (`rules/monthly-summary-version.ts`, com spec). Gap: `computed_at`
+é regravado a cada reapuração, então "data de fechamento" é na verdade "último
+fechamento"; e o hash cobre o que o navegador calculou (um cliente adulterado
+poderia mandar outro hash — é trilha de auditoria, não garantia criptográfica).
