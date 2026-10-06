@@ -183,6 +183,14 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
     await expect(payables.pay({ purchase_ids: [boleto.id] })).rejects.toThrow(/Nothing open/)
     await expect(payables.pay({ purchase_ids: [boleto.id], paid_on: '2026-12-01' })).rejects.toThrow(/future/)
 
+    // By day: only the payments made that day, with the value paid that day.
+    const dayOnly = await payables.overview(undefined, '2026-11-09', '2026-11-09')
+    expect(dayOnly.period).toEqual({ from: '2026-11-09', to: '2026-11-09' })
+    expect(own(dayOnly.orders, boleto.id)).toMatchObject({ state: 'paid', paid_cents: 2000, paid_on: '2026-11-09' })
+    expect(dayOnly.summary.paid_month_cents).toBe(2000)
+    expect(own((await payables.overview(undefined, '2026-11-08', '2026-11-08')).orders, boleto.id)).toBeUndefined()
+    await expect(payables.overview(undefined, '2026-11-09', '2026-11-01')).rejects.toThrow(/from not after to/)
+
     expect(await payables.undo({ purchase_ids: [boleto.id], actor: 'sint' })).toEqual({ reopened_items: 1 })
     expect(own((await payables.overview('2026-11')).orders, boleto.id)).toMatchObject({ state: 'overdue' })
     expect((await purchases.history(boleto.id)).map(e => e.note)).toEqual(expect.arrayContaining([expect.stringContaining('payment recorded'), expect.stringContaining('payment undone')]))

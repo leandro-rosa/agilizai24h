@@ -6,14 +6,14 @@ import { cn } from "@/lib/utils";
 const plural = (n: number) => `${n} ${n === 1 ? "conta" : "contas"}`;
 
 /** Os seis números do topo. "Na entrega" é o que se paga ao receber; "previsto no mês" é o aberto mais o já pago. */
-export function SummaryCards({ summary }: { summary: Payables["summary"] }) {
+export function SummaryCards({ summary, periodLabel = "mês" }: { summary: Payables["summary"]; periodLabel?: string }) {
   const cards = [
     { label: "Total em aberto", value: summary.open_cents, note: plural(summary.open_orders) },
     { label: "Vencidos", value: summary.overdue_cents, note: plural(summary.overdue_orders), tone: summary.overdue_cents > 0 ? "critical" : undefined },
     { label: "Hoje e próximos 7 dias", value: summary.due_7d_cents, note: plural(summary.due_7d_orders) },
     { label: "Pagar na entrega", value: summary.on_delivery_cents, note: plural(summary.on_delivery_orders) },
-    { label: "Pago no mês", value: summary.paid_month_cents, note: plural(summary.paid_month_orders), tone: "positive" },
-    { label: "Total previsto no mês", value: summary.forecast_month_cents, note: "Aberto + Pago" },
+    { label: `Pago no ${periodLabel}`, value: summary.paid_month_cents, note: plural(summary.paid_month_orders), tone: "positive" },
+    { label: `Total previsto no ${periodLabel}`, value: summary.forecast_month_cents, note: "Aberto + Pago" },
   ] as const;
 
   return (

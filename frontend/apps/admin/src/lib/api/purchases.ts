@@ -188,6 +188,8 @@ export interface PayableOrder {
 
 export interface Payables {
   month: string;
+  /** O período lido: um mês inteiro ou os dias escolhidos. */
+  period: { from: string; to: string };
   today: string;
   summary: {
     open_cents: number;
@@ -355,8 +357,16 @@ export const purchasesApi = createApi({
       query: ({ id, ...body }) => ({ url: `/purchases/${id}/send`, method: "POST", body }),
       invalidatesTags: ["Purchase", "Payments"],
     }),
-    getPayables: builder.query<Payables, { month?: string } | void>({
-      query: (args) => `/payables${args?.month ? `?month=${args.month}` : ""}`,
+    getPayables: builder.query<Payables, { month?: string; from?: string; to?: string } | void>({
+      query: (args) => {
+        const params = new URLSearchParams();
+        if (args?.from && args?.to) {
+          params.set("from", args.from);
+          params.set("to", args.to);
+        } else if (args?.month) params.set("month", args.month);
+        const query = params.toString();
+        return `/payables${query ? `?${query}` : ""}`;
+      },
       providesTags: ["Purchase", "Payments"],
     }),
     payOrders: builder.mutation<{ paid_items: number; paid_cents: number }, { purchase_ids: number[]; paid_on?: string; method?: PaymentMethod; note?: string }>({

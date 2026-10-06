@@ -1046,3 +1046,5 @@ Pedidos: **Editar** (reusa `purchase-form-dialog.tsx` com `order`; etapa fixa, f
 `/purchases/payments` ("A pagar") em 4 blocos (`components/purchases/payables/`): cards de resumo, evolução (recharts, 6 meses) + próximos pagamentos + compromissos no caixa, tabela de contas (busca, status, fornecedor, forma, "Limpar filtros"; "Dar baixa"/"Desfazer"; "Lançar pagamento" abre `pay-dialog.tsx`) e conciliação (funil Pedidos → NF → Recebimento → Pagamento, avisos clicáveis que recortam a tabela). Todo número e regra vem do backend (`GET /payables`); o filtro só recorta. Formulário de pedido ganhou "Forma" (boleto, Pix/transferência, outra).
 
 "Receber" um pedido pago na entrega oferece "Já paguei na entrega", que registra o pagamento junto. Em "A pagar", o vencimento de hoje aparece como "Vence hoje" e o card é "Hoje e próximos 7 dias".
+
+"A pagar": o calendário do topo escolhe um intervalo de dias (atalhos "Hoje" e "Ontem", "Mês" volta ao mês); ao escolher dias a tabela já vem em "Pago" para mostrar os pagamentos feitos naquele(s) dia(s), e os cards passam a dizer "no período".

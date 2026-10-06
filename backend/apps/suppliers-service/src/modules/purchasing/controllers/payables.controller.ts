@@ -10,8 +10,8 @@ export class PayablesController {
 
   @Get()
   @ApiOperation({ summary: 'The payables screen: summary, series, agenda, orders and reconciliation for a month' })
-  overview(@Query('month') month?: string) {
-    return this.payables.overview(month)
+  overview(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.payables.overview(month, from, to)
   }
 
   @Post('pay')

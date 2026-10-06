@@ -11,7 +11,7 @@ const dayParts = (day: string) => {
 };
 
 /** Próximos pagamentos (a agenda) e os compromissos no caixa. Entrega prevista é ESTIMATIVA e fica marcada. */
-export function Agenda({ payables, onSeeAll }: { payables: Payables; onSeeAll: () => void }) {
+export function Agenda({ payables, onSeeAll, periodLabel = "mês" }: { payables: Payables; onSeeAll: () => void; periodLabel?: string }) {
   const { upcoming, commitments } = payables;
 
   return (
@@ -54,7 +54,7 @@ export function Agenda({ payables, onSeeAll }: { payables: Payables; onSeeAll: (
         <CardContent className="flex flex-col gap-2 text-sm">
           <Row label="Hoje e próximos 7 dias" value={commitments.next_7_days_cents} />
           <Row label="Próximos 30 dias" value={commitments.next_30_days_cents} />
-          <Row label="Pago no mês" value={commitments.paid_month_cents} />
+          <Row label={`Pago no ${periodLabel}`} value={commitments.paid_month_cents} />
           {commitments.next_7_days_cents > 0 && (
             <p className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs" role="status">
               {formatCents(commitments.next_7_days_cents)} em pagamentos previstos para os próximos 7 dias.

@@ -3,7 +3,7 @@ import { PrismaClientService } from '../../db-client/prisma-client.service'
 import type { PaymentMethod, PaymentTerm } from '../constants/purchase-vocabulary'
 import type { PayDto, UndoPayDto } from '../dto/payables.dto'
 import { isDay } from '../utils/week'
-import { buildOrders, buildSeries, reconcile, summarize, type PayablePurchase } from '../utils/payables'
+import { buildOrders, buildSeries, monthPeriod, reconcile, summarize, type PayablePurchase, type Period } from '../utils/payables'
 
 const day = (date: Date | null): string | null => (date ? date.toISOString().slice(0, 10) : null)
 const asDate = (value: string) => new Date(`${value}T00:00:00Z`)
@@ -55,21 +55,32 @@ export class PayablesService {
     }))
   }
 
-  async overview(month?: string) {
+  /** The period is a month (`month=YYYY-MM`, the default) or any range of days (`from` and `to`, up to a year). */
+  async overview(month?: string, from?: string, to?: string) {
     const today = this.today()
-    const selected = month ?? today.slice(0, 7)
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(selected)) throw new BadRequestException('month must be YYYY-MM')
+    let period: Period
+    if (from || to) {
+      if (!from || !to || !isDay(from) || !isDay(to) || from > to) throw new BadRequestException('from and to must be real days, YYYY-MM-DD, from not after to')
+      if ((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86_400_000 > 366) throw new BadRequestException('The period is at most 366 days')
+      period = { from, to }
+    } else {
+      const selected = month ?? today.slice(0, 7)
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(selected)) throw new BadRequestException('month must be YYYY-MM')
+      period = monthPeriod(selected)
+    }
+    const selected = period.to.slice(0, 7)
 
     const purchases = await this.load()
-    const orders = buildOrders(purchases, today, selected)
+    const orders = buildOrders(purchases, today, period)
     const horizon30 = new Date(`${today}T00:00:00Z`)
     horizon30.setUTCDate(horizon30.getUTCDate() + 30)
     const within30 = horizon30.toISOString().slice(0, 10)
     const dated = orders.filter(o => o.state !== 'paid' && o.state !== 'overdue' && o.due_on !== null && o.due_on >= today)
-    const summary = summarize(purchases, orders, today, selected)
+    const summary = summarize(purchases, orders, today, period)
 
     return {
       month: selected,
+      period,
       today,
       summary,
       series: buildSeries(purchases, orders, today, selected),

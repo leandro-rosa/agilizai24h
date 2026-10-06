@@ -60,6 +60,19 @@ const quantityOf = (status: string, item: PayableItem) => (status === 'received'
 const valueOf = (status: string, item: PayableItem) => quantityOf(status, item) * item.unit_cost_cents
 const monthOf = (day: string) => day.slice(0, 7)
 
+/** A range of real days, both ends included. */
+export interface Period {
+  from: string
+  to: string
+}
+const within = (day: string | null, period: Period): boolean => day !== null && day >= period.from && day <= period.to
+
+export function monthPeriod(month: string): Period {
+  const [year, number] = month.split('-').map(Number)
+
+  return { from: `${month}-01`, to: new Date(Date.UTC(year, number, 0)).toISOString().slice(0, 10) }
+}
+
 export function addDays(day: string, days: number): string {
   const date = new Date(`${day}T00:00:00Z`)
   date.setUTCDate(date.getUTCDate() + days)
@@ -80,16 +93,16 @@ export function payableForm(purchase: Pick<PayablePurchase, 'payment_term' | 'pa
   return purchase.payment_method ?? (purchase.payment_term === 'due_date' ? 'boleto' : null)
 }
 
-/** One row per purchase that has something open, or paid in `month`. Requisitions are not payables yet. */
-export function buildOrders(purchases: PayablePurchase[], today: string, month: string): PayableOrder[] {
+/** One row per purchase that has something open, or paid in `period`. Requisitions are not payables yet. */
+export function buildOrders(purchases: PayablePurchase[], today: string, period: Period): PayableOrder[] {
   const orders: PayableOrder[] = []
 
   for (const purchase of purchases) {
     if (purchase.status === 'requisition' || purchase.items.length === 0) continue
     const pending = purchase.items.filter(i => i.payment_status !== 'paid')
     const paid = purchase.items.filter(i => i.payment_status === 'paid')
-    const paidInMonth = paid.some(i => i.paid_on && monthOf(i.paid_on) === month)
-    if (pending.length === 0 && !paidInMonth) continue
+    const paidInPeriod = paid.some(i => within(i.paid_on, period))
+    if (pending.length === 0 && !paidInPeriod) continue
 
     const dueByTerm = effectiveDueDate(purchase.payment_term, purchase.payment_due_on, purchase.received_on)
     const waitingDelivery = purchase.payment_term === 'on_receipt' && purchase.status !== 'received'
@@ -109,8 +122,9 @@ export function buildOrders(purchases: PayablePurchase[], today: string, month: 
       estimated: waitingDelivery && due !== null,
       state,
       open_cents: open,
-      paid_cents: paid.reduce((s, i) => s + valueOf(purchase.status, i), 0),
-      paid_on: paid.map(i => i.paid_on).filter((d): d is string => d !== null).sort().at(-1) ?? null,
+      // What was paid INSIDE the period asked for (a day, a month…), not the order's whole history.
+      paid_cents: paid.filter(i => within(i.paid_on, period)).reduce((s, i) => s + valueOf(purchase.status, i), 0),
+      paid_on: paid.map(i => i.paid_on).filter((d): d is string => d !== null && within(d, period)).sort().at(-1) ?? null,
       items: purchase.items.map(i => ({ item_id: i.id, sku: i.sku, description: i.description, quantity: quantityOf(purchase.status, i), total_cents: valueOf(purchase.status, i), payment_status: i.payment_status, paid_on: i.paid_on })),
     })
   }
@@ -129,11 +143,11 @@ export interface PayablesSummary {
   on_delivery_orders: number
   paid_month_cents: number
   paid_month_orders: number
-  /** Open + paid in the month, as the screen's "total previsto no mês" says. */
+  /** Open + paid in the period, as the screen's "total previsto" says. */
   forecast_month_cents: number
 }
 
-export function summarize(purchases: PayablePurchase[], orders: PayableOrder[], today: string, month: string): PayablesSummary {
+export function summarize(purchases: PayablePurchase[], orders: PayableOrder[], today: string, period: Period): PayablesSummary {
   const open = orders.filter(o => o.state !== 'paid')
   const sum = (list: PayableOrder[]) => list.reduce((s, o) => s + o.open_cents, 0)
   const overdue = open.filter(o => o.state === 'overdue')
@@ -145,7 +159,7 @@ export function summarize(purchases: PayablePurchase[], orders: PayableOrder[], 
   const paidOrders = new Set<number>()
   for (const purchase of purchases) {
     for (const item of purchase.items) {
-      if (item.payment_status === 'paid' && item.paid_on && monthOf(item.paid_on) === month) {
+      if (item.payment_status === 'paid' && within(item.paid_on, period)) {
         paidCents += valueOf(purchase.status, item)
         paidOrders.add(purchase.id)
       }
