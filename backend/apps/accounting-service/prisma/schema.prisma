@@ -35,6 +35,12 @@ model Account {
   sort_order Int
   /// A linha é aberta por loja? "Vendas lojas" sim, "Contador" não.
   per_store  Boolean @default(false)
+  /// "treasury_category" | "sales_revenue" | "finance_cogs" | "finance_loss" | null.
+  /// Null = no automatic source; the account stays manual-only.
+  auto_source       String?
+  /// Only meaningful when auto_source = "treasury_category" — the exact
+  /// `bank_transaction.category` text whose period total feeds this account.
+  treasury_category String?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 

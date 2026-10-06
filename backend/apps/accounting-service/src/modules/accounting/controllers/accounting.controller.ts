@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import {
   CreateAccountDto,
@@ -83,20 +83,23 @@ export class AccountingController {
   @Post('pnl/:period/compute')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Freeze the period',
-    description: 'A closed P&L does not change when someone later corrects the past.',
+    summary: 'Sync real data in, then freeze the period',
+    description:
+      'Closing the network (no store_id) now also syncs and closes every active store in the same request.',
   })
   compute(
     @Param('period') period: string,
     @Query('store_id') storeId?: string,
     @Query('store_count') storeCount?: string,
     @Query('close') close?: string,
+    @Headers('x-correlation-id') correlationId?: string,
   ) {
-    return this.accounting.computeSnapshot(
+    return this.accounting.closeMonth(
       period,
       storeId ? Number(storeId) : undefined,
       storeCount ? Number(storeCount) : 0,
       close === 'true',
+      correlationId,
     )
   }
 

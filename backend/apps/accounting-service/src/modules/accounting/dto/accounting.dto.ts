@@ -51,6 +51,19 @@ export class CreateAccountDto {
   @ApiPropertyOptional({ description: 'A linha é aberta por loja?' })
   @IsOptional()
   per_store?: boolean
+
+  @ApiPropertyOptional({
+    description: 'Automatic data source for this account, or null/omitted to stay manual-only.',
+    enum: ['treasury_category', 'sales_revenue', 'finance_cogs', 'finance_loss'],
+  })
+  @IsOptional()
+  @IsIn(['treasury_category', 'sales_revenue', 'finance_cogs', 'finance_loss'])
+  auto_source?: string
+
+  @ApiPropertyOptional({ description: "Treasury category name, only meaningful when auto_source = 'treasury_category'." })
+  @IsOptional()
+  @IsString()
+  treasury_category?: string
 }
 
 export class UpdateAccountDto extends PartialType(CreateAccountDto) {}
@@ -73,6 +86,7 @@ export class PutEntryDto {
 
   @ApiProperty({ description: 'Positivo. O sinal da conta é aplicado na apuração.' })
   @IsInt()
+  @Min(0)
   amount_cents: number
 
   @ApiPropertyOptional({ enum: ORIGINS, default: 'manual' })

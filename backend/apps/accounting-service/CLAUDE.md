@@ -4,7 +4,9 @@ Plano de contas, lançamentos, DRE e fluxo de caixa. Ver
 [../../CLAUDE.md](../../CLAUDE.md) para as convenções do workspace backend.
 
 **Consumidores**: `gateway-service` (rotas `/accounting`).
-**Depende de**: `@app/health`, `@app/prisma-db-client`. Sem fila.
+**Depende de**: `@app/health`, `@app/prisma-db-client`, `@app/http-client`
+(stores-service, sales-service, finance-service, treasury-service via
+UpstreamClient). Sem fila.
 
 Origem na planilha: abas `DRE` (165 linhas) e `Fluxo de caixa`.
 
@@ -60,7 +62,7 @@ skill `autonomous-retail-cfo` não tem como rotular o que apresenta.
 | `DELETE /accounting/entries/:id` | |
 | `GET /accounting/pnl/:period` | A árvore montada, com totais |
 | `GET /accounting/pnl/series` | Série de snapshots |
-| `POST /accounting/pnl/:period/compute` | `?close=true` congela |
+| `POST /accounting/pnl/:period/compute` | `?close=true` congela; sem `store_id` (rede), também sincroniza antes de fechar, por loja e rede, numa chamada só |
 | `GET /accounting/cash-flow`, `PUT /accounting/cash-flow` | |
 
 ## Seed do plano de contas
@@ -76,11 +78,5 @@ sairia dobrada.
 
 ## Gaps conhecidos
 
-- **Sem ingestão e sem puxada automática.** Nenhum `LedgerEntry` é criado a
-  partir de `finance-service`, `sales-service` ou `treasury-service` ainda —
-  o dado entra pelo painel. É o recorte desta fase, e é o maior gap do
-  serviço: hoje o `origin` depende de quem digita informar a verdade.
 - **`pnl()` não valida que a soma das lojas bate com o consolidado.** Uma
   linha `per_store` lançada só na rede, ou só por loja, passa sem alerta.
-- **Sem DRE por loja materializado em lote.** `computeSnapshot` é um mês/uma
-  loja por chamada; fechar 24 lojas são 24 chamadas.

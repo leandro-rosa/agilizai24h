@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import {
   computePnl,
@@ -13,6 +13,7 @@ import type {
   UpdateAccountDto,
   UpsertCashFlowDto,
 } from '../dto/accounting.dto'
+import { UpstreamClient } from './upstream.client'
 
 export interface AccountNode {
   id: number
@@ -81,7 +82,12 @@ export interface StorePnlSummary {
 
 @Injectable()
 export class AccountingService {
-  constructor(private readonly prisma: PrismaClientService) {}
+  private readonly logger = new Logger(AccountingService.name)
+
+  constructor(
+    private readonly prisma: PrismaClientService,
+    private readonly upstream: UpstreamClient,
+  ) {}
 
   // ----- plano de contas ----------------------------------------------------
 
@@ -564,6 +570,196 @@ export class AccountingService {
     }
 
     return allocated
+  }
+
+  /**
+   * Puxa para dentro do LedgerEntry o dado real que já existe no sistema,
+   * antes de um fechamento, para toda conta que `Account.auto_source` marca
+   * como automática. Nunca toca numa conta cujo lançamento ATUAL seja
+   * `origin: 'manual'` — aprovado pelo operador em 2026-10-05, sem exceção
+   * nesta passada. Um 404 de um upstream (tratado dentro do próprio
+   * `UpstreamClient`, que chega aqui como "sem dado") nunca escreve nada; um
+   * erro lançado por uma loja é capturado e nomeado, sem nunca abortar as
+   * demais.
+   */
+  async syncFromUpstreams(period: string, correlationId?: string): Promise<{ stores_ok: number[]; stores_failed: number[] }> {
+    const mappedAccounts = await this.prisma.account.findMany({
+      where: { statement: 'pnl', auto_source: { not: null } },
+    })
+
+    await this.syncNetworkAccounts(period, mappedAccounts, correlationId)
+
+    const stores = await this.upstream.activeStores(correlationId)
+    const stores_ok: number[] = []
+    const stores_failed: number[] = []
+
+    for (const store of stores) {
+      try {
+        await this.syncStoreAccounts(period, store.id, mappedAccounts, correlationId)
+        stores_ok.push(store.id)
+      } catch (error) {
+        // Nunca aborta o laço por causa de UMA loja — mas o erro precisa
+        // ficar observável em log, senão "falhou" fica só o id, sem como
+        // investigar depois (revisão 2026-10-05: antes era um catch mudo).
+        this.logger.error(
+          `Sincronização automática do DRE falhou para a loja ${store.id} no período ${period}` +
+            (correlationId ? ` (correlationId ${correlationId})` : '') +
+            `: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        stores_failed.push(store.id)
+      }
+    }
+
+    return { stores_ok, stores_failed }
+  }
+
+  private async syncNetworkAccounts(
+    period: string,
+    accounts: { id: number; auto_source: string | null; treasury_category: string | null }[],
+    correlationId?: string,
+  ): Promise<void> {
+    const treasuryAccounts = accounts.filter(a => a.auto_source === 'treasury_category')
+    if (treasuryAccounts.length === 0) return
+
+    const totals = await this.upstream.treasuryCategoryTotals(period, correlationId)
+
+    for (const account of treasuryAccounts) {
+      const amount = totals.get(account.treasury_category!)
+      if (amount === undefined) continue // sem transação neste período para essa categoria — nunca escrever 0 para "ausente"
+
+      await this.putAutoEntry({ account_id: account.id, period, store_id: null, amount_cents: amount, origin: 'treasury' })
+    }
+  }
+
+  private async syncStoreAccounts(
+    period: string,
+    storeId: number,
+    accounts: { id: number; auto_source: string | null }[],
+    correlationId?: string,
+  ): Promise<void> {
+    const salesAccount = accounts.find(a => a.auto_source === 'sales_revenue')
+    const cogsAccount = accounts.find(a => a.auto_source === 'finance_cogs')
+    const lossAccount = accounts.find(a => a.auto_source === 'finance_loss')
+
+    if (salesAccount) {
+      const revenue = await this.upstream.salesRevenueCents(storeId, period, correlationId)
+      if (revenue > 0) {
+        await this.putAutoEntry({ account_id: salesAccount.id, period, store_id: storeId, amount_cents: revenue, origin: 'sales' })
+      }
+    }
+
+    if (cogsAccount || lossAccount) {
+      const finance = await this.upstream.financeFor(storeId, period, correlationId)
+      // `finance` só é null no 404 de "sem reconciliação ainda" (tratado
+      // dentro do UpstreamClient) — a partir daqui já é dado real, então um
+      // `cogs_cents`/`loss_value_cents` igual a 0 é um zero de verdade (mês
+      // sem CMV/perda) e precisa ser escrito, não pulado, igual ao zero real
+      // do rateio de tesouraria em `syncNetworkAccounts`.
+      if (finance) {
+        if (cogsAccount) {
+          await this.putAutoEntry({ account_id: cogsAccount.id, period, store_id: storeId, amount_cents: finance.cogs_cents, origin: 'finance' })
+        }
+        if (lossAccount) {
+          await this.putAutoEntry({ account_id: lossAccount.id, period, store_id: storeId, amount_cents: finance.loss_value_cents, origin: 'finance' })
+        }
+      }
+    }
+  }
+
+  /**
+   * Mesma regra idempotente do `putEntry`, mas checagem de `manual` e
+   * escrita na MESMA transação — correção de revisão: a versão anterior
+   * lia `isManual()` numa chamada e escrevia com `putEntry()` noutra,
+   * deixando uma janela em que um salvamento manual feito entre as duas
+   * chamadas seria sobrescrito e rotulado com a origem automática em
+   * silêncio. "Nunca toca numa conta manual" é regra do operador sem
+   * exceção — não admite essa corrida. Não valida `getAccount` como
+   * `putEntry` faz: quem chama aqui já leu a conta do banco segundos antes
+   * (`mappedAccounts`), uma segunda consulta só repetiria trabalho.
+   */
+  private async putAutoEntry(dto: {
+    account_id: number
+    period: string
+    store_id: number | null
+    amount_cents: number
+    origin: string
+  }): Promise<void> {
+    const key = { account_id: dto.account_id, period: dto.period, store_id: dto.store_id }
+
+    await this.prisma.$transaction(async tx => {
+      const existing = await tx.ledgerEntry.findFirst({ where: key })
+      if (existing?.origin === 'manual') return
+
+      const data = { ...key, amount_cents: dto.amount_cents, origin: dto.origin }
+      return existing
+        ? tx.ledgerEntry.update({ where: { id: existing.id }, data })
+        : tx.ledgerEntry.create({ data })
+    })
+  }
+
+  /**
+   * O entry point real de "Fechar o mês"/"Reapurar e fechar". Sincroniza o
+   * dado real primeiro (Task 3), depois congela o snapshot. Fechar pela
+   * visão da REDE (sem storeId) cascateia para toda loja ativa na mesma
+   * chamada — fecha a lacuna que o próprio CLAUDE.md deste serviço nomeia
+   * ("fechar 24 lojas são 24 chamadas"). Fechar UMA loja pela própria visão
+   * continua restrito só a ela, igual hoje.
+   */
+  async closeMonth(
+    period: string,
+    storeId: number | undefined,
+    storeCount: number,
+    close: boolean,
+    correlationId?: string,
+  ): Promise<ReturnType<typeof this.computeSnapshot> extends Promise<infer T> ? T & { synced: { stores_ok: number[]; stores_failed: number[]; close_failed: number[] } } : never> {
+    if (storeId !== undefined) {
+      const mappedAccounts = await this.prisma.account.findMany({
+        where: { statement: 'pnl', auto_source: { not: null } },
+      })
+
+      let stores_failed: number[] = []
+      try {
+        await this.syncStoreAccounts(period, storeId, mappedAccounts, correlationId)
+      } catch (error) {
+        this.logger.error(
+          `Sincronização automática do DRE falhou para a loja ${storeId} no período ${period}` +
+            (correlationId ? ` (correlationId=${correlationId})` : '') +
+            `: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        stores_failed = [storeId]
+      }
+
+      const snapshot = await this.computeSnapshot(period, storeId, storeCount, close)
+      return {
+        ...snapshot,
+        synced: { stores_ok: stores_failed.length === 0 ? [storeId] : [], stores_failed, close_failed: [] },
+      }
+    }
+
+    const synced = await this.syncFromUpstreams(period, correlationId)
+    const networkSnapshot = await this.computeSnapshot(period, undefined, storeCount, close)
+
+    // Cada loja fecha isolada das demais — uma falha no meio do laço (ex.:
+    // erro transiente de banco) nunca pode perder o `synced` já correto nem
+    // abortar o fechamento das lojas seguintes. A rede já fechou acima, e
+    // fica fechada independente do resultado deste laço; o operador vê
+    // `close_failed` na resposta e pode reprocessar só aquela loja via
+    // `closeMonth(period, storeId, 1, true)`, que já é idempotente.
+    const closeFailed: number[] = []
+    for (const okStoreId of synced.stores_ok) {
+      try {
+        await this.computeSnapshot(period, okStoreId, 1, close)
+      } catch (error) {
+        this.logger.error(
+          `Fechamento em cascata falhou para a loja ${okStoreId} no período ${period}` +
+            (correlationId ? ` (correlationId=${correlationId})` : '') +
+            `: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        closeFailed.push(okStoreId)
+      }
+    }
+
+    return { ...networkSnapshot, synced: { ...synced, close_failed: closeFailed } }
   }
 
   /** Congela o mês. Um DRE fechado não muda quando alguém corrige o passado. */
