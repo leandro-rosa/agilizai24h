@@ -40,3 +40,13 @@ describe("buildPending (a partir de julho, começando pela contagem de junho)", 
     expect(s).toMatchObject({ productCount: 0, missingUnits: 0, rows: [] });
   });
 });
+
+describe("registro antigo devolvido pelo serviço de estoque", () => {
+  it("a contagem de junho só vale se o registro é do próprio junho", () => {
+    // O serviço devolve o ÚLTIMO registro até junho: para um produto sem junho, vem a contagem de fevereiro (5).
+    const opening = [item("A", { period: "2026-02", recorded_closing_balance: 5 })];
+    const s = buildPending([item("A", { restocked: 0, sold: 3 })], opening);
+    expect(s.rows[0].opening).toBeNull(); // contagem velha ignorada
+    expect(s.rows[0].missing).toBe(3); // e não 5 − 3 = 2 (que esconderia a pendência)
+  });
+});

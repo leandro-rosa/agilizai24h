@@ -45,11 +45,18 @@ export interface StockRangeResult {
   has_inconsistencies: boolean;
 }
 
-function sumStock(storeId: number, range: PeriodRange, perMonth: (StoreStock | undefined)[]): StockRangeResult {
+/**
+ * `perMonth[i]` é a resposta de `/inventory/:storeId?period=` para o i-ésimo mês do intervalo. O serviço devolve, por produto, o ÚLTIMO saldo
+ * guardado até aquele mês: um produto sem movimento em julho volta com o registro (e os movimentos) de fevereiro, por exemplo. Somar isso mês a
+ * mês contaria o movimento de fevereiro de novo em cada mês seguinte. Por isso só entra no mês o item cujo registro é DAQUELE mês (`item.period`).
+ */
+export function sumStock(storeId: number, range: PeriodRange, perMonth: (StoreStock | undefined)[]): StockRangeResult {
+  const months = monthsInRange(range);
   const movementBySku = new Map<string, { restocked: number; sold: number; removed: number; adjustment: number }>();
-  for (const month of perMonth) {
-    if (!month) continue;
+  perMonth.forEach((month, index) => {
+    if (!month) return;
     for (const item of month.items) {
+      if (item.period !== months[index]) continue; // registro antigo carregado pelo serviço: o movimento é de outro mês
       const existing = movementBySku.get(item.sku) ?? { restocked: 0, sold: 0, removed: 0, adjustment: 0 };
       existing.restocked += item.restocked;
       existing.sold += item.sold;
@@ -57,7 +64,7 @@ function sumStock(storeId: number, range: PeriodRange, perMonth: (StoreStock | u
       existing.adjustment += item.adjustment;
       movementBySku.set(item.sku, existing);
     }
-  }
+  });
 
   // The snapshot (closing balance, inconsistency, minimums) as of the end
   // of the range — the last month that actually returned data, since a
