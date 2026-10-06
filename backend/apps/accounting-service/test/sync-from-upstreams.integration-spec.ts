@@ -21,6 +21,7 @@ describe('syncFromUpstreams', () => {
     salesRevenueCents: jest.fn(),
     financeFor: jest.fn(),
     treasuryCategoryTotals: jest.fn(),
+    treasuryInflowAmounts: jest.fn(),
   }
 
   beforeAll(async () => {
@@ -35,6 +36,10 @@ describe('syncFromUpstreams', () => {
     accounting = app.get(AccountingService)
     prisma = app.get(PrismaClientService)
   }, 60000)
+
+  beforeEach(() => {
+    upstream.treasuryInflowAmounts.mockResolvedValue([])
+  })
 
   afterEach(async () => {
     await prisma.ledgerEntry.deleteMany({ where: { period } })
@@ -53,7 +58,7 @@ describe('syncFromUpstreams', () => {
 
     const result = await accounting.syncFromUpstreams(period)
 
-    expect(result).toEqual({ stores_ok: [501], stores_failed: [] })
+    expect(result).toMatchObject({ stores_ok: [501], stores_failed: [] })
 
     const luz = await prisma.account.findUnique({ where: { code: luzAccountCode } })
     const luzEntry = await prisma.ledgerEntry.findFirst({ where: { account_id: luz!.id, period, store_id: null } })
@@ -86,7 +91,7 @@ describe('syncFromUpstreams', () => {
 
     const result = await accounting.syncFromUpstreams(period)
 
-    expect(result).toEqual({ stores_ok: [502], stores_failed: [] })
+    expect(result).toMatchObject({ stores_ok: [502], stores_failed: [] })
     const vendas = await prisma.account.findUnique({ where: { code: vendasAccountCode } })
     const entry = await prisma.ledgerEntry.findFirst({ where: { account_id: vendas!.id, period, store_id: 502 } })
     expect(entry).toBeNull()
@@ -162,5 +167,51 @@ describe('syncFromUpstreams', () => {
     const deslocamento = await prisma.account.findUnique({ where: { code: '4.2.03' } })
     expect(await prisma.ledgerEntry.findFirst({ where: { account_id: repasse!.id, period } })).toBeNull()
     expect(await prisma.ledgerEntry.findFirst({ where: { account_id: deslocamento!.id, period } })).toBeNull()
+  })
+
+  describe('service revenue rule (Ascenty)', () => {
+    const entryFor = async (code: string, storeId: number | null = null) => {
+      const account = await prisma.account.findUnique({ where: { code } })
+      return prisma.ledgerEntry.findFirst({ where: { account_id: account!.id, period, store_id: storeId } })
+    }
+    const reais = (...v: number[]) => v.map(x => x * 100)
+
+    it('splits Ascenty inflows into mensalidade, coffee break and frutas, adding Rolls Royce to mensalidade', async () => {
+      upstream.activeStores.mockResolvedValue([])
+      upstream.treasuryCategoryTotals.mockResolvedValue(new Map([['Receita - Mensalidade', 70000]]))
+      upstream.treasuryInflowAmounts.mockResolvedValue(reais(700, 1400, 1360, 1224))
+
+      const result = await accounting.syncFromUpstreams(period)
+
+      expect((await entryFor('3.1.03'))).toMatchObject({ amount_cents: 70000 + 210000, origin: 'treasury' })
+      expect((await entryFor('3.1.04'))).toMatchObject({ amount_cents: (20 + 18) * 2000 })
+      expect((await entryFor('3.1.05'))).toMatchObject({ amount_cents: (20 + 18) * 4800 })
+      expect(result.unclassified_cents).toBe(0)
+    })
+
+    it('reports entries that fit no rule and does not write them anywhere', async () => {
+      upstream.activeStores.mockResolvedValue([])
+      upstream.treasuryCategoryTotals.mockResolvedValue(new Map())
+      upstream.treasuryInflowAmounts.mockResolvedValue(reais(300))
+
+      const result = await accounting.syncFromUpstreams(period)
+
+      expect(result.unclassified_cents).toBe(30000)
+      expect(await entryFor('3.1.03')).toBeNull()
+      expect(await entryFor('3.1.04')).toBeNull()
+    })
+
+    it('skips an account the billing-service already filled per store, so the network never double counts', async () => {
+      const coffee = await prisma.account.findUnique({ where: { code: '3.1.04' } })
+      await prisma.ledgerEntry.create({ data: { account_id: coffee!.id, period, store_id: 509, amount_cents: 46000, origin: 'billing' } })
+      upstream.activeStores.mockResolvedValue([])
+      upstream.treasuryCategoryTotals.mockResolvedValue(new Map())
+      upstream.treasuryInflowAmounts.mockResolvedValue(reais(1360))
+
+      await accounting.syncFromUpstreams(period)
+
+      expect(await entryFor('3.1.04')).toBeNull() // network row not written
+      expect(await entryFor('3.1.05')).toMatchObject({ amount_cents: 20 * 4800 }) // frutas had no billing rows
+    })
   })
 })

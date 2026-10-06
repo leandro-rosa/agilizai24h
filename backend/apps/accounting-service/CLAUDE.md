@@ -22,6 +22,21 @@ o que permite dizer se uma linha do DRE é **FATO** (veio de um serviço) ou
 **PREMISSA** (alguém digitou no painel). Sem ele o DRE mistura os dois e a
 skill `autonomous-retail-cfo` não tem como rotular o que apresenta.
 
+## Receita Ascenty: mensalidade, coffee break e frutas
+
+Essas três contas (3.1.03/04/05, `auto_source = service_revenue_rule`) não
+têm categoria própria no tesouraria: as entradas chegam juntas como
+"Prestação de serviços (Ascenty)" e `rules/ascenty-revenue.rule.ts` separa
+pelo valor — múltiplo de R$ 700 = mensalidade; qualquer outro múltiplo de
+R$ 68 = R$ 20 coffee break + R$ 48 frutas. É REGRA DO OPERADOR (derivada de
+jul–set/2026, totais de set/2026 conferidos por ele), não fato contábil:
+valores parametrizáveis por env e o que não encaixa NÃO entra no DRE, volta
+em `synced.unclassified_cents`. Jan–jun/2026 têm entradas avulsas (300–1.200)
+que a regra deixa de fora de propósito. Se o `billing-service` já gravou
+linhas por loja numa dessas contas no mês, a linha da rede não é escrita
+(evita contar em dobro). Coffee break avulso (fora do contrato) precisa de
+lançamento manual.
+
 ## Decisões que não são óbvias no código
 
 - **`store_id` nulo significa "rede"**, e a mesma tabela guarda os dois

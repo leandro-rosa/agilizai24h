@@ -78,6 +78,19 @@ export class UpstreamClient {
     return new Map([...net.entries()].map(([category, value]) => [category, Math.abs(value)]))
   }
 
+  /** Cada entrada (inflow) de uma categoria no mês, em centavos — para regras que olham o valor, não só o total. */
+  async treasuryInflowAmounts(period: string, category: string, correlationId?: string): Promise<number[]> {
+    const rows = await this.get<TreasuryTransaction[]>(
+      `${this.config.getOrThrow<string>('TREASURY_SERVICE_URL')}/treasury/transactions?period=${encodeURIComponent(period)}`,
+      [],
+      correlationId,
+    )
+
+    return rows
+      .filter(r => r.kind === 'revenue' && r.direction === 'inflow' && r.category === category && r.neutralized_with_id === null)
+      .map(r => r.amount_cents)
+  }
+
   private async get<T>(url: string, whenAbsent: T, correlationId?: string): Promise<T> {
     try {
       const result = await this.http.send<T>({

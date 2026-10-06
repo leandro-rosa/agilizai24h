@@ -257,13 +257,16 @@ export default function PnlPage() {
 
     try {
       const result = await compute({ period, storeId, storeCount: activeStores, close: true }).unwrap();
-      const { stores_failed, close_failed } = result.synced;
+      const { stores_failed, close_failed, unclassified_cents } = result.synced;
       const parts: string[] = [];
       if (stores_failed.length > 0) {
         parts.push(`${stores_failed.length} loja(s) não fecharam (sem dado automático): ${stores_failed.map(storeName).join(", ")}`);
       }
       if (close_failed.length > 0) {
         parts.push(`${close_failed.length} loja(s) não fecharam (falha ao fechar): ${close_failed.map(storeName).join(", ")}`);
+      }
+      if (unclassified_cents > 0) {
+        parts.push(`${money(unclassified_cents)} de entradas da Ascenty não bateram na regra e ficaram fora (lance à mão)`);
       }
       toast.success(
         parts.length === 0

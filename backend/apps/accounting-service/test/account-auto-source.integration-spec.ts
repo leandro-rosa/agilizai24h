@@ -42,7 +42,7 @@ describe('account auto_source seed', () => {
     expect(rows.find(r => r.code === '4.3.04')?.treasury_category).toBe('Luz')
   })
 
-  it('maps the 3 per-store accounts to their own source, and never 4.2.01/4.2.03/3.1.03', async () => {
+  it('maps the 3 per-store accounts to their own source, and never 4.2.01/4.2.03', async () => {
     const rows = await prisma.account.findMany({
       where: { code: { in: ['3.1.01', '4.1.01', '4.2.02', '4.2.01', '4.2.03', '3.1.03'] } },
       select: { code: true, auto_source: true, treasury_category: true },
@@ -54,9 +54,18 @@ describe('account auto_source seed', () => {
     expect(byCode.get('4.2.02')).toBe('finance_loss')
     expect(byCode.get('4.2.01')).toBeNull()
     expect(byCode.get('4.2.03')).toBeNull()
-    // Mensalidades (3.1.03) stays manual-only / billing-service-authoritative —
-    // see the "unmap_mensalidade_from_treasury" migration.
-    expect(byCode.get('3.1.03')).toBeNull()
-    expect(rows.find(r => r.code === '3.1.03')?.treasury_category).toBeNull()
+  })
+
+  it('maps mensalidade, coffee break and frutas revenue to the Ascenty rule, not to a treasury category', async () => {
+    const rows = await prisma.account.findMany({
+      where: { code: { in: ['3.1.03', '3.1.04', '3.1.05'] } },
+      select: { code: true, auto_source: true, treasury_category: true },
+    })
+
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(row.auto_source).toBe('service_revenue_rule')
+      expect(row.treasury_category).toBeNull()
+    }
   })
 })
