@@ -6,6 +6,7 @@ import { Bar, BarChart, CartesianGrid, ComposedChart, Line, LineChart, XAxis, YA
 
 import { DriveSyncButton } from "@/components/supply/drive-sync-button";
 import { LossTab } from "@/components/supply/loss-tab";
+import { PendingDialog } from "@/components/supply/pending-dialog";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { NETWORK, StorePeriodPicker, type StoreSelection } from "@/components/store-period-picker";
@@ -189,6 +190,8 @@ function IncompleteBanner({ totals, subject }: { totals: ReconciliationTotals; s
 }
 
 function StoreReconciliationView({ storeId, range }: { storeId: number; range: PeriodRange }) {
+  const { data: allStores } = useGetStoresQuery();
+  const [showPending, setShowPending] = useState(false);
   const { data: series, isLoading, error, refetch } = useGetReconciliationSeriesQuery({ storeId });
   const { data: salesRange } = useGetSalesRangeQuery({ storeId, range });
 
@@ -212,6 +215,12 @@ function StoreReconciliationView({ storeId, range }: { storeId: number; range: P
       {totals && !isEmpty && (
         <div className="flex flex-col gap-6">
           {!totals.complete && <IncompleteBanner totals={totals} subject="Reconciliação" />}
+          {!totals.complete && (
+            <button type="button" onClick={() => setShowPending(true)} className="self-start text-sm font-medium text-primary hover:underline">
+              Ver quais produtos estão pendentes desde julho →
+            </button>
+          )}
+          <PendingDialog store={showPending ? { id: storeId, name: allStores?.find((s) => s.id === storeId)?.name ?? `Loja ${storeId}` } : null} endPeriod={range.end} onClose={() => setShowPending(false)} />
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <Figure label="Valor abastecido" cents={totals.restocked_value_cents} incomplete={!totals.complete} />
@@ -327,6 +336,7 @@ function NetworkReconciliationView({ range }: { range: PeriodRange }) {
 
   const [sortKey, setSortKey] = useState<NetworkSortKey>("revenue");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [pendingStore, setPendingStore] = useState<{ id: number; name: string } | null>(null);
 
   const revenueByStore = useMemo(() => {
     const map = new Map<number, number>();
@@ -507,7 +517,9 @@ function NetworkReconciliationView({ range }: { range: PeriodRange }) {
                           {totals.complete ? (
                             <StatusBadge tone="positive">Completo</StatusBadge>
                           ) : (
-                            <StatusBadge tone="attention">Pendente</StatusBadge>
+                            <button type="button" onClick={() => setPendingStore({ id: store.id, name: store.name })} title="Ver quais produtos estão pendentes desde julho" className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+                              <StatusBadge tone="attention">Pendente — ver</StatusBadge>
+                            </button>
                           )}
                         </TableCell>
                       </TableRow>
@@ -520,8 +532,9 @@ function NetworkReconciliationView({ range }: { range: PeriodRange }) {
 
           <p className="text-sm text-muted-foreground">
             Perda por motivo, por produto e a investigação detalhada por loja estão na aba{" "}
-            <span className="font-medium text-foreground">Perdas</span>.
+            <span className="font-medium text-foreground">Perdas</span>. Clique em “Pendente” na linha de uma loja para ver quais produtos estão com saldo negativo desde julho.
           </p>
+          <PendingDialog store={pendingStore} endPeriod={range.end} onClose={() => setPendingStore(null)} />
         </div>
       )}
     </RequestState>
