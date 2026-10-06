@@ -1,6 +1,7 @@
 import { createApi } from "@reduxjs/toolkit/query/react";
 
 import { gatewayBaseQuery } from "./base-query";
+import { fetchOr404, firstError } from "./fan-out";
 import type { Store } from "./stores";
 import { monthsInRange, type PeriodRange } from "@/lib/period-range";
 import { sumReconciliations, type ReconciliationTotals } from "@/lib/reconciliation-aggregate";
@@ -180,6 +181,16 @@ export const financeApi = createApi({
       },
       providesTags: ["Reconciliation"],
     }),
+    /** Série bruta de cada loja (uma request por loja, sem filtro de período) — o Resumo Mensal precisa de loss_by_reason/loss_by_sku por mês, que os totais do range não expõem. */
+    getNetworkFinanceSeries: builder.query<{ storeId: number; series: Reconciliation[] }[], { stores: Store[] }>({
+      async queryFn({ stores }, _api, _extra, fetchWithBQ) {
+        const results = await Promise.all(stores.map((store) => fetchOr404<Reconciliation[]>(fetchWithBQ, `/finance/${store.id}`)));
+        const error = firstError(results);
+        if (error) return { error };
+        return { data: stores.map((store, i) => ({ storeId: store.id, series: results[i].data ?? [] })) };
+      },
+      providesTags: ["Reconciliation"],
+    }),
     recompute: builder.mutation<Reconciliation, { storeId: number; period: string }>({
       query: ({ storeId, period }) => ({ url: `/finance/${storeId}/${period}/recompute`, method: "POST" }),
       invalidatesTags: ["Reconciliation"],
@@ -190,5 +201,6 @@ export const financeApi = createApi({
 export const {
   useGetReconciliationSeriesQuery,
   useGetNetworkReconciliationRangeQuery,
+  useGetNetworkFinanceSeriesQuery,
   useRecomputeMutation,
 } = financeApi;

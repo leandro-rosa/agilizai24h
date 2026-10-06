@@ -158,3 +158,14 @@ export class UpsertCashFlowDto {
   @Min(0)
   capex_cents: number
 }
+
+export class RegisterMonthlySummaryDto {
+  @ApiProperty({ description: 'Hash do conteúdo calculado no navegador (sha-256 hex).' })
+  @IsString()
+  @Matches(/^[a-f0-9]{64}$/, { message: 'content_hash deve ser sha-256 em hexadecimal' })
+  content_hash: string
+
+  @ApiProperty({ description: 'Parâmetros usados no resumo (comparações, limiares, versão da lógica).' })
+  @IsNotEmpty()
+  params: Record<string, unknown>
+}

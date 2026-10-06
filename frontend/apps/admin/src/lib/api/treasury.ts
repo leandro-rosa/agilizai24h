@@ -1,6 +1,7 @@
 import { createApi } from "@reduxjs/toolkit/query/react";
 
 import { gatewayBaseQuery } from "./base-query";
+import { fetchOr404, firstError } from "./fan-out";
 
 export const NATURES = ["cogs", "operating", "administrative", "investment"] as const;
 export type Nature = (typeof NATURES)[number];
@@ -391,6 +392,27 @@ export const treasuryApi = createApi({
       query: (filter) => `/treasury/transactions/summary${toQuery(filter ?? undefined)}`,
       providesTags: ["Transaction"],
     }),
+    /** Caixa e resumo de despesa de vários meses de uma vez — o Resumo Mensal compara 4 meses. */
+    getTreasuryMonths: builder.query<{ period: string; cash: CashFlowSummary | null; summary: TransactionSummary | null }[], { periods: string[] }>({
+      async queryFn({ periods }, _api, _extra, fetchWithBQ) {
+        const rows = await Promise.all(
+          periods.map(async (period) => {
+            const [y, m] = period.split("-").map(Number);
+            const last = new Date(y, m, 0).getDate();
+            const from = `${period}-01`;
+            const to = `${period}-${String(last).padStart(2, "0")}`;
+            const [cash, summary] = await Promise.all([
+              fetchOr404<CashFlowSummary>(fetchWithBQ, `/treasury/transactions/cash-flow?occurred_from=${from}&occurred_to=${to}`),
+              fetchOr404<TransactionSummary>(fetchWithBQ, `/treasury/transactions/summary?period=${period}`),
+            ]);
+            return { period, cash, summary };
+          }),
+        );
+        const error = firstError(rows.flatMap((r) => [r.cash, r.summary]));
+        if (error) return { error };
+        return { data: rows.map((r) => ({ period: r.period, cash: r.cash.data ?? null, summary: r.summary.data ?? null })) };
+      },
+    }),
     getCashFlowSummary: builder.query<CashFlowSummary, CashFlowFilter>({
       query: (filter) => `/treasury/transactions/cash-flow${toQuery(filter)}`,
       providesTags: ["Transaction"],
@@ -526,6 +548,7 @@ export const {
   useGetTransactionsQuery,
   useGetTransactionSummaryQuery,
   useGetCashFlowSummaryQuery,
+  useGetTreasuryMonthsQuery,
   useGetTransactionsBySupplierQuery,
   useGetNeutralizationCandidatesQuery,
   useNeutralizeTransactionsMutation,

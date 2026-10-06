@@ -1,9 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
+import { decideVersion } from '../rules/monthly-summary-version'
 import { splitAscentyRevenue } from '../rules/ascenty-revenue.rule'
 import {
   computePnl,
+  PERIOD_PATTERN,
   PNL_SECTIONS,
   type PnlInput,
   type Section,
@@ -11,6 +13,7 @@ import {
 import type {
   CreateAccountDto,
   ListEntriesDto,
+  RegisterMonthlySummaryDto,
   PutEntryDto,
   UpdateAccountDto,
   UpsertCashFlowDto,
@@ -910,5 +913,45 @@ export class AccountingService {
       return { period: { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lte: filter.to } : {}) } }
     }
     return {}
+  }
+
+  private assertPeriod(period: string) {
+    if (!PERIOD_PATTERN.test(period)) throw new BadRequestException('period deve ser "YYYY-MM"')
+  }
+
+  /** Versões já geradas do resumo de um mês, da mais nova para a mais antiga. */
+  listMonthlySummaries(period: string) {
+    this.assertPeriod(period)
+    return this.prisma.monthlySummary.findMany({ where: { period }, orderBy: { version: 'desc' } })
+  }
+
+  /**
+   * Registra a geração do resumo de um mês FECHADO. Mesma base do DRE e mesmo
+   * `content_hash` reaproveitam a versão; qualquer mudança cria a seguinte.
+   * Guarda só metadados — o conteúdo é re-derivável (ver schema.prisma).
+   */
+  async registerMonthlySummary(period: string, dto: RegisterMonthlySummaryDto) {
+    this.assertPeriod(period)
+    const snapshot = await this.prisma.pnlSnapshot.findFirst({ where: { period, store_id: null } })
+    if (!snapshot || snapshot.status !== 'closed') {
+      throw new ConflictException(`O mês ${period} não está fechado na rede; feche o mês antes de gerar o resumo.`)
+    }
+
+    return this.prisma.$transaction(async tx => {
+      const latest = await tx.monthlySummary.findFirst({ where: { period }, orderBy: { version: 'desc' } })
+      const decision = decideVersion(latest, snapshot.computed_at, dto.content_hash)
+      if (decision.action === 'reuse' && latest) return { ...latest, reused: true }
+
+      const created = await tx.monthlySummary.create({
+        data: {
+          period,
+          version: decision.version,
+          base_at: snapshot.computed_at,
+          content_hash: dto.content_hash,
+          params: dto.params as object,
+        },
+      })
+      return { ...created, reused: false }
+    })
   }
 }

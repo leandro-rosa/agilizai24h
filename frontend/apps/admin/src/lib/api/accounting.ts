@@ -110,6 +110,8 @@ export interface PnlSnapshot {
   operating_profit_cents: number;
   break_even_cents: number;
   safety_margin_bps: number;
+  /** Regravado a cada reapuração: é o último fechamento, não uma data de congelamento. */
+  computed_at?: string;
 }
 
 export interface CashFlowSnapshot {
@@ -133,10 +135,24 @@ export interface Account {
   sort_order: number;
 }
 
+/** Uma geração registrada do Resumo Mensal — só metadados; o conteúdo é re-derivável. */
+export interface MonthlySummaryVersion {
+  id: number;
+  period: string;
+  version: number;
+  /** `computed_at` do DRE da rede na geração — se o mês for reapurado, muda. */
+  base_at: string;
+  content_hash: string;
+  params: Record<string, unknown>;
+  generated_at: string;
+  /** true = mesma base e mesmo conteúdo de uma versão existente (nada novo foi criado). */
+  reused?: boolean;
+}
+
 export const accountingApi = createApi({
   reducerPath: "accountingApi",
   baseQuery: gatewayBaseQuery,
-  tagTypes: ["Ledger", "Account", "CashFlow"],
+  tagTypes: ["Ledger", "Account", "CashFlow", "MonthlySummary"],
   endpoints: (builder) => ({
     getChart: builder.query<Account[], "pnl" | "cashflow" | void>({
       query: (statement) => `/accounting/accounts${statement ? `?statement=${statement}` : ""}`,
@@ -160,6 +176,14 @@ export const accountingApi = createApi({
         return `/accounting/pnl/series?${params.toString()}`;
       },
       providesTags: ["Ledger"],
+    }),
+    getMonthlySummaries: builder.query<MonthlySummaryVersion[], string>({
+      query: (period) => `/accounting/monthly-summary/${period}`,
+      providesTags: ["MonthlySummary"],
+    }),
+    registerMonthlySummary: builder.mutation<MonthlySummaryVersion, { period: string; content_hash: string; params: Record<string, unknown> }>({
+      query: ({ period, ...body }) => ({ url: `/accounting/monthly-summary/${period}`, method: "POST", body }),
+      invalidatesTags: ["MonthlySummary"],
     }),
     putEntry: builder.mutation<
       unknown,
@@ -202,6 +226,8 @@ export const {
   useGetPnlQuery,
   useGetPnlByStoreQuery,
   useGetPnlSeriesQuery,
+  useGetMonthlySummariesQuery,
+  useRegisterMonthlySummaryMutation,
   usePutEntryMutation,
   useComputePnlMutation,
   useGetCashFlowQuery,

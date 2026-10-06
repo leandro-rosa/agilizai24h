@@ -1,6 +1,7 @@
 import { createApi } from "@reduxjs/toolkit/query/react";
 
 import { gatewayBaseQuery } from "./base-query";
+import { fetchOr404, firstError } from "./fan-out";
 
 export const ITEM_CATEGORIES = [
   "fridge", "freezer", "wrap", "baskets", "freight", "barcode_reader", "card_terminal",
@@ -149,6 +150,18 @@ export const capexApi = createApi({
       query: (id) => ({ url: `/capex/items/${id}`, method: "DELETE" }),
       invalidatesTags: ["Item", "Investment"],
     }),
+    /** Todos os aportes de todos os investidores (lista + detalhe de cada um) — o Resumo Mensal filtra por mês no cliente. */
+    getAllContributions: builder.query<(InvestorContribution & { investor_name: string })[], void>({
+      async queryFn(_arg, _api, _extra, fetchWithBQ) {
+        const list = await fetchOr404<Investor[]>(fetchWithBQ, "/capex/investors");
+        if (list.error) return { error: list.error };
+        const details = await Promise.all((list.data ?? []).map((inv) => fetchOr404<Investor & { contributions: InvestorContribution[] }>(fetchWithBQ, `/capex/investors/${inv.id}`)));
+        const error = firstError(details);
+        if (error) return { error };
+        return { data: details.flatMap((d) => (d.data?.contributions ?? []).map((c) => ({ ...c, investor_name: d.data!.name }))) };
+      },
+      providesTags: ["Investor"],
+    }),
     getInvestorSummary: builder.query<InvestorSummaryRow[], void>({
       query: () => "/capex/investors/summary",
       providesTags: ["Investor"],
@@ -191,6 +204,7 @@ export const {
   useUpdateItemMutation,
   useDeleteItemMutation,
   useGetInvestorSummaryQuery,
+  useGetAllContributionsQuery,
   useGetInvestorQuery,
   useCreateInvestorMutation,
   useUpdateInvestorMutation,

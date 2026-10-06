@@ -1,204 +1,108 @@
 "use client";
 
-import { endOfMonth, format } from "date-fns";
-import { AlertTriangle } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
+import { CapexCard } from "@/components/overview/capex-card";
+import { CashCard } from "@/components/overview/cash-card";
+import { ExportPdfButton } from "@/components/overview/export-pdf-button";
+import { InsightsCard } from "@/components/overview/insights-card";
+import { KpiStrip } from "@/components/overview/kpi-strip";
+import { LossCard } from "@/components/overview/loss-card";
+import { ProductsCard } from "@/components/overview/products-card";
+import { ReadingCard } from "@/components/overview/reading-card";
+import { StoresCard } from "@/components/overview/stores-card";
+import { TestsCard } from "@/components/overview/tests-card";
+import { UsesCard } from "@/components/overview/uses-card";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
-import { StatusBadge } from "@/components/status-badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useGetPnlQuery } from "@/lib/api/accounting";
-import { useGetAgingQuery } from "@/lib/api/billing";
-import { useGetOverviewQuery } from "@/lib/api/overview";
-import { useGetCashFlowSummaryQuery } from "@/lib/api/treasury";
-import { count, currentPeriod, money, period as fmtPeriod } from "@/lib/format";
-import { lastCompleteMonth, monthsInRange } from "@/lib/period-range";
+import { date, period as fmtPeriod } from "@/lib/format";
+import { monthName } from "@/lib/overview/reading";
+import { useClosedPeriods, useMonthlyOverview } from "@/lib/overview/use-monthly-overview";
 
 /**
- * A visão geral agora tem KPIs de rede que existem de verdade — antes só
- * havia contagem de lojas e produtos, porque nada era agregável.
- *
- * A honestidade da tela anterior fica: o que o backend não souber responder
- * mostra "Indisponível", nunca um zero. Um zero fabricado numa visão geral é
- * pior que um vazio — ele parece um número.
+ * Resumo executivo mensal da rede. Trabalha só com meses FECHADOS (DRE da
+ * rede com status closed no accounting-service); cada bloco falha sozinho e
+ * mostra "Indisponível" — nunca um zero. Todo número e insight vem de
+ * `lib/overview` (motor puro e testado), o mesmo objeto que o PDF renderiza.
  */
-export default function DashboardPage() {
-  const period = currentPeriod();
-
-  // "Acumulado do ano" — janeiro do ano corrente até o mês selecionado (o
-  // mês em curso nunca tem reconciliação fechada). Mesma fonte usada tanto
-  // pela lista de opções quanto pelo padrão inicial, para não pular de ano
-  // sempre que o operador trocar de mês.
-  const latestMonth = lastCompleteMonth();
-  const [cashMonth, setCashMonth] = useState(latestMonth);
-  const cashMonthOptions = useMemo(() => monthsInRange({ start: `${latestMonth.slice(0, 4)}-01`, end: latestMonth }), [latestMonth]);
-
-  const { data: overview, isLoading, error, refetch } = useGetOverviewQuery();
-  // Saldo real acumulado (jan até o mês escolhido), todas as contas
-  // correntes — treasury-service, a mesma fonte já conferida linha a linha
-  // contra o extrato real esta sessão. Substitui o antigo KPI, que vinha de
-  // uma premissa digitada no accounting-service, nunca do extrato de
-  // verdade.
-  const {
-    data: cashFlow,
-    isError: cashFailed,
-  } = useGetCashFlowSummaryQuery({
-    occurred_from: `${cashMonth.slice(0, 4)}-01-01`,
-    occurred_to: format(endOfMonth(new Date(`${cashMonth}-01T00:00:00`)), "yyyy-MM-dd"),
-  });
-  // DRE do mês selecionado (não acumulado — competência de um mês só).
-  // Custo/despesa vêm da tesouraria (origin=treasury) para todo período até
-  // agosto; receita (origin=sales) só até julho — ver comentário acima.
-  const { data: pnl, isError: pnlFailed } = useGetPnlQuery({ period: cashMonth });
-  const { data: aging, isError: agingFailed } = useGetAgingQuery();
-
-  const storeCounts = useMemo(() => {
-    if (!overview?.stores.available) return null;
-    const byStatus = { active: 0, maintenance: 0, inactive: 0 };
-    for (const store of overview.stores.data) byStatus[store.status] += 1;
-    return byStatus;
-  }, [overview]);
-
-  const productCount = overview?.products.available ? overview.products.data.length : null;
+export default function OverviewPage() {
+  const closed = useClosedPeriods();
+  const [selected, setSelected] = useState<string | null>(null);
+  const period = selected ?? closed.periods[0] ?? null;
+  const { overview, unavailable, isLoading, productsLoading, refetch } = useMonthlyOverview(period);
+  // Instante em que a tela carregou os dados — não é o horário do fechamento.
+  const [loadedAt] = useState(() => new Date());
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Visão geral"
-        description={`Resumo da rede — competência ${fmtPeriod(period)}.`}
+        description={period ? `Resumo da rede — competência ${monthName(period).replace(/^./, (c) => c.toUpperCase())}` : "Resumo da rede"}
         actions={
-          <Select value={cashMonth} onValueChange={setCashMonth}>
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {cashMonthOptions
-                .slice()
-                .reverse()
-                .map((m) => (
-                  <SelectItem key={m} value={m}>
-                    Acumulado até {fmtPeriod(m)}
-                  </SelectItem>
+          <>
+            <Select value={period ?? undefined} onValueChange={setSelected} disabled={closed.periods.length === 0}>
+              <SelectTrigger className="w-40" aria-label="Competência">
+                <SelectValue placeholder="Competência" />
+              </SelectTrigger>
+              <SelectContent>
+                {closed.periods.map((p) => (
+                  <SelectItem key={p} value={p}>{fmtPeriod(p)}</SelectItem>
                 ))}
-            </SelectContent>
-          </Select>
+              </SelectContent>
+            </Select>
+            <ExportPdfButton overview={overview} />
+          </>
         }
       />
 
-      <RequestState isLoading={isLoading} error={error} onRetry={refetch}>
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-muted-foreground">Financeiro</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Kpi
-              label="Receita líquida do mês"
-              value={pnl ? money(pnl.totals.net_revenue_cents) : null}
-              hint={pnl ? `Competência ${fmtPeriod(cashMonth)}` : undefined}
-              unavailable={pnlFailed}
-              source="DRE"
-            />
-            <Kpi
-              label="Margem operacional"
-              value={pnl ? money(pnl.totals.operating_profit_cents) : null}
-              tone={pnl && pnl.totals.operating_profit_cents < 0 ? "critical" : "positive"}
-              hint={pnl ? `Competência ${fmtPeriod(cashMonth)}` : undefined}
-              unavailable={pnlFailed}
-              source="DRE"
-            />
-            <Kpi
-              label="Saldo em caixa"
-              value={cashFlow ? money(cashFlow.closing_balance_cents) : null}
-              hint={cashFlow ? `Acumulado desde jan/${cashMonth.slice(0, 4)} até ${fmtPeriod(cashMonth)}` : undefined}
-              unavailable={cashFailed}
-              source="Tesouraria"
-            />
-            <Kpi
-              label="A receber vencido"
-              value={aging ? money(aging.overdue_amount_cents) : null}
-              tone={aging && aging.overdue_amount_cents > 0 ? "critical" : undefined}
-              unavailable={agingFailed}
-              source="Notas fiscais"
-            />
-          </div>
-        </section>
+      <RequestState
+        isLoading={closed.isLoading || (period !== null && isLoading)}
+        error={closed.isError ? ({ status: "FETCH_ERROR", error: "accounting" } as const) : undefined}
+        onRetry={refetch}
+        isEmpty={!closed.isLoading && closed.periods.length === 0}
+        emptyMessage="Nenhum mês fechado ainda. Feche um mês em DRE (“Fechar o mês”) para ver o resumo."
+      >
+        {overview && period && (
+          <>
+            <p className="-mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+              <span>Último fechamento do mês: {date(overview.closedAt)}</span>
+              <span>Dados carregados em: {loadedAt.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</span>
+              <span>Comparações: vs. mês anterior e vs. média dos 3 meses anteriores</span>
+              <Link href={`/finance/pnl?period=${period}`} className="text-primary hover:underline">Ver DRE do mês →</Link>
+            </p>
 
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-muted-foreground">Rede</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Kpi label="Lojas ativas" value={storeCounts ? count(storeCounts.active) : null} unavailable={!overview?.stores.available} />
-            <Kpi
-              label="Em manutenção"
-              value={storeCounts ? count(storeCounts.maintenance) : null}
-              unavailable={!overview?.stores.available}
+            <KpiStrip
+              kpis={overview.kpis}
+              previousPeriod={overview.previousPeriod}
+              unavailable={{ revenue: unavailable.pnl, contribution: unavailable.pnl, operating: unavailable.pnl, operatingMargin: unavailable.pnl, loss: unavailable.finance, cash: unavailable.treasury }}
             />
-            <Kpi
-              label="Inativas"
-              value={storeCounts ? count(storeCounts.inactive) : null}
-              unavailable={!overview?.stores.available}
-            />
-            <Kpi label="Produtos no catálogo" value={productCount === null ? null : count(productCount)} unavailable={productCount === null} />
-          </div>
-        </section>
 
-        <p className="text-sm text-muted-foreground">
-          Vendas, abastecimento (com a reconciliação) e estoque seguem sendo vistos por loja e mês — escolha uma loja
-          em{" "}
-          <Link href="/sales" className="underline underline-offset-2">
-            Vendas
-          </Link>
-          ,{" "}
-          <Link href="/supply" className="underline underline-offset-2">
-            Abastecimento
-          </Link>{" "}
-          ou{" "}
-          <Link href="/inventory" className="underline underline-offset-2">
-            Estoque
-          </Link>
-          .
-        </p>
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+              <div className="xl:col-span-3"><InsightsCard insights={overview.insights} /></div>
+              <div className="xl:col-span-2"><StoresCard stores={overview.stores} /></div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+              <div className="min-w-0 xl:col-span-3"><ProductsCard products={overview.products} loading={productsLoading} previousPeriod={overview.previousPeriod} /></div>
+              <div className="xl:col-span-2"><TestsCard /></div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <LossCard loss={overview.loss} />
+              <CashCard cash={overview.cash} />
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <UsesCard uses={overview.cashUses} previousPeriod={overview.previousPeriod} />
+              <CapexCard capex={overview.capex} investors={overview.investors} previousPeriod={overview.previousPeriod} />
+            </div>
+
+            <ReadingCard reading={overview.reading} limitations={overview.limitations} />
+          </>
+        )}
       </RequestState>
     </div>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-  tone,
-  hint,
-  unavailable,
-  source,
-}: {
-  label: string;
-  value: string | null;
-  tone?: "positive" | "critical";
-  hint?: string;
-  unavailable?: boolean;
-  source?: string;
-}) {
-  const color = tone === "positive" ? "text-success" : tone === "critical" ? "text-destructive" : "";
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-2 text-sm font-medium text-muted-foreground">
-          {label}
-          {source && <StatusBadge tone="neutral">{source}</StatusBadge>}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {unavailable || value === null ? (
-          // Nunca um zero fabricado: numa visão geral ele parece um número.
-          <p className="flex items-center gap-1 text-sm text-warning">
-            <AlertTriangle className="size-4" /> Indisponível
-          </p>
-        ) : (
-          <p className={`tabular text-2xl font-semibold ${color}`}>{value}</p>
-        )}
-        {hint && !unavailable && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
   );
 }
