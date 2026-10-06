@@ -478,7 +478,7 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   Ordem dos insights = `ranking.ts` `rankScore` (impacto R$, representatividade, recorrência, lojas) — NÃO o tamanho do %;
   limiares são PREMISSA a validar. Percentual que distorce mostra a base ("1 → 12 un.", `needsBase`/`baseText`).
   Dado × zero × sem dados: `null` = sem dados (cartão "Sem dados"), erro de busca = "Indisponível", zero só com fonte existente.
-  O PDF repete a mesma lógica em 4 páginas (`pdf/report.tsx`), não imprime a tela.
+  O PDF repete a mesma lógica em 6 páginas no tema escuro do painel (`pdf/report.tsx`: fundo carvão, cards arredondados, magenta de destaque, logo `lockup-dark.png` via `meta.logoSrc`), não imprime a tela.
 - **Preço × volume** (`lib/overview/price-volume.ts`): decompõe a variação da receita de produtos por SKU em efeito
   preço `(p1−p0)·q1` e volume `(q1−q0)·p0`, com preço REALIZADO = receita ÷ unidades do mês (vem das vendas, porque o
   catálogo só tem preço datado de parte dos produtos). Reajustado = variou ≥ 3% com ≥ 10 un. nos dois meses (PREMISSA).
@@ -499,7 +499,7 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   receita.
 - **PDF**: `src/lib/overview/pdf/report.tsx` (`@react-pdf/renderer`, carregado só
   no clique em `export-pdf-button.tsx`). Helvetica padrão não tem `−`/setas/`≥`:
-  `t()` troca por equivalentes. Cada exportação chama
+  `t()` troca por equivalentes (`→` vira `->`). Cada exportação chama
   `POST /accounting/monthly-summary/:period` (hash do conteúdo + parâmetros);
   a versão sobe só se a base do DRE ou o conteúdo mudaram.
 - **Produtos em teste** (`lib/overview/tests.ts`, `components/overview/tests-card.tsx`):
