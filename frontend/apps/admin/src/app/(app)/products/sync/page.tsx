@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { SupplierReview } from "@/components/catalogue-sync/supplier-review";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -108,6 +109,8 @@ export default function CatalogueSyncPage() {
           </p>
         </CardContent>
       </Card>
+
+      {rows && canWrite && <SupplierReview rows={rows} />}
 
       {plan && (
         <>

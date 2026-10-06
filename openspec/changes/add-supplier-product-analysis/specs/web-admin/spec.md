@@ -38,3 +38,20 @@ From the page a user SHALL be able to link a product that has no supplier to a r
 - **GIVEN** a product listed as "sem fornecedor cadastrado"
 - **WHEN** the user links it to a supplier
 - **THEN** the product appears under that supplier from then on
+
+### Requirement: Review the suppliers named in the pricing spreadsheet
+
+The catalogue sync page SHALL list each distinct supplier name found in the spreadsheet with the number of catalogue products it would link, suggest (never preselect) a registered supplier, and let the operator link it to a registered supplier, create a new supplier, or skip it. Nothing SHALL be written before an explicit confirmation, products that already have a supplier SHALL NOT be changed, and a confirmed spelling SHALL become an alias of the supplier so later syncs resolve it.
+
+#### Scenario: Suggestion is not a decision
+
+- **GIVEN** the sheet names "Marsil" and a registered supplier "Distribuidora Marsil"
+- **WHEN** the review is shown
+- **THEN** the supplier is offered as a suggestion and no supplier is chosen until the operator acts
+- **AND** no product is changed before the confirmation dialog is accepted
+
+#### Scenario: Existing links are kept
+
+- **GIVEN** a product the sheet attributes to "Marsil" that already has another supplier
+- **WHEN** the operator confirms the link for "Marsil"
+- **THEN** that product keeps its supplier

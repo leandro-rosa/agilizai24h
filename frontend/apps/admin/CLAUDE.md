@@ -847,6 +847,10 @@ PDV passa a vender produto antes de ele estar no catálogo e as linhas são reje
 `unknown_sku` (set/2026: 662 de abastecimento e 77 de vendas, 25 códigos). Não foi vista no
 navegador logado; typecheck, lint, specs do parser e a prévia contra o catálogo real passam.
 
+### Fornecedores da planilha (`components/catalogue-sync/supplier-review.tsx`)
+
+Cartão em `/products/sync` (precisa de `products:write`): lista os nomes de fornecedor da planilha com quantos produtos do catálogo vincularia. O painel **sugere** (igual ao cadastro, alias já confirmado, ou nome que contém/está contido) mas nunca pré-seleciona; o operador vincula, cria fornecedor (nome + categoria) ou pula, e confirma num diálogo. Ao confirmar, cada grafia vira alias do fornecedor (a próxima sincronização casa sozinha) e `Product.supplier_id` é gravado por `PATCH /products/:id` — só nos produtos sem fornecedor. Lógica pura e testada em `lib/catalogue-sync/supplier-review.ts`. Em 2026-10-06 a planilha tinha 26 nomes (249 linhas, 248 SKUs no catálogo); 0 casavam por alias, ~9 tinham candidato por semelhança.
+
 ## `/products` — Cadastro de produtos
 
 Tela majoritariamente somente-leitura (catálogo, custo e preço do dia,

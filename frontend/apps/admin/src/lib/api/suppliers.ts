@@ -89,6 +89,10 @@ export const suppliersApi = createApi({
       query: ({ id, alias }) => ({ url: `/suppliers/${id}/aliases`, method: "POST", body: { alias } }),
       invalidatesTags: (_r, _e, { id }) => ["Supplier", { type: "Supplier", id }],
     }),
+    /** Casa grafias contra o cadastro e os aliases; devolve os dois lados (casou / não casou). */
+    resolveSuppliers: builder.mutation<{ matched: { name: string; normalized: string; supplier: Supplier }[]; unmatched: string[] }, string[]>({
+      query: (names) => ({ url: "/suppliers/resolve", method: "POST", body: { names } }),
+    }),
     removeAlias: builder.mutation<void, { id: number; aliasId: number }>({
       query: ({ id, aliasId }) => ({ url: `/suppliers/${id}/aliases/${aliasId}`, method: "DELETE" }),
       invalidatesTags: (_r, _e, { id }) => ["Supplier", { type: "Supplier", id }],
@@ -102,5 +106,6 @@ export const {
   useCreateSupplierMutation,
   useUpdateSupplierMutation,
   useAddAliasMutation,
+  useResolveSuppliersMutation,
   useRemoveAliasMutation,
 } = suppliersApi;
