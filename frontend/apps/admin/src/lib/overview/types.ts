@@ -5,6 +5,8 @@
  */
 import type { Comparison, RateDelta, ValueDelta } from "./compare";
 import type { Distribution, ProductBehavior } from "./product-behavior";
+import type { CatalogueItem, LinkDecision, SkuSuggestion } from "./sku-match";
+import type { SupplyCell, TestsSummary } from "./tests";
 
 export interface NetworkPnlMonth {
   netRevenueCents: number;
@@ -93,6 +95,11 @@ export interface OverviewInput {
   productNames: Record<string, string>;
   /** Lojas ativas (id + nome) — base para dizer em quais lojas um produto vendeu ou não. */
   storeList: { id: number; name: string }[] | null;
+  /** Catálogo (sku + nome) e decisões de troca de código já tomadas pelo operador. */
+  catalogue: CatalogueItem[];
+  skuLinks: LinkDecision[];
+  /** Abastecimento por loja × mês × SKU (9 meses até a competência); base de "produtos em teste". */
+  supply: { cells: SupplyCell[]; ingestedPeriods: string[] } | null;
   aging: { referenceDate: string; overdueCents: number; notDueCents: number; openCents: number } | null;
   /** Fechamento do mês na rede. */
   closed: boolean;
@@ -265,6 +272,10 @@ export interface Overview {
   insights: Insight[];
   stores: StoreSummary | null;
   products: ProductsSummary | null;
+  /** null = abastecimento indisponível; rows vazio = nenhum candidato com as regras atuais. */
+  tests: TestsSummary | null;
+  /** SKUs sem histórico/em teste com nome parecido a um SKU antigo — aguardam confirmação. */
+  skuSuggestions: SkuSuggestion[];
   loss: LossSummary | null;
   cash: CashSummary;
   cashUses: CashUses | null;

@@ -142,3 +142,19 @@ export class CreateOverrideDto {
   @IsNotEmpty()
   sku: string
 }
+
+export class DecideSkuLinkDto {
+  @ApiProperty({ example: '7891234000012', description: 'SKU antigo (o que parou de vender)' })
+  @IsString()
+  @IsNotEmpty()
+  old_sku: string
+
+  @ApiProperty({ example: '7891234000999', description: 'SKU novo (o que apareceu)' })
+  @IsString()
+  @IsNotEmpty()
+  new_sku: string
+
+  @ApiProperty({ enum: ['same', 'different'] })
+  @IsIn(['same', 'different'])
+  decision: 'same' | 'different'
+}

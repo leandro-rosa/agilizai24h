@@ -11,6 +11,7 @@ import { KpiStrip } from "@/components/overview/kpi-strip";
 import { LossCard } from "@/components/overview/loss-card";
 import { ProductsCard } from "@/components/overview/products-card";
 import { ReadingCard } from "@/components/overview/reading-card";
+import { SkuLinksCard } from "@/components/overview/sku-links-card";
 import { StoresCard } from "@/components/overview/stores-card";
 import { TestsCard } from "@/components/overview/tests-card";
 import { UsesCard } from "@/components/overview/uses-card";
@@ -31,7 +32,7 @@ export default function OverviewPage() {
   const closed = useClosedPeriods();
   const [selected, setSelected] = useState<string | null>(null);
   const period = selected ?? closed.periods[0] ?? null;
-  const { overview, unavailable, isLoading, productsLoading, refetch } = useMonthlyOverview(period);
+  const { overview, unavailable, isLoading, productsLoading, supplyLoading, refetch } = useMonthlyOverview(period);
   // Instante em que a tela carregou os dados — não é o horário do fechamento.
   const [loadedAt] = useState(() => new Date());
 
@@ -42,7 +43,7 @@ export default function OverviewPage() {
         description={period ? `Resumo da rede — competência ${monthName(period).replace(/^./, (c) => c.toUpperCase())}` : "Resumo da rede"}
         actions={
           <>
-            <Select value={period ?? undefined} onValueChange={setSelected} disabled={closed.periods.length === 0}>
+            <Select value={period ?? ""} onValueChange={setSelected} disabled={closed.periods.length === 0}>
               <SelectTrigger className="w-40" aria-label="Competência">
                 <SelectValue placeholder="Competência" />
               </SelectTrigger>
@@ -84,10 +85,11 @@ export default function OverviewPage() {
               <div className="xl:col-span-2"><StoresCard stores={overview.stores} /></div>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
-              <div className="min-w-0 xl:col-span-3"><ProductsCard products={overview.products} loading={productsLoading} previousPeriod={overview.previousPeriod} /></div>
-              <div className="xl:col-span-2"><TestsCard /></div>
-            </div>
+            <ProductsCard products={overview.products} loading={productsLoading} previousPeriod={overview.previousPeriod} />
+
+            <TestsCard tests={overview.tests} loading={supplyLoading} unavailable={unavailable.supply} />
+
+            <SkuLinksCard suggestions={overview.skuSuggestions} />
 
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
               <LossCard loss={overview.loss} />

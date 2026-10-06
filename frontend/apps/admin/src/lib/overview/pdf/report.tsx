@@ -6,6 +6,7 @@ import { reasonLabel } from "@/lib/removal-reasons";
 import { BEHAVIOR_LABELS } from "../product-behavior";
 import { signedPct, signedPp, type RateDelta, type ValueDelta } from "../compare";
 import { monthName } from "../reading";
+import { SIGNAL_LABELS, TESTS } from "../tests";
 import type { CashUseLine, KpiResult, Overview, ProductRow } from "../types";
 
 export interface ReportMeta {
@@ -171,7 +172,33 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
         </View>
         <View style={s.card}>
           <Text style={s.h2}>Produtos em teste</Text>
-          <Text style={{ color: C.bad }}>Indisponivel - o sistema nao registra produtos em teste (sem cadastro, data de inicio ou lojas participantes).</Text>
+          {!o.tests ? <Unavail what="abastecimento" /> : o.tests.rows.length === 0 ? (
+            <Text style={s.small}>Nenhum SKU com primeiro abastecimento nos ultimos {TESTS.WINDOW_MONTHS} meses em ate {TESTS.MAX_STORES} lojas.</Text>
+          ) : (
+            <View>
+              <View style={s.th}>
+                <Text style={[{ flex: 3 }, s.bold]}>Produto</Text>
+                <Text style={[{ flex: 1, textAlign: "right" }, s.bold]}>Lojas</Text>
+                <Text style={[{ flex: 1, textAlign: "right" }, s.bold]}>Unid.</Text>
+                <Text style={[{ flex: 1.2, textAlign: "right" }, s.bold]}>Perdas</Text>
+                <Text style={[{ flex: 1, textAlign: "right" }, s.bold]}>Margem</Text>
+                <Text style={[{ flex: 1.6, textAlign: "right" }, s.bold]}>Tempo de teste</Text>
+                <Text style={[{ flex: 1.6, textAlign: "right" }, s.bold]}>Sinal</Text>
+              </View>
+              {o.tests.rows.slice(0, 8).map((r) => (
+                <View key={r.sku} style={s.line} wrap={false}>
+                  <Text style={{ flex: 3 }}>{t(r.name)}</Text>
+                  <Text style={{ flex: 1, textAlign: "right" }}>{r.storesSold}/{r.storesRestocked}</Text>
+                  <Text style={{ flex: 1, textAlign: "right" }}>{r.unitsSold}</Text>
+                  <Text style={{ flex: 1.2, textAlign: "right" }}>{r.lossCents === null ? "-" : brl(r.lossCents)}</Text>
+                  <Text style={{ flex: 1, textAlign: "right" }}>{pct(r.marginPct, 0)}</Text>
+                  <Text style={{ flex: 1.6, textAlign: "right" }}>{r.monthsInTest} {r.monthsInTest === 1 ? "mes" : "meses"} (desde {fmtPeriod(r.firstPeriod)})</Text>
+                  <Text style={{ flex: 1.6, textAlign: "right" }}>{t(SIGNAL_LABELS[r.signal])}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          <Text style={[s.small, { marginTop: 4 }]}>Lista derivada do abastecimento (primeiro abastecimento na rede em ate {TESTS.MAX_STORES} lojas, regra provisoria). Sinal e evidencia, nao decisao.</Text>
         </View>
         <Footer o={o} meta={meta} />
       </Page>

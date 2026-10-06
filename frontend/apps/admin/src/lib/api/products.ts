@@ -41,10 +41,19 @@ export interface BulkCostResult {
   complete: boolean;
 }
 
+/** Decisão do operador sobre um par de SKUs: o novo é o mesmo produto do antigo com outro código de barras, ou não. */
+export interface SkuLink {
+  id: number;
+  old_sku: string;
+  new_sku: string;
+  decision: "same" | "different";
+  decided_at: string;
+}
+
 export const productsApi = createApi({
   reducerPath: "productsApi",
   baseQuery: gatewayBaseQuery,
-  tagTypes: ["Product"],
+  tagTypes: ["Product", "SkuLink"],
   endpoints: (builder) => ({
     getProducts: builder.query<Product[], void>({
       query: () => "/products",
@@ -56,6 +65,14 @@ export const productsApi = createApi({
      * mirrors that: the caller states the date, defaulting to today for the
      * catalogue listing.
      */
+    getSkuLinks: builder.query<SkuLink[], void>({
+      query: () => "/sku-links",
+      providesTags: ["SkuLink"],
+    }),
+    decideSkuLink: builder.mutation<SkuLink, { old_sku: string; new_sku: string; decision: "same" | "different" }>({
+      query: (body) => ({ url: "/sku-links", method: "PUT", body }),
+      invalidatesTags: ["SkuLink"],
+    }),
     getCostsAsOf: builder.query<BulkCostResult, { skus: string[]; asOf: string }>({
       query: ({ skus, asOf }) => ({
         url: "/products/costs/bulk",
@@ -87,6 +104,8 @@ export const productsApi = createApi({
 
 export const {
   useGetProductsQuery,
+  useGetSkuLinksQuery,
+  useDecideSkuLinkMutation,
   useGetCostsAsOfQuery,
   useGetPricesAsOfQuery,
   useRecordPriceMutation,
