@@ -105,6 +105,7 @@ export function buildProducts(
       marginUnresolved: a.marginRevenue < a.revenue,
       unitsPrevious: p ? p.units : null,
       deltaUnitsPct: du.pct,
+      revenuePreviousCents: p ? p.revenue : null,
       deltaRevenueCents: dr.abs,
       deltaRevenuePct: dr.pct,
       series,

@@ -1,43 +1,52 @@
 import { Wallet } from "lucide-react";
 
 import { signedPct } from "@/lib/overview/compare";
+import { baseText } from "@/lib/overview/ranking";
 import { period as fmtPeriod } from "@/lib/format";
 import type { CashUseLine, CashUses } from "@/lib/overview/types";
-import { Block, moneyRound, Unavailable } from "./shared";
+import { Block, moneyRound, NoData, pctText, Unavailable } from "./shared";
+
+const REASON: Record<CashUseLine["reasons"][number], string> = { variacao: "variou", peso: "maior saída" };
 
 function Line({ l, previousPeriod }: { l: CashUseLine; previousPeriod: string }) {
   return (
     <li className="flex items-baseline justify-between gap-3 text-sm">
-      <span className="font-medium">{l.label}</span>
+      <span>
+        <span className="font-medium">{l.label}</span>{" "}
+        <span className="text-[11px] text-muted-foreground">{l.reasons.map((r) => REASON[r]).join(" · ")}</span>
+      </span>
       <span className="tabular text-right">
-        {moneyRound(l.currentCents)}{" "}
-        <span className="text-xs text-muted-foreground">
-          {l.deltaPct === null ? "sem comparação" : `${signedPct(l.deltaPct)} vs. ${fmtPeriod(previousPeriod)}`}
-          {l.avg3Cents !== null ? ` · média 3m ${moneyRound(l.avg3Cents)}` : ""}
+        {moneyRound(l.currentCents)}
+        <span className="block text-xs text-muted-foreground">
+          {l.previousCents === null
+            ? "sem base no mês anterior"
+            : `${baseText(l.previousCents, l.currentCents, (n) => moneyRound(n), "")}${l.deltaPct !== null && l.previousCents > 0 ? ` (${signedPct(l.deltaPct, 0)})` : ""} vs. ${fmtPeriod(previousPeriod)}`}
+          {l.shareOfOutflow !== null ? ` · ${pctText(l.shareOfOutflow, 0)} das saídas` : ""}
         </span>
       </span>
     </li>
   );
 }
 
-export function UsesCard({ uses, previousPeriod }: { uses: CashUses | null; previousPeriod: string }) {
+/** Movimentos selecionados pelos dados (variação ou peso), de qualquer categoria. */
+export function UsesCard({ uses, previousPeriod, unavailable }: { uses: CashUses | null; previousPeriod: string; unavailable?: boolean }) {
   return (
     <Block title="Principais movimentos financeiros" icon={<Wallet className="size-4 text-primary" />} href="/treasury" linkLabel="Ver tesouraria">
-      {!uses ? (
+      {unavailable ? (
         <Unavailable what="tesouraria" />
+      ) : !uses ? (
+        <NoData what="sem lançamentos da tesouraria no mês" />
+      ) : uses.lines.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nenhum movimento com variação ou peso relevante neste mês.</p>
       ) : (
         <>
-          <ul className="flex flex-col gap-2">
-            {uses.stock && <Line l={uses.stock} previousPeriod={previousPeriod} />}
-            {uses.capex && <Line l={uses.capex} previousPeriod={previousPeriod} />}
-            {uses.expenses.map((e) => <Line key={e.key} l={e} previousPeriod={previousPeriod} />)}
-          </ul>
+          <ul className="flex flex-col gap-2">{uses.lines.map((l) => <Line key={l.key} l={l} previousPeriod={previousPeriod} />)}</ul>
           {uses.stockVsRevenue && uses.stockVsRevenue.stockDeltaPct !== null && uses.stockVsRevenue.revenueDeltaPct !== null && (
             <p className="text-sm text-muted-foreground">
-              Compras de estoque {signedPct(uses.stockVsRevenue.stockDeltaPct)} enquanto o faturamento variou {signedPct(uses.stockVsRevenue.revenueDeltaPct)} (fato; sem conclusão de eficiência).
+              Observação: compras de estoque {signedPct(uses.stockVsRevenue.stockDeltaPct)} enquanto o faturamento variou {signedPct(uses.stockVsRevenue.revenueDeltaPct)}.
             </p>
           )}
-          <p className="text-xs text-muted-foreground">Mostra só o que variou de forma material. Compras de estoque (caixa, tesouraria) e CMV (custo da mercadoria vendida, finance) são medidas diferentes e não se somam. CAPEX (capex-service) fica separado de despesa operacional.</p>
+          <p className="text-xs text-muted-foreground">Selecionados por variação material ou peso nas saídas ({moneyRound(uses.totalOutflowCents)} no mês) — sem categoria fixa. Compras de estoque (caixa) e CMV (finance) não se somam.</p>
         </>
       )}
     </Block>

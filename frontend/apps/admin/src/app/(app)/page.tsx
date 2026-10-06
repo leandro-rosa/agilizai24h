@@ -6,6 +6,7 @@ import { useState } from "react";
 import { CapexCard } from "@/components/overview/capex-card";
 import { CashCard } from "@/components/overview/cash-card";
 import { ExportPdfButton } from "@/components/overview/export-pdf-button";
+import { HighlightsCard } from "@/components/overview/highlights-card";
 import { InsightsCard } from "@/components/overview/insights-card";
 import { KpiStrip } from "@/components/overview/kpi-strip";
 import { LossCard } from "@/components/overview/loss-card";
@@ -15,6 +16,7 @@ import { SkuLinksCard } from "@/components/overview/sku-links-card";
 import { StoresCard } from "@/components/overview/stores-card";
 import { TestsCard } from "@/components/overview/tests-card";
 import { UsesCard } from "@/components/overview/uses-card";
+import { WatchlistCard } from "@/components/overview/watchlist-card";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -95,28 +97,32 @@ export default function OverviewPage() {
               unavailable={{ revenue: unavailable.pnl, contribution: unavailable.pnl, operating: unavailable.pnl, operatingMargin: unavailable.pnl, loss: unavailable.finance, cash: unavailable.treasury }}
             />
 
+            <HighlightsCard highlights={overview.highlights} />
+
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
               <div className="xl:col-span-3"><InsightsCard insights={overview.insights} /></div>
-              <div className="xl:col-span-2"><StoresCard stores={overview.stores} /></div>
+              <div className="xl:col-span-2"><StoresCard stores={overview.stores} unavailable={unavailable.stores} /></div>
             </div>
 
-            <ProductsCard products={overview.products} loading={productsLoading} previousPeriod={overview.previousPeriod} />
+            <ProductsCard products={overview.products} loading={productsLoading} previousPeriod={overview.previousPeriod} unavailable={unavailable.sales} />
 
-            <TestsCard tests={overview.tests} loading={supplyLoading} unavailable={unavailable.supply} />
+            <TestsCard tests={overview.tests} loading={supplyLoading} unavailable={unavailable.supply} networkStores={overview.stores?.activeCount ?? null} />
 
             <SkuLinksCard suggestions={overview.skuSuggestions} />
 
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <LossCard loss={overview.loss} />
+              <LossCard loss={overview.loss} previousPeriod={overview.previousPeriod} />
               <CashCard cash={overview.cash} />
             </div>
 
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-              <UsesCard uses={overview.cashUses} previousPeriod={overview.previousPeriod} />
+              <UsesCard uses={overview.cashUses} previousPeriod={overview.previousPeriod} unavailable={unavailable.treasury} />
               <CapexCard capex={overview.capex} investors={overview.investors} previousPeriod={overview.previousPeriod} />
             </div>
 
             <ReadingCard reading={overview.reading} limitations={overview.limitations} />
+
+            <WatchlistCard items={overview.watchlist} />
           </>
         )}
       </RequestState>

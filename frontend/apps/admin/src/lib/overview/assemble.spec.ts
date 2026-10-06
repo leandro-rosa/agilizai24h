@@ -69,3 +69,21 @@ describe("treasuryMonth investment (CAPEX as the cash flow classifies it)", () =
     expect(treasuryMonth(null)).toBeNull();
   });
 });
+
+describe("dado × zero × sem dados", () => {
+  const sum = (count: number) => ({ transaction_count: count, by_category: [], by_nature: [], unresolved_count: 0, pending_count: 0 }) as unknown as TransactionSummary;
+
+  it("a month with no treasury entries is NO DATA (null), while a month with entries and no investment is a real zero", () => {
+    expect(treasuryMonth(sum(0), [])).toBeNull();
+    expect(treasuryMonth(sum(12), [])!.investmentCents).toBe(0);
+  });
+  it("no CAPEX items registered anywhere is no data; items elsewhere but none in the month is a real zero", () => {
+    expect(capexMonth([], "2026-09")).toBeNull();
+    expect(capexMonth([item({ purchased_on: "2026-08-10" })], "2026-09")!.totalCents).toBe(0);
+  });
+  it("no contributions at all is no data; contributions elsewhere but none in the month is a real zero", () => {
+    expect(investorMonth([], "2026-09")).toBeNull();
+    const c = { id: 1, investor_id: 1, contributed_on: "2026-08-02", amount_cents: 10, kind: "equipment", note: null } as InvestorContribution;
+    expect(investorMonth([c], "2026-09")!.totalCents).toBe(0);
+  });
+});

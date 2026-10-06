@@ -8,14 +8,18 @@ import { Block, moneyRound, pctText, Unavailable } from "./shared";
 
 const tone: Record<TestSignal, "positive" | "attention" | "neutral"> = { positivo: "positive", atencao: "attention", mais_dados: "neutral" };
 
-function Row({ r }: { r: TestRow }) {
+function Row({ r, networkStores }: { r: TestRow; networkStores: number | null }) {
   return (
     <TableRow>
       <TableCell className="min-w-56 whitespace-normal font-medium">
         {r.name}
         <p className="text-[11px] font-normal text-muted-foreground">{r.reasons.join(" · ")}</p>
       </TableCell>
-      <TableCell className="tabular text-right">{r.storesSold}/{r.storesRestocked}</TableCell>
+      <TableCell className="tabular text-right">{r.storesRestocked}</TableCell>
+      <TableCell className="tabular text-right">
+        {networkStores ? `${r.storesRestocked} de ${networkStores}` : "—"}
+        <p className="text-[11px] text-muted-foreground">venderam em {r.storesSold}</p>
+      </TableCell>
       <TableCell className="tabular text-right">{count(r.unitsSold)}</TableCell>
       <TableCell className="tabular text-right">{r.lossCents === null ? "—" : moneyRound(r.lossCents)}</TableCell>
       <TableCell className="tabular text-right">{pctText(r.marginPct, 0)}</TableCell>
@@ -33,7 +37,7 @@ function Row({ r }: { r: TestRow }) {
  * (mês do primeiro abastecimento do SKU na rede, em poucas lojas). O sinal é
  * evidência com os fatos ao lado — nunca aprovado/reprovado.
  */
-export function TestsCard({ tests, loading, unavailable }: { tests: TestsSummary | null; loading: boolean; unavailable: boolean }) {
+export function TestsCard({ tests, loading, unavailable, networkStores }: { tests: TestsSummary | null; loading: boolean; unavailable: boolean; networkStores: number | null }) {
   return (
     <Block title="Produtos em teste" icon={<FlaskConical className="size-4 text-primary" />} href="/supply" linkLabel="Ver abastecimento" className="min-w-0">
       {loading && !tests ? (
@@ -51,7 +55,8 @@ export function TestsCard({ tests, loading, unavailable }: { tests: TestsSummary
             <TableHeader>
               <TableRow>
                 <TableHead>Produto</TableHead>
-                <TableHead className="text-right" title="Lojas que venderam / lojas abastecidas">Lojas</TableHead>
+                <TableHead className="text-right">Lojas testadas</TableHead>
+                <TableHead className="text-right" title="Lojas abastecidas ÷ lojas ativas da rede">Cobertura do teste</TableHead>
                 <TableHead className="text-right">Unid. vendidas</TableHead>
                 <TableHead className="text-right">Perdas</TableHead>
                 <TableHead className="text-right">Margem</TableHead>
@@ -59,10 +64,11 @@ export function TestsCard({ tests, loading, unavailable }: { tests: TestsSummary
                 <TableHead>Sinal</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>{tests.rows.map((r) => <Row key={r.sku} r={r} />)}</TableBody>
+            <TableBody>{tests.rows.slice(0, 8).map((r) => <Row key={r.sku} r={r} networkStores={networkStores} />)}</TableBody>
           </Table>
         </div>
       )}
+      {tests && tests.rows.length > 8 && <p className="text-xs text-muted-foreground">Mostrando 8 de {tests.rows.length} produtos em teste — o restante está em “Ver abastecimento”.</p>}
       <p className="text-xs text-muted-foreground">
         Candidato = primeiro abastecimento na rede nos últimos {TESTS.WINDOW_MONTHS} meses, depois do início do histórico importado, em qualquer número de lojas
         (regra provisória). O sistema guarda só o mês do abastecimento, não a data da visita. Se o código de barras mudou, confirme a troca abaixo para o produto deixar de aparecer como novo.

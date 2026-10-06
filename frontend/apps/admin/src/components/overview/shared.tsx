@@ -11,6 +11,28 @@ export const moneyRound = (cents: number | null | undefined) =>
 
 export const pctText = (v: number | null, digits = 1) => (v === null ? "—" : `${(v * 100).toFixed(digits).replace(".", ",")}%`);
 
+/**
+ * Três estados, nunca confundidos: DADO (existe), ZERO (o valor calculado é zero) e
+ * SEM DADOS (não há informação para a competência). Nunca R$ 0 por falta de dado.
+ */
+export function NoData({ what }: { what?: string }) {
+  return (
+    <p className="flex items-center gap-1 text-sm text-muted-foreground">
+      <span className="inline-block size-2 shrink-0 rounded-full border border-muted-foreground" aria-hidden /> Sem dados{what ? ` — ${what}` : " para esta competência"}
+    </p>
+  );
+}
+
+export function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{children}</h2>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
+
+/** Erro ao buscar a fonte (≠ "sem dados"). */
 export function Unavailable({ what }: { what?: string }) {
   return (
     <p className="flex items-center gap-1 text-sm text-warning">

@@ -1,14 +1,42 @@
 import { Truck } from "lucide-react";
 
+import { signedPct } from "@/lib/overview/compare";
+import { period as fmtPeriod } from "@/lib/format";
 import { reasonLabel } from "@/lib/removal-reasons";
-import type { LossSummary } from "@/lib/overview/types";
-import { Block, moneyRound, pctText, Stat, Unavailable } from "./shared";
+import type { LossChange, LossSummary } from "@/lib/overview/types";
+import { Block, moneyRound, NoData, pctText, Stat } from "./shared";
 
-export function LossCard({ loss }: { loss: LossSummary | null }) {
+function ChangeList({ title, rows, reason }: { title: string; rows: LossChange[]; reason?: boolean }) {
   return (
-    <Block title="Abastecimento e perdas" icon={<Truck className="size-4 text-primary" />} href="/supply">
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs font-semibold text-muted-foreground">{title}</p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Sem variação relevante.</p>
+      ) : (
+        rows.map((c) => (
+          <div key={c.label} className="flex flex-col text-sm">
+            <p className="flex justify-between gap-2">
+              <span className="truncate font-medium">{reason ? reasonLabel(c.label) : c.label}</span>
+              <span className={`tabular ${c.deltaCents > 0 ? "text-destructive" : "text-success"}`}>
+                {c.deltaCents > 0 ? "+" : "−"}
+                {moneyRound(Math.abs(c.deltaCents))}
+              </span>
+            </p>
+            <p className="tabular text-xs text-muted-foreground">{moneyRound(c.previousCents)} → {moneyRound(c.currentCents)}</p>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+/** KPIs de perda + o que MUDOU nela no mês (motivos e produtos que mais se moveram). */
+export function LossCard({ loss, previousPeriod }: { loss: LossSummary | null; previousPeriod: string }) {
+  const ch = loss?.changes ?? null;
+  return (
+    <Block title="Abastecimento e perdas" icon={<Truck className="size-4 text-primary" />} href="/supply" linkLabel="Ver análise completa">
       {!loss ? (
-        <Unavailable what="nenhuma loja reconciliada no mês" />
+        <NoData what="nenhuma loja reconciliada no mês" />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -20,24 +48,25 @@ export function LossCard({ loss }: { loss: LossSummary | null }) {
           {loss.incompleteStores > 0 && (
             <p className="text-xs text-warning">{loss.incompleteStores} loja(s) com reconciliação incompleta (SKU sem custo ou saldo inconsistente) — valores podem estar subestimados.</p>
           )}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <p className="text-xs font-semibold text-muted-foreground">Principais motivos de perda</p>
-              {loss.byReason.length === 0 ? <p className="text-sm text-muted-foreground">Sem perdas no mês.</p> : loss.byReason.map((r) => (
-                <div key={r.reason} className="flex items-center gap-2 text-sm">
-                  <span className="w-32 shrink-0 truncate">{reasonLabel(r.reason)}</span>
-                  <div className="h-2 flex-1 rounded-full bg-muted"><div className="h-2 rounded-full bg-primary" style={{ width: `${Math.round((r.share ?? 0) * 100)}%` }} /></div>
-                  <span className="tabular w-10 text-right text-xs">{pctText(r.share, 0)}</span>
+          <div className="flex flex-col gap-3 border-t pt-3">
+            <p className="text-sm font-semibold">O que mudou nas perdas</p>
+            {!ch ? (
+              <p className="text-sm text-muted-foreground">Sem perdas de {fmtPeriod(previousPeriod)} para comparar.</p>
+            ) : (
+              <>
+                <p className="tabular text-sm">
+                  {moneyRound(ch.totalPreviousCents)} → {moneyRound(ch.totalCurrentCents)}
+                  {ch.totalPreviousCents > 0 ? ` (${signedPct((ch.totalCurrentCents - ch.totalPreviousCents) / ch.totalPreviousCents, 0)})` : ""}
+                  {ch.skusExplainingShare ? (
+                    <span className="text-muted-foreground"> · {ch.skusExplainingShare.count} {ch.skusExplainingShare.count === 1 ? "produto explica" : "produtos explicam"} {Math.round(ch.skusExplainingShare.share * 100)}% da variação</span>
+                  ) : null}
+                </p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <ChangeList title="Motivos que mais mudaram" rows={ch.byReason.slice(0, 3)} reason />
+                  <ChangeList title="Produtos que mais mudaram" rows={ch.bySku.slice(0, 3)} />
                 </div>
-              ))}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <p className="text-xs font-semibold text-muted-foreground">Produtos com maior perda (R$)</p>
-              {loss.topSkus.map((s, n) => (
-                <p key={s.sku} className="flex justify-between gap-2 text-sm"><span className="truncate"><span className="mr-2 text-muted-foreground">{n + 1}</span>{s.name}</span><span className="tabular">{moneyRound(s.valueCents)} · {pctText(s.share, 0)}</span></p>
-              ))}
-              {loss.top3Share !== null && <p className="text-xs text-muted-foreground">Os 3 maiores SKUs somam {pctText(loss.top3Share, 0)} da perda do mês.</p>}
-            </div>
+              </>
+            )}
           </div>
         </>
       )}

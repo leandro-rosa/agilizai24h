@@ -5,7 +5,7 @@ import { signedPct } from "@/lib/overview/compare";
 import { period as fmtPeriod } from "@/lib/format";
 import { CONTRIBUTION_KIND_LABELS } from "@/lib/api/capex";
 import type { CapexSummary, InvestorsSummary } from "@/lib/overview/types";
-import { Block, moneyRound, Unavailable } from "./shared";
+import { Block, moneyRound, NoData } from "./shared";
 
 export function CapexCard({ capex, investors, previousPeriod }: { capex: CapexSummary | null; investors: InvestorsSummary | null; previousPeriod: string }) {
   return (
@@ -13,7 +13,7 @@ export function CapexCard({ capex, investors, previousPeriod }: { capex: CapexSu
       <div className="flex flex-col gap-1.5">
         <p className="text-xs font-semibold text-muted-foreground">CAPEX do mês — saídas de investimento (como no Fluxo de caixa)</p>
         {!capex?.investment ? (
-          <Unavailable what="tesouraria" />
+          <NoData what="sem lançamentos da tesouraria no mês" />
         ) : (
           <>
             <p className="tabular text-xl font-semibold">
@@ -41,7 +41,7 @@ export function CapexCard({ capex, investors, previousPeriod }: { capex: CapexSu
           <Link href="/capex/investors" className="text-primary hover:underline">Ver investidores →</Link>
         </p>
         {!investors?.current ? (
-          <Unavailable what="aportes" />
+          <NoData what="nenhum aporte registrado no mês" />
         ) : (
           <>
             <p className="tabular text-xl font-semibold">
