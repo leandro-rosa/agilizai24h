@@ -289,6 +289,42 @@ describe('gateway integration', () => {
     })
   })
 
+  describe('purchase orders: the actor is the logged-in user', () => {
+    it('POST /purchases/:id/transition forwards the session e-mail as actor, ignoring the one the client sent', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.SUPPLIERS_WRITE] } })
+      stub.on('POST', '/purchases/7/transition', { status: 200, body: { id: 7, status: 'received' } })
+
+      await request(server()).post('/purchases/7/transition').set('Cookie', `${SESSION}=good`).send({ to: 'received', actor: 'someone.else@x.com' }).expect(200)
+
+      expect(stub.lastBody('POST', '/purchases/7/transition')).toMatchObject({ to: 'received', actor: 'admin@agiliz.ai' })
+    })
+
+    it('POST /purchases/:id/send needs suppliers:write and forwards the session e-mail', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.SUPPLIERS_READ] } })
+      await request(server()).post('/purchases/7/send').set('Cookie', `${SESSION}=good`).send({ to: 'a@b.com' }).expect(403)
+      expect(stub.calledWith('POST', '/purchases/7/send')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.SUPPLIERS_WRITE] } })
+      stub.on('POST', '/purchases/7/send', { status: 200, body: { email: {} } })
+      await request(server()).post('/purchases/7/send').set('Cookie', `${SESSION}=good`).send({ to: 'a@b.com', actor: 'forged@x.com' }).expect(200)
+
+      expect(stub.lastBody('POST', '/purchases/7/send')).toMatchObject({ to: 'a@b.com', actor: 'admin@agiliz.ai' })
+    })
+
+    it('POST /purchases records the creator from the session too, and the e-mail preview and pending payments are reads', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.SUPPLIERS_READ, PERMISSIONS.SUPPLIERS_WRITE] } })
+      stub.on('POST', '/purchases', { status: 201, body: { id: 1 } })
+      stub.on('GET', '/purchases/7/email-preview', { status: 200, body: {} })
+      stub.on('GET', '/purchases/payments/pending', { status: 200, body: { groups: [] } })
+
+      await request(server()).post('/purchases').set('Cookie', `${SESSION}=good`).send({ supplier_id: 1, actor: 'forged@x.com' }).expect(201)
+      await request(server()).get('/purchases/7/email-preview').set('Cookie', `${SESSION}=good`).expect(200)
+      await request(server()).get('/purchases/payments/pending').set('Cookie', `${SESSION}=good`).expect(200)
+
+      expect(stub.lastBody('POST', '/purchases')).toMatchObject({ actor: 'admin@agiliz.ai' })
+    })
+  })
+
   describe('treasury Drive files proxy routes', () => {
     it('GET /treasury-drive-files requires treasury:read and forwards to ingestion-worker-service', async () => {
       stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })

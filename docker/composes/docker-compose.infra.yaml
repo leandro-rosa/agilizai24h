@@ -17,6 +17,17 @@ name: agiliz-infra
 # service name on the standard internal ports regardless of these values.
 
 services:
+  # Mail catcher for development: every e-mail the services send (orders to suppliers) lands here and goes nowhere else.
+  # SMTP is on 1025 inside agiliz_network; the web UI shows what would have been sent. Real SMTP credentials are never put here.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: agiliz-mailpit
+    ports:
+      - "${MAILPIT_UI_HOST_PORT:-8025}:8025"
+    restart: unless-stopped
+    networks:
+      - agiliz_network
+
   redis:
     image: redis:7-alpine
     container_name: agiliz-redis

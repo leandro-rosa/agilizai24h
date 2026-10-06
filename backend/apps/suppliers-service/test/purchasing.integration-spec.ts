@@ -6,6 +6,8 @@ import { PrismaClientService } from '../src/modules/db-client/prisma-client.serv
 import { ProductsClient } from '../src/modules/purchasing/clients/products.client'
 import { SalesClient } from '../src/modules/purchasing/clients/sales.client'
 import { PurchasesService } from '../src/modules/purchasing/services/purchases.service'
+import { MailTransport } from '../src/modules/purchasing/mail/mail-transport'
+import { OrderEmailService } from '../src/modules/purchasing/mail/order-email.service'
 import { SettlementService } from '../src/modules/purchasing/services/settlement.service'
 
 /**
@@ -22,6 +24,8 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
   let settlements: SettlementService
   let supplierId: number
 
+  const fakeMail = { from: () => 'pedidos@agiliz.local', send: jest.fn(async () => ({ messageId: '<sint@mail>' })) }
+  let emails: OrderEmailService
   const sold = { from: '2026-10-05', to: '2026-10-11', rows: [{ sku: 'SINT-1', quantity: 62, revenue_cents: 1 }], months_without_dated_receipts: [] as string[], stores_missing: 0 }
 
   beforeAll(async () => {
@@ -30,11 +34,14 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
       .useValue({ products: async () => [{ id: 1, sku: 'SINT-1', name: '[SINTÉTICO] produto' }] })
       .overrideProvider(SalesClient)
       .useValue({ soldBySku: async () => sold })
+      .overrideProvider(MailTransport)
+      .useValue(fakeMail)
       .compile()
     app = await moduleRef.init()
     prisma = app.get(PrismaClientService)
     purchases = app.get(PurchasesService)
     settlements = app.get(SettlementService)
+    emails = app.get(OrderEmailService)
     supplierId = (await prisma.supplier.create({ data: { name: '[SINTÉTICO] fornecedor', category: 'grocery' } })).id
   }, 60000)
 
@@ -81,5 +88,49 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
     // the item the settlement counted can no longer change its condition
     const item = (await purchases.list({ supplierId })).flatMap(p => p.items).find(i => i.condition === 'on_sale')!
     await expect(purchases.updateItem(item.id, { condition: 'paid' })).rejects.toThrow(/already counted/)
+  })
+
+  it('walks an order through every stage with the real tables: history, received quantity, who, and only received counts', async () => {
+    const order = await purchases.create({
+      supplier_id: supplierId,
+      ordered_on: '2026-11-03',
+      stage: 'requisition',
+      actor: 'sint@agiliz.ai',
+      expected_delivery_on: '2026-11-10',
+      payment_term: 'due_date',
+      payment_due_on: '2026-11-20',
+      items: [{ sku: 'SINT-1', quantity: 100, unit_cost_cents: 100, condition: 'paid' }],
+    })
+    expect((await purchases.summary('2026-11')).rows).toEqual([]) // a requisition is not bought
+
+    await purchases.transition(order.id, { to: 'awaiting_invoice', actor: 'sint@agiliz.ai' })
+    await purchases.transition(order.id, { to: 'invoiced', invoice_number: 'SINT-NF-ST', actor: 'sint@agiliz.ai' })
+    await purchases.transition(order.id, { to: 'awaiting_receipt' })
+    const received = await purchases.transition(order.id, { to: 'received', received_on: '2026-11-09', received: [{ item_id: order.items[0].id, quantity: 90 }], actor: 'recebedor@agiliz.ai' })
+
+    expect(received).toMatchObject({ status: 'received', received_on: '2026-11-09', received_by: 'recebedor@agiliz.ai' })
+    expect(received.items[0]).toMatchObject({ quantity: 100, received_quantity: 90, difference: 10, total_cents: 9000 })
+    expect((await purchases.history(order.id)).map(e => `${e.from_status ?? '-'}>${e.to_status}`)).toEqual(['->requisition', 'requisition>awaiting_invoice', 'awaiting_invoice>invoiced', 'invoiced>awaiting_receipt', 'awaiting_receipt>received'])
+    expect((await purchases.summary('2026-11')).rows[0]).toMatchObject({ sku: 'SINT-1', units_paid: 90, cents_paid: 9000 })
+    await expect(purchases.transition(order.id, { to: 'requisition' })).rejects.toThrow(/final/)
+  })
+
+  it('lists pending payments by due day from the real rows', async () => {
+    const pending = await purchases.pendingPayments()
+
+    expect(pending.groups.some(g => g.due_on === '2026-10-14' || g.due_on === '2026-11-20')).toBe(true)
+  })
+
+  it('logs a send and a failed send, refuses a repeat, and moves the stage only on success', async () => {
+    const order = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-11-05', stage: 'requisition', actor: 'sint', items: [{ sku: 'SINT-1', quantity: 5, unit_cost_cents: 100, condition: 'paid' }] })
+    fakeMail.send.mockRejectedValueOnce(new Error('421 try later'))
+
+    await expect(emails.send(order.id, { to: 'sint@example.com', actor: 'sint' })).rejects.toThrow(/could not be sent/)
+    expect((await purchases.findById(order.id)).status).toBe('requisition')
+
+    const sent = await emails.send(order.id, { to: 'sint@example.com', actor: 'sint' })
+    expect(sent.order.status).toBe('awaiting_invoice')
+    await expect(emails.send(order.id, { to: 'sint@example.com' })).rejects.toThrow(/already sent/)
+    expect((await emails.log(order.id)).map(e => e.result)).toEqual(['sent', 'failed'])
   })
 })
