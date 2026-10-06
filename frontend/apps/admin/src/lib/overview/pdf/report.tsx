@@ -440,17 +440,17 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
               return (
                 <>
                   <View style={{ borderWidth: 1, borderRadius: 8, padding: 8, marginBottom: 6, borderColor: rd.verdict.margin === "sim" ? C.good : rd.verdict.margin === "nao" ? C.bad : C.border }}>
-                    <Text style={s.small}>A queda nas vendas foi compensada em margem?</Text>
+                    <Text style={s.small}>Vendeu menos — o lucro compensou?</Text>
                     <Text style={{ fontSize: 12, fontFamily: "Helvetica-Bold", color: rd.verdict.margin === "sim" ? C.good : rd.verdict.margin === "nao" ? C.bad : C.ink, marginVertical: 2 }}>{t(rd.verdict.title)}</Text>
                     <Text>{t(rd.verdict.detail)}</Text>
                   </View>
                   <View style={[s.row, { marginBottom: 6 }]}>
-                    <Stat label="Faturamento dos reajustados" value={brl(im.revenueAfterCents)} color={dRev < 0 ? C.bad : C.good} note={`${brl(im.revenueBeforeCents)} -> ${brl(im.revenueAfterCents)} (${dRev < 0 ? "-" : "+"}${brl(Math.abs(dRev))})`} />
-                    <Stat label="Margem de contribuição (R$)" value={im.margin ? brl(im.margin.afterCents) : "-"} color={dMar === null ? undefined : dMar < 0 ? C.bad : C.good} note={im.margin && dMar !== null ? `${brl(im.margin.beforeCents)} -> ${brl(im.margin.afterCents)} (${dMar < 0 ? "-" : "+"}${brl(Math.abs(dMar))})` : "sem custo resolvido"} />
-                    <Stat label="Margem sobre a receita" value={im.margin ? pct(im.margin.pctAfter, 0) : "-"} note={im.margin ? `era ${pct(im.margin.pctBefore, 0)}` : undefined} />
-                    <Stat label="Unidades dos reajustados" value={num(pc.unitsAfter)} color={pc.unitsAfter < pc.unitsBefore ? C.bad : C.good} note={`${num(pc.unitsBefore)} -> ${num(pc.unitsAfter)} (${dpct(unitsPct)})`} />
+                    <Stat label="Dinheiro que entrou (faturamento)" value={brl(im.revenueAfterCents)} color={dRev < 0 ? C.bad : C.good} note={`${brl(im.revenueBeforeCents)} -> ${brl(im.revenueAfterCents)} (${dRev < 0 ? "-" : "+"}${brl(Math.abs(dRev))})`} />
+                    <Stat label="Lucro bruto (sobra após o custo)" value={im.margin ? brl(im.margin.afterCents) : "-"} color={dMar === null ? undefined : dMar < 0 ? C.bad : C.good} note={im.margin && dMar !== null ? `${brl(im.margin.beforeCents)} -> ${brl(im.margin.afterCents)} (${dMar < 0 ? "-" : "+"}${brl(Math.abs(dMar))})` : "sem custo resolvido"} />
+                    <Stat label="Lucro de cada R$ 100 vendidos" value={im.margin && im.margin.pctAfter !== null ? `R$ ${Math.round(im.margin.pctAfter * 100)}` : "-"} note={im.margin && im.margin.pctBefore !== null ? `antes: R$ ${Math.round(im.margin.pctBefore * 100)}` : undefined} />
+                    <Stat label="Unidades vendidas" value={num(pc.unitsAfter)} color={pc.unitsAfter < pc.unitsBefore ? C.bad : C.good} note={`${num(pc.unitsBefore)} -> ${num(pc.unitsAfter)} (${dpct(unitsPct)})`} />
                   </View>
-                  <View style={{ marginBottom: 8 }}>{rd.lines.map((l) => <Text key={l} style={[s.small, { marginBottom: 1.5 }]}>{t(l)}</Text>)}</View>
+                  <View style={{ marginBottom: 8 }}>{rd.lines.map((l) => <Text key={l} style={[s.small, { marginBottom: 2 }]}>- {t(l)}</Text>)}</View>
                 </>
               );
             })()}
@@ -458,8 +458,8 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
               <Text style={[s.thText, { flex: 3.4 }]}>Produto</Text>
               <Text style={[s.thText, { flex: 2.4, textAlign: "right" }]}>Preço</Text>
               <Text style={[s.thText, { flex: 2.2, textAlign: "right" }]}>Unidades</Text>
-              <Text style={[s.thText, { flex: 1.6, textAlign: "right" }]}>Margem</Text>
-              <Text style={[s.thText, { flex: 1.4, textAlign: "right" }]}>Receita</Text>
+              <Text style={[s.thText, { flex: 1.6, textAlign: "right" }]}>Lucro bruto %</Text>
+              <Text style={[s.thText, { flex: 1.4, textAlign: "right" }]}>Faturamento</Text>
             </View>
             {o.priceChanges.rows.slice(0, 8).map((r) => (
               <View key={r.sku} style={{ flexDirection: "row", marginBottom: 4 }} wrap={false}>
