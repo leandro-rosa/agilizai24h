@@ -14,6 +14,8 @@ const HEAD = ["SKU", "Categoria", "Subcategoria", "EAN", "Produto", "Fornecedor"
 describe("toCents", () => {
   it.each([
     [7.19, 719], ["R$ 7.19", 719], ["R$ 7,19", 719], ["R$ 1.234,56", 123456], ["R$ 0.00", 0], [0, 0], [12.5, 1250],
+    // Formatos reais digitados à mão na planilha: vírgula decimal, sem "R$" e sem zero à direita.
+    ["3,39", 339], ["7,9", 790], ["2,75", 275],
   ])("%p -> %p", (input, expected) => expect(toCents(input)).toBe(expected));
   it("empty and unreadable are null, never zero", () => {
     expect(toCents(null)).toBeNull();
