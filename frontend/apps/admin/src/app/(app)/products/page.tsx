@@ -1,6 +1,7 @@
 "use client";
 
 import { Pencil } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { z } from "zod";
 
@@ -135,7 +136,17 @@ export default function ProductsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Produtos" description="Catálogo de produtos disponíveis nas lojas." />
+      <PageHeader
+        title="Produtos"
+        description="Catálogo de produtos disponíveis nas lojas."
+        actions={
+          canWrite ? (
+            <Link href="/products/sync" className="text-sm font-medium text-primary hover:underline">
+              Sincronizar com a precificação →
+            </Link>
+          ) : null
+        }
+      />
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <Input

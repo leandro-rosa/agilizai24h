@@ -780,6 +780,16 @@ loja-alvo) antes da rede crescer bastante além disso.
   pela exploração de 2026-09-19, `gateway-service/CLAUDE.md` documenta rotas de
   preço e estoque central que o gateway não implementa.
 
+## `/products/sync` — Sincronizar precificação
+
+Tela (link em `/products`, exige `products:write` para aplicar) que lê o `precificação(1).xlsx` no
+navegador, mostra uma PRÉVIA (nada é gravado) com produtos novos, mudanças de custo e de preço e
+avisos, e só aplica o que o operador marcar, com as duas datas de vigência. Detalhes de regra em
+[products-service/CLAUDE.md](../../../backend/apps/products-service/CLAUDE.md). Existe porque o
+PDV passa a vender produto antes de ele estar no catálogo e as linhas são rejeitadas como
+`unknown_sku` (set/2026: 662 de abastecimento e 77 de vendas, 25 códigos). Não foi vista no
+navegador logado; typecheck, lint, specs do parser e a prévia contra o catálogo real passam.
+
 ## `/products` — Cadastro de produtos
 
 Tela majoritariamente somente-leitura (catálogo, custo e preço do dia,

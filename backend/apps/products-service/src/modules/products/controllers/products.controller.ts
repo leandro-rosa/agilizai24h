@@ -7,12 +7,15 @@ import {
   CreateOverrideDto,
   CreateProductDto,
   DecideSkuLinkDto,
+  SyncApplyDto,
+  SyncPreviewDto,
   RecordCostDto,
   RecordPriceDto,
   ResolveNamesDto,
   ResolveSkusDto,
   UpdateProductDto,
 } from '../dto/product.dto'
+import { CatalogueSyncService } from '../services/catalogue-sync.service'
 import { CostService } from '../services/cost.service'
 import { PriceService } from '../services/price.service'
 import { ProductsService } from '../services/products.service'
@@ -26,7 +29,22 @@ export class ProductsController {
     private readonly costs: CostService,
     private readonly prices: PriceService,
     private readonly skuLinks: SkuLinkService,
+    private readonly catalogueSync: CatalogueSyncService,
   ) {}
+
+  @Post('catalogue-sync/preview')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Plan what syncing the pricing sheet would create/change — writes nothing' })
+  syncPreview(@Body() dto: SyncPreviewDto) {
+    return this.catalogueSync.preview(dto.rows)
+  }
+
+  @Post('catalogue-sync/apply')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Apply only the selected items of the pricing-sheet sync (creates products, records dated cost/price versions)' })
+  syncApply(@Body() dto: SyncApplyDto) {
+    return this.catalogueSync.apply(dto.rows, dto.selection, dto.new_products_from, dto.changes_from)
+  }
 
   @Get('sku-links')
   @ApiOperation({ summary: 'Operator decisions on SKU pairs (same product with a changed barcode, or not)' })
