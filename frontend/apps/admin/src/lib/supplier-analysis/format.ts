@@ -1,4 +1,4 @@
-import type { Figure, SituationLabel, UnavailableReason } from "@/lib/api/supplier-analysis";
+import type { Figure, Movement, SituationLabel, UnavailableReason } from "@/lib/api/supplier-analysis";
 
 const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -72,4 +72,13 @@ export function funnelShares(
     .map((key) => ({ key, value: (values[key] as { value: number }).value, share: (values[key] as { value: number }).value / reference.value }));
 
   return { base, steps };
+}
+
+/**
+ * Um produto "parado" no mês: nada comprado, abastecido, vendido nem perdido.
+ * Cifra indisponível não conta como movimento (ausência de dado não é atividade), e
+ * zero real também não.
+ */
+export function hasMovement(movement: Movement): boolean {
+  return [movement.purchasedUnits, movement.restocked, movement.sold, movement.lost].some((figure) => figure.available && figure.value > 0);
 }
