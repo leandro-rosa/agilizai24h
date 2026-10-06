@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config'
 import { Test, type TestingModule } from '@nestjs/testing'
 import { AppModule } from '../src/app.module'
 import { PrismaClientService } from '../src/modules/db-client/prisma-client.service'
+import { PayablesService } from '../src/modules/purchasing/services/payables.service'
 import { PurchaseImportService } from '../src/modules/purchasing/services/purchase-import.service'
 import { ProductsClient } from '../src/modules/purchasing/clients/products.client'
 import { SalesClient } from '../src/modules/purchasing/clients/sales.client'
@@ -28,6 +29,7 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
   const fakeMail = { from: () => 'pedidos@agiliz.local', send: jest.fn(async () => ({ messageId: '<sint@mail>' })) }
   let emails: OrderEmailService
   let importer: PurchaseImportService
+  let payables: PayablesService
   const sold = { from: '2026-10-05', to: '2026-10-11', rows: [{ sku: 'SINT-1', quantity: 62, revenue_cents: 1 }], months_without_dated_receipts: [] as string[], stores_missing: 0 }
 
   beforeAll(async () => {
@@ -45,6 +47,7 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
     settlements = app.get(SettlementService)
     emails = app.get(OrderEmailService)
     importer = app.get(PurchaseImportService)
+    payables = app.get(PayablesService)
     supplierId = (await prisma.supplier.create({ data: { name: '[SINTÉTICO] fornecedor', category: 'grocery' } })).id
   }, 60000)
 
@@ -160,5 +163,28 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
     expect(edited).toMatchObject({ ordered_on: '2026-10-21', notes: 'editado' })
     expect(edited.items.map(i => [i.quantity, i.unit_cost_cents, i.condition])).toEqual([[12, 90, 'paid'], [1, 50, 'on_sale']])
     expect((await purchases.history(order.id)).at(-1)).toMatchObject({ actor: 'sint', note: expect.stringContaining('edited: ') })
+  })
+
+  it('payables in real SQL: overview, recording a payment (with the method), the month total and undoing it', async () => {
+    jest.spyOn(payables, 'today').mockReturnValue('2026-11-10')
+    const own = (rows: { purchase_id: number }[], id: number) => rows.find(r => r.purchase_id === id)
+    const boleto = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-11-01', stage: 'invoiced', invoice_number: 'SINT-PAY-1', payment_term: 'due_date', payment_due_on: '2026-11-05', payment_method: 'transfer', items: [{ sku: 'SINT-1', quantity: 10, unit_cost_cents: 200, condition: 'paid' }] })
+    const delivery = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-11-02', stage: 'awaiting_receipt', invoice_number: 'SINT-PAY-2', payment_term: 'on_receipt', expected_delivery_on: '2026-11-14', items: [{ sku: 'SINT-1', quantity: 5, unit_cost_cents: 100, condition: 'paid' }] })
+
+    const before = await payables.overview('2026-11')
+    expect(own(before.orders, boleto.id)).toMatchObject({ state: 'overdue', form: 'transfer', open_cents: 2000 })
+    expect(own(before.orders, delivery.id)).toMatchObject({ state: 'on_delivery', form: 'on_delivery', due_on: '2026-11-14', estimated: true, open_cents: 500 })
+    expect(before.summary.overdue_cents).toBeGreaterThanOrEqual(2000)
+
+    expect(await payables.pay({ purchase_ids: [boleto.id], paid_on: '2026-11-09', actor: 'sint' })).toEqual({ paid_items: 1, paid_cents: 2000 })
+    const after = await payables.overview('2026-11')
+    expect(own(after.orders, boleto.id)).toMatchObject({ state: 'paid', paid_cents: 2000, paid_on: '2026-11-09' })
+    expect(after.summary.paid_month_cents).toBe(before.summary.paid_month_cents + 2000)
+    await expect(payables.pay({ purchase_ids: [boleto.id] })).rejects.toThrow(/Nothing open/)
+    await expect(payables.pay({ purchase_ids: [boleto.id], paid_on: '2026-12-01' })).rejects.toThrow(/future/)
+
+    expect(await payables.undo({ purchase_ids: [boleto.id], actor: 'sint' })).toEqual({ reopened_items: 1 })
+    expect(own((await payables.overview('2026-11')).orders, boleto.id)).toMatchObject({ state: 'overdue' })
+    expect((await purchases.history(boleto.id)).map(e => e.note)).toEqual(expect.arrayContaining([expect.stringContaining('payment recorded'), expect.stringContaining('payment undone')]))
   })
 })

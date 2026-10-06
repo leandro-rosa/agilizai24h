@@ -208,3 +208,33 @@ export class SettlementsController {
     return (await this.domains.suppliers({ method: 'post', path: `/settlements/${encodeURIComponent(id)}/pay`, payload: body ?? {}, correlationId: correlationOf(request) })).data
   }
 }
+
+/** The payables screen (suppliers-service). Reading needs `suppliers:read`; recording a payment, `suppliers:write`. The system records; it never pays. */
+@ApiTags('payables')
+@Controller('payables')
+export class PayablesController {
+  constructor(private readonly domains: DomainClient) {}
+
+  @Get()
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
+  @ApiOperation({ summary: 'Payables: summary, series, agenda, orders and reconciliation of a month' })
+  async overview(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'get', path: withQuery('/payables', query), correlationId: correlationOf(request) })).data
+  }
+
+  @Post('pay')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Record the payment of the open items of some purchases' })
+  async pay(@Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: '/payables/pay', payload: asActor(body, caller), correlationId: correlationOf(request) })).data
+  }
+
+  @Post('undo')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Undo a recorded payment' })
+  async undo(@Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: '/payables/undo', payload: asActor(body, caller), correlationId: correlationOf(request) })).data
+  }
+}

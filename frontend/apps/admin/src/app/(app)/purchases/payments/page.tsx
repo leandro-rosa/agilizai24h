@@ -1,41 +1,94 @@
 "use client";
 
-import { PageHeader } from "@/components/page-header";
-import { RequestState } from "@/components/request-state";
-import { StatusBadge } from "@/components/status-badge";
-import { useGetPendingPaymentsQuery } from "@/lib/api/purchases";
-import { formatCents, formatDate } from "@/lib/purchases/money";
+import { useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 
-export default function PendingPaymentsPage() {
-  const query = useGetPendingPaymentsQuery();
-  const groups = query.data?.groups ?? [];
+import { PageHeader } from "@/components/page-header";
+import { Agenda } from "@/components/purchases/payables/agenda";
+import { EvolutionChart } from "@/components/purchases/payables/evolution-chart";
+import { monthLabel, shiftMonth } from "@/components/purchases/payables/labels";
+import { NO_FILTERS, OrdersTable, type TableFilters } from "@/components/purchases/payables/orders-table";
+import { PayDialog } from "@/components/purchases/payables/pay-dialog";
+import { Reconciliation } from "@/components/purchases/payables/reconciliation";
+import { SummaryCards } from "@/components/purchases/payables/summary-cards";
+import { RequestState } from "@/components/request-state";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useHasPermission } from "@/lib/auth/use-permission";
+import { useGetPayablesQuery } from "@/lib/api/purchases";
+
+export default function PayablesPage() {
+  const [month, setMonth] = useState<string | undefined>(undefined);
+  const query = useGetPayablesQuery(month ? { month } : undefined);
+  const data = query.data;
+  const canWrite = useHasPermission("suppliers:write");
+  const [filters, setFilters] = useState<TableFilters>(NO_FILTERS);
+  const [paying, setPaying] = useState<{ ids: number[] } | null>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const current = month ?? data?.month;
+
+  const showInTable = (patch: Partial<TableFilters>) => {
+    setFilters({ ...NO_FILTERS, ...patch });
+    tableRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <PageHeader title="A pagar" description="Itens pagos ainda em aberto, por dia de vencimento. Quem paga ao receber aparece em “Aguardando recebimento”, sem data. O painel só mostra; não paga." />
-      <RequestState isLoading={query.isLoading} error={query.error} onRetry={query.refetch} isEmpty={groups.length === 0} emptyMessage="Nada a pagar no momento.">
-        <p className="tabular text-lg">Total em aberto: {formatCents(query.data?.total_cents ?? 0)}</p>
-        <div className="flex flex-col gap-3">
-          {groups.map((group) => (
-            <section key={group.due_on ?? "none"} className="rounded-lg border p-3">
-              <h2 className="flex items-center gap-2 text-sm font-medium">
-                {group.due_on ? `Vence em ${formatDate(group.due_on)}` : "Aguardando recebimento (paga ao receber)"}
-                {group.overdue && <StatusBadge tone="critical">Vencido</StatusBadge>}
-                <span className="tabular ml-auto">{formatCents(group.total_cents)}</span>
-              </h2>
-              <ul className="mt-2 flex flex-col gap-1 text-sm">
-                {group.items.map((item) => (
-                  <li key={item.item_id} className="flex gap-2">
-                    <span className="min-w-0 flex-1 truncate">
-                      {item.supplier_name ?? "Fornecedor"} · {item.description ?? item.sku} · {item.quantity} un.
-                    </span>
-                    <span className="tabular">{formatCents(item.total_cents)}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
+      <PageHeader
+        title="A pagar"
+        description="Contas a pagar, notas e pedidos num só lugar. O painel só registra o que foi pago; não paga. Consignado fica no Acerto semanal."
+        actions={
+          <div className="flex flex-wrap items-center gap-1">
+            {current && (
+              <>
+                <Button variant="outline" size="icon" aria-label="Mês anterior" onClick={() => setMonth(shiftMonth(current, -1))}>
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <span className="min-w-20 text-center text-sm font-medium" aria-label="Mês">
+                  {monthLabel(current)}
+                </span>
+                <Button variant="outline" size="icon" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(current, 1))}>
+                  <ChevronRight className="size-4" />
+                </Button>
+              </>
+            )}
+            {canWrite && (
+              <Button onClick={() => setPaying({ ids: [] })}>
+                <Plus className="size-4" /> Lançar pagamento
+              </Button>
+            )}
+          </div>
+        }
+      />
+      <RequestState isLoading={query.isLoading} error={query.error} onRetry={query.refetch}>
+        {data && (
+          <>
+            <SummaryCards summary={data.summary} />
+            <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
+              <Card className="min-w-0">
+                <CardHeader>
+                  <CardTitle className="text-sm">Evolução de pagamentos</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <EvolutionChart series={data.series} />
+                </CardContent>
+              </Card>
+              <Agenda payables={data} onSeeAll={() => showInTable({ state: "upcoming" })} />
+            </div>
+            <div ref={tableRef} className="min-w-0 scroll-mt-4">
+              <Card className="min-w-0">
+                <CardHeader>
+                  <CardTitle className="text-sm">Contas a pagar — {monthLabel(data.month)} e em aberto</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <OrdersTable orders={data.orders} filters={filters} onFilters={setFilters} onPay={(id) => setPaying({ ids: [id] })} />
+                </CardContent>
+              </Card>
+            </div>
+            <Reconciliation data={data.reconciliation} onShow={(ids, label) => showInTable({ ids, idsLabel: label })} />
+            {paying && <PayDialog candidates={data.orders} preselected={paying.ids} open onOpenChange={(open) => !open && setPaying(null)} />}
+          </>
+        )}
       </RequestState>
     </div>
   );

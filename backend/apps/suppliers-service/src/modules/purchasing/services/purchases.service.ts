@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { ProductsClient } from '../clients/products.client'
-import { PAYMENT_TERMS, type Condition, type Origin, type PaymentStatus, type PaymentTerm, type Stage } from '../constants/purchase-vocabulary'
+import { PAYMENT_TERMS, type Condition, type Origin, type PaymentMethod, type PaymentStatus, type PaymentTerm, type Stage } from '../constants/purchase-vocabulary'
 import type { CreatePurchaseDto, EditItemDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
 import { checkInvoice, checkMove, effectiveDueDate, isLate, isOverdue, resolveReceipt } from '../utils/order-flow'
 import { isDay } from '../utils/week'
@@ -47,6 +47,7 @@ export interface PurchaseView {
   expected_delivery_on: string | null
   payment_term: PaymentTerm | null
   payment_due_on: string | null
+  payment_method: PaymentMethod | null
   /** The day the payment falls due: the receipt day for "pay on receipt", the boleto date otherwise; null while unknown. */
   payment_due_effective: string | null
   /** Expected delivery passed and not received. */
@@ -118,6 +119,7 @@ type PurchaseRow = {
   expected_delivery_on: Date | null
   payment_term: string | null
   payment_due_on: Date | null
+  payment_method: string | null
   supplier?: { name: string } | null
   items: ItemRow[]
 }
@@ -169,6 +171,7 @@ export function toView(row: PurchaseRow, today: string = new Date().toISOString(
     expected_delivery_on: day(row.expected_delivery_on),
     payment_term: (row.payment_term as PaymentTerm | null) ?? null,
     payment_due_on: day(row.payment_due_on),
+    payment_method: (row.payment_method as PaymentMethod | null) ?? null,
     payment_due_effective: due,
     late: isLate(status, day(row.expected_delivery_on), today),
     overdue: isOverdue(due, pending, today),
@@ -247,6 +250,7 @@ export class PurchasesService {
         expected_delivery_on: dto.expected_delivery_on ? asDate(dto.expected_delivery_on) : undefined,
         payment_term: dto.payment_term,
         payment_due_on: dto.payment_due_on ? asDate(dto.payment_due_on) : undefined,
+        payment_method: dto.payment_method,
         items: {
           create: dto.items.map(item => ({
             sku: item.sku,
@@ -417,6 +421,7 @@ export class PurchasesService {
           ...(dto.expected_delivery_on ? { expected_delivery_on: asDate(dto.expected_delivery_on) } : {}),
           ...(dto.payment_term ? { payment_term: dto.payment_term } : {}),
           ...(dto.payment_due_on ? { payment_due_on: asDate(dto.payment_due_on) } : {}),
+          ...(dto.payment_method ? { payment_method: dto.payment_method } : {}),
           ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
         },
       })

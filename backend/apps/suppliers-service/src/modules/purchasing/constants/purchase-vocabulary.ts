@@ -28,3 +28,7 @@ export const STAGE_LABELS: Record<Stage, string> = {
 
 export const PAYMENT_TERMS = ['on_receipt', 'due_date'] as const
 export type PaymentTerm = (typeof PAYMENT_TERMS)[number]
+
+/** How a purchase is paid: a boleto, a Pix/bank transfer, or something else. ("On delivery" is the payment TERM `on_receipt`, not a method.) */
+export const PAYMENT_METHODS = ['boleto', 'transfer', 'other'] as const
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number]

@@ -94,7 +94,7 @@ export function PurchaseFormDialog({
   const [receivedOn, setReceivedOn] = useState(order?.received_on ?? today());
   const [notes, setNotes] = useState(order?.notes ?? "");
   const [terms, setTerms] = useState<OrderTerms>(
-    order ? { expectedDelivery: order.expected_delivery_on ?? "", term: order.payment_term ?? "", dueOn: order.payment_due_on ?? "" } : EMPTY_TERMS,
+    order ? { expectedDelivery: order.expected_delivery_on ?? "", term: order.payment_term ?? "", dueOn: order.payment_due_on ?? "", method: order.payment_method ?? "" } : EMPTY_TERMS,
   );
   const [rows, setRows] = useState<Row[]>(order ? order.items.map(rowOf) : [emptyRow()]);
   const [newProductFor, setNewProductFor] = useState<number | null>(null);

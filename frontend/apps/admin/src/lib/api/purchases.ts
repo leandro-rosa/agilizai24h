@@ -7,6 +7,7 @@ export type PaymentStatus = "pending" | "paid";
 export type SettlementState = "proposal" | "confirmed" | "paid";
 export type Stage = "requisition" | "awaiting_invoice" | "invoiced" | "awaiting_receipt" | "received";
 export type PaymentTerm = "on_receipt" | "due_date";
+export type PaymentMethod = "boleto" | "transfer" | "other";
 
 export interface PurchaseItem {
   id: number;
@@ -47,6 +48,7 @@ export interface Purchase {
   expected_delivery_on: string | null;
   payment_term: PaymentTerm | null;
   payment_due_on: string | null;
+  payment_method: PaymentMethod | null;
   /** O dia em que o pagamento vence: o do recebimento (paga ao receber) ou o do boleto; vazio enquanto não se sabe. */
   payment_due_effective: string | null;
   /** Prazo de entrega vencido sem recebimento. */
@@ -87,6 +89,7 @@ export interface NewPurchase {
   expected_delivery_on?: string;
   payment_term?: PaymentTerm;
   payment_due_on?: string;
+  payment_method?: PaymentMethod;
   items: NewPurchaseItem[];
 }
 
@@ -106,6 +109,7 @@ export interface OrderChanges {
   expected_delivery_on?: string;
   payment_term?: PaymentTerm;
   payment_due_on?: string;
+  payment_method?: PaymentMethod;
   notes?: string;
   ordered_on?: string;
   supplier_id?: number;
@@ -158,6 +162,55 @@ export interface PendingPaymentGroup {
   total_cents: number;
   overdue: boolean;
   items: { purchase_id: number; item_id: number; supplier_name: string | null; sku: string; description: string | null; quantity: number; total_cents: number }[];
+}
+
+export type PayableState = "overdue" | "upcoming" | "on_delivery" | "undated" | "paid";
+export type PayableForm = "on_delivery" | PaymentMethod | null;
+
+export interface PayableOrder {
+  purchase_id: number;
+  supplier_id: number;
+  supplier_name: string | null;
+  invoice_number: string | null;
+  status: Stage;
+  form: PayableForm;
+  /** O vencimento, ou a entrega prevista quando "paga na entrega" e ainda não recebido (ESTIMATIVA: `estimated`). */
+  due_on: string | null;
+  estimated: boolean;
+  state: PayableState;
+  open_cents: number;
+  paid_cents: number;
+  paid_on: string | null;
+  items: { item_id: number; sku: string; description: string | null; quantity: number; total_cents: number; payment_status: PaymentStatus; paid_on: string | null }[];
+}
+
+export interface Payables {
+  month: string;
+  today: string;
+  summary: {
+    open_cents: number;
+    open_orders: number;
+    overdue_cents: number;
+    overdue_orders: number;
+    due_7d_cents: number;
+    due_7d_orders: number;
+    on_delivery_cents: number;
+    on_delivery_orders: number;
+    paid_month_cents: number;
+    paid_month_orders: number;
+    forecast_month_cents: number;
+  };
+  series: { month: string; paid_cents: number; to_pay_cents: number; overdue_cents: number; on_delivery_cents: number }[];
+  upcoming: PayableOrder[];
+  commitments: { next_7_days_cents: number; next_30_days_cents: number; paid_month_cents: number };
+  orders: PayableOrder[];
+  reconciliation: {
+    funnel: { orders: number; invoiced: number; received: number; paid: number };
+    received_without_payment: { count: number; cents: number; purchase_ids: number[] };
+    paid_without_invoice: { count: number; purchase_ids: number[] };
+    awaiting_receipt: { count: number; purchase_ids: number[] };
+    awaiting_invoice: { count: number; purchase_ids: number[] };
+  };
 }
 
 export interface HistoryEntry {
@@ -300,6 +353,18 @@ export const purchasesApi = createApi({
       query: ({ id, ...body }) => ({ url: `/purchases/${id}/send`, method: "POST", body }),
       invalidatesTags: ["Purchase", "Payments"],
     }),
+    getPayables: builder.query<Payables, { month?: string } | void>({
+      query: (args) => `/payables${args?.month ? `?month=${args.month}` : ""}`,
+      providesTags: ["Purchase", "Payments"],
+    }),
+    payOrders: builder.mutation<{ paid_items: number; paid_cents: number }, { purchase_ids: number[]; paid_on?: string; method?: PaymentMethod; note?: string }>({
+      query: (body) => ({ url: "/payables/pay", method: "POST", body }),
+      invalidatesTags: ["Purchase", "Payments"],
+    }),
+    undoPayment: builder.mutation<{ reopened_items: number }, { purchase_ids: number[] }>({
+      query: (body) => ({ url: "/payables/undo", method: "POST", body }),
+      invalidatesTags: ["Purchase", "Payments"],
+    }),
     getPendingPayments: builder.query<{ total_cents: number; groups: PendingPaymentGroup[] }, void>({
       query: () => "/purchases/payments/pending",
       providesTags: ["Purchase", "Payments"],
@@ -350,6 +415,9 @@ export const {
   useGetEmailPreviewQuery,
   useSendOrderEmailMutation,
   useGetPendingPaymentsQuery,
+  useGetPayablesQuery,
+  usePayOrdersMutation,
+  useUndoPaymentMutation,
   useGetPurchasesQuery,
   useCreatePurchaseMutation,
   useUpdatePurchaseItemMutation,

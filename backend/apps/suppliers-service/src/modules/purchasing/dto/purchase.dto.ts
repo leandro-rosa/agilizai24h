@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, ValidateNested } from 'class-validator'
-import { CONDITIONS, ORIGINS, PAYMENT_STATUSES, PAYMENT_TERMS, STAGES, type Condition, type Origin, type PaymentStatus, type PaymentTerm, type Stage } from '../constants/purchase-vocabulary'
+import { CONDITIONS, ORIGINS, PAYMENT_METHODS, PAYMENT_STATUSES, PAYMENT_TERMS, STAGES, type Condition, type Origin, type PaymentMethod, type PaymentStatus, type PaymentTerm, type Stage } from '../constants/purchase-vocabulary'
 
 export class PurchaseItemDto {
   @ApiProperty({ example: '100115' })
@@ -109,6 +109,11 @@ export class CreatePurchaseDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   payment_due_on?: string
+
+  @ApiPropertyOptional({ enum: PAYMENT_METHODS, description: 'Boleto, Pix/transferência ou outro.' })
+  @IsOptional()
+  @IsIn(PAYMENT_METHODS)
+  payment_method?: PaymentMethod
 
   @ApiPropertyOptional({ description: 'Quem registra. O gateway coloca o usuário da sessão aqui e ignora o que o cliente mandar.' })
   @IsOptional()
@@ -259,6 +264,11 @@ export class UpdateOrderDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   payment_due_on?: string
+
+  @ApiPropertyOptional({ enum: PAYMENT_METHODS, description: 'Boleto, Pix/transferência ou outro.' })
+  @IsOptional()
+  @IsIn(PAYMENT_METHODS)
+  payment_method?: PaymentMethod
 
   @ApiPropertyOptional()
   @IsOptional()
