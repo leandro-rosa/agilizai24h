@@ -43,4 +43,4 @@
 
 - [ ] 6.1 Bring up the stack and check the page against real data in the browser; cross-check one product against /supply Perdas
 - [x] 6.2 Confirm no synthetic data reached real databases
-- [ ] 6.3 Commit, merge and push in the same session
+- [x] 6.3 Commit, merge and push in the same session
