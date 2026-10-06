@@ -108,3 +108,28 @@ ciclo e um mesmo código antigo virando dois produtos; os dois SKUs precisam exi
 catálogo. O efeito (somar histórico) é calculado no frontend (`lib/overview/sku-match.ts`);
 nenhum dado de vendas/abastecimento é reescrito. Gap: sem tela de revisão/desfazer
 (o `DELETE` existe, sem UI).
+
+
+## Sincronização com a planilha de precificação (`catalogue-sync`)
+
+`POST /catalogue-sync/preview` (só calcula, `products:read`) e `POST /catalogue-sync/apply`
+(grava só o que foi marcado, `products:write`), via gateway em `/catalogue-sync/*`. O
+navegador lê o xlsx (SheetJS, `lib/catalogue-sync/parse-sheet.ts` no admin) e manda as linhas;
+o plano é uma função pura (`utils/catalogue-sync.ts`, com spec) recalculada no `apply` — nunca
+se confia no plano vindo do cliente. **Só CRIA produto novo e registra versões datadas de
+custo/preço**; nunca reescreve nome, categoria ou EAN de produto existente.
+
+- Categoria segue a convenção real dos 233 produtos: Bebidas/Cafés → `beverage`, Mercearia →
+  `essential`, todo o resto (inclusive congelados e marmitas) → `snack`.
+- Vigência em dois campos: produtos NOVOS valem desde o início do mês em que começaram a vender
+  (a margem desse mês resolve o custo); MUDANÇAS em existentes valem desde hoje (retroativo
+  reprecificaria meses fechados). O catálogo carregado em jan/2026 tem custos com vigência 2026-01-01.
+- Avisos (não bloqueiam): custo `#ERROR!` (nunca aplicado), custo R$ 0,00 (margem leria 100% —
+  ok se foi brinde), SKU repetido, EAN já usado por outro SKU (novo é cadastrado sem EAN), EAN
+  arredondado pelo Excel (7.89856E+12), categoria em branco. Bloqueia: produto novo sem nome.
+- O catálogo real não tinha NENHUM preço de venda cadastrado: a primeira sincronização propõe
+  preencher o preço de todos os existentes.
+- Gaps: fornecedor da planilha só é exibido (products-service não fala com suppliers-service;
+  `supplier_id` fica nulo); `ProductView` ainda não devolve EAN/subcategoria/fornecedor; o arquivo
+  é escolhido à mão (sem leitura automática do Drive); depois de cadastrar, as linhas já rejeitadas
+  como `unknown_sku` só entram numa NOVA importação de vendas/abastecimento.

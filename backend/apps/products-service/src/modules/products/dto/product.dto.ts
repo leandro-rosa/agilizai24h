@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Min, ArrayNotEmpty, IsArray } from 'class-validator'
+import { Type } from 'class-transformer'
+import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Min, ArrayNotEmpty, IsArray, ValidateNested } from 'class-validator'
 import { PRODUCT_CATEGORY_VALUES, type ProductCategory } from '../constants/product-vocabulary'
 
 export class CreateProductDto {
@@ -157,4 +158,40 @@ export class DecideSkuLinkDto {
   @ApiProperty({ enum: ['same', 'different'] })
   @IsIn(['same', 'different'])
   decision: 'same' | 'different'
+}
+
+export class SheetRowDto {
+  @ApiProperty() @IsInt() @Min(1) row: number
+  @ApiProperty() @IsString() sku: string
+  @ApiProperty() @IsString() name: string
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() category: string | null
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() subcategory: string | null
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() ean: string | null
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() supplier: string | null
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() cost_cents: number | null
+  @ApiProperty() @IsBoolean() cost_error: boolean
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() price_cents: number | null
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() package_type: string | null
+}
+
+export class SyncPreviewDto {
+  @ApiProperty({ type: [SheetRowDto] })
+  @IsArray()
+  @Type(() => SheetRowDto)
+  @ValidateNested({ each: true })
+  rows: SheetRowDto[]
+}
+
+export class SyncSelectionDto {
+  @ApiProperty({ type: [String] }) @IsArray() @IsString({ each: true }) create: string[]
+  @ApiProperty({ type: [String] }) @IsArray() @IsString({ each: true }) costs: string[]
+  @ApiProperty({ type: [String] }) @IsArray() @IsString({ each: true }) prices: string[]
+}
+
+export class SyncApplyDto extends SyncPreviewDto {
+  @ApiProperty() @ValidateNested() @Type(() => SyncSelectionDto) selection: SyncSelectionDto
+  @ApiProperty({ example: '2026-09-01', description: 'Início de vigência do custo/preço de produtos NOVOS' })
+  @IsString() new_products_from: string
+  @ApiProperty({ example: '2026-10-06', description: 'Início de vigência de MUDANÇAS em produtos existentes' })
+  @IsString() changes_from: string
 }

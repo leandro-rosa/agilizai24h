@@ -50,6 +50,46 @@ export interface SkuLink {
   decided_at: string;
 }
 
+export interface SyncIssue {
+  severity: "blocked" | "warning";
+  code: string;
+  sku: string | null;
+  row: number;
+  message: string;
+}
+export interface SyncCreate {
+  sku: string;
+  name: string;
+  category: Product["category"];
+  subcategory: string | null;
+  ean: string | null;
+  supplier: string | null;
+  package_type: string | null;
+  cost_cents: number | null;
+  price_cents: number | null;
+  row: number;
+}
+export interface SyncChange {
+  sku: string;
+  name: string;
+  current_cents: number | null;
+  new_cents: number;
+  row: number;
+}
+export interface SyncPlan {
+  create: SyncCreate[];
+  costs: SyncChange[];
+  prices: SyncChange[];
+  issues: SyncIssue[];
+  unchanged: number;
+}
+export interface SyncApplyResult {
+  sku: string;
+  action: "create" | "cost" | "price";
+  ok: boolean;
+  error?: string;
+}
+
 export const productsApi = createApi({
   reducerPath: "productsApi",
   baseQuery: gatewayBaseQuery,
@@ -65,6 +105,16 @@ export const productsApi = createApi({
      * mirrors that: the caller states the date, defaulting to today for the
      * catalogue listing.
      */
+    previewCatalogueSync: builder.mutation<SyncPlan, { rows: unknown[] }>({
+      query: (body) => ({ url: "/catalogue-sync/preview", method: "POST", body }),
+    }),
+    applyCatalogueSync: builder.mutation<
+      SyncApplyResult[],
+      { rows: unknown[]; selection: { create: string[]; costs: string[]; prices: string[] }; new_products_from: string; changes_from: string }
+    >({
+      query: (body) => ({ url: "/catalogue-sync/apply", method: "POST", body }),
+      invalidatesTags: ["Product"],
+    }),
     getSkuLinks: builder.query<SkuLink[], void>({
       query: () => "/sku-links",
       providesTags: ["SkuLink"],
@@ -109,6 +159,8 @@ export const productsApi = createApi({
 export const {
   useGetProductsQuery,
   useGetSkuLinksQuery,
+  usePreviewCatalogueSyncMutation,
+  useApplyCatalogueSyncMutation,
   useDecideSkuLinkMutation,
   useDeleteSkuLinkMutation,
   useGetCostsAsOfQuery,

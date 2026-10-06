@@ -147,3 +147,28 @@ export class SkuLinksController {
     return result.data
   }
 }
+
+/** Sincronização do catálogo com a planilha de precificação: pré-visualizar (leitura) e aplicar (escrita). */
+@ApiTags('products')
+@Controller('catalogue-sync')
+export class CatalogueSyncController {
+  constructor(private readonly domains: DomainClient) {}
+
+  @Post('preview')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Plan the pricing-sheet sync (writes nothing)' })
+  async preview(@Body() body: unknown, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({ method: 'post', path: '/catalogue-sync/preview', payload: body, correlationId: correlationOf(request) })
+
+    return result.data
+  }
+
+  @Post('apply')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Apply the selected items of the pricing-sheet sync' })
+  async apply(@Body() body: unknown, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({ method: 'post', path: '/catalogue-sync/apply', payload: body, correlationId: correlationOf(request) })
+
+    return result.data
+  }
+}
