@@ -12,6 +12,7 @@ export const REASON_TEXT: Record<UnavailableReason, string> = {
   never_ingested: "Dado não importado",
   no_cost: "Sem custo cadastrado",
   no_base: "—",
+  bonus: "Bonificação",
 };
 
 export function formatMonth(period: string): string {

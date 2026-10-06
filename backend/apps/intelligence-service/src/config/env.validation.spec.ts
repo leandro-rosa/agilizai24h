@@ -9,6 +9,7 @@ const valid = {
   SALES_SERVICE_URL: 'http://sales:3000',
   PRODUCTS_SERVICE_URL: 'http://products:3000',
   STORES_SERVICE_URL: 'http://stores:3000',
+  SUPPLIERS_SERVICE_URL: 'http://suppliers:3000',
 }
 
 describe('validateEnv', () => {

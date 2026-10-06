@@ -48,11 +48,16 @@ A confirmed settlement and each `paid` purchase SHALL carry a payment status of 
 - **WHEN** the operator marks a confirmed settlement as paid on a date
 - **THEN** it reads `paid` with that date and leaves the pending total
 
-### Requirement: Expired and returned units are recorded, not inferred
+### Requirement: Expired and returned units are reported by the operator
 
-Units that expired or were returned for an on-sale item SHALL come from the supply removal records (reasons expired, return) for that product and week, and SHALL be shown separately from unsold units.
+Supply records removals by reason only per month, not per week, so expired and returned units of an on-sale item SHALL be reported by the operator when the week is settled, SHALL be shown separately from unsold units, and SHALL never be inferred. They SHALL be capped at what is still open for the item, and the cap SHALL be shown.
 
 #### Scenario: Expired units
 
-- **WHEN** 8 units of the item are removed in the week with reason expired
+- **WHEN** the operator reports 8 expired units for the item in the week
 - **THEN** the settlement shows 8 expired and does not owe them
+
+#### Scenario: More expired than open
+
+- **WHEN** the operator reports more expired units than are still open
+- **THEN** the amount is capped at what is open and the line says it was capped

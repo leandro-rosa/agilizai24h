@@ -133,3 +133,5 @@ custo/preço**; nunca reescreve nome, categoria ou EAN de produto existente.
   `supplier_id` fica nulo até alguém vincular); `ProductView` devolve `supplier_id` e `PATCH /products/:id` aceita `supplierId` (null desvincula), mas ainda não devolve EAN/subcategoria; o arquivo
   é escolhido à mão (sem leitura automática do Drive); depois de cadastrar, as linhas já rejeitadas
   como `unknown_sku` só entram numa NOVA importação de vendas/abastecimento.
+
+`ProductView` agora devolve `ean` (casamento das linhas de NF-e de compra) além de `supplier_id`.

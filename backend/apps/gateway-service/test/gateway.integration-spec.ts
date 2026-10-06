@@ -263,6 +263,32 @@ describe('gateway integration', () => {
     })
   })
 
+  describe('purchases and settlements proxy routes', () => {
+    it('GET /purchases needs suppliers:read and forwards the query', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })
+      await request(server()).get('/purchases?supplier_id=5').set('Cookie', `${SESSION}=good`).expect(403)
+      expect(stub.calledWith('GET', '/purchases')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.SUPPLIERS_READ] } })
+      stub.on('GET', '/purchases', { status: 200, body: [] })
+      await request(server()).get('/purchases?supplier_id=5').set('Cookie', `${SESSION}=good`).expect(200)
+
+      expect(stub.calledWithQuery('GET', '/purchases?supplier_id=5')).toBe(true)
+    })
+
+    it('POST /settlements/propose is a write: suppliers:read is not enough', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.SUPPLIERS_READ] } })
+      await request(server()).post('/settlements/propose').set('Cookie', `${SESSION}=good`).send({ supplier_id: 5, week_start: '2026-10-05' }).expect(403)
+      expect(stub.calledWith('POST', '/settlements/propose')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.SUPPLIERS_WRITE] } })
+      stub.on('POST', '/settlements/propose', { status: 200, body: { id: 1, state: 'proposal' } })
+      await request(server()).post('/settlements/propose').set('Cookie', `${SESSION}=good`).send({ supplier_id: 5, week_start: '2026-10-05' }).expect(200)
+
+      expect(stub.calledWith('POST', '/settlements/propose')).toBe(true)
+    })
+  })
+
   describe('treasury Drive files proxy routes', () => {
     it('GET /treasury-drive-files requires treasury:read and forwards to ingestion-worker-service', async () => {
       stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })

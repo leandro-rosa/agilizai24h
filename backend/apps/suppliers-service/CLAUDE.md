@@ -60,3 +60,14 @@ valor não deve exigir migration.
   `unmatched`, sem "você quis dizer". Casamento por distância de edição foi
   considerado e deixado de fora: um palpite errado aqui atribui dinheiro ao
   fornecedor errado, e o custo de cadastrar o alias à mão é baixo.
+
+## Compras e acerto semanal (`src/modules/purchasing/`, `add-purchases-and-settlement`)
+
+`Purchase` (fornecedor, data, `origin manual|nfe`, nº da nota opcional — único por fornecedor, NULL não colide) → `PurchaseItem` (SKU, unidades, custo pago em centavos, **condição `paid | bonus | on_sale`**, status de pagamento) e `Settlement` (acerto semanal por fornecedor: `proposal → confirmed → paid`, evidência em JSON). Rotas: `/purchases` (list/create/`:id`/`summary?month=`/`items/:id` PATCH/`import/preview`) e `/settlements` (`propose`, `:id/confirm`, `:id/pay`, `open-total`).
+
+- **Acerto** (`utils/settlement.ts`, puro e testado): devido = unidades vendidas × custo; vendidas vêm de `sales-service /sales/network/sold-by-sku` (recibos com data); **vencidos e devolvidos são informados pelo operador** (o abastecimento só os tem por mês); aloca a venda do SKU à entrega mais antiga; saldo corrido entre semanas (só o que ainda está em aberto pode ser devido). Semana sem recibo datado é `partial`, deve zero e **só confirma com `accept_partial`**. Semana confirmada/paga é final; proposta é recalculável e **não conta como devido**. O sistema só registra pago, nunca paga.
+- **Condição** do item muda até um acerto confirmado contá-lo. Status de pagamento só vale para `paid`.
+- **NF-e**: `ingestion-worker` lê o XML (`POST /purchase-invoices/parse`, sem estado); `import/preview` casa o fornecedor pelo CNPJ e as linhas por EAN, depois código = SKU (nunca por parecença), converte caixa com `units_per_package`; o que não casa fica de fora com o motivo. Nada grava antes do `POST /purchases`.
+- Teste de SQL real: `test/purchasing.integration-spec.ts` roda **só** contra banco descartável (`PURCHASING_IT_THROWAWAY_DB=true`); nunca contra o banco real (a base de histórico de compras se moveria).
+- Gaps: sem devolução física modelada; custo pago não altera `CostVersion` do products-service.
+

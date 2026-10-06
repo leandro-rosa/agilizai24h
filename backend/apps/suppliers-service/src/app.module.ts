@@ -4,6 +4,7 @@ import { HealthModule } from '@app/health'
 import { validateEnv } from './config/env.validation'
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware'
 import { DbClientModule } from './modules/db-client/db-client.module'
+import { PurchasingModule } from './modules/purchasing/purchasing.module'
 import { SuppliersModule } from './modules/suppliers/suppliers.module'
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
 
@@ -13,6 +14,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     HealthModule,
     DbClientModule,
     SuppliersModule,
+    PurchasingModule,
   ],
 })
 export class AppModule implements NestModule {

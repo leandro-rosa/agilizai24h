@@ -1,5 +1,5 @@
 import type { Parameters } from '../parameters/parameters.types'
-import type { CompareTo, Figure, Movement, SituationLabel, StoreRow, Variation } from './analysis.types'
+import type { CompareTo, Figure, Movement, SituationLabel, StoreRow, UnavailableReason, Variation } from './analysis.types'
 import { NO_PURCHASE_HISTORY, type PurchaseMonth } from './purchase-source'
 
 /** One store's figures for one SKU in one month. */
@@ -25,6 +25,7 @@ export interface MonthFacts {
 export const MOVEMENT_KEYS: (keyof Movement)[] = [
   'purchasedUnits',
   'purchasedCents',
+  'bonusUnits',
   'restocked',
   'sold',
   'lost',
@@ -107,8 +108,13 @@ export function movementOfParts(parts: MovementPart[], skus: Set<string>, storeI
 
   let lossEstimated = false
 
-  for (const { facts, cost, lossEstimated: estimatedPart } of parts) {
+  let bonusRevenue = 0
+  let bonusSold = false
+
+  for (const { facts, cost, lossEstimated: estimatedPart, purchases } of parts) {
     if (estimatedPart) lossEstimated = true
+    // A SKU received only as a bonus in the month has no real cost: it stays out of margin, markup and profit (and says why).
+    const bonusOnly = new Set([...(purchases ?? [])].filter(([sku, p]) => skus.has(sku) && p.bonusUnits > 0 && p.units === 0).map(([sku]) => sku))
     const bySku = sumCells(facts, skus, storeId)
     const supplyGap = facts.storesMissingSupply.length > 0 && (storeId === undefined || facts.storesMissingSupply.includes(storeId))
     const salesGap = facts.storesMissingSales.length > 0 && (storeId === undefined || facts.storesMissingSales.includes(storeId))
@@ -138,6 +144,11 @@ export function movementOfParts(parts: MovementPart[], skus: Set<string>, storeI
       for (const [sku, cell] of bySku) {
         sold += cell.sold
         revenue += cell.revenueCents
+        if (bonusOnly.has(sku)) {
+          bonusRevenue += cell.revenueCents
+          if (cell.sold > 0) bonusSold = true
+          continue
+        }
         if (cell.sold > 0) {
           const unit = cost(sku)
           if (unit === null) soldWithoutCost = true
@@ -155,21 +166,22 @@ export function movementOfParts(parts: MovementPart[], skus: Set<string>, storeI
   const lossValue: Figure =
     supplyUsed === 0 ? neverSupply : anyLoss && lossMissingCost && lossCents === 0 ? { available: false, reason: 'no_cost' } : ok(lossCents, supplyPartial || lossMissingCost, lossEstimated)
 
+  const noCostReason: UnavailableReason = soldWithoutCost ? 'no_cost' : bonusSold ? 'bonus' : 'no_base'
   const marginShare: Figure =
     salesUsed === 0
       ? { available: false, reason: 'never_ingested' }
       : revenueWithCost <= 0
-        ? { available: false, reason: soldWithoutCost ? 'no_cost' : 'no_base' }
+        ? { available: false, reason: noCostReason }
         : ok((revenueWithCost - costOfSold) / revenueWithCost, salesPartial || soldWithoutCost)
 
   const profitPartial = salesPartial || soldWithoutCost
-  const noCostReason = soldWithoutCost ? 'no_cost' : 'no_base'
   const grossProfit: Figure = salesUsed === 0 ? { available: false, reason: 'never_ingested' } : revenueWithCost <= 0 ? { available: false, reason: noCostReason } : ok(revenueWithCost - costOfSold, profitPartial)
   const markup: Figure = salesUsed === 0 ? { available: false, reason: 'never_ingested' } : costOfSold <= 0 ? { available: false, reason: noCostReason } : ok(revenueWithCost / costOfSold, profitPartial)
-  const costCoverage: Figure = salesUsed === 0 ? { available: false, reason: 'never_ingested' } : revenue <= 0 ? { available: false, reason: 'no_base' } : ok(revenueWithCost / revenue, salesPartial)
+  const costBasis = revenue - bonusRevenue
+  const costCoverage: Figure = salesUsed === 0 ? { available: false, reason: 'never_ingested' } : costBasis <= 0 ? { available: false, reason: bonusSold ? 'bonus' : 'no_base' } : ok(revenueWithCost / costBasis, salesPartial)
   const avgPrice: Figure = salesUsed === 0 ? { available: false, reason: 'never_ingested' } : sold <= 0 ? { available: false, reason: 'no_base' } : ok(revenue / sold, salesPartial)
 
-  const avgCost: Figure = soldWithCost > 0 ? ok(costOfSold / soldWithCost, soldWithoutCost) : { available: false, reason: soldWithoutCost ? 'no_cost' : 'no_base' }
+  const avgCost: Figure = soldWithCost > 0 ? ok(costOfSold / soldWithCost, soldWithoutCost) : { available: false, reason: noCostReason }
 
   // Purchases are bought for the network, not per store: under a store filter they cannot be attributed.
   const withPurchases = parts.filter(part => part.purchases !== null)
@@ -185,6 +197,7 @@ export function movementOfParts(parts: MovementPart[], skus: Set<string>, storeI
   return {
     purchasedUnits: sumPurchases(p => p.units),
     purchasedCents: sumPurchases(p => p.cents),
+    bonusUnits: sumPurchases(p => p.bonusUnits),
     restocked: supplyUsed === 0 ? neverSupply : ok(restocked, supplyPartial),
     sold: salesUsed === 0 ? { available: false, reason: 'never_ingested' } : ok(sold, salesPartial),
     lost: supplyUsed === 0 ? neverSupply : ok(lost, supplyPartial, lossEstimated),

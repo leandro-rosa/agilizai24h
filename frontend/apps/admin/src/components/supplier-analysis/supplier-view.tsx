@@ -26,6 +26,10 @@ export function movementKpis(totals: MovementWithComparison, extras: { linkedPro
     kpis.push({ label: "Produtos vinculados", figure: linked, kind: "skus", variation: NO_BASE_VARIATION, higherIsBetter: null });
   }
 
+  if (current.bonusUnits.available && current.bonusUnits.value > 0) {
+    kpis.push({ label: "Bonificação recebida", figure: current.bonusUnits, kind: "units", variation: comparison.bonusUnits, higherIsBetter: null, hint: "fora do gasto e da margem" });
+  }
+
   kpis.push(
     { label: "Unidades vendidas", figure: current.sold, kind: "units", variation: comparison.sold, higherIsBetter: true },
     {

@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 
+import { activeHref } from "@/lib/active-nav";
 import { nav } from "@/components/app-sidebar";
 
 /**
@@ -10,9 +11,8 @@ import { nav } from "@/components/app-sidebar";
  */
 export function AppBreadcrumb() {
   const pathname = usePathname();
-  const match = nav.find((item) =>
-    item.href === "/" ? pathname === "/" : pathname.startsWith(item.href),
-  );
+  const current = activeHref(pathname, nav.map((item) => item.href));
+  const match = nav.find((item) => item.href === current);
 
   return <span className="text-sm font-semibold">{match?.title ?? "Agiliz Admin"}</span>;
 }

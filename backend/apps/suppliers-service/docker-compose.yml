@@ -42,6 +42,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${SUPPLIERS_POSTGRES_USER:-agiliz}:${SUPPLIERS_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-suppliers-postgres:5432/${SUPPLIERS_POSTGRES_DB:-suppliers}
+      SALES_SERVICE_URL: http://agiliz-sales-dev:3000
+      PRODUCTS_SERVICE_URL: http://agiliz-products-dev:3000
       PORT: 3000
     # No published host port: domain services stay internal to agiliz_network,
     # reachable only through gateway-service.
@@ -70,6 +72,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${SUPPLIERS_POSTGRES_USER:-agiliz}:${SUPPLIERS_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-suppliers-postgres:5432/${SUPPLIERS_POSTGRES_DB:-suppliers}
+      SALES_SERVICE_URL: http://agiliz-sales-prod:3000
+      PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
       PORT: 3000
     expose:
       - "3000"

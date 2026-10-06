@@ -5,6 +5,8 @@ import {
   BarChart3,
   Boxes,
   Building2,
+  ClipboardList,
+  FileInput,
   FileText,
   Handshake,
   Landmark,
@@ -48,6 +50,7 @@ import {
 import { BrandMark } from "@/components/brand-mark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useGetMeQuery, useLogoutMutation } from "@/lib/api/auth";
+import { activeHref } from "@/lib/active-nav";
 
 
 /**
@@ -83,7 +86,12 @@ export const navGroups: NavGroup[] = [
   },
   {
     label: "Compras",
-    items: [{ title: "Compras e Fornecedores", href: "/purchases", icon: PackageSearch, permission: "supply:read" }],
+    items: [
+      { title: "Compras e Fornecedores", href: "/purchases", icon: PackageSearch, permission: "supply:read" },
+      { title: "Pedidos", href: "/purchases/orders", icon: ClipboardList, permission: "suppliers:read" },
+      { title: "Notas fiscais de compra", href: "/purchases/invoices", icon: FileInput, permission: "suppliers:read" },
+      { title: "Acerto semanal", href: "/purchases/settlements", icon: Scale, permission: "suppliers:read" },
+    ],
   },
   {
     label: "Financeiro",
@@ -136,6 +144,7 @@ export const nav: NavItem[] = navGroups.flatMap((group) => group.items);
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const current = activeHref(pathname, nav.map((item) => item.href));
   const { data: caller } = useGetMeQuery();
 
   /*
@@ -188,7 +197,7 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => {
-                  const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                  const isActive = item.href === current;
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton

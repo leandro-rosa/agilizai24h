@@ -31,7 +31,9 @@ model Supplier {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  aliases SupplierAlias[]
+  aliases     SupplierAlias[]
+  purchases   Purchase[]
+  settlements Settlement[]
 
   @@index([status])
   @@index([category])
@@ -57,4 +59,87 @@ model SupplierAlias {
 
   @@index([supplier_id])
   @@map("supplier_alias")
+}
+
+/// Uma compra de um fornecedor: manual (quem não emite nota) ou vinda de NF-e.
+/// A rede compra, não a loja: não há `store_id`.
+model Purchase {
+  id          Int      @id @default(autoincrement())
+  supplier_id Int
+  ordered_on  DateTime @db.Date
+  /// manual | nfe
+  origin      String
+  /// Número da NF, quando há. Único por fornecedor: importar a mesma nota duas vezes não duplica.
+  /// NULL não colide (Postgres), então várias compras sem nota convivem.
+  invoice_number String?
+  /// Chave de acesso da NF-e (44 dígitos), quando veio de XML.
+  invoice_key    String?
+  /// Onde o arquivo bruto ficou no storage, para auditoria.
+  invoice_object_key String?
+  notes       String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  supplier Supplier       @relation(fields: [supplier_id], references: [id])
+  items    PurchaseItem[]
+
+  @@unique([supplier_id, invoice_number])
+  @@index([supplier_id, ordered_on])
+  @@index([ordered_on])
+  @@map("purchase")
+}
+
+/// Um produto dentro de uma compra. O custo pago aqui é FATO da compra; o custo
+/// cadastrado em products-service é referência e não é alterado por ela.
+model PurchaseItem {
+  id          Int    @id @default(autoincrement())
+  purchase_id Int
+  sku         String
+  /// Como o item apareceu na nota/planilha, preservado para auditoria.
+  description String?
+  /// Unidades. Embalagem (caixa de 24) já convertida na entrada.
+  quantity    Int
+  /// Centavos por unidade. Bonificação grava o custo de referência (ou 0), nunca é cobrada.
+  unit_cost_cents Int
+  /// paid | bonus | on_sale
+  condition   String
+  /// pending | paid. Só vale para `paid`; `on_sale` é quitado pelo acerto e `bonus` não deve nada.
+  payment_status String   @default("pending")
+  paid_on        DateTime? @db.Date
+  payment_note   String?
+  created_at  DateTime @default(now())
+
+  purchase Purchase @relation(fields: [purchase_id], references: [id], onDelete: Cascade)
+
+  @@index([purchase_id])
+  @@index([sku])
+  @@map("purchase_item")
+}
+
+/// Acerto semanal de um fornecedor com itens `on_sale`. Nasce como proposta,
+/// vira confirmado só por uma pessoa e depois pago (status registrado; o
+/// sistema nunca paga nem lança nada).
+model Settlement {
+  id          Int      @id @default(autoincrement())
+  supplier_id Int
+  /// Segunda-feira da semana ISO.
+  week_start  DateTime @db.Date
+  /// proposal | confirmed | paid
+  state       String   @default("proposal")
+  owed_cents  Int
+  /// A semana não tem todos os dados (recibos sem data, lojas sem importação).
+  partial     Boolean  @default(false)
+  /// Linhas por item (entregue, vendido, vencido, devolvido, em aberto, devido) e as notas de qualidade.
+  evidence    Json
+  confirmed_at DateTime?
+  paid_on      DateTime? @db.Date
+  payment_note String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  supplier Supplier @relation(fields: [supplier_id], references: [id])
+
+  @@unique([supplier_id, week_start])
+  @@index([state])
+  @@map("settlement")
 }

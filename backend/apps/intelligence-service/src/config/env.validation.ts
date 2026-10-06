@@ -40,6 +40,11 @@ class EnvironmentVariables {
   @IsNotEmpty()
   STORES_SERVICE_URL: string
 
+  /** Purchases (read-only): what was bought, by SKU and month, for the supplier / product analysis. */
+  @IsString()
+  @IsNotEmpty()
+  SUPPLIERS_SERVICE_URL: string
+
   @IsOptional()
   @IsInt()
   @Min(1)
