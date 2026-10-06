@@ -5,6 +5,7 @@
  */
 import type { Comparison, RateDelta, ValueDelta } from "./compare";
 import type { Distribution, ProductBehavior } from "./product-behavior";
+import type { SalesCoverage } from "./sales-coverage";
 import type { CatalogueItem, LinkDecision, SkuSuggestion } from "./sku-match";
 import type { SupplyCell, TestsSummary } from "./tests";
 
@@ -280,6 +281,8 @@ export interface Overview {
   insights: Insight[];
   stores: StoreSummary | null;
   products: ProductsSummary | null;
+  /** Vendas do mês (e do anterior) que parecem importadas pela metade em alguma loja. */
+  salesCoverage: { current: SalesCoverage | null; previous: SalesCoverage | null };
   /** null = abastecimento indisponível; rows vazio = nenhum candidato com as regras atuais. */
   tests: TestsSummary | null;
   /** SKUs sem histórico/em teste com nome parecido a um SKU antigo — aguardam confirmação. */

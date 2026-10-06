@@ -7,6 +7,7 @@ import { buildProducts } from "./products";
 import { buildAliasMap, suggestPredecessors, type SalesInfo } from "./sku-match";
 import { buildTests } from "./tests";
 import { buildReading } from "./reading";
+import { checkSalesCoverage } from "./sales-coverage";
 import { buildStoreSummary } from "./stores";
 import type { Overview, OverviewInput } from "./types";
 
@@ -28,6 +29,8 @@ export function buildOverview(input: OverviewInput): Overview {
 
   const kpis = buildKpis(months);
   const stores = buildStoreSummary(input.stores.current, input.stores.previous, input.stores.activeCount, prev.pnl?.netRevenueCents ?? null, cur.pnl?.netRevenueCents ?? null);
+  const coverageFor = (per: string) =>
+    input.sales && input.storeList ? checkSalesCoverage(per, input.sales.cells, input.sales.ingestedPeriods, input.storeList) : null;
   const alias = buildAliasMap(input.skuLinks);
   const products = input.sales ? buildProducts(period, previousPeriod, input.sales, input.costBySku, input.productNames, input.storeList, alias) : null;
   const tests = input.supply
@@ -92,6 +95,7 @@ export function buildOverview(input: OverviewInput): Overview {
     insights,
     stores,
     products,
+    salesCoverage: { current: coverageFor(period), previous: coverageFor(previousPeriod) },
     tests,
     skuSuggestions,
     loss,

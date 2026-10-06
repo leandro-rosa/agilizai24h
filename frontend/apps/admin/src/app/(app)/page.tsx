@@ -77,6 +77,18 @@ export default function OverviewPage() {
               <Link href={`/finance/pnl?period=${period}`} className="text-primary hover:underline">Ver DRE do mês →</Link>
             </p>
 
+            {[overview.salesCoverage.current, overview.salesCoverage.previous].map(
+              (c) =>
+                c &&
+                c.suspects.length > 0 && (
+                  <p key={c.period} className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+                    As vendas de {fmtPeriod(c.period)} parecem incompletas em {c.suspects.length} de {c.checked} lojas
+                    ({c.suspects.slice(0, 5).map((x) => `${x.name}: ${x.skus} SKUs vs. ~${x.typicalSkus} normais`).join("; ")}
+                    {c.suspects.length > 5 ? "…" : ""}). Faturamento, margem e o DRE de {fmtPeriod(c.period)} podem estar abaixo do real — reimporte as vendas do mês em Importação antes de fechar o DRE.
+                  </p>
+                ),
+            )}
+
             <KpiStrip
               kpis={overview.kpis}
               previousPeriod={overview.previousPeriod}
