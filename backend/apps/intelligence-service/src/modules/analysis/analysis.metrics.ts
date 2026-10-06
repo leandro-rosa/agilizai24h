@@ -38,7 +38,7 @@ export const MOVEMENT_KEYS: (keyof Movement)[] = [
   'costCoverage',
 ]
 
-const ok = (value: number, partial = false): Figure => (partial ? { available: true, value, partial: true } : { available: true, value })
+const ok = (value: number, partial = false, estimated = false): Figure => ({ available: true, value, ...(partial ? { partial: true } : {}), ...(estimated ? { estimated: true } : {}) })
 
 /** Sum of the cells of the SKUs in `skus`, optionally for a single store. */
 function sumCells(facts: MonthFacts, skus: Set<string>, storeId?: number) {
@@ -66,6 +66,8 @@ export interface MovementPart {
   /** Unit cost as of that month, or null when none was resolved. */
   cost: (sku: string) => number | null
   purchases: Map<string, PurchaseMonth> | null
+  /** The losses in these facts are allocated from a month's total (a day window), not recorded. */
+  lossEstimated?: boolean
 }
 
 /** `cost(sku)` is the unit cost as of the month, or null when none was resolved. */
@@ -103,7 +105,10 @@ export function movementOfParts(parts: MovementPart[], skus: Set<string>, storeI
   let revenueWithCost = 0
   let soldWithoutCost = false
 
-  for (const { facts, cost } of parts) {
+  let lossEstimated = false
+
+  for (const { facts, cost, lossEstimated: estimatedPart } of parts) {
+    if (estimatedPart) lossEstimated = true
     const bySku = sumCells(facts, skus, storeId)
     const supplyGap = facts.storesMissingSupply.length > 0 && (storeId === undefined || facts.storesMissingSupply.includes(storeId))
     const salesGap = facts.storesMissingSales.length > 0 && (storeId === undefined || facts.storesMissingSales.includes(storeId))
@@ -148,7 +153,7 @@ export function movementOfParts(parts: MovementPart[], skus: Set<string>, storeI
 
   const neverSupply: Figure = { available: false, reason: 'never_ingested' }
   const lossValue: Figure =
-    supplyUsed === 0 ? neverSupply : anyLoss && lossMissingCost && lossCents === 0 ? { available: false, reason: 'no_cost' } : ok(lossCents, supplyPartial || lossMissingCost)
+    supplyUsed === 0 ? neverSupply : anyLoss && lossMissingCost && lossCents === 0 ? { available: false, reason: 'no_cost' } : ok(lossCents, supplyPartial || lossMissingCost, lossEstimated)
 
   const marginShare: Figure =
     salesUsed === 0
@@ -182,7 +187,7 @@ export function movementOfParts(parts: MovementPart[], skus: Set<string>, storeI
     purchasedCents: sumPurchases(p => p.cents),
     restocked: supplyUsed === 0 ? neverSupply : ok(restocked, supplyPartial),
     sold: salesUsed === 0 ? { available: false, reason: 'never_ingested' } : ok(sold, salesPartial),
-    lost: supplyUsed === 0 ? neverSupply : ok(lost, supplyPartial),
+    lost: supplyUsed === 0 ? neverSupply : ok(lost, supplyPartial, lossEstimated),
     revenueCents: salesUsed === 0 ? { available: false, reason: 'never_ingested' } : ok(revenue, salesPartial),
     lossCents: lossValue,
     marginShare,

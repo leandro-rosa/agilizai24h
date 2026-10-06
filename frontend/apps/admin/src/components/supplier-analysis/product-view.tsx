@@ -53,8 +53,8 @@ export function ProductView({
           <DataQualityNote meta={analysis.meta} />
         </CardContent>
       </Card>
-      <KpiStrip items={productKpis(analysis)} compareTo={compareTo} columns={4} rangeMonths={analysis.meta.months} />
-      <ProfitabilityStrip totals={analysis.totals} compareTo={compareTo} rangeMonths={analysis.meta.months} />
+      <KpiStrip items={productKpis(analysis)} compareTo={compareTo} columns={4} comparisonLabel={analysis.meta.comparisonLabel} />
+      <ProfitabilityStrip totals={analysis.totals} compareTo={compareTo} comparisonLabel={analysis.meta.comparisonLabel} />
       <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
         <InsightList title="Principais insights deste produto" insights={analysis.insights} />
         <MovementBars movement={analysis.totals.current} />

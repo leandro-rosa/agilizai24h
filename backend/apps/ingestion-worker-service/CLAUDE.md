@@ -581,3 +581,8 @@ Ver referências de spec/plano (original e extensão multi-bank) logo acima.
   a conferência própria do export contra a perda calculada — não é lida.
   Adiado deliberadamente (ver o mesmo design): não é necessário para a
   ingestão estar correta, e ampliaria o escopo da mudança.
+
+
+## Data/Hora das vendas por transação (corrigido 2026-10-06)
+
+`Data/Hora` chega do ExcelJS como `Date`, mas passa pela fila (BullMQ → JSON) e vira texto ISO; `toExcelDate` só aceitava `Date`/número e devolvia `null`, então **todas** as transações de ago/set-2026 ficaram sem `occurred_at`. `toExcelDate` agora lê texto ISO e `dd/mm/aaaa [hh:mm[:ss]]` (e recusa data impossível). Ago e set foram reimportados (mesmos arquivos, totais mensais idênticos): 100% das linhas datadas. Meses anteriores a ago/2026 não têm detalhe por transação (só o agregado mensal).

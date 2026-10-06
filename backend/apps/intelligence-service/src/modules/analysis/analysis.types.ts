@@ -8,7 +8,14 @@
 export type UnavailableReason = 'no_purchase_history' | 'never_ingested' | 'no_cost' | 'no_base'
 
 export type Figure =
-  | { available: true; value: number; /** Some stores/months behind this value are known to be incomplete. */ partial?: boolean }
+  | {
+      available: true
+      value: number
+      /** Some stores/months behind this value are known to be incomplete. */
+      partial?: boolean
+      /** Allocated, not recorded (a day's share of a month's loss). */
+      estimated?: boolean
+    }
   | { available: false; reason: UnavailableReason }
 
 export type CompareTo = 'prev_month' | 'avg_3m'
@@ -100,9 +107,20 @@ export interface AnalysisMeta {
   period: string
   /** First month of the range; equals `period` for a single month. */
   from: string
-  /** Number of months in the range. */
+  /** Number of calendar months the range touches. */
   months: number
+  /** `day` when the range was asked for by dates that are not whole months. */
+  granularity: 'month' | 'day'
+  /** First and last day of the range (equal to the month edges for a month range). */
+  fromDate: string
+  toDate: string
+  days: number
+  /** How the comparison is named in a sentence/label: "mês anterior", "média de 3 meses" or "período anterior". */
+  comparisonLabel: string
+  /** Present for a day range: what the day figures are and are not. */
+  daily: { salesDetailMissingMonths: string[]; lossEstimated: boolean } | null
   /** The period the comparison is made against when the range spans several months (the one right before, same length). */
+  /** First and last day, or month, of the period compared against. */
   previous: { from: string; to: string } | null
   compareTo: CompareTo
   parameterVersion: number

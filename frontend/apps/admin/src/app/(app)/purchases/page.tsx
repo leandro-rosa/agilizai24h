@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
-import { MonthRangePicker } from "@/components/month-range-picker";
+import { DateRangePicker, type DayRange as PickerRange } from "@/components/date-range-picker";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { ProductView } from "@/components/supplier-analysis/product-view";
@@ -24,25 +24,35 @@ import {
 } from "@/lib/api/supplier-analysis";
 import { SUPPLIER_CATEGORIES, SUPPLIER_CATEGORY_LABELS, suppliersApi, useGetSuppliersQuery } from "@/lib/api/suppliers";
 import { useAppDispatch } from "@/lib/hooks";
-import { addMonths, lastCompleteMonth, monthsInRange, type PeriodRange } from "@/lib/period-range";
+import { lastCompleteMonth } from "@/lib/period-range";
+import {
+  clampRange,
+  dayCount,
+  isWholeMonths,
+  lastDayOfMonth,
+  lastDays,
+  MAX_RANGE_DAYS,
+  monthRange,
+  monthsEndingAt,
+  shiftRange as shiftDayRange,
+  type DayRange,
+} from "@/lib/supplier-analysis/day-range";
 import { supplierLabel } from "@/lib/supplier-analysis/supplier-label";
 
 type Mode = "supplier" | "product";
 const ALL = "all";
 
-/** O mais longo que a análise lê de uma vez: um ano (e o ano anterior, para comparar). */
-const MAX_RANGE_MONTHS = 12;
-
 export default function PurchasesPage() {
   const latest = useMemo(() => lastCompleteMonth(), []);
   const [mode, setMode] = useState<Mode>("supplier");
-  const [range, setRange] = useState<PeriodRange>({ start: latest, end: latest });
-  const rangeLength = monthsInRange(range).length;
-  const period = range.end;
-  const from = rangeLength > 1 ? range.start : undefined;
+  const latestDay = useMemo(() => lastDayOfMonth(latest), [latest]);
+  const [range, setRange] = useState<DayRange>(() => monthRange(latest));
+  // O calendário escolhe a ponta inicial antes da final: o rascunho mostra o clique sem consultar a API.
+  const [draft, setDraft] = useState<PickerRange | null>(null);
   const [compareChoice, setCompareChoice] = useState<CompareTo>("prev_month");
-  // Um intervalo de vários meses se compara com o período imediatamente anterior; a média de 3 meses é de um mês só.
-  const compareTo: CompareTo = rangeLength > 1 ? "prev_month" : compareChoice;
+  // A média de 3 meses é de um mês inteiro só; qualquer outro intervalo se compara com o período imediatamente anterior.
+  const singleMonth = isWholeMonths(range) && range.from.slice(0, 7) === range.to.slice(0, 7);
+  const compareTo: CompareTo = singleMonth ? compareChoice : "prev_month";
   const [category, setCategory] = useState(ALL);
   const [supplierId, setSupplierId] = useState<number | null>(null);
   const [productLabel, setProductLabel] = useState("");
@@ -80,10 +90,10 @@ export default function PurchasesPage() {
   const visibleSuppliers = category === ALL ? analysedSuppliers : analysedSuppliers.filter((s) => s.category === category);
   const store = storeId === ALL ? undefined : Number(storeId);
 
-  const base = { period, from, compareTo, storeId: store };
+  const base = { fromDate: range.from, toDate: range.to, compareTo, storeId: store };
   const supplierQuery = useGetSupplierAnalysisQuery({ ...base, supplierId: supplierId ?? 0 }, { skip: mode !== "supplier" || supplierId === null });
   const crossQuery = useGetCrossAnalysisQuery(
-    { period, from, compareTo, supplierId: supplierId ?? 0, sku: product?.sku ?? "" },
+    { fromDate: range.from, toDate: range.to, compareTo, supplierId: supplierId ?? 0, sku: product?.sku ?? "" },
     { skip: mode !== "supplier" || supplierId === null || !product },
   );
   const productQuery = useGetProductAnalysisQuery({ ...base, sku: product?.sku ?? "" }, { skip: mode !== "product" || !product });
@@ -92,21 +102,32 @@ export default function PurchasesPage() {
   const supplierProductLabels = products.filter((p) => p.supplier_id === supplierId).map(labelOf);
   const productOptions = mode === "supplier" ? supplierProductLabels : products.map(labelOf);
 
-  function changeRange(next: PeriodRange) {
-    if (monthsInRange(next).length > MAX_RANGE_MONTHS) {
-      toast.info(`O período vai até ${MAX_RANGE_MONTHS} meses; mostrando os últimos ${MAX_RANGE_MONTHS} até ${next.end}.`);
-      setRange({ start: addMonths(next.end, -(MAX_RANGE_MONTHS - 1)), end: next.end });
-      return;
-    }
-    setRange(next);
+  function applyRange(next: DayRange) {
+    const { range: fitted, clamped } = clampRange(next);
+    if (clamped) toast.info(`O período vai até ${MAX_RANGE_DAYS} dias; mostrando os últimos ${MAX_RANGE_DAYS} até o dia final.`);
+    setRange(fitted);
+    setDraft(null);
   }
 
-  /** Desloca o intervalo inteiro pelo seu próprio tamanho, sem passar do último mês fechado. */
-  function shiftRange(direction: -1 | 1) {
-    const end = addMonths(range.end, direction * rangeLength);
-    if (end > latest) return;
-    setRange({ start: addMonths(range.start, direction * rangeLength), end });
+  function onPick(picked: PickerRange) {
+    if (picked.from && picked.to) applyRange({ from: picked.from, to: picked.to });
+    else if (picked.from) setDraft(picked);
+    else setDraft(null);
   }
+
+  /** Desloca o intervalo pelo próprio tamanho, sem passar do último dia fechado. */
+  function shift(direction: -1 | 1) {
+    const next = shiftDayRange(range, direction, latestDay);
+    if (next) applyRange(next);
+  }
+
+  const presets: { label: string; range: DayRange }[] = [
+    { label: "Mês", range: monthRange(latest) },
+    { label: "30 dias", range: lastDays(latestDay, 30) },
+    { label: "Trimestre", range: monthsEndingAt(latestDay, 3) },
+    { label: "Semestre", range: monthsEndingAt(latestDay, 6) },
+    { label: "Ano", range: monthsEndingAt(latestDay, 12) },
+  ];
 
   function selectProductFromSupplier(sku: string) {
     const found = products.find((p) => p.sku === sku);
@@ -120,11 +141,11 @@ export default function PurchasesPage() {
         description="Acompanhe o que foi comprado, abastecido, vendido e perdido."
         actions={
           <div className="flex items-center gap-1">
-            <MonthRangePicker value={range} onChange={changeRange} />
-            <Button variant="outline" size="icon" aria-label="Período anterior" onClick={() => shiftRange(-1)}>
+            <DateRangePicker value={draft ?? range} onChange={onPick} />
+            <Button variant="outline" size="icon" aria-label="Período anterior" onClick={() => shift(-1)}>
               <ChevronLeft className="size-4" />
             </Button>
-            <Button variant="outline" size="icon" aria-label="Próximo período" disabled={range.end >= latest} onClick={() => shiftRange(1)}>
+            <Button variant="outline" size="icon" aria-label="Próximo período" disabled={shiftDayRange(range, 1, latestDay) === null} onClick={() => shift(1)}>
               <ChevronRight className="size-4" />
             </Button>
           </div>
@@ -137,6 +158,20 @@ export default function PurchasesPage() {
           <TabsTrigger value="product">Por produto</TabsTrigger>
         </TabsList>
       </Tabs>
+
+      <div className="flex flex-wrap items-center gap-1.5" aria-label="Atalhos de período">
+        {presets.map((preset) => (
+          <Button
+            key={preset.label}
+            size="sm"
+            variant={preset.range.from === range.from && preset.range.to === range.to ? "secondary" : "outline"}
+            onClick={() => applyRange(preset.range)}
+          >
+            {preset.label}
+          </Button>
+        ))}
+        <span className="text-xs text-muted-foreground">{dayCount(range)} dias · até {MAX_RANGE_DAYS}</span>
+      </div>
 
       <Card>
         <CardContent className="flex flex-wrap items-end gap-4 pt-4">
@@ -216,10 +251,10 @@ export default function PurchasesPage() {
                     type="radio"
                     name="compare"
                     checked={compareTo === option}
-                    disabled={option === "avg_3m" && rangeLength > 1}
+                    disabled={option === "avg_3m" && !singleMonth}
                     onChange={() => setCompareChoice(option)}
                   />
-                  {option === "prev_month" ? (rangeLength > 1 ? "Período anterior" : "Mês anterior") : "Média 3 meses"}
+                  {option === "prev_month" ? (singleMonth ? "Mês anterior" : "Período anterior") : "Média 3 meses"}
                 </label>
               ))}
             </div>

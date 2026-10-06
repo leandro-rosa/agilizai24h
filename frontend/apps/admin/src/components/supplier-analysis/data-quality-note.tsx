@@ -15,6 +15,15 @@ export function DataQualityNote({ meta }: { meta: AnalysisMeta }) {
           ? `Base de compras: a partir de ${formatMonth(purchaseBase)}. Antes disso, apenas abastecimento, vendas e perdas.`
           : "Base de compras: ainda não registrada (prevista a partir de out/2026). Valores de compra aparecem como “Sem histórico de compras”."}
       </p>
+      {meta.daily && (
+        <p data-testid="daily-note">
+          Intervalo por dia: abastecimento vem das visitas (exato) e venda dos recibos com data.
+          {meta.daily.lossEstimated ? " A perda do dia é uma estimativa (≈): o total de perda do mês rateado pelas remoções de cada visita." : ""}
+          {meta.daily.salesDetailMissingMonths.length > 0
+            ? ` Sem recibos com data em ${meta.daily.salesDetailMissingMonths.map(formatMonth).join(", ")}: a venda desses dias aparece como “Dado não importado”, não como zero.`
+            : ""}
+        </p>
+      )}
       {gaps.length > 0 && (
         <p className="flex items-start gap-1">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
