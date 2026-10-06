@@ -28,7 +28,19 @@ export function buildOverview(input: OverviewInput): Overview {
   const [cur, prev] = months;
 
   const kpis = buildKpis(months);
-  const stores = buildStoreSummary(input.stores.current, input.stores.previous, input.stores.activeCount, prev.pnl?.netRevenueCents ?? null, cur.pnl?.netRevenueCents ?? null);
+  const salesByStore = (per: string) => {
+    const m = new Map<number, number>();
+    for (const c of input.sales?.cells ?? []) if (c.period === per) m.set(c.storeId, (m.get(c.storeId) ?? 0) + c.revenueCents);
+    return m;
+  };
+  const bothSalesMonths = !!input.sales && input.sales.ingestedPeriods.includes(period) && input.sales.ingestedPeriods.includes(previousPeriod);
+  const stores = buildStoreSummary(
+    input.stores.current,
+    input.stores.previous,
+    input.stores.activeCount,
+    prev.pnl?.netRevenueCents ?? null,
+    bothSalesMonths ? { current: salesByStore(period), previous: salesByStore(previousPeriod) } : null,
+  );
   const coverageFor = (per: string) =>
     input.sales && input.storeList ? checkSalesCoverage(per, input.sales.cells, input.sales.ingestedPeriods, input.storeList) : null;
   const alias = buildAliasMap(input.skuLinks);

@@ -157,8 +157,9 @@ export interface StoreSummary {
   up: number;
   down: number;
   stable: number;
-  /** Receita líquida somada das lojas ÷ receita líquida da rede (DRE). < 1: parte da receita é lançada só na rede. */
-  revenueCoverage: number | null;
+  /** Base do cresce/recuou: "vendas" (sales-service, o faturamento da loja) ou "dre" (receita líquida por loja, quando falta venda de um dos meses). */
+  basis: "vendas" | "dre";
+  /** Soma das lojas comparadas, na base acima (mês atual e anterior). */
   storesRevenueCents: number;
   storesRevenuePreviousCents: number;
   topGrowth: StoreContribution[];
