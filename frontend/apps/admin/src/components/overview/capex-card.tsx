@@ -9,9 +9,9 @@ import { Block, moneyRound, NoData } from "./shared";
 
 export function CapexCard({ capex, investors, previousPeriod }: { capex: CapexSummary | null; investors: InvestorsSummary | null; previousPeriod: string }) {
   return (
-    <Block title="CAPEX e investidores" icon={<HardHat className="size-4 text-primary" />} href="/capex" linkLabel="Ver CAPEX por loja">
+    <Block title="Investimentos e aportes dos sócios" icon={<HardHat className="size-4 text-primary" />} href="/capex" linkLabel="Ver investimento por loja">
       <div className="flex flex-col gap-1.5">
-        <p className="text-xs font-semibold text-muted-foreground">CAPEX do mês — saídas de investimento (como no Fluxo de caixa)</p>
+        <p className="text-xs font-semibold text-muted-foreground">Investimento do mês — dinheiro gasto em equipamentos e novas lojas (como no Fluxo de caixa)</p>
         {!capex?.investment ? (
           <NoData what="sem lançamentos da tesouraria no mês" />
         ) : (
@@ -30,7 +30,7 @@ export function CapexCard({ capex, investors, previousPeriod }: { capex: CapexSu
           </>
         )}
         <p className="pt-1 text-xs text-muted-foreground">
-          Itens de CAPEX com loja atribuída (capex-service):{" "}
+          Itens de investimento com loja definida:{" "}
           {!capex?.current ? "indisponível" : capex.current.totalCents === 0 ? "nenhum item datado neste mês" : `${moneyRound(capex.current.totalCents)}${capex.current.unassignedCents > 0 ? ` (${moneyRound(capex.current.unassignedCents)} sem loja)` : ""}`}.
           {" "}Esse cadastro por loja é separado da classificação do Fluxo de caixa e pode ficar atrás dela.
         </p>

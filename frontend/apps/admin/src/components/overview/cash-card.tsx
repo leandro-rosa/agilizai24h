@@ -21,7 +21,7 @@ export function CashCard({ cash }: { cash: CashSummary }) {
           </div>
           {cash.operatingPositiveCashFell && cash.cashDeltaCents !== null && (
             <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-              Apesar do resultado operacional positivo, o caixa caiu {moneyRound(Math.abs(cash.cashDeltaCents))} no mês. Veja “Principais movimentos financeiros” para os maiores movimentos de saída.
+              Apesar do lucro positivo da operação, o dinheiro no banco caiu {moneyRound(Math.abs(cash.cashDeltaCents))} no mês. Veja “Principais movimentos financeiros” para os maiores movimentos de saída.
             </p>
           )}
         </>

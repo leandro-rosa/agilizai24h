@@ -1,4 +1,4 @@
-import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Circle, Document, Image, Page, Polygon, StyleSheet, Svg, Text, View } from "@react-pdf/renderer";
 
 import { date, period as fmtPeriod } from "@/lib/format";
 import { reasonLabel } from "@/lib/removal-reasons";
@@ -6,7 +6,10 @@ import { BEHAVIOR_LABELS } from "../product-behavior";
 import { baseText } from "../ranking";
 import { signedPct, signedPp, type RateDelta, type ValueDelta } from "../compare";
 import { monthName } from "../reading";
+import { AREA_EMPTY, buildAreaQuestions, type AreaQuestion } from "../areas";
+import { buildBrief, buildPageIntros, type PageIntro } from "../brief";
 import { overdueSummary } from "../overdue";
+import { GLOSSARY, KPI_PLAIN, plainify, type Light } from "../plain";
 import { priceImpactReading } from "../price-volume";
 import { SIGNAL_LABELS } from "../tests";
 import type { CashUseLine, Highlight, Insight, KpiResult, LossChange, Overview, ProductRow, StoreExplainers } from "../types";
@@ -21,6 +24,8 @@ export interface ReportMeta {
 
 /** A fonte padrão (Helvetica) não tem "−", setas nem "≥": troca por equivalentes seguros em vez de exibir lixo. */
 const t = (s: string) => s.replace(/−/g, "-").replace(/→/g, "->").replace(/[↑↓]/g, "").replace(/≥/g, ">=").replace(/…/g, "...").replace(/\u00a0/g, " ").replace(/\s{2,}/g, " ").trim();
+/** Texto de apresentação: troca o vocabulário de finanças pelo do dia a dia e protege a fonte do PDF. */
+const tp = (s: string) => t(plainify(s));
 const brl = (c: number | null | undefined) =>
   c === null || c === undefined ? "-" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(c / 100).replace(/\u00a0/g, " ");
 const pct = (v: number | null, d = 1) => (v === null ? "-" : `${(v * 100).toFixed(d).replace(".", ",")}%`);
@@ -105,7 +110,7 @@ function Header({ o, meta }: { o: Overview; meta: ReportMeta }) {
       </View>
       <View>
         <Text style={s.meta}>Fechamento do mês: {date(o.closedAt)}</Text>
-        <Text style={s.meta}>Base do DRE: {date(meta.baseAt)} · Gerado em {new Date(meta.generatedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</Text>
+        <Text style={s.meta}>Resultado fechado em: {date(meta.baseAt)} · Gerado em {new Date(meta.generatedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</Text>
         <Text style={s.pill}>Resumo {fmtPeriod(o.period)} · Versão {meta.version}</Text>
       </View>
     </View>
@@ -129,23 +134,22 @@ function Kpi({ k, prev }: { k: KpiResult; prev: string }) {
   const show = (v: number | null) => (v === null ? "sem dados" : rate ? pct(v) : brl(v));
   return (
     <View style={[s.card, { width: "32.6%", marginBottom: 8 }]} wrap={false}>
-      <Text style={s.kpiLabel}>{k.label}</Text>
-      <Text style={s.kpiValue}>{k.value === null ? "Sem dados" : show(k.value)}</Text>
+      <Text style={s.kpiLabel}>{KPI_PLAIN[k.key].title} <Text style={{ fontSize: 7, color: C.muted }}>({KPI_PLAIN[k.key].technical.toLowerCase()})</Text></Text>
+      <Text style={[s.kpiValue, { fontSize: 16, marginTop: 2, marginBottom: 2 }]}>{k.value === null ? "Sem dados" : show(k.value)}</Text>
       {p === null ? (
         <Text style={s.small}>sem comparação com {fmtPeriod(prev)} (sem base)</Text>
       ) : (
         <Text style={{ fontSize: 9, color: deltaColor(p, k.goodWhenUp), fontFamily: "Helvetica-Bold" }}>
-          {t(fmt(p))} <Text style={{ color: C.muted, fontFamily: "Helvetica" }}>vs. {fmtPeriod(prev)} ({show(k.previous)})</Text>
+          {tp(fmt(p))} <Text style={{ color: C.muted, fontFamily: "Helvetica" }}>contra {fmtPeriod(prev)} ({show(k.previous)})</Text>
         </Text>
       )}
       {a === null ? (
         <Text style={s.small}>sem média de 3 meses (sem base)</Text>
       ) : (
         <Text style={{ fontSize: 9, color: deltaColor(a, k.goodWhenUp), fontFamily: "Helvetica-Bold" }}>
-          {t(fmt(a))} <Text style={{ color: C.muted, fontFamily: "Helvetica" }}>vs. média 3 meses</Text>
+          {tp(fmt(a))} <Text style={{ color: C.muted, fontFamily: "Helvetica" }}>contra a média de 3 meses</Text>
         </Text>
       )}
-      <Text style={[s.small, { marginTop: 3 }]}>{t(k.note)}</Text>
     </View>
   );
 }
@@ -156,8 +160,8 @@ function HighlightCard({ label, h, color }: { label: string; h: Highlight | null
       <Text style={[s.h3, { color }]}>{label}</Text>
       {h ? (
         <>
-          <Text style={[s.bold, { marginBottom: 2 }]}>{t(h.title)}</Text>
-          <Text style={s.small}>{clip(t(h.detail), 110)}</Text>
+          <Text style={[s.bold, { marginBottom: 2 }]}>{tp(h.title)}</Text>
+          <Text style={s.small}>{clip(tp(h.detail), 90)}</Text>
         </>
       ) : (
         <Text style={s.small}>Sem dados suficientes para esta competência.</Text>
@@ -173,8 +177,8 @@ function InsightItem({ i, n }: { i: Insight; n: number }) {
       <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 2 }}>
         <Text style={[s.small, { color: toneColor(i.tone), fontFamily: "Helvetica-Bold" }]}>{n}. {label}</Text>
       </View>
-      <Text style={[s.bold, { marginBottom: 2 }]}>{t(i.title)}</Text>
-      <Text style={s.small}>{clip(t(i.detail), 120)}</Text>
+      <Text style={[s.bold, { marginBottom: 2 }]}>{tp(i.title)}</Text>
+      <Text style={s.small}>{clip(tp(i.detail), 95)}</Text>
     </View>
   );
 }
@@ -192,7 +196,7 @@ function ProductTable({ title, rows, empty }: { title: string; rows: ProductRow[
             <Text style={[s.thText, { flex: 3.2 }]}>Produto</Text>
             <Text style={[s.thText, { flex: 1, textAlign: "right" }]}>Unid.</Text>
             <Text style={[s.thText, { flex: 1.3, textAlign: "right" }]}>Receita</Text>
-            <Text style={[s.thText, { flex: 1, textAlign: "right" }]}>Margem</Text>
+            <Text style={[s.thText, { flex: 1, textAlign: "right" }]}>Lucro bruto %</Text>
             <Text style={[s.thText, { flex: 2.4, textAlign: "right" }]}>vs. mês anterior</Text>
           </View>
           {rows.slice(0, 4).map((r) => {
@@ -310,8 +314,55 @@ function Use({ l, prev }: { l: CashUseLine; prev: string }) {
   );
 }
 
+
+const LIGHT_COLOR: Record<Light, string> = { better: C.good, same: C.warn, worse: C.bad, nodata: C.muted };
+
+/** Semáforo desenhado (a fonte não tem ▲▼): triângulo para cima = melhor, para baixo = pior, círculo = parecido, traço = sem dados. */
+function LightIcon({ tone }: { tone: Light }) {
+  const color = LIGHT_COLOR[tone];
+  return (
+    <Svg width={11} height={11} viewBox="0 0 11 11">
+      {tone === "better" ? <Polygon points="5.5,1 10.5,10 0.5,10" fill={color} /> : null}
+      {tone === "worse" ? <Polygon points="0.5,1 10.5,1 5.5,10" fill={color} /> : null}
+      {tone === "same" ? <Circle cx={5.5} cy={5.5} r={4.5} fill={color} /> : null}
+      {tone === "nodata" ? <Polygon points="1,5 10,5 10,6.5 1,6.5" fill={color} /> : null}
+    </Svg>
+  );
+}
+
+/** Abertura de cada página do detalhe: a pergunta, a resposta em uma frase e quem costuma olhar. */
+function Intro({ i }: { i: PageIntro }) {
+  return (
+    <View style={{ borderLeftWidth: 3, borderLeftColor: C.brand, paddingLeft: 8, marginBottom: 8 }} wrap={false}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+        <Text style={[s.small, { fontFamily: "Helvetica-Bold" }]}>{i.question}</Text>
+        <Text style={[s.small, { color: C.brand }]}>para {i.audience.join(" e ")}</Text>
+      </View>
+      <Text style={{ fontSize: 11, fontFamily: "Helvetica-Bold", marginTop: 1 }}>{tp(i.answer)}</Text>
+    </View>
+  );
+}
+
+function AreaColumn({ title, hint, items }: { title: string; hint: string; items: AreaQuestion[] }) {
+  return (
+    <View style={[s.card, s.col]}>
+      <Text style={[s.bold, { fontSize: 11 }]}>{title}</Text>
+      <Text style={[s.small, { marginBottom: 6 }]}>{hint}</Text>
+      {items.length === 0 ? <Text style={s.small}>{AREA_EMPTY}</Text> : items.map((q) => (
+        <View key={q.question} style={{ marginBottom: 7 }} wrap={false}>
+          <Text style={s.bold}>{tp(q.question)}</Text>
+          <Text style={{ color: C.muted }}>{tp(q.answer)}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
   const prev = o.previousPeriod;
+  const brief = buildBrief(o);
+  const intros = buildPageIntros(o);
+  const areas = buildAreaQuestions(o);
   const lossK = o.kpis.find((k) => k.key === "loss");
   const lossDelta = lossK ? (lossK.vsPrevious as ValueDelta).pct : null;
   const positives = o.insights.filter((i) => i.tone === "positive").slice(0, 4);
@@ -324,13 +375,47 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
   if (topSku) act.push({ title: `Produto ${topSku.name}`, detail: `Maior perda do mês: ${brl(topSku.valueCents)}${topSku.share !== null ? ` (${pct(topSku.share, 0)} das perdas)` : ""}.` });
   const topReason = o.loss?.byReason[0];
   if (topReason) act.push({ title: `Motivo: ${reasonLabel(topReason.reason)}`, detail: `${brl(topReason.valueCents)}${topReason.share !== null ? `, ${pct(topReason.share, 0)} das perdas` : ""}.` });
-  if (o.loss && o.loss.incompleteStores > 0) act.push({ title: "Conciliação incompleta", detail: `${o.loss.incompleteStores} lojas com SKU sem custo ou saldo inconsistente; perdas podem estar subestimadas.` });
+  if (o.loss && o.loss.incompleteStores > 0) act.push({ title: "Contagem de estoque com falhas", detail: `${o.loss.incompleteStores} lojas com produto sem custo ou saldo que não bate; as perdas podem estar maiores do que o mostrado.` });
 
   return (
     <Document title={`Resumo Mensal Agiliz ${o.period}`} author="Agiliz.ai">
+      {/* 0 — O mês em 1 minuto (para qualquer pessoa) */}
+      <Page size="A4" orientation="landscape" style={s.page}>
+        <Header o={o} meta={meta} />
+        <Text style={[s.h3, { color: C.brand }]}>O mês em 1 minuto</Text>
+        <Text style={{ fontSize: 17, fontFamily: "Helvetica-Bold", lineHeight: 1.3, marginBottom: 10 }}>{tp(brief.headline)}</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+          {brief.cards.map((c) => (
+            <View key={c.key} style={[s.card, { width: "32.6%", marginBottom: 8, borderColor: c.light.tone === "nodata" ? C.border : LIGHT_COLOR[c.light.tone] }]} wrap={false}>
+              <Text style={s.small}>{tp(c.question)}</Text>
+              <Text style={{ fontSize: 22, fontFamily: "Helvetica-Bold", marginVertical: 3 }}>{tp(c.value)}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 2 }}>
+                <LightIcon tone={c.light.tone} />
+                <Text style={{ color: LIGHT_COLOR[c.light.tone], fontFamily: "Helvetica-Bold" }}>{c.light.label}</Text>
+              </View>
+              <Text style={s.small}>{tp(c.sentence)}</Text>
+            </View>
+          ))}
+        </View>
+        {brief.threeThings.length > 0 ? (
+          <View style={[s.card, { marginBottom: 6 }]}>
+            <Text style={[s.h3, { color: C.brand }]}>3 coisas para saber</Text>
+            {brief.threeThings.map((x, n) => (
+              <Text key={x.title} style={{ marginBottom: 3 }}>
+                <Text style={s.bold}>{n + 1}. {tp(x.title)}</Text>
+                <Text style={{ color: C.muted }}> - {tp(x.detail)}</Text>
+              </Text>
+            ))}
+          </View>
+        ) : null}
+        <Text style={s.small}>Verde = melhor que o normal · Amarelo = parecido (até 3% de diferença) · Vermelho = pior · Cinza = sem dados. {"\u201cNormal\u201d"} é o mês anterior e a média dos 3 meses antes. Perder menos produtos é bom.</Text>
+        <Footer o={o} meta={meta} />
+      </Page>
+
       {/* 1 — Como foi o mês? */}
       <Page size="A4" orientation="landscape" style={s.page}>
         <Header o={o} meta={meta} />
+        <Intro i={intros.detalhe} />
         <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>{o.kpis.map((k) => <Kpi key={k.key} k={k} prev={prev} />)}</View>
         <Title>Destaques do mês</Title>
         <View style={[s.row, s.cardGap]}>
@@ -350,10 +435,11 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
       {/* 2 — Onde aconteceu? Desempenho comercial */}
       <Page size="A4" orientation="landscape" style={s.page}>
         <Header o={o} meta={meta} />
+        <Intro i={intros.comercial} />
         <View style={[s.card, s.cardGap]}>
           <Title>Resumo da rede</Title>
           {!o.stores ? (
-            <Empty>Sem dados — DRE por loja.</Empty>
+            <Empty>Sem dados — resultado por loja.</Empty>
           ) : (
             <View style={s.row}>
               <View style={{ width: 150 }}>
@@ -361,7 +447,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
                 <View style={{ flexDirection: "row", gap: 5, marginBottom: 2 }}><Dot color={C.good} /><Text>{o.stores.up} cresceram</Text></View>
                 <View style={{ flexDirection: "row", gap: 5, marginBottom: 2 }}><Dot color={C.bad} /><Text>{o.stores.down} recuaram</Text></View>
                 <View style={{ flexDirection: "row", gap: 5 }}><Dot color={C.muted} /><Text>{o.stores.stable} estáveis</Text></View>
-                <Text style={[s.small, { marginTop: 4 }]}>Base: {o.stores.basis === "vendas" ? "vendas de cada loja" : "receita líquida por loja (DRE)"}</Text>
+                <Text style={[s.small, { marginTop: 4 }]}>Base: {o.stores.basis === "vendas" ? "vendas de cada loja" : "faturamento por loja no resultado do mês"}</Text>
               </View>
               <Explainers title="Quem explicou o crescimento" e={o.stores.growthExplainers} sign="+" color={C.good} />
               <Explainers title="Quem explicou a queda" e={o.stores.declineExplainers} sign="-" color={C.bad} />
@@ -390,6 +476,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
       {/* 3 — Produtos em teste */}
       <Page size="A4" orientation="landscape" style={s.page}>
         <Header o={o} meta={meta} />
+        <Intro i={intros.testes} />
         <View style={[s.card, s.cardGap]}>
           <Title hint="derivado do abastecimento — regra provisória; sinal é evidência, não decisão">Produtos em teste</Title>
           {!o.tests ? (
@@ -401,10 +488,10 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
               <View style={s.th}>
                 <Text style={[s.thText, { flex: 3.4 }]}>Produto</Text>
                 <Text style={[s.thText, { flex: 1.4, textAlign: "right" }]}>Lojas testadas</Text>
-                <Text style={[s.thText, { flex: 1.8, textAlign: "right" }]}>Cobertura do teste</Text>
+                <Text style={[s.thText, { flex: 1.8, textAlign: "right" }]}>Em quantas lojas</Text>
                 <Text style={[s.thText, { flex: 1, textAlign: "right" }]}>Unid.</Text>
                 <Text style={[s.thText, { flex: 1.2, textAlign: "right" }]}>Perdas</Text>
-                <Text style={[s.thText, { flex: 1, textAlign: "right" }]}>Margem</Text>
+                <Text style={[s.thText, { flex: 1, textAlign: "right" }]}>Lucro bruto %</Text>
                 <Text style={[s.thText, { flex: 2, textAlign: "right" }]}>Tempo de teste</Text>
                 <Text style={[s.thText, { flex: 1.8, textAlign: "right" }]}>Sinal</Text>
               </View>
@@ -440,6 +527,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
       {o.priceChanges ? (
         <Page size="A4" orientation="landscape" style={s.page}>
           <Header o={o} meta={meta} />
+          <Intro i={intros.precos} />
           <View style={[s.card, s.cardGap]}>
             <Title hint="preço realizado = receita ÷ unidades, já com descontos">Reajustes de preço no mês</Title>
             {(() => {
@@ -480,7 +568,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
                     <Stat label="Lucro de cada R$ 100 vendidos" value={im.margin && im.margin.pctAfter !== null ? `R$ ${Math.round(im.margin.pctAfter * 100)}` : "-"} note={im.margin && im.margin.pctBefore !== null ? `antes: R$ ${Math.round(im.margin.pctBefore * 100)}` : undefined} />
                     <Stat label="Unidades vendidas" value={num(pc.unitsAfter)} color={pc.unitsAfter < pc.unitsBefore ? C.bad : C.good} note={`${num(pc.unitsBefore)} -> ${num(pc.unitsAfter)} (${dpct(unitsPct)})`} />
                   </View>
-                  <View style={{ marginBottom: 8 }}>{rd.lines.filter((l) => !l.startsWith("De cada R$ 100")).map((l) => <Text key={l} style={[s.small, { marginBottom: 2 }]}>- {t(l)}</Text>)}</View>
+                  <View style={{ marginBottom: 8 }}>{rd.lines.filter((l) => !l.startsWith("De cada R$ 100") && !l.startsWith("Lucro bruto = ")).map((l) => <Text key={l} style={[s.small, { marginBottom: 2 }]}>- {t(l)}</Text>)}</View>
                 </>
               );
             })()}
@@ -491,7 +579,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
               <Text style={[s.thText, { flex: 3.4, textAlign: "right" }]}>Lucro bruto (R$)</Text>
               <Text style={[s.thText, { flex: 1.4, textAlign: "right" }]}>Faturamento</Text>
             </View>
-            {o.priceChanges.rows.slice(0, 6).map((r) => (
+            {o.priceChanges.rows.slice(0, 5).map((r) => (
               <View key={r.sku} style={{ flexDirection: "row", marginBottom: 4 }} wrap={false}>
                 <Text style={{ flex: 3.4 }}>{t(r.name).slice(0, 40)}</Text>
                 <Text style={{ flex: 2.4, textAlign: "right" }}>R$ {(r.priceBeforeCents / 100).toFixed(2).replace(".", ",")} {"->"} {(r.priceAfterCents / 100).toFixed(2).replace(".", ",")} <Text style={s.small}>({t(signedPct(r.pricePct, 0))})</Text></Text>
@@ -508,7 +596,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
                 <Text style={{ flex: 1.4, textAlign: "right", color: r.revenueDeltaCents < 0 ? C.bad : C.good }}>{r.revenueDeltaCents < 0 ? "-" : "+"}{brl(Math.abs(r.revenueDeltaCents))}</Text>
               </View>
             ))}
-            <Text style={[s.small, { marginTop: 3 }]}>Mostrando 6 de {o.priceChanges.count} reajustados (maior receita); a lista completa está na tela.</Text>
+            <Text style={[s.small, { marginTop: 3 }]}>Mostrando 5 de {o.priceChanges.count} reajustados (maior receita); a lista completa está na tela.</Text>
           </View>
           <Footer o={o} meta={meta} />
         </Page>
@@ -517,19 +605,20 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
       {/* 4 — Por que merece atenção? Abastecimento e perdas */}
       <Page size="A4" orientation="landscape" style={s.page}>
         <Header o={o} meta={meta} />
-        <Title>Abastecimento e perdas</Title>
+        <Intro i={intros.perdas} />
+        <Title>Abastecimento e produtos perdidos</Title>
         {!o.loss ? (
-          <Empty>Sem dados — nenhuma loja reconciliada no mês.</Empty>
+          <Empty>Sem dados — nenhuma loja com contagem de estoque no mês.</Empty>
         ) : (
           <>
             <View style={[s.row, s.cardGap]}>
               <Stat label="Total abastecido (custo)" value={brl(o.loss.restockedCents)} note="valor de abastecimento — não é compra" />
               <Stat label="Perdas (R$)" value={brl(o.loss.lossCents)} color={C.bad} note={lossDelta === null ? "sem comparação" : `${t(signedPct(lossDelta))} vs. ${fmtPeriod(prev)}`} />
-              <Stat label="Perda ÷ receita líquida" value={pct(o.loss.lossToRevenue)} note="base: receita líquida do DRE" />
-              <Stat label="Perda ÷ custo abastecido" value={pct(o.loss.lossToSupplied)} note="base: custo abastecido do mês" />
+              <Stat label="Perdas em % do faturamento" value={pct(o.loss.lossToRevenue)} note="base: faturamento do mês" />
+              <Stat label="Perdas em % do abastecido" value={pct(o.loss.lossToSupplied)} note="base: valor abastecido no mês" />
             </View>
             {o.loss.incompleteStores > 0 ? (
-              <Text style={[s.small, { color: C.warn, marginBottom: 6 }]}>{o.loss.incompleteStores} loja(s) com reconciliação incompleta — valores podem estar subestimados.</Text>
+              <Text style={[s.small, { color: C.warn, marginBottom: 6 }]}>{o.loss.incompleteStores} loja(s) com contagem de estoque com falhas — as perdas podem estar maiores do que o mostrado.</Text>
             ) : null}
             <View style={[s.row, s.cardGap]}>
               <View style={[s.card, s.col]}>
@@ -588,6 +677,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
       {/* 5 — Financeiro */}
       <Page size="A4" orientation="landscape" style={s.page}>
         <Header o={o} meta={meta} />
+        <Intro i={intros.financeiro} />
         <View style={s.row}>
           <View style={[s.card, { flex: 1.15 }]}>
             <Title hint="selecionado pelos dados, sem categoria fixa">Para onde foi o dinheiro?</Title>
@@ -619,7 +709,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
                   <View style={s.line}><Text style={s.small}>Saídas</Text><Text style={[s.bold, { color: C.bad }]}>{brl(o.cash.outflow)}</Text></View>
                   <View style={s.line}><Text style={s.small}>Saldo final</Text><Text style={s.bold}>{brl(o.cash.closing)}</Text></View>
                   {o.cash.operatingPositiveCashFell && o.cash.cashDeltaCents !== null ? (
-                    <Text style={[s.small, { color: C.warn, marginTop: 2 }]}>Observação: resultado operacional positivo e caixa {brl(Math.abs(o.cash.cashDeltaCents))} menor no mês.</Text>
+                    <Text style={[s.small, { color: C.warn, marginTop: 2 }]}>Observação: lucro positivo na operação e dinheiro no banco {brl(Math.abs(o.cash.cashDeltaCents))} menor no mês.</Text>
                   ) : null}
                 </>
               )}
@@ -638,13 +728,13 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
               </View>
             </View>
             <View style={s.card}>
-              <Title>CAPEX e investimentos</Title>
+              <Title>Investimentos e aportes dos sócios</Title>
               {!o.capex?.investment ? (
                 <Empty>Sem lançamentos da tesouraria no mês.</Empty>
               ) : (
                 <>
                   <View style={s.line}>
-                    <Text style={s.small}>CAPEX do mês (saídas de investimento, como no Fluxo de caixa)</Text>
+                    <Text style={s.small}>Investimento do mês (equipamentos e novas lojas, como no Fluxo de caixa)</Text>
                     <Text style={s.bold}>{brl(o.capex.investment.totalCents)}</Text>
                   </View>
                   <Text style={s.small}>{o.capex.investment.deltaPct === null ? "sem comparação" : `${t(signedPct(o.capex.investment.deltaPct))} vs. ${fmtPeriod(prev)}`}</Text>
@@ -666,30 +756,59 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
         <Header o={o} meta={meta} />
         <View style={[s.card, s.cardGap, { backgroundColor: C.cardHi, borderColor: C.brand }]}>
           <Text style={[s.h3, { color: C.brand }]}>O mês em uma frase</Text>
-          <Text style={{ fontSize: 12, lineHeight: 1.5 }}>{t(o.reading) || "Sem dados suficientes para uma leitura do mês."}</Text>
+          <Text style={{ fontSize: 12, lineHeight: 1.5 }}>{tp(o.reading) || "Sem dados suficientes para uma leitura do mês."}</Text>
         </View>
         <View style={[s.row, s.cardGap]}>
           <View style={[s.card, s.col]}>
             <Text style={[s.h3, { color: C.good }]}>O que foi bem</Text>
             {positives.length === 0 ? <Empty>Nenhum destaque positivo com os dados disponíveis.</Empty> : positives.map((i) => (
-              <View key={i.id} style={{ marginBottom: 5 }} wrap={false}><Text style={s.bold}>{t(i.title)}</Text><Text style={s.small}>{t(i.detail)}</Text></View>
+              <View key={i.id} style={{ marginBottom: 5 }} wrap={false}><Text style={s.bold}>{tp(i.title)}</Text><Text style={s.small}>{tp(i.detail)}</Text></View>
             ))}
           </View>
           <View style={[s.card, s.col]}>
             <Text style={[s.h3, { color: C.bad }]}>O que merece atenção</Text>
             {negatives.length === 0 ? <Empty>Nenhum ponto negativo com os dados disponíveis.</Empty> : negatives.map((i) => (
-              <View key={i.id} style={{ marginBottom: 5 }} wrap={false}><Text style={s.bold}>{t(i.title)}</Text><Text style={s.small}>{t(i.detail)}</Text></View>
+              <View key={i.id} style={{ marginBottom: 5 }} wrap={false}><Text style={s.bold}>{tp(i.title)}</Text><Text style={s.small}>{tp(i.detail)}</Text></View>
             ))}
           </View>
           <View style={[s.card, s.col]}>
             <Text style={[s.h3, { color: C.brand }]}>O que acompanhar no próximo mês</Text>
             {o.watchlist.length === 0 ? <Empty>Nenhum ponto de acompanhamento com os dados disponíveis.</Empty> : o.watchlist.map((w, n) => (
-              <View key={w.id} style={{ marginBottom: 5 }} wrap={false}><Text style={s.bold}>{n + 1}. {t(w.title)}</Text><Text style={s.small}>Observação: {t(w.observation)}</Text></View>
+              <View key={w.id} style={{ marginBottom: 5 }} wrap={false}><Text style={s.bold}>{n + 1}. {tp(w.title)}</Text><Text style={s.small}>Observação: {tp(w.observation)}</Text></View>
             ))}
           </View>
         </View>
-        <Text style={[s.small, { marginTop: 2 }]}>Dados que este resumo ainda não cobre:</Text>
-        {o.limitations.map((l) => <Text key={l} style={[s.small, { fontSize: 6.8 }]}>· {t(l)}</Text>)}
+        <Footer o={o} meta={meta} />
+      </Page>
+
+      {/* 7 — O que cada área pode olhar */}
+      <Page size="A4" orientation="landscape" style={s.page}>
+        <Header o={o} meta={meta} />
+        <Title hint="perguntas para conversar, com o que os números mostram — não dizem o motivo nem mandam fazer algo">O que cada área pode olhar</Title>
+        <View style={s.row}>
+          <AreaColumn title="Sócios" hint="O quadro geral" items={areas.socios} />
+          <AreaColumn title="Operação" hint="Lojas, produtos e estoque" items={areas.operacao} />
+          <AreaColumn title="Financeiro" hint="Dinheiro, notas e saídas" items={areas.financeiro} />
+        </View>
+        <Footer o={o} meta={meta} />
+      </Page>
+
+      {/* 8 — Como ler este relatório */}
+      <Page size="A4" orientation="landscape" style={s.page}>
+        <Header o={o} meta={meta} />
+        <Title>Como ler este relatório</Title>
+        <View style={[s.card, s.cardGap]}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+            {GLOSSARY.map((g) => (
+              <View key={g.term} style={{ width: "49%", marginBottom: 6 }} wrap={false}>
+                <Text style={s.bold}>{t(g.term)}</Text>
+                <Text style={{ color: C.muted }}>{t(g.meaning)}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+        <Text style={[s.small, s.bold]}>O que este relatório ainda não consegue mostrar</Text>
+        {o.limitations.map((l) => <Text key={l} style={[s.small, { fontSize: 7.2 }]}>· {tp(l)}</Text>)}
         <Footer o={o} meta={meta} />
       </Page>
     </Document>

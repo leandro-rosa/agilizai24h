@@ -40,7 +40,7 @@ function Row({ r, onOpen }: { r: ProductRow; onOpen: (r: ProductRow) => void }) 
       <TableCell>
         <div className="flex items-center gap-2">
           <Sparkline values={r.series} tone={tone} />
-          <span className="hidden text-xs text-muted-foreground 2xl:inline" title={r.behavior === "novo" ? "Sem vendas nos meses anteriores: pode ser produto novo OU um produto que trocou de código (SKU)." : undefined}>
+          <span className="hidden text-xs text-muted-foreground 2xl:inline" title={r.behavior === "novo" ? "Sem vendas nos meses anteriores: pode ser produto novo OU um produto que trocou de código de barras." : undefined}>
             {BEHAVIOR_LABELS[r.behavior]}
           </span>
         </div>
@@ -118,7 +118,7 @@ function ProductStoresDialog({ row, onClose, previousPeriod }: { row: ProductRow
           <DialogDescription>
             Vendeu em {sold.length} de {row?.byStore.length ?? 0} lojas ativas no mês. Unidades vendidas, mês vs. {fmtPeriod(previousPeriod)}.
             {dist ? ` ${dist[0].toUpperCase()}${dist.slice(1)}.` : ""}
-            {row && row.marginPct !== null ? ` Margem ${pctText(row.marginPct, 0)} (custo datado)${row.marginUnresolved ? ", parte das vendas sem custo resolvido" : ""}.` : ""}
+            {row && row.marginPct !== null ? ` Lucro bruto de ${pctText(row.marginPct, 0)} do preço (custo do catálogo)${row.marginUnresolved ? ", parte das vendas sem custo cadastrado" : ""}.` : ""}
           </DialogDescription>
         </DialogHeader>
         <Table>

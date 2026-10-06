@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { period as fmtPeriod } from "@/lib/format";
 import type { RateDelta, ValueDelta } from "@/lib/overview/compare";
+import { KPI_PLAIN } from "@/lib/overview/plain";
 import type { KpiResult } from "@/lib/overview/types";
 import { Delta, moneyRound, NoData, pctText, Unavailable } from "./shared";
 
@@ -16,7 +17,7 @@ export function KpiStrip({ kpis, previousPeriod, unavailable }: { kpis: KpiResul
         return (
           <Card key={k.key}>
             <CardHeader>
-              <CardTitle className="text-sm font-medium text-muted-foreground">{k.label}</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground" title={`Termo técnico: ${KPI_PLAIN[k.key].technical}`}>{KPI_PLAIN[k.key].title}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-1.5">
               {unavailable[k.key] ? (
@@ -29,7 +30,7 @@ export function KpiStrip({ kpis, previousPeriod, unavailable }: { kpis: KpiResul
                   <Delta value={prev} kind={isRate ? "pp" : "pct"} goodWhenUp={k.goodWhenUp} label={`vs. ${fmtPeriod(previousPeriod)}`} />
                   <p className="tabular text-xs text-muted-foreground">{k.previous === null ? "sem base no mês anterior" : `${fmtPeriod(previousPeriod)}: ${fmt(k.previous)}`}</p>
                   <Delta value={avg} kind={isRate ? "pp" : "pct"} goodWhenUp={k.goodWhenUp} label="vs. média 3 meses" />
-                  <p className="text-[11px] leading-tight text-muted-foreground">{k.note}</p>
+                  <p className="text-[11px] leading-tight text-muted-foreground">{KPI_PLAIN[k.key].note}</p>
                 </>
               )}
             </CardContent>

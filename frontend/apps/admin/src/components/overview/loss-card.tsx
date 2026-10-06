@@ -34,19 +34,19 @@ function ChangeList({ title, rows, reason }: { title: string; rows: LossChange[]
 export function LossCard({ loss, previousPeriod }: { loss: LossSummary | null; previousPeriod: string }) {
   const ch = loss?.changes ?? null;
   return (
-    <Block title="Abastecimento e perdas" icon={<Truck className="size-4 text-primary" />} href="/supply" linkLabel="Ver análise completa">
+    <Block title="Abastecimento e produtos perdidos" icon={<Truck className="size-4 text-primary" />} href="/supply" linkLabel="Ver análise completa">
       {!loss ? (
-        <NoData what="nenhuma loja reconciliada no mês" />
+        <NoData what="nenhuma loja com contagem de estoque no mês" />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Total abastecido (custo)" value={moneyRound(loss.restockedCents)} />
             <Stat label="Perdas (R$)" value={moneyRound(loss.lossCents)} />
-            <Stat label="Perda ÷ receita líquida" value={pctText(loss.lossToRevenue)} />
-            <Stat label="Perda ÷ custo abastecido" value={pctText(loss.lossToSupplied)} />
+            <Stat label="Perdas em % do faturamento" value={pctText(loss.lossToRevenue)} />
+            <Stat label="Perdas em % do abastecido" value={pctText(loss.lossToSupplied)} />
           </div>
           {loss.incompleteStores > 0 && (
-            <p className="text-xs text-warning">{loss.incompleteStores} loja(s) com reconciliação incompleta (SKU sem custo ou saldo inconsistente) — valores podem estar subestimados.</p>
+            <p className="text-xs text-warning">{loss.incompleteStores} loja(s) com contagem de estoque com falhas (produto sem custo ou saldo que não bate) — as perdas podem estar maiores do que o mostrado.</p>
           )}
           <div className="flex flex-col gap-3 border-t pt-3">
             <p className="text-sm font-semibold">O que mudou nas perdas</p>

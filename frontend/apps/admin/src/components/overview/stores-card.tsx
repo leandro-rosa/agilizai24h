@@ -42,9 +42,9 @@ export function StoresCard({ stores, unavailable }: { stores: StoreSummary | nul
   return (
     <Block title="Resumo da rede" icon={<Store className="size-4 text-primary" />} href="/finance/stores" linkLabel="Ver todas as lojas">
       {unavailable ? (
-        <Unavailable what="DRE por loja" />
+        <Unavailable what="resultado por loja" />
       ) : !stores ? (
-        <NoData what="DRE por loja da competência ou do mês anterior" />
+        <NoData what="resultado por loja deste mês ou do anterior" />
       ) : (
         <>
           <div className="flex items-center gap-6">
@@ -85,7 +85,7 @@ export function StoresCard({ stores, unavailable }: { stores: StoreSummary | nul
           <p className="text-xs text-muted-foreground">
             {stores.basis === "vendas"
               ? `Base: vendas de cada loja (sales-service), ${moneyRound(stores.storesRevenuePreviousCents)} → ${moneyRound(stores.storesRevenueCents)}. `
-              : "Base: receita líquida por loja do DRE (faltam vendas de um dos meses; inclui receita de contrato). "}
+              : "Base: faturamento por loja no resultado do mês (faltam vendas de um dos meses; inclui receita de contrato). "}
             {stores.attention.length > 0 ? `${stores.attention.length} lojas com pontos de atenção (margem, perdas ou resultado) — ver análise completa.` : ""}
           </p>
         </>
