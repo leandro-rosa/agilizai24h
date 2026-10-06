@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
+import { splitAscentyRevenue } from '../rules/ascenty-revenue.rule'
 import {
   computePnl,
   PNL_SECTIONS,
@@ -80,6 +82,8 @@ export interface StorePnlSummary {
   operating_profit_excl_admin_cents: number
 }
 
+const ASCENTY_CATEGORY = 'Prestação de serviços (Ascenty)'
+
 @Injectable()
 export class AccountingService {
   private readonly logger = new Logger(AccountingService.name)
@@ -87,6 +91,7 @@ export class AccountingService {
   constructor(
     private readonly prisma: PrismaClientService,
     private readonly upstream: UpstreamClient,
+    private readonly config: ConfigService,
   ) {}
 
   // ----- plano de contas ----------------------------------------------------
@@ -582,12 +587,16 @@ export class AccountingService {
    * erro lançado por uma loja é capturado e nomeado, sem nunca abortar as
    * demais.
    */
-  async syncFromUpstreams(period: string, correlationId?: string): Promise<{ stores_ok: number[]; stores_failed: number[] }> {
+  async syncFromUpstreams(
+    period: string,
+    correlationId?: string,
+  ): Promise<{ stores_ok: number[]; stores_failed: number[]; unclassified_cents: number }> {
     const mappedAccounts = await this.prisma.account.findMany({
       where: { statement: 'pnl', auto_source: { not: null } },
     })
 
     await this.syncNetworkAccounts(period, mappedAccounts, correlationId)
+    const unclassified_cents = await this.syncServiceRevenue(period, mappedAccounts, correlationId)
 
     const stores = await this.upstream.activeStores(correlationId)
     const stores_ok: number[] = []
@@ -610,7 +619,7 @@ export class AccountingService {
       }
     }
 
-    return { stores_ok, stores_failed }
+    return { stores_ok, stores_failed, unclassified_cents }
   }
 
   private async syncNetworkAccounts(
@@ -629,6 +638,63 @@ export class AccountingService {
 
       await this.putAutoEntry({ account_id: account.id, period, store_id: null, amount_cents: amount, origin: 'treasury' })
     }
+  }
+
+  /**
+   * Mensalidade, coffee break e frutas (receita) não têm categoria própria no
+   * tesouraria: chegam juntas como "Prestação de serviços (Ascenty)" e a
+   * regra de `splitAscentyRevenue` separa pelo valor. A mensalidade soma
+   * também a categoria "Receita - Mensalidade" (ex.: Rolls Royce, que não
+   * passa pela Ascenty). Devolve o que a regra não soube classificar.
+   *
+   * Guarda contra contagem dupla: se o billing-service já gravou linhas por
+   * loja para a conta no período, a rede NÃO recebe a linha derivada do
+   * extrato — o `pnl()` da rede soma tudo sem olhar a origem.
+   */
+  private async syncServiceRevenue(
+    period: string,
+    accounts: { id: number; code: string; auto_source: string | null }[],
+    correlationId?: string,
+  ): Promise<number> {
+    const byCode = new Map(accounts.filter(a => a.auto_source === 'service_revenue_rule').map(a => [a.code, a]))
+    if (byCode.size === 0) return 0
+
+    const cfg = {
+      mensalidade_unit_cents: this.config.get<number>('MENSALIDADE_UNIT_CENTS') ?? 70000,
+      service_unit_cents: this.config.get<number>('ASCENTY_SERVICE_UNIT_CENTS') ?? 6800,
+      coffee_unit_cents: this.config.get<number>('ASCENTY_COFFEE_UNIT_CENTS') ?? 2000,
+    }
+
+    const [amounts, totals] = await Promise.all([
+      this.upstream.treasuryInflowAmounts(period, ASCENTY_CATEGORY, correlationId),
+      this.upstream.treasuryCategoryTotals(period, correlationId),
+    ])
+    const split = splitAscentyRevenue(amounts, cfg)
+
+    const derived: [string, number][] = [
+      ['3.1.03', split.mensalidade_cents + (totals.get('Receita - Mensalidade') ?? 0)],
+      ['3.1.04', split.coffee_cents],
+      ['3.1.05', split.frutas_cents],
+    ]
+
+    for (const [code, amount] of derived) {
+      const account = byCode.get(code)
+      if (!account || amount <= 0) continue
+
+      const perStore = await this.prisma.ledgerEntry.count({ where: { account_id: account.id, period, store_id: { not: null } } })
+      if (perStore > 0) {
+        this.logger.warn(`Conta ${code} em ${period} já tem lançamento por loja (billing); regra da Ascenty não aplicada para não contar em dobro`)
+        continue
+      }
+
+      await this.putAutoEntry({ account_id: account.id, period, store_id: null, amount_cents: amount, origin: 'treasury' })
+    }
+
+    if (split.unclassified_cents > 0) {
+      this.logger.warn(`Ascenty ${period}: R$ ${(split.unclassified_cents / 100).toFixed(2)} em entradas que não batem na regra (nem 700/1400, nem múltiplo de 68) — não entraram no DRE`)
+    }
+
+    return split.unclassified_cents
   }
 
   private async syncStoreAccounts(
@@ -711,7 +777,7 @@ export class AccountingService {
     storeCount: number,
     close: boolean,
     correlationId?: string,
-  ): Promise<ReturnType<typeof this.computeSnapshot> extends Promise<infer T> ? T & { synced: { stores_ok: number[]; stores_failed: number[]; close_failed: number[] } } : never> {
+  ): Promise<ReturnType<typeof this.computeSnapshot> extends Promise<infer T> ? T & { synced: { stores_ok: number[]; stores_failed: number[]; close_failed: number[]; unclassified_cents: number } } : never> {
     if (storeId !== undefined) {
       const mappedAccounts = await this.prisma.account.findMany({
         where: { statement: 'pnl', auto_source: { not: null } },
@@ -732,7 +798,7 @@ export class AccountingService {
       const snapshot = await this.computeSnapshot(period, storeId, storeCount, close)
       return {
         ...snapshot,
-        synced: { stores_ok: stores_failed.length === 0 ? [storeId] : [], stores_failed, close_failed: [] },
+        synced: { stores_ok: stores_failed.length === 0 ? [storeId] : [], stores_failed, close_failed: [], unclassified_cents: 0 },
       }
     }
 

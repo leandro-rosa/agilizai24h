@@ -30,6 +30,22 @@ class EnvironmentVariables {
   @IsNotEmpty()
   TREASURY_SERVICE_URL: string
 
+  /** Regra da receita Ascenty (ver rules/ascenty-revenue.rule.ts). Opcionais: o padrão é o contrato atual. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  MENSALIDADE_UNIT_CENTS?: number
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  ASCENTY_SERVICE_UNIT_CENTS?: number
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  ASCENTY_COFFEE_UNIT_CENTS?: number
+
   @IsOptional()
   @IsInt()
   @Min(1)

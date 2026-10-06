@@ -17,6 +17,7 @@ describe('closeMonth', () => {
     salesRevenueCents: jest.fn(),
     financeFor: jest.fn(),
     treasuryCategoryTotals: jest.fn(),
+    treasuryInflowAmounts: jest.fn(),
   }
 
   beforeAll(async () => {
@@ -30,6 +31,10 @@ describe('closeMonth', () => {
     accounting = app.get(AccountingService)
     prisma = app.get(PrismaClientService)
   }, 60000)
+
+  beforeEach(() => {
+    upstream.treasuryInflowAmounts.mockResolvedValue([])
+  })
 
   afterEach(async () => {
     await prisma.pnlSnapshot.deleteMany({ where: { period } })
@@ -49,7 +54,7 @@ describe('closeMonth', () => {
 
     const result = await accounting.closeMonth(period, undefined, 2, true)
 
-    expect(result.synced).toEqual({ stores_ok: [601, 602], stores_failed: [], close_failed: [] })
+    expect(result.synced).toEqual({ stores_ok: [601, 602], stores_failed: [], close_failed: [], unclassified_cents: 0 })
     expect(result.status).toBe('closed')
     expect(result.store_id).toBeNull()
 
@@ -75,7 +80,7 @@ describe('closeMonth', () => {
     // Finding 3: a single-store close now syncs that store's own data
     // before closing — it just never touches the network or other stores
     // (asserted above via `activeStores` not being called).
-    expect(result.synced).toEqual({ stores_ok: [603], stores_failed: [], close_failed: [] })
+    expect(result.synced).toEqual({ stores_ok: [603], stores_failed: [], close_failed: [], unclassified_cents: 0 })
     expect(upstream.salesRevenueCents).toHaveBeenCalledWith(603, period, undefined)
   })
 

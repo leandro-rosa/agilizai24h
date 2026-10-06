@@ -169,7 +169,7 @@ export const accountingApi = createApi({
       invalidatesTags: ["Ledger"],
     }),
     computePnl: builder.mutation<
-      PnlSnapshot & { synced: { stores_ok: number[]; stores_failed: number[]; close_failed: number[] } },
+      PnlSnapshot & { synced: { stores_ok: number[]; stores_failed: number[]; close_failed: number[]; unclassified_cents: number } },
       { period: string; storeId?: number; storeCount: number; close?: boolean }
     >({
       query: ({ period, storeId, storeCount, close }) => {
