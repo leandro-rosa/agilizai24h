@@ -1,4 +1,5 @@
 import { moneyCompact, date, period as fmtPeriod } from "../format";
+import { OVERDUE } from "./overdue";
 import { rankScore } from "./ranking";
 import type { CashSummary, Insight, LossSummary, ProductsSummary, StoreSummary, WatchItem } from "./types";
 import type { SalesCoverage } from "./sales-coverage";
@@ -79,14 +80,19 @@ export function buildWatchlist(i: WatchInput): WatchItem[] {
     c.push({ id: "teste:mais-dados", kind: "teste", title: `${needMore} ${needMore === 1 ? "produto em teste ainda sem" : "produtos em teste ainda sem"} histórico suficiente`, observation: "O sinal só sai com mais meses de venda e unidades; hoje é só observação.", href: "/supply", score: 0.15 });
   }
 
-  if (i.cash.overdueCents !== null && i.cash.overdueCents > 0) {
+  // Atraso de poucos dias é, em geral, baixa/compensação pendente (o extrato ainda não entrou): só o que passa da faixa curta merece atenção.
+  const od = i.cash.overdueDetail;
+  const overdueCents = od ? od.long.cents : i.cash.overdueCents;
+  if (overdueCents !== null && overdueCents > 0) {
     c.push({
       id: "caixa:vencido",
       kind: "caixa",
-      title: "A receber vencido",
-      observation: `${moneyCompact(i.cash.overdueCents)} vencidos${i.cash.agingReference ? ` na posição de ${date(i.cash.agingReference)}` : ""}${i.cash.notDueCents === 0 ? "; nenhuma nota a vencer" : ""}.`,
+      title: od ? "Notas vencidas há mais tempo" : "A receber vencido",
+      observation: od
+        ? `${moneyCompact(od.long.cents)} em ${od.long.count} ${od.long.count === 1 ? "nota vencida" : "notas vencidas"} há mais de ${OVERDUE.SHORT_DAYS} dias${i.cash.agingReference ? ` (posição de ${date(i.cash.agingReference)})` : ""}.`
+        : `${moneyCompact(overdueCents)} vencidos${i.cash.agingReference ? ` na posição de ${date(i.cash.agingReference)}` : ""}${i.cash.notDueCents === 0 ? "; nenhuma nota a vencer" : ""}.`,
       href: "/billing/invoices",
-      score: rankScore({ impactCents: i.cash.overdueCents, baseCents: i.revenueBase, share: 0.5 }),
+      score: rankScore({ impactCents: overdueCents, baseCents: i.revenueBase, share: 0.5 }),
     });
   }
 

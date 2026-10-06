@@ -7,6 +7,7 @@ import type { Comparison, RateDelta, ValueDelta } from "./compare";
 import type { Distribution, ProductBehavior } from "./product-behavior";
 import type { SalesCoverage } from "./sales-coverage";
 import type { CatalogueItem, LinkDecision, SkuSuggestion } from "./sku-match";
+import type { OpenInvoice, OverdueDetail } from "./overdue";
 import type { SupplyCell, TestsSummary } from "./tests";
 
 export interface NetworkPnlMonth {
@@ -104,7 +105,7 @@ export interface OverviewInput {
   skuLinks: LinkDecision[];
   /** Abastecimento por loja × mês × SKU (9 meses até a competência); base de "produtos em teste". */
   supply: { cells: SupplyCell[]; ingestedPeriods: string[] } | null;
-  aging: { referenceDate: string; overdueCents: number; notDueCents: number; openCents: number } | null;
+  aging: { referenceDate: string; overdueCents: number; notDueCents: number; openCents: number; openInvoices?: OpenInvoice[] } | null;
   /** Fechamento do mês na rede. */
   closed: boolean;
   /** O mês anterior (base da comparação) também está fechado no DRE? Se não, a comparação é provisória. */
@@ -301,6 +302,8 @@ export interface CashSummary {
   overdueCents: number | null;
   notDueCents: number | null;
   agingReference: string | null;
+  /** Notas vencidas por cliente e dias de atraso; null = nenhuma vencida (ou sem notas em aberto para detalhar). */
+  overdueDetail: OverdueDetail | null;
   /** Fato composto: resultado operacional positivo com caixa em queda. */
   operatingPositiveCashFell: boolean;
   cashDeltaCents: number | null;

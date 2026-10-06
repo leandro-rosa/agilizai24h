@@ -485,6 +485,10 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   Compara unidades dos reajustados × demais e cita o calendário (31 × 30 dias); é observação, nunca causa. Faturamento
   caindo com reajuste entra em "O que acompanhar". set/2026 real: 51 reajustados (50 subiram), unidades −14,2% nos
   reajustados × +2,4% nos demais, preço +R$ 5,3 mil, volume −R$ 8,9 mil (estimativa).
+- **Notas vencidas** (`lib/overview/overdue.ts`): "A receber vencido" vira "Notas vencidas e não pagas" com cliente e dias de atraso
+  (notas em aberto de `GET /billing/invoices?status=issued`). Ascenty e Rolls-Royce pagam 30 dias após a emissão. O billing grava
+  `paid_on` = `due_on` nas notas baixadas (não é a data real do banco), então o histórico não mostra o atraso habitual. Atraso de até
+  `OVERDUE.SHORT_DAYS` (5, PREMISSA) é tratado como baixa pendente (extrato não lançado) e NÃO entra em "O que acompanhar"; só o que passa disso.
 - **Definições fixas** (aparecem na tela): Faturamento = receita líquida do DRE;
   Margem operacional = resultado operacional ÷ receita líquida; perda sempre com
   os dois denominadores (÷ receita líquida, ÷ custo abastecido); participação por
