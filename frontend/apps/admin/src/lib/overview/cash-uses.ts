@@ -1,5 +1,6 @@
 import { avgOfAll, valueDelta } from "./compare";
 import { isMaterial } from "./materiality";
+import { rankScore, recurrenceOf } from "./ranking";
 import type { CapexSummary, CashSummary, CashUseLine, CashUses, InvestorsSummary, MonthInput } from "./types";
 
 /** Categoria do de-para para o que os sócios pagam no cartão pessoal (cai como investimento no Fluxo de caixa). */
@@ -8,51 +9,64 @@ const PARTNER_CARD = /s[óo]cio/i;
 /** Categoria do de-para que representa compra de estoque (`Estoque`, nature cogs). */
 const STOCK_CATEGORY = "Estoque";
 
-function line(key: string, label: string, vals: (number | null)[], revenue: number | null): CashUseLine {
-  const [cur, prev] = vals;
-  const last3 = vals.slice(1, 4);
-  const d = valueDelta(cur, prev);
-  return {
-    key,
-    label,
-    currentCents: cur ?? 0,
-    previousCents: prev,
-    avg3Cents: avgOfAll(last3),
-    deltaCents: d.abs,
-    deltaPct: d.pct,
-    material: isMaterial({ deltaAbs: d.abs, deltaPct: d.pct, base: revenue }),
-  };
-}
+/** Uma saída pesa se for pelo menos esta fatia do total de despesas do mês. PREMISSA inicial. */
+export const CASH_USES = { WEIGHT_MIN: 0.15, MAX_LINES: 5 } as const;
+
+const labelOf = (category: string) => (category === STOCK_CATEGORY ? "Compras de estoque" : category);
 
 const cat = (m: MonthInput, name: string): number | null =>
   m.treasury ? m.treasury.byCategory.filter((c) => c.category === name).reduce((s, c) => s + c.outflowCents, 0) : null;
 
+/**
+ * Seleciona os movimentos financeiros materialmente relevantes do mês — sem categoria
+ * fixa. Toda categoria de despesa da tesouraria concorre; entra quem (a) variou de forma
+ * material vs. o mês anterior (e vs. a média 3m, quando existe) e/ou (b) pesa no total
+ * de despesas. A ordem é por relevância (impacto em R$, peso e recorrência), não por %.
+ */
 export function buildCashUses(months: MonthInput[]): CashUses | null {
   const [cur, prev] = months;
-  if (!cur.treasury && !cur.capex) return null;
+  if (!cur.treasury) return null;
   const revenue = cur.pnl?.netRevenueCents ?? null;
+  const revenueBase = prev.pnl?.netRevenueCents ?? revenue;
+  const total = cur.treasury.byCategory.reduce((acc, c) => acc + c.outflowCents, 0);
 
-  const stock = cur.treasury ? line("stock", "Compras de estoque", months.map((m) => cat(m, STOCK_CATEGORY)), revenue) : null;
-  // CAPEX = saídas de natureza investimento, como o Fluxo de caixa classifica (inclui o que sócios pagam no cartão).
-  const capex = cur.treasury ? line("capex", "CAPEX", months.map((m) => m.treasury?.investmentCents ?? null), revenue) : null;
-
-  const names = new Set(cur.treasury?.byCategory.map((c) => c.category) ?? []);
-  const expenses: CashUseLine[] = [];
-  for (const name of names) {
-    if (name === STOCK_CATEGORY) continue;
-    const l = line(`cat:${name}`, name, months.map((m) => cat(m, name)), revenue);
-    // Só o que saiu do comportamento: relevante vs. mês anterior E vs. a média, quando há média.
-    const d3 = valueDelta(l.currentCents, l.avg3Cents);
-    const vsAvg = l.avg3Cents === null ? true : isMaterial({ deltaAbs: d3.abs, deltaPct: d3.pct, base: revenue });
-    if (l.material && vsAvg) expenses.push(l);
+  const lines: CashUseLine[] = [];
+  for (const name of new Set(cur.treasury.byCategory.map((c) => c.category))) {
+    const vals = months.map((m) => cat(m, name));
+    const [now, before] = vals;
+    const last3 = vals.slice(1, 4);
+    const d = valueDelta(now, before);
+    const d3 = valueDelta(now, avgOfAll(last3));
+    const materialVsPrev = isMaterial({ deltaAbs: d.abs, deltaPct: d.pct, base: revenue });
+    // Vs. a média só desqualifica quando há média: oscilação normal do próprio item não é notícia.
+    const materialVsAvg = avgOfAll(last3) === null ? true : isMaterial({ deltaAbs: d3.abs, deltaPct: d3.pct, base: revenue });
+    const share = total > 0 && now !== null ? now / total : null;
+    const reasons: CashUseLine["reasons"] = [];
+    if (materialVsPrev && materialVsAvg) reasons.push("variacao");
+    if (share !== null && share >= CASH_USES.WEIGHT_MIN) reasons.push("peso");
+    if (reasons.length === 0) continue;
+    lines.push({
+      key: `cat:${name}`,
+      label: labelOf(name),
+      currentCents: now ?? 0,
+      previousCents: before,
+      avg3Cents: avgOfAll(last3),
+      deltaCents: d.abs,
+      deltaPct: d.pct,
+      material: materialVsPrev && materialVsAvg,
+      shareOfOutflow: share,
+      reasons,
+      score: rankScore({ impactCents: d.abs, baseCents: revenueBase, share, recurrence: recurrenceOf([...vals].reverse()) }),
+    });
   }
-  expenses.sort((a, b) => Math.abs(b.deltaCents ?? 0) - Math.abs(a.deltaCents ?? 0));
+  lines.sort((a, b) => b.score - a.score);
+  const selected = lines.slice(0, CASH_USES.MAX_LINES);
 
+  const stock = selected.find((l) => l.key === `cat:${STOCK_CATEGORY}`);
   const revenueDelta = valueDelta(cur.pnl?.netRevenueCents ?? null, prev.pnl?.netRevenueCents ?? null);
   return {
-    stock,
-    capex,
-    expenses: expenses.slice(0, 5),
+    lines: selected,
+    totalOutflowCents: total,
     stockVsRevenue: stock ? { stockDeltaPct: stock.deltaPct, revenueDeltaPct: revenueDelta.pct } : null,
   };
 }

@@ -31,7 +31,8 @@ export function cashMonth(c: CashFlowSummary | null | undefined): CashMonth | nu
  * o TOTAL vem do resumo (`by_nature`), a mesma conta do Fluxo de caixa. Lançamento neutralizado fica de fora.
  */
 export function treasuryMonth(s: TransactionSummary | null | undefined, investments: BankTransaction[] | null | undefined = null): TreasuryMonth | null {
-  if (!s) return null;
+  // Mês sem nenhum lançamento = SEM DADOS (a tesouraria nunca importou o mês), não "R$ 0 de investimento".
+  if (!s || s.transaction_count === 0) return null;
   const byCat = new Map<string, number>();
   for (const t of investments ?? []) {
     if (t.direction !== "outflow" || t.neutralized_with_id !== null) continue;
@@ -78,7 +79,8 @@ const itemCost = (i: InvestmentItem) => (i.financed_amount_cents > 0 ? i.finance
 
 /** CAPEX = itens fixos/iniciais datados no mês. `operating_expense` é despesa, não CAPEX — nunca se mistura. */
 export function capexMonth(items: InvestmentItem[] | undefined, period: string): CapexMonth | null {
-  if (!items) return null;
+  // Nenhum item cadastrado em lugar nenhum = sem dados; itens existem mas nenhum no mês = zero de verdade.
+  if (!items || items.length === 0) return null;
   const inMonth = items.filter((i) => i.purchased_on.slice(0, 7) === period && i.investment_kind !== "operating_expense");
   const byCat = new Map<string, number>();
   let total = 0;
@@ -94,7 +96,7 @@ export function capexMonth(items: InvestmentItem[] | undefined, period: string):
 
 /** Aportes (único tipo de movimento que existe) por mês de `contributed_on`. */
 export function investorMonth(contributions: InvestorContribution[] | undefined, period: string): InvestorMonth | null {
-  if (!contributions) return null;
+  if (!contributions || contributions.length === 0) return null;
   const inMonth = contributions.filter((c) => c.contributed_on.slice(0, 7) === period);
   const byKind = new Map<string, number>();
   for (const c of inMonth) byKind.set(c.kind, (byKind.get(c.kind) ?? 0) + c.amount_cents);

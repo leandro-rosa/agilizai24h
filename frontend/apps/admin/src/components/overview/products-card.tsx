@@ -1,40 +1,49 @@
 import { Package } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { count, period as fmtPeriod } from "@/lib/format";
-import { signedPct, signedPp } from "@/lib/overview/compare";
+import { signedPct } from "@/lib/overview/compare";
 import { BEHAVIOR_LABELS, distributionText } from "@/lib/overview/product-behavior";
+import { baseText } from "@/lib/overview/ranking";
 import type { ProductRow, ProductsSummary } from "@/lib/overview/types";
-import { Block, moneyRound, pctText, Unavailable } from "./shared";
+import { Block, moneyRound, NoData, pctText, Unavailable } from "./shared";
 import { Sparkline } from "./sparkline";
+
+/** Resumo executivo: só 5 linhas por aba e 5 colunas. A análise por loja abre ao clicar no produto. */
+const ROWS = 5;
 
 function Row({ r, onOpen }: { r: ProductRow; onOpen: (r: ProductRow) => void }) {
   const tone = r.behavior === "crescimento_consistente" ? "up" : r.behavior === "queda_consistente" ? "down" : (r.deltaRevenuePct ?? 0) > 0.02 ? "up" : (r.deltaRevenuePct ?? 0) < -0.02 ? "down" : "flat";
   return (
-    <TableRow>
-      <TableCell className="max-w-48 truncate font-medium" title={r.name}>{r.name}</TableCell>
+    <TableRow className="cursor-pointer" onClick={() => onOpen(r)}>
+      <TableCell className="max-w-56 truncate font-medium">
+        <button type="button" className="max-w-full truncate text-left hover:underline" title={`Ver por loja: ${r.name}`} onClick={() => onOpen(r)}>
+          {r.name}
+        </button>
+      </TableCell>
       <TableCell className="tabular text-right">{count(r.units)}</TableCell>
       <TableCell className="tabular text-right">{moneyRound(r.revenueCents)}</TableCell>
-      <TableCell className="tabular text-right" title={r.marginUnresolved ? "Parte das vendas sem custo resolvido — fora da margem" : undefined}>
-        {pctText(r.marginPct, 0)}
-        {r.marginDeltaPp !== null && Math.abs(r.marginDeltaPp) >= 1 ? <span className="ml-1 text-xs text-muted-foreground">({signedPp(r.marginDeltaPp, 0)})</span> : null}
+      <TableCell className="text-right">
+        {r.unitsPrevious === null ? (
+          <span className="text-xs text-muted-foreground">sem base</span>
+        ) : (
+          <>
+            <p className="tabular text-sm">{r.deltaUnitsPct === null ? "novo no mês" : signedPct(r.deltaUnitsPct, 0)}</p>
+            {/* A base sempre à vista: "+1.087%" sozinho engana, "1 → 12 un." não. */}
+            <p className="tabular text-[11px] text-muted-foreground">{baseText(r.unitsPrevious, r.units, (n) => count(n), "un.")}</p>
+          </>
+        )}
       </TableCell>
-      <TableCell className="tabular text-right">{r.deltaRevenuePct === null ? <span className="text-muted-foreground">sem comparação</span> : signedPct(r.deltaRevenuePct, 0)}</TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
           <Sparkline values={r.series} tone={tone} />
-          <span className="text-xs text-muted-foreground" title={r.behavior === "novo" ? "Sem vendas nos meses anteriores: pode ser produto novo OU um produto que trocou de código (SKU). O sistema não liga um código ao outro." : undefined}>{BEHAVIOR_LABELS[r.behavior]}</span>
+          <span className="hidden text-xs text-muted-foreground 2xl:inline" title={r.behavior === "novo" ? "Sem vendas nos meses anteriores: pode ser produto novo OU um produto que trocou de código (SKU)." : undefined}>
+            {BEHAVIOR_LABELS[r.behavior]}
+          </span>
         </div>
-      </TableCell>
-      <TableCell className="whitespace-normal">
-        <Button variant="link" size="sm" className="h-auto min-w-40 justify-start p-0 text-left text-xs whitespace-normal" onClick={() => onOpen(r)}>
-          {distributionText(r.distribution) ?? "Ver lojas"}
-        </Button>
       </TableCell>
     </TableRow>
   );
@@ -48,26 +57,27 @@ function Rows({ rows, empty, onOpen }: { rows: ProductRow[]; empty: string; onOp
         <TableRow>
           <TableHead>Produto</TableHead>
           <TableHead className="text-right">Unidades</TableHead>
-          <TableHead className="text-right">Faturamento</TableHead>
-          <TableHead className="text-right">Margem</TableHead>
+          <TableHead className="text-right">Receita</TableHead>
           <TableHead className="text-right">vs. mês anterior</TableHead>
-          <TableHead>Tendência (6 meses)</TableHead>
-          <TableHead>Por loja (clique)</TableHead>
+          <TableHead>Tendência</TableHead>
         </TableRow>
       </TableHeader>
-      <TableBody>{rows.map((r) => <Row key={r.sku} r={r} onOpen={onOpen} />)}</TableBody>
+      <TableBody>{rows.slice(0, ROWS).map((r) => <Row key={r.sku} r={r} onOpen={onOpen} />)}</TableBody>
     </Table>
   );
 }
 
-export function ProductsCard({ products, loading, previousPeriod }: { products: ProductsSummary | null; loading: boolean; previousPeriod: string }) {
+export function ProductsCard({ products, loading, previousPeriod, unavailable }: { products: ProductsSummary | null; loading: boolean; previousPeriod: string; unavailable?: boolean }) {
   const [open, setOpen] = useState<ProductRow | null>(null);
+  const noBase = `Sem vendas de ${fmtPeriod(previousPeriod)} importadas para comparar.`;
   return (
     <Block title="Produtos — desempenho do mês" icon={<Package className="size-4 text-primary" />} href="/commercial-intelligence" className="min-w-0">
-      {loading && !products ? (
+      {unavailable ? (
+        <Unavailable what="erro ao buscar vendas" />
+      ) : loading && !products ? (
         <p className="text-sm text-muted-foreground">Carregando vendas de todas as lojas…</p>
       ) : !products ? (
-        <Unavailable what="vendas do mês não importadas" />
+        <NoData what="vendas do mês não importadas" />
       ) : (
         <Tabs defaultValue="top">
           <TabsList>
@@ -78,11 +88,11 @@ export function ProductsCard({ products, loading, previousPeriod }: { products: 
           </TabsList>
           <div className="overflow-x-auto">
             <TabsContent value="top"><Rows onOpen={setOpen} rows={products.topSold} empty="Sem vendas no mês." /></TabsContent>
-            <TabsContent value="up"><Rows onOpen={setOpen} rows={products.rising} empty={products.hasComparison ? "Nenhum produto com alta material." : `Sem vendas de ${fmtPeriod(previousPeriod)} importadas para comparar.`} /></TabsContent>
-            <TabsContent value="down"><Rows onOpen={setOpen} rows={products.falling} empty={products.hasComparison ? "Nenhum produto com queda material." : `Sem vendas de ${fmtPeriod(previousPeriod)} importadas para comparar.`} /></TabsContent>
+            <TabsContent value="up"><Rows onOpen={setOpen} rows={products.rising} empty={products.hasComparison ? "Nenhum produto com alta material." : noBase} /></TabsContent>
+            <TabsContent value="down"><Rows onOpen={setOpen} rows={products.falling} empty={products.hasComparison ? "Nenhum produto com queda material." : noBase} /></TabsContent>
             <TabsContent value="change"><Rows onOpen={setOpen} rows={products.relevantChange} empty="Nenhuma mudança de comportamento relevante." /></TabsContent>
           </div>
-          <p className="pt-2 text-xs text-muted-foreground">Margem = (receita − custo unitário datado × unidades) ÷ receita, só sobre SKUs com custo resolvido. Classificações são evidência, não decisão.</p>
+          <p className="pt-2 text-xs text-muted-foreground">Clique no produto para ver quais lojas venderam. Mostra os {ROWS} mais relevantes de cada aba; o restante está em “Ver análise completa”.</p>
         </Tabs>
       )}
       <ProductStoresDialog row={open} onClose={() => setOpen(null)} previousPeriod={previousPeriod} />
@@ -91,14 +101,15 @@ export function ProductsCard({ products, loading, previousPeriod }: { products: 
 }
 
 /**
- * Em quais lojas o produto vendeu e em quais não. "Sem venda no mês" NÃO diz que
- * a loja não tem o produto no mix — só que não houve venda registrada; pode ser
- * produto fora do mix, falta de abastecimento ou venda zerada.
+ * Análise por loja, aberta ao clicar no produto. "Sem venda no mês" NÃO diz que a loja
+ * não tem o produto no mix — só que não houve venda registrada; pode ser produto fora
+ * do mix, falta de abastecimento ou venda zerada.
  */
 function ProductStoresDialog({ row, onClose, previousPeriod }: { row: ProductRow | null; onClose: () => void; previousPeriod: string }) {
   const sold = row?.byStore.filter((x) => x.units > 0).sort((a, b) => b.units - a.units) ?? [];
   const notSold = row?.byStore.filter((x) => x.units === 0).sort((a, b) => a.name.localeCompare(b.name)) ?? [];
   const hadBefore = notSold.filter((x) => (x.unitsPrevious ?? 0) > 0);
+  const dist = row ? distributionText(row.distribution) : null;
   return (
     <Dialog open={row !== null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
@@ -106,6 +117,8 @@ function ProductStoresDialog({ row, onClose, previousPeriod }: { row: ProductRow
           <DialogTitle>{row?.name}</DialogTitle>
           <DialogDescription>
             Vendeu em {sold.length} de {row?.byStore.length ?? 0} lojas ativas no mês. Unidades vendidas, mês vs. {fmtPeriod(previousPeriod)}.
+            {dist ? ` ${dist[0].toUpperCase()}${dist.slice(1)}.` : ""}
+            {row && row.marginPct !== null ? ` Margem ${pctText(row.marginPct, 0)} (custo datado)${row.marginUnresolved ? ", parte das vendas sem custo resolvido" : ""}.` : ""}
           </DialogDescription>
         </DialogHeader>
         <Table>

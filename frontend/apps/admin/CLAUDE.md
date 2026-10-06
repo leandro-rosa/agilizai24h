@@ -470,6 +470,15 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   compõe as queries existentes (fan-out de vendas por loja × mês, série de
   finance por loja, caixa/resumo da tesouraria por mês). Seção que falhou entra
   como `null` e vira "Indisponível".
+- **Hierarquia executiva** (refino 2026-10-06): a tela responde "como foi o mês? o que mudou? onde? o que
+  acompanhar?" — KPIs (com valor do mês anterior), Destaques (`highlights.ts`), "O que mudou" (`insights.ts`),
+  lojas que EXPLICAM o crescimento/queda (`stores.ts` `explainers`), produtos em 5 colunas com análise por loja só
+  no clique, perdas com "o que mudou" (`loss.ts` `lossChanges`), movimentos financeiros escolhidos pelos dados
+  (`cash-uses.ts`), e "O que merece atenção no próximo mês" (`watchlist.ts`, ≤ 5, só observação, nunca causa).
+  Ordem dos insights = `ranking.ts` `rankScore` (impacto R$, representatividade, recorrência, lojas) — NÃO o tamanho do %;
+  limiares são PREMISSA a validar. Percentual que distorce mostra a base ("1 → 12 un.", `needsBase`/`baseText`).
+  Dado × zero × sem dados: `null` = sem dados (cartão "Sem dados"), erro de busca = "Indisponível", zero só com fonte existente.
+  O PDF repete a mesma lógica em 4 páginas (`pdf/report.tsx`), não imprime a tela.
 - **Definições fixas** (aparecem na tela): Faturamento = receita líquida do DRE;
   Margem operacional = resultado operacional ÷ receita líquida; perda sempre com
   os dois denominadores (÷ receita líquida, ÷ custo abastecido); participação por

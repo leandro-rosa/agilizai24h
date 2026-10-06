@@ -83,7 +83,8 @@ export function useMonthlyOverview(period: string | null) {
     const months = periods.map((per) => ({
       period: per,
       pnl: pnlMonth(pnlSeries.data, per),
-      cash: cashMonth(treasuryByPeriod.get(per)?.cash),
+      // Caixa só vale se a tesouraria tem lançamentos no mês; senão é "sem dados", nunca saldo zero.
+      cash: (treasuryByPeriod.get(per)?.summary?.transaction_count ?? 0) > 0 ? cashMonth(treasuryByPeriod.get(per)?.cash) : null,
       treasury: treasuryMonth(treasuryByPeriod.get(per)?.summary, treasuryByPeriod.get(per)?.investments),
       finance: financeMonth(finance.data, per),
       capex: capexMonth(items.data, per),

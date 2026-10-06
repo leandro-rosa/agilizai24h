@@ -1,6 +1,23 @@
 import { isMaterial, MATERIALITY } from "./materiality";
 import { valueDelta } from "./compare";
-import type { StoreAttention, StoreContribution, StoreMonthPnl, StoreSummary } from "./types";
+import type { StoreAttention, StoreContribution, StoreExplainers, StoreMonthPnl, StoreSummary } from "./types";
+
+/** As lojas que juntas explicam ao menos esta parcela do movimento (no máximo MAX_EXPLAINERS). PREMISSA inicial. */
+export const EXPLAINERS = { COVER: 0.6, MAX: 5 } as const;
+
+export function explainers(moves: StoreContribution[]): StoreExplainers {
+  const sorted = [...moves].sort((a, b) => Math.abs(b.deltaCents) - Math.abs(a.deltaCents));
+  const total = sorted.reduce((acc, m) => acc + Math.abs(m.deltaCents), 0);
+  const picked: (StoreContribution & { share: number })[] = [];
+  let covered = 0;
+  for (const m of sorted) {
+    if (total === 0 || picked.length >= EXPLAINERS.MAX || covered >= EXPLAINERS.COVER) break;
+    const share = Math.abs(m.deltaCents) / total;
+    picked.push({ ...m, share });
+    covered += share;
+  }
+  return { totalCents: total, stores: picked, coveredShare: covered, storeCount: moves.length };
+}
 
 const money = (cents: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(cents / 100);
@@ -51,7 +68,7 @@ export function buildStoreSummary(
     basisPrevious += prevRev;
     const d = valueDelta(curRev, prevRev);
     const moved = d.pct === null ? (curRev > 0 ? 1 : 0) : d.pct;
-    const contribution = { storeId: s.storeId, name: s.name, deltaCents: d.abs ?? 0, deltaPct: d.pct };
+    const contribution = { storeId: s.storeId, name: s.name, deltaCents: d.abs ?? 0, deltaPct: d.pct, previousCents: prevRev, currentCents: curRev };
     // As listas de contribuição seguem a mesma classificação dos contadores: loja "estável" não é citada como crescimento nem queda.
     if (moved > MATERIALITY.STORE_STABLE_BAND) {
       up += 1;
@@ -86,8 +103,10 @@ export function buildStoreSummary(
     up,
     down,
     stable,
-    topGrowth: ups.sort((a, b) => b.deltaCents - a.deltaCents).slice(0, 3),
-    topDecline: downs.sort((a, b) => a.deltaCents - b.deltaCents).slice(0, 3),
+    topGrowth: [...ups].sort((a, b) => b.deltaCents - a.deltaCents).slice(0, 3),
+    topDecline: [...downs].sort((a, b) => a.deltaCents - b.deltaCents).slice(0, 3),
+    growthExplainers: explainers(ups),
+    declineExplainers: explainers(downs),
     attention: attention.sort((a, b) => b.reasons.length - a.reasons.length || (a.deltaCents ?? 0) - (b.deltaCents ?? 0)).slice(0, 5),
   };
 }

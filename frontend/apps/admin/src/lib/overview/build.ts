@@ -1,5 +1,6 @@
 import { addMonths } from "../period-range";
 import { buildCapex, buildCashSummary, buildCashUses, buildInvestors } from "./cash-uses";
+import { buildHighlights } from "./highlights";
 import { buildInsights } from "./insights";
 import { buildKpis } from "./kpis";
 import { buildLoss } from "./loss";
@@ -9,6 +10,7 @@ import { buildTests } from "./tests";
 import { buildReading } from "./reading";
 import { checkSalesCoverage } from "./sales-coverage";
 import { buildStoreSummary } from "./stores";
+import { buildWatchlist } from "./watchlist";
 import type { Overview, OverviewInput } from "./types";
 
 /** Limites declarados — viram texto da tela e do PDF, não rodapé escondido. */
@@ -94,6 +96,24 @@ export function buildOverview(input: OverviewInput): Overview {
     capex,
     revenueCents: prev.pnl?.netRevenueCents ?? null,
     revenueCurrentCents: cur.pnl?.netRevenueCents ?? null,
+    // Séries do mais antigo ao mais novo (months vem competência primeiro).
+    series: { revenue: [...months].reverse().map((m) => m.pnl?.netRevenueCents ?? null), loss: [...months].reverse().map((m) => m.finance?.lossValueCents ?? null) },
+  });
+  const highlights = buildHighlights({ products, stores, insights, revenueBase: prev.pnl?.netRevenueCents ?? null });
+  const coverage = { current: coverageFor(period), previous: coverageFor(previousPeriod) };
+  const watchlist = buildWatchlist({
+    period,
+    previousPeriod,
+    previousClosed: input.previousClosed,
+    revenueBase: prev.pnl?.netRevenueCents ?? null,
+    insights,
+    products,
+    stores,
+    tests,
+    loss,
+    cash,
+    coverage,
+    pendingSkuSuggestions: skuSuggestions.length,
   });
 
   return {
@@ -105,9 +125,11 @@ export function buildOverview(input: OverviewInput): Overview {
     closedAt: cur.pnl?.computedAt ?? null,
     kpis,
     insights,
+    highlights,
+    watchlist,
     stores,
     products,
-    salesCoverage: { current: coverageFor(period), previous: coverageFor(previousPeriod) },
+    salesCoverage: coverage,
     tests,
     skuSuggestions,
     loss,

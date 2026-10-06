@@ -43,6 +43,26 @@ function input(): OverviewInput {
   };
 }
 
+const salesCell = (storeId: number, period: string, revenueCents: number) => ({ storeId, period, sku: "A", quantity: 1, revenueCents });
+// DRE por loja (receita líquida, mistura venda com receita de contrato) diz que TODAS caíram; a venda registrada mostra o contrário em 2 lojas.
+const salesInput = (): OverviewInput => ({
+  ...input(),
+  storeList: [{ id: 1, name: "HTL05" }, { id: 2, name: "Ascenty ADM" }, { id: 3, name: "Itaquá" }, { id: 4, name: "Mogi" }],
+  sales: {
+    ingestedPeriods: ["2026-09", "2026-10"],
+    seriesPeriods: ["2026-09", "2026-10"],
+    cells: [
+      salesCell(1, "2026-09", 1_000_000), salesCell(1, "2026-10", 1_300_000), // +30%
+      salesCell(2, "2026-09", 1_000_000), salesCell(2, "2026-10", 1_100_000), // +10%
+      salesCell(3, "2026-09", 1_000_000), salesCell(3, "2026-10", 800_000), // -20%
+      salesCell(4, "2026-09", 1_000_000), salesCell(4, "2026-10", 1_010_000), // +1% (estável)
+    ],
+  },
+});
+
+const salesInputWith = (cells: ReturnType<typeof salesCell>[]): OverviewInput => ({ ...salesInput(), sales: { ...salesInput().sales!, cells } });
+
+
 describe("buildOverview", () => {
   const o = buildOverview(input());
 
@@ -73,23 +93,6 @@ describe("buildOverview", () => {
     expect(o.stores!.attention.map((s) => s.name)).toContain("Itaquá");
   });
 
-  const salesCell = (storeId: number, period: string, revenueCents: number) => ({ storeId, period, sku: "A", quantity: 1, revenueCents });
-  // DRE por loja (receita líquida, mistura venda com receita de contrato) diz que TODAS caíram; a venda registrada mostra o contrário em 2 lojas.
-  const salesInput = (): OverviewInput => ({
-    ...input(),
-    storeList: [{ id: 1, name: "HTL05" }, { id: 2, name: "Ascenty ADM" }, { id: 3, name: "Itaquá" }, { id: 4, name: "Mogi" }],
-    sales: {
-      ingestedPeriods: ["2026-09", "2026-10"],
-      seriesPeriods: ["2026-09", "2026-10"],
-      cells: [
-        salesCell(1, "2026-09", 1_000_000), salesCell(1, "2026-10", 1_300_000), // +30%
-        salesCell(2, "2026-09", 1_000_000), salesCell(2, "2026-10", 1_100_000), // +10%
-        salesCell(3, "2026-09", 1_000_000), salesCell(3, "2026-10", 800_000), // -20%
-        salesCell(4, "2026-09", 1_000_000), salesCell(4, "2026-10", 1_010_000), // +1% (estável)
-      ],
-    },
-  });
-
   it("store growth follows the stores' sales, not the DRE net revenue that mixes in contract revenue", () => {
     const dreOnly = buildOverview(input());
     expect(dreOnly.stores!.basis).toBe("dre");
@@ -112,7 +115,8 @@ describe("buildOverview", () => {
     });
     const ins = x.insights.find((i) => i.id === "stores-vs-network")!;
     expect(ins.title).toMatch(/Vendas das lojas cresceram 5,3%, contra −18,2% da receita líquida da rede/);
-    expect(ins.detail).toMatch(/2 cresceram, 1 recuaram e 1 ficaram estáveis/);
+    expect(ins.detail).toMatch(/2 cresceram, 1 recuaram, 1 estáveis/);
+    expect(ins.detail.replace(/\u00a0/g, " ")).toMatch(/R\$ 40 mil → R\$ 42,1 mil/); // base das lojas sempre visível
   });
 
   it("a revenue fall names the stores that fell most, not the ones that grew", () => {
@@ -121,7 +125,7 @@ describe("buildOverview", () => {
       months: input().months.map((m, i) => (i === 0 ? { ...m, pnl: pnl(10_000_000, 4_000_000, 2_000_000) } : m)),
     });
     expect(x.insights[0].title).toMatch(/Faturamento caiu/);
-    expect(x.insights[0].detail).toMatch(/maiores quedas em Itaquá/);
+    expect(x.insights[0].detail).toMatch(/1 loja explica 100% da queda: Itaquá/);
   });
 
   it("a drop in losses is reported even though it is small against revenue", () => {
@@ -149,10 +153,23 @@ describe("buildOverview", () => {
     expect(o.capex!.current!.totalCents).toBe(1_240_000);
   });
 
-  it("capex stays separate from stock purchases and shows its own delta", () => {
-    expect(o.cashUses!.capex!.deltaPct).toBeCloseTo((1_240_000 - 1_900_000) / 1_900_000);
-    expect(o.cashUses!.stock!.currentCents).toBe(2_360_000);
-    expect(o.cashUses!.expenses.map((e) => e.label)).not.toContain("Estoque");
+  it("financial movements are selected from the data (variation and weight), never from fixed categories", () => {
+    const inp = input();
+    inp.months[0].treasury = { ...inp.months[0].treasury!, byCategory: [...inp.months[0].treasury!.byCategory, { category: "Manutenção", outflowCents: 600_000 }] };
+    inp.months[1].treasury = { ...inp.months[1].treasury!, byCategory: [...inp.months[1].treasury!.byCategory, { category: "Manutenção", outflowCents: 100_000 }] };
+    const lines = buildOverview(inp).cashUses!.lines;
+    const labels = lines.map((l) => l.label);
+    expect(labels).toContain("Compras de estoque");
+    expect(labels).toContain("Manutenção"); // categoria nunca citada no código
+    expect(labels).not.toContain("Combustível"); // oscilação pequena e sem peso: fora
+    expect(lines.find((l) => l.label === "Manutenção")!.reasons).toContain("variacao");
+    expect(lines.length).toBeLessThanOrEqual(5);
+    expect([...lines].sort((a, b) => b.score - a.score)).toEqual(lines); // ordem por relevância
+  });
+
+  it("CAPEX never appears twice: it is its own block, not a fixed line of the financial movements", () => {
+    expect(o.cashUses!.lines.map((l) => l.key)).not.toContain("capex");
+    expect(o.capex!.investment!.totalCents).toBe(1_240_000);
   });
 
   it("cash fell although operating result is positive is flagged as fact", () => {
@@ -174,5 +191,50 @@ describe("buildOverview", () => {
   it("declares phase-1 limitations", () => {
     expect(o.limitations.join(" ")).toMatch(/Produtos em teste/);
     expect(o.tests).toBeNull();
+  });
+});
+
+
+describe("executive hierarchy", () => {
+  const cellP = (storeId: number, period: string, sku: string, quantity: number, revenueCents: number) => ({ storeId, period, sku, quantity, revenueCents });
+
+  it("a +1.087% jump on a 1 → 12 unit base does not outrank a modest change with real financial impact, and the base is shown", () => {
+    const base = salesInputWith([
+      cellP(1, "2026-09", "TINY", 1, 600), cellP(1, "2026-10", "TINY", 12, 7_200),
+      cellP(1, "2026-09", "BIG", 1_000, 1_000_000), cellP(1, "2026-10", "BIG", 700, 700_000),
+      cellP(2, "2026-09", "BIG", 1_000, 1_000_000), cellP(2, "2026-10", "BIG", 700, 700_000),
+    ]);
+    const x = buildOverview(base);
+    const ids = x.insights.map((i) => i.id);
+    expect(ids).toContain("product:BIG");
+    if (ids.includes("product:TINY")) expect(ids.indexOf("product:BIG")).toBeLessThan(ids.indexOf("product:TINY"));
+    const tiny = x.products?.rising.find((p) => p.sku === "TINY");
+    if (tiny) expect(x.insights.find((i) => i.id === "product:TINY")?.title ?? "").toMatch(/1 → 12 un\./);
+  });
+
+  it("highlights: growth names the store that explains the most growth, attention is the most relevant negative finding", () => {
+    const x = buildOverview(salesInput());
+    expect(x.highlights.growth?.title).toBe("HTL05");
+    expect(x.highlights.growth?.detail.replace(/\u00a0/g, " ")).toMatch(/R\$ 10 mil → R\$ 13 mil/);
+    expect(x.highlights.attention).not.toBeNull();
+  });
+
+  it("watchlist has at most 5 items, each with an observation, never a cause or an order", () => {
+    const x = buildOverview({ ...salesInput(), aging: { referenceDate: "2026-11-03", overdueCents: 3_334_800, notDueCents: 0, openCents: 3_334_800 }, previousClosed: false });
+    expect(x.watchlist.length).toBeGreaterThan(0);
+    expect(x.watchlist.length).toBeLessThanOrEqual(5);
+    for (const w of x.watchlist) {
+      expect(w.observation.length).toBeGreaterThan(0);
+      expect(w.observation + w.title).not.toMatch(/\bdevido a\b|\bpor causa\b|\bcausado\b|\bdeve\b/i);
+    }
+    expect(x.watchlist.map((w) => w.id)).toContain("caixa:vencido");
+    expect(x.watchlist.map((w) => w.id)).toContain("dados:mes-anterior");
+    expect([...x.watchlist].sort((a, b) => b.score - a.score)).toEqual(x.watchlist);
+  });
+
+  it("watchlist is empty (not invented) when the data raises nothing", () => {
+    const calm = buildOverview({ ...input(), months: input().months.map((m) => ({ ...m, finance: null, capex: null, treasury: null })), stores: { current: null, previous: null, activeCount: null }, aging: null });
+    expect(calm.watchlist.every((w) => w.observation.length > 0)).toBe(true);
+    expect(calm.watchlist.length).toBeLessThanOrEqual(5);
   });
 });

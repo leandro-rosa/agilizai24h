@@ -1,13 +1,13 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
-import { CONTRIBUTION_KIND_LABELS } from "@/lib/api/capex";
 import { date, period as fmtPeriod } from "@/lib/format";
 import { reasonLabel } from "@/lib/removal-reasons";
 import { BEHAVIOR_LABELS } from "../product-behavior";
 import { signedPct, signedPp, type RateDelta, type ValueDelta } from "../compare";
 import { monthName } from "../reading";
+import { baseText } from "../ranking";
 import { SIGNAL_LABELS, TESTS } from "../tests";
-import type { CashUseLine, KpiResult, Overview, ProductRow } from "../types";
+import type { CashUseLine, KpiResult, LossChange, Overview, ProductRow, StoreExplainers } from "../types";
 
 export interface ReportMeta {
   version: number;
@@ -42,41 +42,46 @@ const s = StyleSheet.create({
   footer: { position: "absolute", bottom: 14, left: 28, right: 28, flexDirection: "row", justifyContent: "space-between", fontSize: 7, color: C.muted },
 });
 
+const num = (n: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(n);
+
 function Kpi({ k, prev }: { k: KpiResult; prev: string }) {
   const rate = k.kind === "rate";
   const p = rate ? (k.vsPrevious as RateDelta).pp : (k.vsPrevious as ValueDelta).pct;
   const a = rate ? (k.vsAvg3 as RateDelta).pp : (k.vsAvg3 as ValueDelta).pct;
   const fmt = (v: number | null) => (rate ? signedPp(v) : signedPct(v));
   const color = (v: number | null) => (v === null || v === 0 ? C.muted : (v > 0) === k.goodWhenUp ? C.good : C.bad);
+  const show = (v: number | null) => (v === null ? "sem dados" : rate ? pct(v) : brl(v));
   return (
     <View style={s.kpi}>
       <Text style={s.kpiLabel}>{k.label}</Text>
-      <Text style={s.kpiValue}>{k.value === null ? "Indisponivel" : rate ? pct(k.value) : brl(k.value)}</Text>
+      <Text style={s.kpiValue}>{k.value === null ? "Sem dados" : show(k.value)}</Text>
       <Text style={{ fontSize: 7.5, color: color(p) }}>{t(fmt(p))} vs. {fmtPeriod(prev)}</Text>
+      <Text style={s.small}>{fmtPeriod(prev)}: {show(k.previous)}</Text>
       <Text style={{ fontSize: 7.5, color: color(a) }}>{t(fmt(a))} vs. media 3 meses</Text>
       <Text style={[s.small, { marginTop: 2 }]}>{t(k.note)}</Text>
     </View>
   );
 }
 
+/** Resumo executivo: 5 colunas. A analise por loja fica na tela, nao no PDF. */
 function ProductTable({ rows }: { rows: ProductRow[] }) {
   return (
     <View>
       <View style={s.th}>
         <Text style={[{ flex: 3 }, s.bold]}>Produto</Text>
         <Text style={[{ flex: 1, textAlign: "right" }, s.bold]}>Unid.</Text>
-        <Text style={[{ flex: 1.4, textAlign: "right" }, s.bold]}>Fatur.</Text>
-        <Text style={[{ flex: 1, textAlign: "right" }, s.bold]}>Margem</Text>
-        <Text style={[{ flex: 1.2, textAlign: "right" }, s.bold]}>vs. mes ant.</Text>
-        <Text style={[{ flex: 2.2, textAlign: "right" }, s.bold]}>Comportamento</Text>
+        <Text style={[{ flex: 1.4, textAlign: "right" }, s.bold]}>Receita</Text>
+        <Text style={[{ flex: 2, textAlign: "right" }, s.bold]}>vs. mes anterior</Text>
+        <Text style={[{ flex: 2.2, textAlign: "right" }, s.bold]}>Tendencia</Text>
       </View>
-      {rows.map((r) => (
+      {rows.slice(0, 5).map((r) => (
         <View key={r.sku} style={s.line} wrap={false}>
           <Text style={{ flex: 3 }}>{t(r.name)}</Text>
-          <Text style={{ flex: 1, textAlign: "right" }}>{r.units}</Text>
+          <Text style={{ flex: 1, textAlign: "right" }}>{num(r.units)}</Text>
           <Text style={{ flex: 1.4, textAlign: "right" }}>{brl(r.revenueCents)}</Text>
-          <Text style={{ flex: 1, textAlign: "right" }}>{pct(r.marginPct, 0)}</Text>
-          <Text style={{ flex: 1.2, textAlign: "right" }}>{r.deltaRevenuePct === null ? "-" : t(signedPct(r.deltaRevenuePct, 0))}</Text>
+          <Text style={{ flex: 2, textAlign: "right" }}>
+            {r.unitsPrevious === null ? "sem base" : `${r.deltaUnitsPct === null ? "novo no mes" : t(signedPct(r.deltaUnitsPct, 0))} (${t(baseText(r.unitsPrevious, r.units, num, "un."))})`}
+          </Text>
           <Text style={{ flex: 2.2, textAlign: "right" }}>{t(BEHAVIOR_LABELS[r.behavior])}</Text>
         </View>
       ))}
@@ -86,9 +91,45 @@ function ProductTable({ rows }: { rows: ProductRow[] }) {
 
 function Use({ l, prev }: { l: CashUseLine; prev: string }) {
   return (
-    <View style={s.line}>
+    <View style={s.line} wrap={false}>
       <Text>{t(l.label)}</Text>
-      <Text>{brl(l.currentCents)}  {l.deltaPct === null ? "sem comparacao" : `${t(signedPct(l.deltaPct))} vs. ${fmtPeriod(prev)}`}</Text>
+      <Text>
+        {l.previousCents === null ? `${brl(l.currentCents)}  sem base no mes anterior` : `${t(baseText(l.previousCents, l.currentCents, (n) => brl(n), ""))}  vs. ${fmtPeriod(prev)}`}
+        {l.shareOfOutflow !== null ? `  ${pct(l.shareOfOutflow, 0)} das saidas` : ""}
+      </Text>
+    </View>
+  );
+}
+
+function Explainers({ title, e, sign }: { title: string; e: StoreExplainers; sign: "+" | "-" }) {
+  return (
+    <View style={s.col}>
+      <Text style={[s.small, s.bold]}>{title}</Text>
+      {e.stores.length === 0 ? <Text style={s.small}>Nenhuma loja.</Text> : (
+        <>
+          <Text style={s.small}>{e.stores.length} de {e.storeCount} lojas explicam {Math.round(e.coveredShare * 100)}% ({brl(e.totalCents)})</Text>
+          {e.stores.map((x) => (
+            <View key={x.storeId} style={s.line} wrap={false}>
+              <Text>{t(x.name)}</Text>
+              <Text>{sign}{brl(Math.abs(x.deltaCents))}  {Math.round(x.share * 100)}%  ({brl(x.previousCents)} {"->"} {brl(x.currentCents)})</Text>
+            </View>
+          ))}
+        </>
+      )}
+    </View>
+  );
+}
+
+function LossList({ title, rows, reason }: { title: string; rows: LossChange[]; reason?: boolean }) {
+  return (
+    <View style={s.col}>
+      <Text style={[s.small, s.bold]}>{title}</Text>
+      {rows.length === 0 ? <Text style={s.small}>Sem variacao relevante.</Text> : rows.map((c) => (
+        <View key={c.label} style={s.line} wrap={false}>
+          <Text>{t(reason ? reasonLabel(c.label) : c.label)}</Text>
+          <Text>{c.deltaCents > 0 ? "+" : "-"}{brl(Math.abs(c.deltaCents))}  ({brl(c.previousCents)} {"->"} {brl(c.currentCents)})</Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -122,53 +163,70 @@ function Header({ o, meta }: { o: Overview; meta: ReportMeta }) {
 
 export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
   const prev = o.previousPeriod;
+  const hl = [
+    { label: "Produto destaque", h: o.highlights.product },
+    { label: "Maior crescimento", h: o.highlights.growth },
+    { label: "Maior ponto de atencao", h: o.highlights.attention },
+  ];
   return (
     <Document title={`Resumo Mensal Agiliz ${o.period}`} author="Agiliz.ai">
+      {/* Pagina 1 - Como foi o mes? O que mudou? */}
       <Page size="A4" orientation="landscape" style={s.page}>
         <Header o={o} meta={meta} />
         <View style={[s.row, { marginBottom: 10 }]}>{o.kpis.map((k) => <Kpi key={k.key} k={k} prev={prev} />)}</View>
-        <View style={s.row}>
-          <View style={[s.card, s.col, { flex: 3 }]}>
-            <Text style={s.h2}>O que aconteceu este mes</Text>
-            {o.insights.length === 0 ? <Text style={s.small}>Nenhuma variacao material com os dados disponiveis.</Text> : o.insights.map((i, n) => (
-              <View key={i.id} style={{ marginBottom: 4 }} wrap={false}>
-                <Text style={s.bold}>{n + 1}. {t(i.title)}</Text>
-                <Text style={{ color: C.muted }}>{t(i.detail)}</Text>
+        <View style={s.card}>
+          <Text style={s.h2}>Destaques do mes</Text>
+          <View style={s.row}>
+            {hl.map(({ label, h }) => (
+              <View key={label} style={s.col}>
+                <Text style={[s.small, s.bold]}>{label}</Text>
+                {h ? (<><Text style={s.bold}>{t(h.title)}</Text><Text style={{ color: C.muted }}>{t(h.detail)}</Text></>) : <Text style={s.small}>Sem dados suficientes.</Text>}
               </View>
             ))}
           </View>
-          <View style={[s.card, s.col, { flex: 2 }]}>
-            <Text style={s.h2}>Resumo da rede</Text>
-            {!o.stores ? <Unavail what="DRE por loja" /> : (
-              <>
-                <Text>{o.stores.compared} lojas comparadas: {o.stores.up} cresceram, {o.stores.down} recuaram, {o.stores.stable} estaveis.</Text>
-                <Text style={[s.small, { marginTop: 5 }, s.bold]}>Principais contribuicoes para o crescimento</Text>
-                {o.stores.topGrowth.map((x) => <View key={x.storeId} style={s.line}><Text>{t(x.name)}</Text><Text>+{brl(x.deltaCents)}{x.deltaPct !== null ? `  +${(x.deltaPct * 100).toFixed(0)}%` : ""}</Text></View>)}
-                <Text style={[s.small, { marginTop: 5 }, s.bold]}>Pontos de atencao</Text>
-                {o.stores.attention.length === 0 ? <Text style={s.small}>Nenhum ponto material.</Text> : o.stores.attention.map((x) => <Text key={x.storeId}>{t(x.name)}: {t(x.reasons.join("; "))}</Text>)}
-              </>
-            )}
-          </View>
+        </View>
+        <View style={s.card}>
+          <Text style={s.h2}>O que mudou neste mes</Text>
+          {o.insights.length === 0 ? <Text style={s.small}>Nenhuma variacao material com os dados disponiveis.</Text> : o.insights.map((i, n) => (
+            <View key={i.id} style={{ marginBottom: 4 }} wrap={false}>
+              <Text style={s.bold}>{n + 1}. {t(i.title)}</Text>
+              <Text style={{ color: C.muted }}>{t(i.detail)}</Text>
+            </View>
+          ))}
+          <Text style={s.small}>Ordenado por relevancia (impacto financeiro, representatividade, recorrencia e lojas afetadas), nao pelo tamanho do percentual.</Text>
         </View>
         <Footer o={o} meta={meta} />
       </Page>
 
+      {/* Pagina 2 - Onde aconteceu? */}
       <Page size="A4" orientation="landscape" style={s.page}>
         <Header o={o} meta={meta} />
         <View style={s.card}>
+          <Text style={s.h2}>Resumo da rede</Text>
+          {!o.stores ? <Text style={s.small}>Sem dados - DRE por loja.</Text> : (
+            <>
+              <Text>{o.stores.compared} lojas comparadas: {o.stores.up} cresceram, {o.stores.down} recuaram, {o.stores.stable} estaveis. Base: {o.stores.basis === "vendas" ? "vendas de cada loja" : "receita liquida por loja do DRE"}.</Text>
+              <View style={[s.row, { marginTop: 5 }]}>
+                <Explainers title="Quem explicou o crescimento" e={o.stores.growthExplainers} sign="+" />
+                <Explainers title="Quem explicou a queda" e={o.stores.declineExplainers} sign="-" />
+              </View>
+            </>
+          )}
+        </View>
+        <View style={s.card}>
           <Text style={s.h2}>Produtos - desempenho do mes</Text>
-          {!o.products ? <Unavail what="vendas do mes nao importadas" /> : (
+          {!o.products ? <Text style={s.small}>Sem dados - vendas do mes nao importadas.</Text> : (
             <View style={s.row}>
-              <View style={s.col}><Text style={[s.bold, { marginBottom: 3 }]}>Mais vendidos</Text><ProductTable rows={o.products.topSold.slice(0, 7)} /></View>
+              <View style={s.col}><Text style={[s.bold, { marginBottom: 3 }]}>Mais vendidos</Text><ProductTable rows={o.products.topSold} /></View>
               <View style={s.col}>
                 <Text style={[s.bold, { marginBottom: 3 }]}>Em alta</Text>
-                {o.products.rising.length ? <ProductTable rows={o.products.rising.slice(0, 4)} /> : <Text style={s.small}>Nenhum produto com alta material.</Text>}
+                {o.products.rising.length ? <ProductTable rows={o.products.rising.slice(0, 3)} /> : <Text style={s.small}>Nenhum produto com alta material.</Text>}
                 <Text style={[s.bold, { marginVertical: 3 }]}>Em queda</Text>
-                {o.products.falling.length ? <ProductTable rows={o.products.falling.slice(0, 4)} /> : <Text style={s.small}>Nenhum produto com queda material.</Text>}
+                {o.products.falling.length ? <ProductTable rows={o.products.falling.slice(0, 3)} /> : <Text style={s.small}>Nenhum produto com queda material.</Text>}
               </View>
             </View>
           )}
-          <Text style={[s.small, { marginTop: 4 }]}>Margem = (receita - custo unitario datado x unidades) / receita, so sobre SKUs com custo resolvido. Classificacoes sao evidencia, nao decisao.</Text>
+          <Text style={[s.small, { marginTop: 4 }]}>A analise por loja de cada produto esta na tela (Visao geral, clique no produto).</Text>
         </View>
         <View style={s.card}>
           <Text style={s.h2}>Produtos em teste</Text>
@@ -178,108 +236,110 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
             <View>
               <View style={s.th}>
                 <Text style={[{ flex: 3 }, s.bold]}>Produto</Text>
-                <Text style={[{ flex: 1, textAlign: "right" }, s.bold]}>Lojas</Text>
+                <Text style={[{ flex: 1.4, textAlign: "right" }, s.bold]}>Lojas testadas</Text>
+                <Text style={[{ flex: 1.6, textAlign: "right" }, s.bold]}>Cobertura</Text>
                 <Text style={[{ flex: 1, textAlign: "right" }, s.bold]}>Unid.</Text>
                 <Text style={[{ flex: 1.2, textAlign: "right" }, s.bold]}>Perdas</Text>
                 <Text style={[{ flex: 1, textAlign: "right" }, s.bold]}>Margem</Text>
-                <Text style={[{ flex: 1.6, textAlign: "right" }, s.bold]}>Tempo de teste</Text>
+                <Text style={[{ flex: 1.8, textAlign: "right" }, s.bold]}>Tempo de teste</Text>
                 <Text style={[{ flex: 1.6, textAlign: "right" }, s.bold]}>Sinal</Text>
               </View>
               {o.tests.rows.slice(0, 8).map((r) => (
                 <View key={r.sku} style={s.line} wrap={false}>
                   <Text style={{ flex: 3 }}>{t(r.name)}</Text>
-                  <Text style={{ flex: 1, textAlign: "right" }}>{r.storesSold}/{r.storesRestocked}</Text>
-                  <Text style={{ flex: 1, textAlign: "right" }}>{r.unitsSold}</Text>
+                  <Text style={{ flex: 1.4, textAlign: "right" }}>{r.storesRestocked}</Text>
+                  <Text style={{ flex: 1.6, textAlign: "right" }}>{o.stores?.activeCount ? `${r.storesRestocked} de ${o.stores.activeCount}` : "-"} (vendeu em {r.storesSold})</Text>
+                  <Text style={{ flex: 1, textAlign: "right" }}>{num(r.unitsSold)}</Text>
                   <Text style={{ flex: 1.2, textAlign: "right" }}>{r.lossCents === null ? "-" : brl(r.lossCents)}</Text>
                   <Text style={{ flex: 1, textAlign: "right" }}>{pct(r.marginPct, 0)}</Text>
-                  <Text style={{ flex: 1.6, textAlign: "right" }}>{r.monthsInTest} {r.monthsInTest === 1 ? "mes" : "meses"} (desde {fmtPeriod(r.firstPeriod)})</Text>
+                  <Text style={{ flex: 1.8, textAlign: "right" }}>{r.monthsInTest} {r.monthsInTest === 1 ? "mes" : "meses"} (desde {fmtPeriod(r.firstPeriod)})</Text>
                   <Text style={{ flex: 1.6, textAlign: "right" }}>{t(SIGNAL_LABELS[r.signal])}</Text>
                 </View>
               ))}
             </View>
           )}
-          <Text style={[s.small, { marginTop: 4 }]}>Lista derivada do abastecimento (primeiro abastecimento na rede nos ultimos {TESTS.WINDOW_MONTHS} meses, regra provisoria). Sinal e evidencia, nao decisao.</Text>
+          <Text style={[s.small, { marginTop: 4 }]}>Lista derivada do abastecimento (regra provisoria). Sinal e evidencia, nao decisao.</Text>
         </View>
         <Footer o={o} meta={meta} />
       </Page>
 
+      {/* Pagina 3 - Por que merece atencao? (perdas e financeiro) */}
       <Page size="A4" orientation="landscape" style={s.page}>
         <Header o={o} meta={meta} />
         <View style={s.row}>
           <View style={[s.card, s.col]}>
             <Text style={s.h2}>Abastecimento e perdas</Text>
-            {!o.loss ? <Unavail what="nenhuma loja reconciliada no mes" /> : (
+            {!o.loss ? <Text style={s.small}>Sem dados - nenhuma loja reconciliada no mes.</Text> : (
               <>
                 <View style={s.line}><Text>Total abastecido (custo)</Text><Text style={s.bold}>{brl(o.loss.restockedCents)}</Text></View>
                 <View style={s.line}><Text>Perdas (R$)</Text><Text style={s.bold}>{brl(o.loss.lossCents)}</Text></View>
                 <View style={s.line}><Text>Perda / receita liquida</Text><Text style={s.bold}>{pct(o.loss.lossToRevenue)}</Text></View>
                 <View style={s.line}><Text>Perda / custo abastecido</Text><Text style={s.bold}>{pct(o.loss.lossToSupplied)}</Text></View>
-                <Text style={[s.small, s.bold, { marginTop: 5 }]}>Principais motivos de perda</Text>
-                {o.loss.byReason.map((r) => <View key={r.reason} style={s.line}><Text>{t(reasonLabel(r.reason))}</Text><Text>{brl(r.valueCents)}  {pct(r.share, 0)}</Text></View>)}
-                <Text style={[s.small, s.bold, { marginTop: 5 }]}>Produtos com maior perda</Text>
-                {o.loss.topSkus.slice(0, 5).map((x) => <View key={x.sku} style={s.line}><Text>{t(x.name)}</Text><Text>{brl(x.valueCents)}  {pct(x.share, 0)}</Text></View>)}
                 {o.loss.incompleteStores > 0 && <Text style={[s.small, { color: C.bad }]}>{o.loss.incompleteStores} loja(s) com reconciliacao incompleta - valores podem estar subestimados.</Text>}
-              </>
-            )}
-          </View>
-          <View style={[s.card, s.col]}>
-            <Text style={s.h2}>Financeiro e caixa</Text>
-            {o.cash.closing === null ? <Unavail what="fluxo de caixa da tesouraria" /> : (
-              <>
-                <View style={s.line}><Text>Saldo inicial</Text><Text style={s.bold}>{brl(o.cash.opening)}</Text></View>
-                <View style={s.line}><Text>Entradas</Text><Text style={s.bold}>{brl(o.cash.inflow)}</Text></View>
-                <View style={s.line}><Text>Saidas</Text><Text style={s.bold}>{brl(o.cash.outflow)}</Text></View>
-                <View style={s.line}><Text>Saldo final</Text><Text style={s.bold}>{brl(o.cash.closing)}</Text></View>
-                {o.cash.operatingPositiveCashFell && o.cash.cashDeltaCents !== null && <Text style={{ marginTop: 3 }}>Apesar do resultado operacional positivo, o caixa caiu {brl(Math.abs(o.cash.cashDeltaCents))} no mes.</Text>}
-              </>
-            )}
-            <View style={[s.line, { marginTop: 5 }]}><Text>A receber vencido{o.cash.agingReference ? ` (em ${date(o.cash.agingReference)})` : ""}</Text><Text style={s.bold}>{o.cash.overdueCents === null ? "-" : brl(o.cash.overdueCents)}</Text></View>
-            <View style={s.line}><Text>A vencer (todas as notas em aberto)</Text><Text style={s.bold}>{o.cash.notDueCents === null ? "-" : brl(o.cash.notDueCents)}</Text></View>
-            <Text style={s.small}>Notas fiscais a emitir nao existem como dado no sistema.</Text>
-          </View>
-        </View>
-        <View style={s.row}>
-          <View style={[s.card, s.col]}>
-            <Text style={s.h2}>Principais movimentos financeiros</Text>
-            {!o.cashUses ? <Unavail what="tesouraria" /> : (
-              <>
-                {o.cashUses.stock && <Use l={o.cashUses.stock} prev={prev} />}
-                {o.cashUses.capex && <Use l={o.cashUses.capex} prev={prev} />}
-                {o.cashUses.expenses.map((e) => <Use key={e.key} l={e} prev={prev} />)}
-                {o.cashUses.stockVsRevenue?.stockDeltaPct != null && o.cashUses.stockVsRevenue.revenueDeltaPct !== null && (
-                  <Text style={s.small}>Compras de estoque {t(signedPct(o.cashUses.stockVsRevenue.stockDeltaPct))} com faturamento {t(signedPct(o.cashUses.stockVsRevenue.revenueDeltaPct))} (fato, sem conclusao de eficiencia).</Text>
+                <Text style={[s.small, s.bold, { marginTop: 6 }]}>O que mudou nas perdas</Text>
+                {!o.loss.changes ? <Text style={s.small}>Sem perdas do mes anterior para comparar.</Text> : (
+                  <>
+                    <Text>{brl(o.loss.changes.totalPreviousCents)} {"->"} {brl(o.loss.changes.totalCurrentCents)}</Text>
+                    <LossList title="Motivos que mais mudaram" rows={o.loss.changes.byReason.slice(0, 3)} reason />
+                    <LossList title="Produtos que mais mudaram" rows={o.loss.changes.bySku.slice(0, 3)} />
+                  </>
                 )}
               </>
             )}
           </View>
           <View style={[s.card, s.col]}>
+            <Text style={s.h2}>Financeiro e caixa</Text>
+            {o.cash.closing === null ? <Text style={s.small}>Sem dados - fluxo de caixa da tesouraria.</Text> : (
+              <>
+                <View style={s.line}><Text>Saldo inicial</Text><Text style={s.bold}>{brl(o.cash.opening)}</Text></View>
+                <View style={s.line}><Text>Entradas</Text><Text style={s.bold}>{brl(o.cash.inflow)}</Text></View>
+                <View style={s.line}><Text>Saidas</Text><Text style={s.bold}>{brl(o.cash.outflow)}</Text></View>
+                <View style={s.line}><Text>Saldo final</Text><Text style={s.bold}>{brl(o.cash.closing)}</Text></View>
+                {o.cash.operatingPositiveCashFell && o.cash.cashDeltaCents !== null && <Text style={{ marginTop: 3 }}>Observacao: resultado operacional positivo e caixa {brl(Math.abs(o.cash.cashDeltaCents))} menor no mes.</Text>}
+              </>
+            )}
+            <View style={[s.line, { marginTop: 5 }]}><Text>A receber vencido{o.cash.agingReference ? ` (em ${date(o.cash.agingReference)})` : ""}</Text><Text style={s.bold}>{o.cash.overdueCents === null ? "sem dados" : brl(o.cash.overdueCents)}</Text></View>
+          </View>
+        </View>
+        <View style={s.row}>
+          <View style={[s.card, s.col]}>
+            <Text style={s.h2}>Principais movimentos financeiros</Text>
+            {!o.cashUses ? <Text style={s.small}>Sem lancamentos da tesouraria no mes.</Text> : o.cashUses.lines.length === 0 ? <Text style={s.small}>Nenhum movimento com variacao ou peso relevante.</Text> : (
+              <>
+                {o.cashUses.lines.map((l) => <Use key={l.key} l={l} prev={prev} />)}
+                <Text style={s.small}>Selecionados por variacao material ou peso nas saidas, sem categoria fixa.</Text>
+              </>
+            )}
+          </View>
+          <View style={[s.card, s.col]}>
             <Text style={s.h2}>CAPEX e investidores</Text>
-            {!o.capex?.investment ? <Unavail what="tesouraria" /> : (
+            {!o.capex?.investment ? <Text style={s.small}>Sem lancamentos da tesouraria no mes.</Text> : (
               <>
                 <View style={s.line}><Text>CAPEX do mes (saidas de investimento, como no Fluxo de caixa)</Text><Text style={s.bold}>{brl(o.capex.investment.totalCents)}  {o.capex.investment.deltaPct === null ? "sem comparacao" : `${t(signedPct(o.capex.investment.deltaPct))} vs. ${fmtPeriod(prev)}`}</Text></View>
-                {o.capex.investment.top.map((x) => <View key={x.category} style={s.line}><Text>{t(x.category)}</Text><Text>{brl(x.cents)}</Text></View>)}
                 {o.capex.investment.partnerCardCents > 0 && <Text style={s.small}>Dos quais {brl(o.capex.investment.partnerCardCents)} pagos no cartao de socios.</Text>}
               </>
             )}
-            <Text style={s.small}>Itens de CAPEX com loja atribuida (capex-service): {!o.capex?.current ? "indisponivel" : o.capex.current.totalCents === 0 ? "nenhum item datado no mes" : brl(o.capex.current.totalCents)}.</Text>
-            <Text style={[s.small, s.bold, { marginTop: 5 }]}>Aportes de investidores (nao e receita operacional)</Text>
-            {!o.investors?.current ? <Unavail what="aportes" /> : (
-              <>
-                <View style={s.line}><Text>Aportes no mes</Text><Text style={s.bold}>{brl(o.investors.current.totalCents)}  {o.investors.deltaPct === null ? "sem comparacao" : `${t(signedPct(o.investors.deltaPct))} vs. ${fmtPeriod(prev)}`}</Text></View>
-                {o.investors.current.byKind.map((k) => <View key={k.kind} style={s.line}><Text>{t(CONTRIBUTION_KIND_LABELS[k.kind] ?? k.kind)}</Text><Text>{brl(k.cents)}</Text></View>)}
-              </>
-            )}
-            <Text style={s.small}>O sistema so registra aportes; devolucao, distribuicao e remuneracao nao existem como dado.</Text>
+            <View style={[s.line, { marginTop: 5 }]}><Text>Aportes de investidores (nao e receita)</Text><Text style={s.bold}>{!o.investors?.current ? "sem dados" : brl(o.investors.current.totalCents)}</Text></View>
           </View>
         </View>
         <Footer o={o} meta={meta} />
       </Page>
 
+      {/* Pagina 4 - Leitura + O que acompanhar no proximo mes */}
       <Page size="A4" orientation="landscape" style={s.page}>
         <Header o={o} meta={meta} />
         <View style={s.card}>
           <Text style={s.h2}>Leitura do mes</Text>
           <Text style={{ fontSize: 10.5, lineHeight: 1.5 }}>{t(o.reading) || "Sem dados suficientes para uma leitura do mes."}</Text>
+        </View>
+        <View style={s.card}>
+          <Text style={s.h2}>O que merece atencao no proximo mes</Text>
+          {o.watchlist.length === 0 ? <Text style={s.small}>Nenhum ponto de acompanhamento com os dados disponiveis.</Text> : o.watchlist.map((w, n) => (
+            <View key={w.id} style={{ marginBottom: 4 }} wrap={false}>
+              <Text style={s.bold}>{n + 1}. {t(w.title)}</Text>
+              <Text style={{ color: C.muted }}>Observacao: {t(w.observation)}</Text>
+            </View>
+          ))}
         </View>
         <View style={s.card}>
           <Text style={s.h2}>O que este resumo ainda nao consegue mostrar</Text>

@@ -133,7 +133,9 @@ export interface Insight {
   tone: Tone;
   title: string;
   detail: string;
-  /** Representatividade (fração da base) usada para ordenar. */
+  /** Tela especializada onde o leitor aprofunda. */
+  href?: string;
+  /** Relevância 0..1 (impacto financeiro, representatividade, recorrência, lojas afetadas) — NÃO é o tamanho do %. */
   score: number;
 }
 
@@ -144,6 +146,21 @@ export interface StoreContribution {
   name: string;
   deltaCents: number;
   deltaPct: number | null;
+  /** Base: mês anterior → mês atual, na base do resumo (vendas). */
+  previousCents: number;
+  currentCents: number;
+}
+
+/** Quais lojas explicam a maior parte do movimento (crescimento ou queda) da rede. */
+export interface StoreExplainers {
+  /** Soma dos movimentos de todas as lojas nessa direção (centavos, positivo). */
+  totalCents: number;
+  /** Lojas que juntas passam de ~60% do total (no máximo 5), da maior para a menor. */
+  stores: (StoreContribution & { share: number })[];
+  /** Parcela do total explicada pelas lojas listadas (0..1). */
+  coveredShare: number;
+  /** Quantas lojas se moveram nessa direção. */
+  storeCount: number;
 }
 
 export interface StoreAttention {
@@ -167,6 +184,8 @@ export interface StoreSummary {
   storesRevenuePreviousCents: number;
   topGrowth: StoreContribution[];
   topDecline: StoreContribution[];
+  growthExplainers: StoreExplainers;
+  declineExplainers: StoreExplainers;
   attention: StoreAttention[];
 }
 
@@ -191,6 +210,7 @@ export interface ProductRow {
   marginUnresolved: boolean;
   unitsPrevious: number | null;
   deltaUnitsPct: number | null;
+  revenuePreviousCents: number | null;
   deltaRevenueCents: number | null;
   deltaRevenuePct: number | null;
   series: (number | null)[];
@@ -224,6 +244,26 @@ export interface LossSummary {
   /** Fração da perda nos 3 maiores SKUs. */
   top3Share: number | null;
   incompleteStores: number;
+  /** O que de fato mudou nas perdas vs. o mês anterior (fatos, com base). */
+  changes: LossChanges | null;
+}
+
+export interface LossChange {
+  label: string;
+  previousCents: number;
+  currentCents: number;
+  deltaCents: number;
+}
+
+export interface LossChanges {
+  totalPreviousCents: number;
+  totalCurrentCents: number;
+  /** Motivos que mais mudaram (por |Δ R$|). */
+  byReason: LossChange[];
+  /** SKUs que mais mudaram (por |Δ R$|). */
+  bySku: LossChange[];
+  /** SKUs diferentes que explicam a queda/alta (≥ 1) — concentração da variação. */
+  skusExplainingShare: { count: number; share: number } | null;
 }
 
 export interface CashUseLine {
@@ -234,16 +274,22 @@ export interface CashUseLine {
   avg3Cents: number | null;
   deltaCents: number | null;
   deltaPct: number | null;
-  /** Por que entrou na lista. */
+  /** Variação material vs. o mês anterior (e vs. a média 3m, quando existe). */
   material: boolean;
+  /** Fatia desta saída no total de despesas do mês (0..1). */
+  shareOfOutflow: number | null;
+  /** Por que foi selecionada: variação relevante e/ou maior saída do mês. */
+  reasons: ("variacao" | "peso")[];
+  /** Relevância 0..1 (impacto, peso, recorrência) — define a seleção e a ordem. */
+  score: number;
 }
 
 export interface CashUses {
-  stock: CashUseLine | null;
-  capex: CashUseLine | null;
-  /** Categorias de despesa (tesouraria) que saíram do comportamento normal. */
-  expenses: CashUseLine[];
-  /** Fato: compras de estoque × receita, sem concluir eficiência. */
+  /** Até 5 movimentos materialmente relevantes do mês, escolhidos pelos dados (não por categoria fixa). */
+  lines: CashUseLine[];
+  /** Total de despesas classificadas do mês (base das fatias). */
+  totalOutflowCents: number;
+  /** Fato: compras de estoque × receita, só quando compras de estoque foram selecionadas. Observação, não causa. */
   stockVsRevenue: { stockDeltaPct: number | null; revenueDeltaPct: number | null } | null;
 }
 
@@ -285,6 +331,29 @@ export interface InvestorsSummary {
   deltaPct: number | null;
 }
 
+export interface Highlight {
+  title: string;
+  detail: string;
+  /** Para onde levar o leitor ("Ver análise completa"). */
+  href: string;
+}
+
+/** "Destaques do mês": produto destaque, maior crescimento e maior ponto de atenção. */
+export interface Highlights {
+  product: Highlight | null;
+  growth: Highlight | null;
+  attention: Highlight | null;
+}
+
+export interface WatchItem {
+  id: string;
+  title: string;
+  /** Observação com os fatos que a sustentam — nunca uma causa. */
+  observation: string;
+  href: string;
+  score: number;
+}
+
 export interface Overview {
   period: string;
   previousPeriod: string;
@@ -295,6 +364,9 @@ export interface Overview {
   closedAt: string | null;
   kpis: KpiResult[];
   insights: Insight[];
+  highlights: Highlights;
+  /** No máximo 5, derivados só dos dados. */
+  watchlist: WatchItem[];
   stores: StoreSummary | null;
   products: ProductsSummary | null;
   /** Vendas do mês (e do anterior) que parecem importadas pela metade em alguma loja. */
