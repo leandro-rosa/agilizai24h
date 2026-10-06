@@ -1,6 +1,8 @@
 import type { InvestmentItem, InvestorContribution } from "../api/capex";
 import type { Reconciliation } from "../api/finance";
-import { capexMonth, financeMonth, investorMonth } from "./assemble";
+import { capexMonth, financeMonth, investorMonth, treasuryMonth } from "./assemble";
+import type { BankTransaction } from "../api/treasury";
+import type { TransactionSummary } from "../api/treasury";
 
 // Fixtures sintéticas, só neste spec.
 const item = (over: Partial<InvestmentItem>): InvestmentItem => ({
@@ -45,5 +47,25 @@ describe("financeMonth", () => {
   });
   it("no store reconciled in the month is null, not a zero loss", () => {
     expect(financeMonth([{ storeId: 1, series: [] }], "2026-10")).toBeNull();
+  });
+});
+
+describe("treasuryMonth investment (CAPEX as the cash flow classifies it)", () => {
+  const summary = (investmentOut: number) =>
+    ({ by_category: [], by_nature: [{ nature: "investment", inflow_cents: 0, outflow_cents: investmentOut, net_cents: -investmentOut }], unresolved_count: 0, pending_count: 0 }) as unknown as TransactionSummary;
+  const tx = (category: string, amount: number, over: Partial<BankTransaction> = {}) => ({ category, amount_cents: amount, direction: "outflow", neutralized_with_id: null, ...over }) as BankTransaction;
+
+  it("total comes from the summary by nature; breakdown from the listed transactions, biggest first", () => {
+    const m = treasuryMonth(summary(2_670_335), [tx("Equipamento", 124_200), tx("Investimento (cartão sócio)", 2_486_700), tx("Equipamento", 1_000)])!;
+    expect(m.investmentCents).toBe(2_670_335);
+    expect(m.investmentByCategory).toEqual([{ category: "Investimento (cartão sócio)", cents: 2_486_700 }, { category: "Equipamento", cents: 125_200 }]);
+  });
+  it("ignores neutralized and inflow transactions in the breakdown", () => {
+    const m = treasuryMonth(summary(100), [tx("Equipamento", 100), tx("Equipamento", 999, { neutralized_with_id: 7 }), tx("Equipamento", 555, { direction: "inflow" })])!;
+    expect(m.investmentByCategory).toEqual([{ category: "Equipamento", cents: 100 }]);
+  });
+  it("no investment nature in the month is zero, and no summary is unavailable (null)", () => {
+    expect(treasuryMonth({ by_category: [], by_nature: [], unresolved_count: 0, pending_count: 0 } as unknown as TransactionSummary, [])!.investmentCents).toBe(0);
+    expect(treasuryMonth(null)).toBeNull();
   });
 });

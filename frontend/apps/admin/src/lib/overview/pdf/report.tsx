@@ -1,6 +1,6 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
-import { CONTRIBUTION_KIND_LABELS, ITEM_CATEGORY_LABELS, type ItemCategory } from "@/lib/api/capex";
+import { CONTRIBUTION_KIND_LABELS } from "@/lib/api/capex";
 import { date, period as fmtPeriod } from "@/lib/format";
 import { reasonLabel } from "@/lib/removal-reasons";
 import { BEHAVIOR_LABELS } from "../product-behavior";
@@ -254,12 +254,14 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
           </View>
           <View style={[s.card, s.col]}>
             <Text style={s.h2}>CAPEX e investidores</Text>
-            {!o.capex?.current ? <Unavail what="itens de CAPEX" /> : (
+            {!o.capex?.investment ? <Unavail what="tesouraria" /> : (
               <>
-                <View style={s.line}><Text>CAPEX do mes</Text><Text style={s.bold}>{brl(o.capex.current.totalCents)}  {o.capex.deltaPct === null ? "sem comparacao" : `${t(signedPct(o.capex.deltaPct))} vs. ${fmtPeriod(prev)}`}</Text></View>
-                {o.capex.top.map((x) => <View key={x.category} style={s.line}><Text>{t(ITEM_CATEGORY_LABELS[x.category as ItemCategory] ?? x.category)}</Text><Text>{brl(x.cents)}</Text></View>)}
+                <View style={s.line}><Text>CAPEX do mes (saidas de investimento, como no Fluxo de caixa)</Text><Text style={s.bold}>{brl(o.capex.investment.totalCents)}  {o.capex.investment.deltaPct === null ? "sem comparacao" : `${t(signedPct(o.capex.investment.deltaPct))} vs. ${fmtPeriod(prev)}`}</Text></View>
+                {o.capex.investment.top.map((x) => <View key={x.category} style={s.line}><Text>{t(x.category)}</Text><Text>{brl(x.cents)}</Text></View>)}
+                {o.capex.investment.partnerCardCents > 0 && <Text style={s.small}>Dos quais {brl(o.capex.investment.partnerCardCents)} pagos no cartao de socios.</Text>}
               </>
             )}
+            <Text style={s.small}>Itens de CAPEX com loja atribuida (capex-service): {!o.capex?.current ? "indisponivel" : o.capex.current.totalCents === 0 ? "nenhum item datado no mes" : brl(o.capex.current.totalCents)}.</Text>
             <Text style={[s.small, s.bold, { marginTop: 5 }]}>Aportes de investidores (nao e receita operacional)</Text>
             {!o.investors?.current ? <Unavail what="aportes" /> : (
               <>

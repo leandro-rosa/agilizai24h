@@ -30,6 +30,9 @@ export interface TreasuryMonth {
   byCategory: { category: string; outflowCents: number }[];
   unresolvedCount: number;
   pendingCount: number;
+  /** Saídas de natureza "investimento" — o CAPEX como o Fluxo de caixa classifica (inclui o cartão de sócios). */
+  investmentCents: number;
+  investmentByCategory: { category: string; cents: number }[];
 }
 
 export interface FinanceMonth {
@@ -257,7 +260,19 @@ export interface CashSummary {
   cashDeltaCents: number | null;
 }
 
+export interface InvestmentOutflow {
+  totalCents: number;
+  previousCents: number | null;
+  deltaPct: number | null;
+  top: { category: string; cents: number }[];
+  /** Parte paga no cartão de sócios (categoria "Investimento (cartão sócio)"). */
+  partnerCardCents: number;
+}
+
 export interface CapexSummary {
+  /** CAPEX pela classificação do Fluxo de caixa (tesouraria, natureza investimento) — a leitura principal. */
+  investment: InvestmentOutflow | null;
+  /** Itens de CAPEX com loja atribuída (capex-service) — informação complementar. */
   current: CapexMonth | null;
   previousCents: number | null;
   deltaPct: number | null;

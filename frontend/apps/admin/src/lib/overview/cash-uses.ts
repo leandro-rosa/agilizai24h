@@ -2,6 +2,9 @@ import { avgOfAll, valueDelta } from "./compare";
 import { isMaterial } from "./materiality";
 import type { CapexSummary, CashSummary, CashUseLine, CashUses, InvestorsSummary, MonthInput } from "./types";
 
+/** Categoria do de-para para o que os sócios pagam no cartão pessoal (cai como investimento no Fluxo de caixa). */
+const PARTNER_CARD = /s[óo]cio/i;
+
 /** Categoria do de-para que representa compra de estoque (`Estoque`, nature cogs). */
 const STOCK_CATEGORY = "Estoque";
 
@@ -30,7 +33,8 @@ export function buildCashUses(months: MonthInput[]): CashUses | null {
   const revenue = cur.pnl?.netRevenueCents ?? null;
 
   const stock = cur.treasury ? line("stock", "Compras de estoque", months.map((m) => cat(m, STOCK_CATEGORY)), revenue) : null;
-  const capex = cur.capex ? line("capex", "CAPEX", months.map((m) => m.capex?.totalCents ?? null), revenue) : null;
+  // CAPEX = saídas de natureza investimento, como o Fluxo de caixa classifica (inclui o que sócios pagam no cartão).
+  const capex = cur.treasury ? line("capex", "CAPEX", months.map((m) => m.treasury?.investmentCents ?? null), revenue) : null;
 
   const names = new Set(cur.treasury?.byCategory.map((c) => c.category) ?? []);
   const expenses: CashUseLine[] = [];
@@ -75,13 +79,23 @@ export function buildCashSummary(
 
 export function buildCapex(months: MonthInput[]): CapexSummary | null {
   const [cur, prev] = months;
-  if (!cur.capex) return null;
-  const d = valueDelta(cur.capex.totalCents, prev.capex?.totalCents ?? null);
+  if (!cur.capex && !cur.treasury) return null;
+  const investment = cur.treasury
+    ? {
+        totalCents: cur.treasury.investmentCents,
+        previousCents: prev.treasury?.investmentCents ?? null,
+        deltaPct: valueDelta(cur.treasury.investmentCents, prev.treasury?.investmentCents ?? null).pct,
+        top: cur.treasury.investmentByCategory.filter((c) => c.cents > 0).slice(0, 3),
+        partnerCardCents: cur.treasury.investmentByCategory.filter((c) => PARTNER_CARD.test(c.category)).reduce((s, c) => s + c.cents, 0),
+      }
+    : null;
+  const d = valueDelta(cur.capex?.totalCents ?? null, prev.capex?.totalCents ?? null);
   return {
+    investment,
     current: cur.capex,
     previousCents: prev.capex?.totalCents ?? null,
     deltaPct: d.pct,
-    top: [...cur.capex.byCategory].filter((c) => c.cents > 0).sort((a, b) => b.cents - a.cents).slice(0, 3),
+    top: cur.capex ? [...cur.capex.byCategory].filter((c) => c.cents > 0).sort((a, b) => b.cents - a.cents).slice(0, 3) : [],
   };
 }
 

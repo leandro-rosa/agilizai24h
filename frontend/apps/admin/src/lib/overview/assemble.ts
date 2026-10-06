@@ -3,7 +3,7 @@
  * do hook para serem testáveis sem React. Um serviço que não respondeu entra
  * como `null` (indisponível), nunca como zero.
  */
-import type { CashFlowSummary, TransactionSummary } from "../api/treasury";
+import type { BankTransaction, CashFlowSummary, TransactionSummary } from "../api/treasury";
 import type { InvestmentItem, InvestorContribution } from "../api/capex";
 import type { PnlSnapshot, StorePnlSummary } from "../api/accounting";
 import type { Reconciliation } from "../api/finance";
@@ -26,14 +26,24 @@ export function cashMonth(c: CashFlowSummary | null | undefined): CashMonth | nu
   return c ? { openingCents: c.opening_balance_cents, inflowCents: c.inflow_cents, outflowCents: c.outflow_cents, closingCents: c.closing_balance_cents } : null;
 }
 
-export function treasuryMonth(s: TransactionSummary | null | undefined): TreasuryMonth | null {
-  return s
-    ? {
-        byCategory: s.by_category.map((c) => ({ category: c.category, outflowCents: c.outflow_cents })),
-        unresolvedCount: s.unresolved_count,
-        pendingCount: s.pending_count,
-      }
-    : null;
+/**
+ * `investments` = lançamentos de natureza investimento do mês (lista), usados só para o detalhe por categoria;
+ * o TOTAL vem do resumo (`by_nature`), a mesma conta do Fluxo de caixa. Lançamento neutralizado fica de fora.
+ */
+export function treasuryMonth(s: TransactionSummary | null | undefined, investments: BankTransaction[] | null | undefined = null): TreasuryMonth | null {
+  if (!s) return null;
+  const byCat = new Map<string, number>();
+  for (const t of investments ?? []) {
+    if (t.direction !== "outflow" || t.neutralized_with_id !== null) continue;
+    byCat.set(t.category, (byCat.get(t.category) ?? 0) + t.amount_cents);
+  }
+  return {
+    byCategory: s.by_category.map((c) => ({ category: c.category, outflowCents: c.outflow_cents })),
+    unresolvedCount: s.unresolved_count,
+    pendingCount: s.pending_count,
+    investmentCents: s.by_nature.find((n) => n.nature === "investment")?.outflow_cents ?? 0,
+    investmentByCategory: [...byCat].map(([category, cents]) => ({ category, cents })).sort((a, b) => b.cents - a.cents),
+  };
 }
 
 /** Soma o mês de cada loja. `null` quando nenhuma loja tem reconciliação do mês (não é "perda zero"). */

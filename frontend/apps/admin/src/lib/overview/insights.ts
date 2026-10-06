@@ -112,7 +112,7 @@ export function buildInsights(i: InsightInput): Insight[] {
       id: "capex",
       tone: "neutral",
       title: `CAPEX ${verb(capex.deltaPct, "subiu", "caiu")} ${pctWord(capex.deltaPct)}`,
-      detail: `${moneyCompact(capex.currentCents)} no mês, ${moneyCompact(Math.abs(capex.deltaCents))} ${verb(capex.deltaPct, "acima", "abaixo")} de ${prevLabel}${i.capex?.top.length ? `; maiores origens: ${i.capex.top.slice(0, 2).map((t) => t.category).join(", ")}` : ""}.`,
+      detail: `${moneyCompact(capex.currentCents)} no mês, ${moneyCompact(Math.abs(capex.deltaCents))} ${verb(capex.deltaPct, "acima", "abaixo")} de ${prevLabel}${i.capex?.investment?.top.length ? `; maiores origens: ${i.capex.investment.top.slice(0, 2).map((t) => t.category).join(", ")}` : ""}.`,
       score: share(capex.deltaCents, base),
     });
   }
