@@ -496,6 +496,11 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   O topo do bloco é o SALDO do reajuste (`priceImpactReading`, `PriceImpact`): faturamento dos reajustados antes → depois, margem de
   contribuição em R$ e % (custo datado do catálogo; só SKUs com custo), ganho de preço × efeito das unidades na margem (fecham com a
   variação), unidades dos reajustados × demais. set/2026 real: faturamento −R$ 3,6 mil (−6%), margem +R$ 1,4 mil (46% → 52%), unidades −14%.
+  Texto em linguagem simples ("lucro bruto" = sobra após o custo), com 3 quadros pergunta→resposta: "Vendeu menos — o lucro compensou?",
+  "E se os dois meses tivessem o mesmo número de dias?" (média por dia + projeção, ESTIMATIVA) e "O ticket médio subiu — e o reajuste explica?"
+  (`ticket.ts`: faturamento ÷ compras, regra de compra da tela de Vendas; o ticket sem o reajuste = mesmas compras aos preços do mês anterior).
+  O ticket vem das transações por loja (`useGetNetworkSalesTransactionsQuery`, mês e anterior). Ago e set/2026 vieram SEM cupom: cada linha
+  conta como uma compra e a tela avisa que o ticket é aproximado. Real: ticket R$ 9,07 → R$ 9,58 (+5,7%), reajuste explica R$ 0,51 dos R$ 0,51.
 - **Definições fixas** (aparecem na tela): Faturamento = receita líquida do DRE;
   Margem operacional = resultado operacional ÷ receita líquida; perda sempre com
   os dois denominadores (÷ receita líquida, ÷ custo abastecido); participação por
