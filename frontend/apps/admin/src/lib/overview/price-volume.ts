@@ -126,3 +126,91 @@ export function buildPriceVolume(period: string, previousPeriod: string, cells: 
 
 /** Existe achado a mostrar? Poucos reajustes não formam padrão. */
 export const hasRepricing = (pv: PriceVolume | null | undefined): pv is PriceVolume => !!pv && pv.repriced.count >= PRICE_VOLUME.MIN_REPRICED;
+
+export interface PriceChangeRow {
+  sku: string;
+  name: string;
+  priceBeforeCents: number;
+  priceAfterCents: number;
+  /** Variação do preço realizado (0.2 = +20%). */
+  pricePct: number;
+  unitsBefore: number;
+  unitsAfter: number;
+  unitsPct: number;
+  /** Receita do mês atual − anterior, no produto (preço e volume juntos). */
+  revenueDeltaCents: number;
+  /** Margem sobre o preço realizado com o custo datado do SKU; null = custo não resolvido. */
+  marginBefore: number | null;
+  marginAfter: number | null;
+}
+
+export interface PriceChanges {
+  period: string;
+  previousPeriod: string;
+  count: number;
+  raised: number;
+  lowered: number;
+  priceEffectCents: number;
+  volumeEffectCents: number;
+  unitsBefore: number;
+  unitsAfter: number;
+  /** Demais produtos vendidos nos dois meses (sem reajuste relevante). */
+  others: { count: number; unitsBefore: number; unitsAfter: number };
+  days: { before: number; after: number };
+  /** Os mais relevantes (por receita do mês atual). */
+  rows: PriceChangeRow[];
+}
+
+export const PRICE_CHANGES_ROWS = 10;
+
+/** Bloco "Reajustes de preço no mês": cada produto reajustado, com preço, unidades e margem antes e depois. */
+export function buildPriceChanges(pv: PriceVolume | null, names: Record<string, string>, costBySku: Record<string, number> | null): PriceChanges | null {
+  if (!hasRepricing(pv)) return null;
+  const r = pv.repriced;
+  const rows = [...r.skus]
+    .sort((a, b) => b.priceAfterCents * b.unitsAfter - a.priceAfterCents * a.unitsAfter)
+    .slice(0, PRICE_CHANGES_ROWS)
+    .map<PriceChangeRow>((x) => {
+      const cost = costBySku?.[x.sku];
+      return {
+        sku: x.sku,
+        name: names[x.sku] ?? x.sku,
+        priceBeforeCents: x.priceBeforeCents,
+        priceAfterCents: x.priceAfterCents,
+        pricePct: x.priceBeforeCents > 0 ? (x.priceAfterCents - x.priceBeforeCents) / x.priceBeforeCents : 0,
+        unitsBefore: x.unitsBefore,
+        unitsAfter: x.unitsAfter,
+        unitsPct: x.unitsBefore > 0 ? (x.unitsAfter - x.unitsBefore) / x.unitsBefore : 0,
+        revenueDeltaCents: x.priceAfterCents * x.unitsAfter - x.priceBeforeCents * x.unitsBefore,
+        marginBefore: cost !== undefined && x.priceBeforeCents > 0 ? 1 - cost / x.priceBeforeCents : null,
+        marginAfter: cost !== undefined && x.priceAfterCents > 0 ? 1 - cost / x.priceAfterCents : null,
+      };
+    });
+  return {
+    period: pv.period,
+    previousPeriod: pv.previousPeriod,
+    count: r.count,
+    raised: r.raised,
+    lowered: r.lowered,
+    priceEffectCents: r.priceEffectCents,
+    volumeEffectCents: r.volumeEffectCents,
+    unitsBefore: r.unitsBefore,
+    unitsAfter: r.unitsAfter,
+    others: { count: pv.others.count, unitsBefore: pv.others.unitsBefore, unitsAfter: pv.others.unitsAfter },
+    days: pv.days,
+    rows,
+  };
+}
+
+/** Frase de observação (nunca causa): unidades dos reajustados × demais e calendário. */
+export function priceChangesObservation(pc: PriceChanges): string {
+  const pctOf = (a: number, b: number) => (a > 0 ? Math.round(((b - a) / a) * 100) : null);
+  const rep = pctOf(pc.unitsBefore, pc.unitsAfter);
+  const oth = pctOf(pc.others.unitsBefore, pc.others.unitsAfter);
+  const sg = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v)}%`;
+  const cmp =
+    rep !== null && oth !== null
+      ? `Unidades: ${sg(rep)} nos ${pc.count} reajustados e ${sg(oth)} nos ${pc.others.count} demais produtos${rep < oth - 2 ? " — os dois movimentos coincidem nos mesmos produtos, o que não prova causa" : ""}. `
+      : "";
+  return `${cmp}Calendário: ${pc.days.after} dias contra ${pc.days.before}. Preço = preço realizado (receita ÷ unidades), já com descontos.`;
+}

@@ -4,7 +4,7 @@ import { buildHighlights } from "./highlights";
 import { buildInsights } from "./insights";
 import { buildKpis } from "./kpis";
 import { buildLoss } from "./loss";
-import { buildPriceVolume } from "./price-volume";
+import { buildPriceChanges, buildPriceVolume } from "./price-volume";
 import { buildProducts } from "./products";
 import { buildAliasMap, suggestPredecessors, type SalesInfo } from "./sku-match";
 import { buildTests } from "./tests";
@@ -133,6 +133,7 @@ export function buildOverview(input: OverviewInput): Overview {
     watchlist,
     stores,
     products,
+    priceChanges: buildPriceChanges(priceVolume, input.productNames, input.costBySku),
     salesCoverage: coverage,
     tests,
     skuSuggestions,

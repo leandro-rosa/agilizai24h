@@ -10,6 +10,7 @@ import { HighlightsCard } from "@/components/overview/highlights-card";
 import { InsightsCard } from "@/components/overview/insights-card";
 import { KpiStrip } from "@/components/overview/kpi-strip";
 import { LossCard } from "@/components/overview/loss-card";
+import { PriceChangesCard } from "@/components/overview/price-changes-card";
 import { ProductsCard } from "@/components/overview/products-card";
 import { ReadingCard } from "@/components/overview/reading-card";
 import { SkuLinksCard } from "@/components/overview/sku-links-card";
@@ -105,6 +106,8 @@ export default function OverviewPage() {
             </div>
 
             <ProductsCard products={overview.products} loading={productsLoading} previousPeriod={overview.previousPeriod} unavailable={unavailable.sales} />
+
+            <PriceChangesCard changes={overview.priceChanges} />
 
             <TestsCard tests={overview.tests} loading={supplyLoading} unavailable={unavailable.supply} networkStores={overview.stores?.activeCount ?? null} />
 
