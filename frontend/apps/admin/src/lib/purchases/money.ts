@@ -34,3 +34,15 @@ export function weekStartOf(day: string): string {
 export function formatDate(day: string | null): string {
   return day ? `${day.slice(8, 10)}/${day.slice(5, 7)}/${day.slice(0, 4)}` : "—";
 }
+
+/**
+ * O que a nota diz virou o que o painel registra: UNIDADES e o custo de UMA unidade. A nota costuma trazer o preço do fardo/caixa,
+ * então `pack` (unidades por embalagem) divide o custo e multiplica a quantidade. `null` quando não dá para registrar sem adivinhar.
+ */
+export function packConversion(quantity: number, unitCostCents: number, pack: number): { units: number; unitCostCents: number } | null {
+  if (!Number.isInteger(pack) || pack < 1) return null;
+  const units = quantity * pack;
+  if (!Number.isInteger(units) || units < 1) return null;
+
+  return { units, unitCostCents: Math.round(unitCostCents / pack) };
+}

@@ -1,4 +1,4 @@
-import { PurchaseImportService, type InvoiceInput } from './purchase-import.service'
+import { packHintFromDescription, PurchaseImportService, type InvoiceInput } from './purchase-import.service'
 
 const invoice = (over: Partial<InvoiceInput['items'][number]>[] = [{}]): InvoiceInput => ({
   key: 'K',
@@ -54,7 +54,7 @@ describe('PurchaseImportService.preview', () => {
     const preview = await make().preview(invoice())
 
     expect(preview.supplier).toEqual({ id: 75, name: 'Quinoa' })
-    expect(preview.items[0]).toMatchObject({ sku: 'Q1', product_name: 'Wrap', quantity: 100, unit_cost_cents: 800, unresolved_reason: null, conversion: null })
+    expect(preview.items[0]).toMatchObject({ sku: 'Q1', product_name: 'Wrap', quantity: 100, unit_cost_cents: 800, unresolved_reason: null, pack_size_suggested: null })
     expect(preview.duplicate_of).toBeNull()
   })
 
@@ -72,16 +72,43 @@ describe('PurchaseImportService.preview', () => {
     expect((await make({ id: 42 }).preview(invoice())).duplicate_of).toBe(42)
   })
 
-  it('converts a package to units with units_per_package and asks when it is unknown', async () => {
-    const preview = await make().preview(invoice([{ code: 'B2', ean: null, unit: 'CX', quantity: 10, unitCostCents: 7200, totalCents: 72000 }, { code: 'C3', ean: null, unit: 'CX', quantity: 5 }]))
+  it('keeps the invoiced quantity and price, and only SUGGESTS a pack size: the catalogue wins over the description', async () => {
+    const preview = await make().preview(
+      invoice([
+        { code: 'B2', ean: null, description: 'Barra 12UN', unit: 'CX', quantity: 10, unitCostCents: 7200, totalCents: 72000 },
+        { code: 'C3', ean: null, description: 'Cola 6P', unit: 'UN', quantity: 25, unitCostCents: 4349, totalCents: 108725 },
+        { code: 'Q1', ean: '7891234567895', description: 'Wrap', quantity: 100 },
+      ]),
+    )
 
-    expect(preview.items[0]).toMatchObject({ sku: 'B2', quantity: 240, unit_cost_cents: 300, conversion: '10 CX × 24 = 240 un.', unresolved_reason: null })
-    expect(preview.items[1]).toMatchObject({ sku: 'C3', unresolved_reason: 'package_unknown' })
+    // B2 is registered with 24 per package: the catalogue is the source, not the "12UN" in the text.
+    expect(preview.items[0]).toMatchObject({ sku: 'B2', quantity: 10, unit_cost_cents: 7200, pack_size_suggested: 24, pack_source: 'catalogue' })
+    // C3 has no registered package: the "6P" in the description is only a suggestion.
+    expect(preview.items[1]).toMatchObject({ sku: 'C3', quantity: 25, unit_cost_cents: 4349, pack_size_suggested: 6, pack_source: 'description' })
+    expect(preview.items[2]).toMatchObject({ pack_size_suggested: null, pack_source: null })
   })
 
-  it('does not round a fractional quantity into units', async () => {
-    const preview = await make().preview(invoice([{ quantity: 2.5, quantityIsWhole: false }]))
+  it('suggests a pack from the description even when the product is not resolved yet', async () => {
+    const preview = await make().preview(invoice([{ ean: null, code: 'ZZ', description: 'CRYSTAL 500ML SEM GAS 12UN CP' }]))
 
-    expect(preview.items[0]).toMatchObject({ sku: null, unresolved_reason: 'fractional_quantity' })
+    expect(preview.items[0]).toMatchObject({ sku: null, unresolved_reason: 'no_match', pack_size_suggested: 12, pack_source: 'description' })
+  })
+})
+
+describe('packHintFromDescription', () => {
+  it.each([
+    ['Monster Energy LT 473ml 6P F. LISO CP', 6],
+    ['MATTE LEAO LIMAO CG LT290ML FI 6P CP', 6],
+    ['CRYSTAL 500ML SEM GAS 12UN CP', 12],
+    ['Monster Mango Loco Lata 473ml 06UN CP', 6],
+    ['Monster Ultra LT 473ml 6Pack FL CP', 6],
+    ['Biscoito CX C/24', 24],
+  ])('%s → %s', (description, expected) => expect(packHintFromDescription(description)).toBe(expected))
+
+  it('does not read a volume or weight as a pack, nor a pack of one', () => {
+    expect(packHintFromDescription('Água 500ML')).toBeNull()
+    expect(packHintFromDescription('Suco 1L')).toBeNull()
+    expect(packHintFromDescription('Barra 40g')).toBeNull()
+    expect(packHintFromDescription('Produto 1UN')).toBeNull()
   })
 })

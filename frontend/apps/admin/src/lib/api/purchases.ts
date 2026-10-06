@@ -58,13 +58,17 @@ export interface InvoicePreviewItem {
   line: number;
   code: string;
   description: string;
+  /** Como veio na nota: quantidade e preço da unidade de medida da nota (muitas vezes um fardo/caixa). */
   quantity: number;
   unit_cost_cents: number;
   total_cents: number;
+  unit: string | null;
   sku: string | null;
   product_name: string | null;
-  unresolved_reason: "no_match" | "fractional_quantity" | "package_unknown" | null;
-  conversion: string | null;
+  unresolved_reason: "no_match" | null;
+  /** Unidades dentro de uma unidade da nota, só como SUGESTÃO (cadastro do produto, senão lida da descrição: "6P", "12UN"). */
+  pack_size_suggested: number | null;
+  pack_source: "catalogue" | "description" | null;
 }
 
 export interface InvoicePreview {

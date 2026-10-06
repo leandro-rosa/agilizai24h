@@ -12,21 +12,27 @@ export interface InvoiceInput {
   items: { line: number; code: string; ean: string | null; description: string; unit: string | null; quantity: number; quantityIsWhole: boolean; unitCostCents: number; totalCents: number }[]
 }
 
-export type UnresolvedReason = 'no_match' | 'fractional_quantity' | 'package_unknown'
+export type UnresolvedReason = 'no_match'
 
 export interface PreviewItem {
   line: number
   code: string
   description: string
-  /** Units, after converting a box/pack with `units_per_package`. */
+  /** As invoiced: the unit of measure is often a pack ("6P", "12UN", a fardo), and the price is the pack's. */
   quantity: number
   unit_cost_cents: number
   total_cents: number
+  /** The unit of measure on the invoice (`uCom`), for reference. */
+  unit: string | null
   sku: string | null
   product_name: string | null
   unresolved_reason: UnresolvedReason | null
-  /** Set when a package was converted: "10 CX × 24 = 240 un.". The operator confirms it. */
-  conversion: string | null
+  /**
+   * Units in one invoiced unit, as a SUGGESTION: the catalogue's `units_per_package`, else read from the description ("6P", "12UN").
+   * The operator confirms or corrects it per line; the purchase records units and the cost of ONE unit.
+   */
+  pack_size_suggested: number | null
+  pack_source: 'catalogue' | 'description' | null
 }
 
 export interface InvoicePreview {
@@ -42,7 +48,6 @@ export interface InvoicePreview {
   items: PreviewItem[]
 }
 
-const PACKAGE_UNITS = new Set(['CX', 'CAIXA', 'FD', 'FARDO', 'PCT', 'PACOTE'])
 const digits = (value: string | null | undefined) => (value ?? '').replace(/\D/g, '')
 
 /**
@@ -98,27 +103,33 @@ export class PurchaseImportService {
   }
 }
 
+/**
+ * A pack size written in a product description: "6P", "6Pack", "12UN", "06UN", "C/12". A hint, never applied by itself — the
+ * operator confirms it, because "12UN" can also be a single 12-unit product and the invoice's unit of measure does not say.
+ */
+export function packHintFromDescription(description: string): number | null {
+  const match = /\b(?:C\/|CX\s?|FD\s?)?0?(\d{1,3})\s?(?:UN|UND|UNID|P|PACK|PK)\b/i.exec(description) ?? /\bC\/\s?0?(\d{1,3})\b/i.exec(description)
+  const size = match ? Number(match[1]) : null
+
+  return size !== null && size >= 2 ? size : null
+}
+
 function resolveItem(item: InvoiceInput['items'][number], product: CatalogueProduct | undefined): PreviewItem {
-  const base = { line: item.line, code: item.code, description: item.description, total_cents: item.totalCents }
-  const unresolved = (reason: UnresolvedReason): PreviewItem => ({ ...base, quantity: item.quantity, unit_cost_cents: item.unitCostCents, sku: null, product_name: null, unresolved_reason: reason, conversion: null })
+  const hint = packHintFromDescription(item.description)
+  const catalogue = product?.units_per_package && product.units_per_package >= 2 ? product.units_per_package : null
 
-  if (!product) return unresolved('no_match')
-  if (!item.quantityIsWhole) return unresolved('fractional_quantity')
-
-  const packaged = PACKAGE_UNITS.has((item.unit ?? '').toUpperCase())
-  if (!packaged) return { ...base, quantity: item.quantity, unit_cost_cents: item.unitCostCents, sku: product.sku, product_name: product.name, unresolved_reason: null, conversion: null }
-
-  const perPackage = product.units_per_package
-  if (!perPackage || perPackage < 1) return { ...unresolved('package_unknown'), sku: product.sku, product_name: product.name }
-
-  // The invoice prices the package; the purchase records units, so the unit cost is the package cost spread over its units.
   return {
-    ...base,
-    quantity: item.quantity * perPackage,
-    unit_cost_cents: Math.round(item.unitCostCents / perPackage),
-    sku: product.sku,
-    product_name: product.name,
-    unresolved_reason: null,
-    conversion: `${item.quantity} ${item.unit} × ${perPackage} = ${item.quantity * perPackage} un.`,
+    line: item.line,
+    code: item.code,
+    description: item.description,
+    quantity: item.quantity,
+    unit_cost_cents: item.unitCostCents,
+    total_cents: item.totalCents,
+    unit: item.unit,
+    sku: product?.sku ?? null,
+    product_name: product?.name ?? null,
+    unresolved_reason: product ? null : 'no_match',
+    pack_size_suggested: catalogue ?? hint,
+    pack_source: catalogue ? 'catalogue' : hint ? 'description' : null,
   }
 }

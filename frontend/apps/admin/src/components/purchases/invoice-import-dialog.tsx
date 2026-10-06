@@ -14,13 +14,10 @@ import { useGetProductsQuery } from "@/lib/api/products";
 import { useAddAliasMutation, useGetSuppliersQuery, useUpdateSupplierMutation } from "@/lib/api/suppliers";
 import { supplierAnalysisApi } from "@/lib/api/supplier-analysis";
 import { useAppDispatch } from "@/lib/hooks";
-import { CONDITION_LABEL, formatCents, formatDate } from "@/lib/purchases/money";
+import { CONDITION_LABEL, formatCents, formatDate, packConversion } from "@/lib/purchases/money";
+import { useUpdateProductMutation } from "@/lib/api/products";
 
-const REASON: Record<string, string> = {
-  no_match: "Produto não encontrado no cadastro",
-  fractional_quantity: "Quantidade fracionada (não vira unidade inteira)",
-  package_unknown: "Caixa/fardo sem unidades por embalagem cadastradas",
-};
+const NO_MATCH = "Produto não encontrado no cadastro";
 
 /**
  * Importa uma NF-e: mostra o que seria registrado e deixa a pessoa decidir. Linhas que o painel não consegue casar (por código de
@@ -32,6 +29,9 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
   const [preview, setPreview] = useState<InvoicePreview | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [linkTo, setLinkTo] = useState("");
+  const [packs, setPacks] = useState<Record<number, string>>({});
+  const [remember, setRemember] = useState(true);
+  const [updateProduct] = useUpdateProductMutation();
   const suppliers = useGetSuppliersQuery({ status: "active" }).data ?? [];
   const [addAlias, { isLoading: linking }] = useAddAliasMutation();
   const [updateSupplier] = useUpdateSupplierMutation();
@@ -53,6 +53,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
       setPreview(await read(next).unwrap());
       setConditions({});
       setChosen({});
+      setPacks({});
     } catch (failure) {
       const message = (failure as { data?: { message?: string } })?.data?.message;
       toast.error(message ?? "Não foi possível ler a nota. Confirme que é um XML de NF-e.");
@@ -78,9 +79,14 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
   }
 
   const skuFor = (item: InvoicePreview["items"][number]) => item.sku ?? products.find((p) => labelOf(p) === chosen[item.line])?.sku ?? null;
-  const resolved = preview ? preview.items.filter((item) => skuFor(item) && (item.unresolved_reason === null || item.unresolved_reason === "no_match")) : [];
-  const left = preview ? preview.items.length - resolved.length : 0;
-  const blocked = !preview || !preview.supplier || preview.duplicate_of !== null || resolved.length === 0;
+  /** Embalagem da linha: a que a pessoa digitou, senão a sugerida (cadastro ou descrição), senão 1 (a nota já está em unidades). */
+  const packOf = (item: InvoicePreview["items"][number]) => Number(packs[item.line] ?? item.pack_size_suggested ?? 1);
+  const conversionOf = (item: InvoicePreview["items"][number]) => packConversion(item.quantity, item.unit_cost_cents, packOf(item));
+  const withProduct = preview ? preview.items.filter((item) => skuFor(item)) : [];
+  const invalid = withProduct.filter((item) => conversionOf(item) === null);
+  const resolved = withProduct.filter((item) => conversionOf(item) !== null);
+  const left = preview ? preview.items.length - withProduct.length : 0;
+  const blocked = !preview || !preview.supplier || preview.duplicate_of !== null || resolved.length === 0 || invalid.length > 0;
 
   async function confirm() {
     if (!preview?.supplier) return;
@@ -92,14 +98,20 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
         invoice_key: preview.key ?? undefined,
         invoice_object_key: preview.object_key,
         origin: "nfe",
-        items: resolved.map((item) => ({
-          sku: skuFor(item) as string,
-          description: item.description,
-          quantity: item.quantity,
-          unit_cost_cents: item.unit_cost_cents,
-          condition: conditions[item.line] ?? "paid",
-        })),
+        items: resolved.map((item) => {
+          const converted = conversionOf(item) as { units: number; unitCostCents: number };
+          return { sku: skuFor(item) as string, description: item.description, quantity: converted.units, unit_cost_cents: converted.unitCostCents, condition: conditions[item.line] ?? "paid" };
+        }),
       }).unwrap();
+      // A embalagem digitada vira dado do produto (só onde ainda não havia): a próxima nota já vem sugerida.
+      if (remember)
+        await Promise.all(
+          resolved.flatMap((item) => {
+            const product = products.find((p) => p.sku === skuFor(item));
+            const pack = packOf(item);
+            return product && pack >= 2 && !product.units_per_package ? [updateProduct({ id: product.id, changes: { unitsPerPackage: pack } }).unwrap().catch(() => undefined)] : [];
+          }),
+        );
       dispatch(supplierAnalysisApi.util.invalidateTags(["Analysis"]));
       toast.success(`Nota ${preview.number} registrada com ${resolved.length} ${resolved.length === 1 ? "item" : "itens"}.`);
       setOpen(false);
@@ -165,8 +177,9 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                   <TableRow>
                     <TableHead>Item da nota</TableHead>
                     <TableHead>Produto</TableHead>
-                    <TableHead className="text-right">Qtd.</TableHead>
-                    <TableHead className="text-right">Custo un.</TableHead>
+                    <TableHead className="text-right">Na nota</TableHead>
+                    <TableHead>Un. por embalagem</TableHead>
+                    <TableHead className="text-right">Registra</TableHead>
                     <TableHead>Condição</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -174,31 +187,62 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                   {preview.items.map((item) => {
                     const sku = skuFor(item);
                     const fixable = item.unresolved_reason === "no_match";
+                    const converted = conversionOf(item);
                     return (
                       <TableRow key={item.line}>
                         <TableCell>
                           <p className="font-medium">{item.description}</p>
-                          <p className="text-xs text-muted-foreground">
-                            cód. {item.code}
-                            {item.conversion ? ` · ${item.conversion}` : ""}
-                          </p>
+                          <p className="text-xs text-muted-foreground">cód. {item.code}{item.unit ? ` · unidade da nota: ${item.unit}` : ""}</p>
                         </TableCell>
                         <TableCell>
                           {item.sku ? (
                             <span className="text-sm">{item.product_name}</span>
-                          ) : fixable ? (
-                            <Combobox options={labels} value={chosen[item.line] ?? ""} onChange={(label) => setChosen((c) => ({ ...c, [item.line]: label }))} placeholder="Escolha o produto" className="w-56" />
                           ) : (
-                            <span className="text-xs text-destructive">{REASON[item.unresolved_reason ?? "no_match"]}</span>
+                            <>
+                              <Combobox options={labels} value={chosen[item.line] ?? ""} onChange={(label) => setChosen((c) => ({ ...c, [item.line]: label }))} placeholder="Escolha o produto" className="w-56" />
+                              {fixable && !sku && <p className="text-xs text-muted-foreground">{NO_MATCH}; fica de fora se não escolher.</p>}
+                            </>
                           )}
-                          {!item.sku && fixable && !sku && <p className="text-xs text-muted-foreground">{REASON.no_match}; fica de fora se não escolher.</p>}
                         </TableCell>
-                        <TableCell className="tabular text-right">{item.quantity}</TableCell>
-                        <TableCell className="tabular text-right">{formatCents(item.unit_cost_cents)}</TableCell>
+                        <TableCell className="tabular text-right">
+                          {item.quantity} × {formatCents(item.unit_cost_cents)}
+                        </TableCell>
+                        <TableCell>
+                          {sku ? (
+                            <div className="flex flex-col gap-0.5">
+                              <Input
+                                className="w-20"
+                                inputMode="numeric"
+                                aria-label={`Unidades por embalagem do item ${item.line}`}
+                                value={packs[item.line] ?? String(item.pack_size_suggested ?? 1)}
+                                onChange={(e) => setPacks((current) => ({ ...current, [item.line]: e.target.value }))}
+                              />
+                              {item.pack_source && packs[item.line] === undefined && (
+                                <span className="text-xs text-muted-foreground">sugerido ({item.pack_source === "catalogue" ? "cadastro" : "descrição"})</span>
+                              )}
+                            </div>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell className="tabular text-right">
+                          {sku ? (
+                            converted ? (
+                              <>
+                                {converted.units} un.
+                                <p className="text-xs text-muted-foreground">{formatCents(converted.unitCostCents)} cada</p>
+                              </>
+                            ) : (
+                              <span className="text-xs text-destructive">embalagem inválida</span>
+                            )
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
                         <TableCell>
                           {sku ? (
                             <Select value={conditions[item.line] ?? "paid"} onValueChange={(c) => setConditions((current) => ({ ...current, [item.line]: c as Condition }))}>
-                              <SelectTrigger aria-label={`Condição do item ${item.line}`} className="w-52">
+                              <SelectTrigger aria-label={`Condição do item ${item.line}`} className="w-44">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -219,7 +263,13 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                 </TableBody>
               </Table>
             </div>
-            {left > 0 && <p className="text-sm text-warning">{left} {left === 1 ? "linha fica" : "linhas ficam"} de fora por não terem produto resolvido.</p>}
+            <p className="text-xs text-muted-foreground">A nota costuma trazer o preço do fardo ou da caixa. Informe quantas unidades vêm em cada um: o painel registra unidades e o custo de UMA unidade.</p>
+            <label className="flex items-center gap-1.5 text-sm">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+              Lembrar a embalagem no cadastro dos produtos que ainda não têm
+            </label>
+            {invalid.length > 0 && <p className="text-sm text-destructive">{invalid.length} {invalid.length === 1 ? "linha tem" : "linhas têm"} embalagem inválida (use um número inteiro de unidades).</p>}
+            {left > 0 && <p className="text-sm text-warning">{left} {left === 1 ? "linha fica" : "linhas ficam"} de fora por não terem produto escolhido.</p>}
           </div>
         )}
 
