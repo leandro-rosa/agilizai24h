@@ -39,6 +39,7 @@ function input(): OverviewInput {
     supply: null,
     aging: { referenceDate: "2026-11-03", overdueCents: 0, notDueCents: 1_250_000, openCents: 1_250_000 },
     closed: true,
+    previousClosed: true,
   };
 }
 
@@ -70,6 +71,39 @@ describe("buildOverview", () => {
     expect(o.stores).toMatchObject({ up: 2, down: 1, stable: 1 });
     expect(o.stores!.topGrowth.map((s) => s.name)).toEqual(["HTL05", "Ascenty ADM"]);
     expect(o.stores!.attention.map((s) => s.name)).toContain("Itaquá");
+  });
+
+  it("store summary says how much of the network revenue the stores explain", () => {
+    expect(o.stores!.storesRevenueCents).toBe(5_900_000);
+    expect(o.stores!.revenueCoverage).toBeCloseTo(5_900_000 / 12_450_000);
+  });
+
+  it("flags when store revenue and network revenue diverge, naming the network-only revenue", () => {
+    const x = buildOverview({
+      ...input(),
+      stores: {
+        current: [store(1, "A", 5_000_000), store(2, "B", 3_000_000)],
+        previous: [store(1, "A", 6_000_000), store(2, "B", 3_800_000)],
+        activeCount: 2,
+      },
+    });
+    const ins = x.insights.find((i) => i.id === "stores-vs-network")!;
+    expect(ins.title).toMatch(/Receita das lojas caiu 18,4%, contra \+8,4% da rede/);
+    expect(ins.detail).toMatch(/nenhuma das 2 lojas cresceu/);
+  });
+
+  it("a revenue fall names the stores that fell most, not the ones that grew", () => {
+    const x = buildOverview({
+      ...input(),
+      months: input().months.map((m, i) => (i === 0 ? { ...m, pnl: pnl(10_000_000, 4_000_000, 2_000_000) } : m)),
+    });
+    expect(x.insights[0].title).toMatch(/Faturamento caiu/);
+    expect(x.insights[0].detail).toMatch(/maiores quedas em Itaquá/);
+  });
+
+  it("a drop in losses is reported even though it is small against revenue", () => {
+    const x = buildOverview(input());
+    expect(x.insights.map((i) => i.id)).toContain("loss");
   });
 
   it("loss uses explicit denominators and real reason keys", () => {

@@ -23,13 +23,33 @@ describe("suggestPredecessors", () => {
     { sku: "NEW", name: "Suflair Chocolate ao Leite" },
     { sku: "OTHER", name: "Coca Cola Zero" },
   ];
-  const salesInfo = new Map([["OLD", { lastSoldPeriod: "2026-08", unitsInPeriod: 0 }]]);
+  const salesInfo = new Map([["OLD", { lastSoldPeriod: "2026-08", unitsInPeriod: 0, peakBefore: 300 }]]);
 
   it("suggests the old SKU with its last sale month", () => {
     const r = suggestPredecessors({ newSkus: ["NEW"], catalogue, links: [], salesInfo });
     expect(r).toHaveLength(1);
     expect(r[0].candidates[0]).toMatchObject({ oldSku: "OLD", lastSoldPeriod: "2026-08", unitsInPeriod: 0 });
     expect(r[0].candidates.map((c) => c.oldSku)).not.toContain("OTHER");
+  });
+
+  it("a similar product that is still selling at full pace is NOT a barcode change (Monster 269 x 473)", () => {
+    const steady = new Map([["OLD", { lastSoldPeriod: "2026-09", unitsInPeriod: 188, peakBefore: 260 }]]);
+    expect(suggestPredecessors({ newSkus: ["NEW"], catalogue, links: [], salesInfo: steady })).toEqual([]);
+  });
+
+  it("an old SKU declining while the new one rises is offered (Snickers 314 -> 58)", () => {
+    const handover = new Map([["OLD", { lastSoldPeriod: "2026-09", unitsInPeriod: 58, peakBefore: 314 }]]);
+    expect(suggestPredecessors({ newSkus: ["NEW"], catalogue, links: [], salesInfo: handover })[0].candidates[0]).toMatchObject({ oldSku: "OLD", peakUnits: 314, unitsInPeriod: 58 });
+  });
+
+  it("an old SKU that sold a single unit once is noise, not a replaced product", () => {
+    const noise = new Map([["OLD", { lastSoldPeriod: "2026-03", unitsInPeriod: 0, peakBefore: 1 }]]);
+    expect(suggestPredecessors({ newSkus: ["NEW"], catalogue, links: [], salesInfo: noise })).toEqual([]);
+  });
+
+  it("a catalogue SKU that never sold cannot be proven to have been replaced", () => {
+    const never = new Map([["OLD", { lastSoldPeriod: null, unitsInPeriod: 0, peakBefore: 0 }]]);
+    expect(suggestPredecessors({ newSkus: ["NEW"], catalogue, links: [], salesInfo: never })).toEqual([]);
   });
 
   it("does not ask again after a decision either way", () => {

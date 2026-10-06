@@ -73,6 +73,10 @@ export const productsApi = createApi({
       query: (body) => ({ url: "/sku-links", method: "PUT", body }),
       invalidatesTags: ["SkuLink"],
     }),
+    deleteSkuLink: builder.mutation<void, number>({
+      query: (id) => ({ url: `/sku-links/${id}`, method: "DELETE" }),
+      invalidatesTags: ["SkuLink"],
+    }),
     getCostsAsOf: builder.query<BulkCostResult, { skus: string[]; asOf: string }>({
       query: ({ skus, asOf }) => ({
         url: "/products/costs/bulk",
@@ -106,6 +110,7 @@ export const {
   useGetProductsQuery,
   useGetSkuLinksQuery,
   useDecideSkuLinkMutation,
+  useDeleteSkuLinkMutation,
   useGetCostsAsOfQuery,
   useGetPricesAsOfQuery,
   useRecordPriceMutation,

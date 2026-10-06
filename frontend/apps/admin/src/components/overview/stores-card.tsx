@@ -43,10 +43,25 @@ export function StoresCard({ stores }: { stores: StoreSummary | null }) {
               {stores.activeCount !== null && <li className="text-xs text-muted-foreground">{stores.activeCount} lojas ativas no cadastro</li>}
             </ul>
           </div>
+          {stores.revenueCoverage !== null && stores.revenueCoverage < 0.995 && (
+            <p className="text-xs text-muted-foreground">
+              As lojas somam {moneyRound(stores.storesRevenueCents)} ({Math.round(stores.revenueCoverage * 100)}% da receita líquida da rede); o restante é receita lançada só no nível da rede e não entra nas comparações por loja.
+            </p>
+          )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <p className="text-xs font-semibold text-muted-foreground">Principais contribuições para o crescimento</p>
-              {stores.topGrowth.length === 0 ? <p className="text-sm text-muted-foreground">Nenhuma loja cresceu.</p> : stores.topGrowth.map((s) => (
+              {stores.topGrowth.length === 0 ? (
+                <>
+                  <p className="text-sm text-muted-foreground">Nenhuma loja cresceu. Maiores quedas:</p>
+                  {stores.topDecline.map((s) => (
+                    <p key={s.storeId} className="flex justify-between gap-2 text-sm">
+                      <span>{s.name}</span>
+                      <span className="tabular text-destructive">{moneyRound(s.deltaCents)}{s.deltaPct !== null ? ` · ${(s.deltaPct * 100).toFixed(0)}%` : ""}</span>
+                    </p>
+                  ))}
+                </>
+              ) : stores.topGrowth.map((s) => (
                 <p key={s.storeId} className="flex justify-between gap-2 text-sm">
                   <span>{s.name}</span>
                   <span className="tabular text-success">+{moneyRound(s.deltaCents)}{s.deltaPct !== null ? ` · +${(s.deltaPct * 100).toFixed(0)}%` : ""}</span>

@@ -103,6 +103,8 @@ export interface OverviewInput {
   aging: { referenceDate: string; overdueCents: number; notDueCents: number; openCents: number } | null;
   /** Fechamento do mês na rede. */
   closed: boolean;
+  /** O mês anterior (base da comparação) também está fechado no DRE? Se não, a comparação é provisória. */
+  previousClosed: boolean;
 }
 
 export type Tone = "positive" | "negative" | "neutral";
@@ -154,7 +156,12 @@ export interface StoreSummary {
   up: number;
   down: number;
   stable: number;
+  /** Receita líquida somada das lojas ÷ receita líquida da rede (DRE). < 1: parte da receita é lançada só na rede. */
+  revenueCoverage: number | null;
+  storesRevenueCents: number;
+  storesRevenuePreviousCents: number;
   topGrowth: StoreContribution[];
+  topDecline: StoreContribution[];
   attention: StoreAttention[];
 }
 
@@ -266,6 +273,7 @@ export interface Overview {
   previousPeriod: string;
   avg3Periods: string[];
   closed: boolean;
+  previousClosed: boolean;
   /** Último fechamento do mês na rede (não é data de congelamento). */
   closedAt: string | null;
   kpis: KpiResult[];

@@ -71,6 +71,9 @@ export default function OverviewPage() {
               <span>Último fechamento do mês: {date(overview.closedAt)}</span>
               <span>Dados carregados em: {loadedAt.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</span>
               <span>Comparações: vs. mês anterior e vs. média dos 3 meses anteriores</span>
+              {!overview.previousClosed && (
+                <span className="text-warning">{fmtPeriod(overview.previousPeriod)} ainda não está fechado no DRE — a comparação com o mês anterior é provisória.</span>
+              )}
               <Link href={`/finance/pnl?period=${period}`} className="text-primary hover:underline">Ver DRE do mês →</Link>
             </p>
 
