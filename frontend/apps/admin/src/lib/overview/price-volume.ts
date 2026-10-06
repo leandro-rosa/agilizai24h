@@ -275,6 +275,15 @@ export function priceChangesObservation(pc: PriceChanges): string {
 export interface PriceImpactReading {
   /** Uma frase: o que aconteceu com faturamento e margem nos reajustados. */
   headline: string;
+  /** Resposta direta a "a queda nas vendas foi compensada em margem?". */
+  verdict: {
+    /** sim = margem em R$ não caiu; nao = caiu; sem_dados = nenhum reajustado com custo resolvido. */
+    margin: "sim" | "nao" | "sem_dados";
+    /** O faturamento dos reajustados também se recuperou? */
+    revenueRecovered: boolean;
+    title: string;
+    detail: string;
+  };
   lines: string[];
 }
 
@@ -316,5 +325,23 @@ export function priceImpactReading(pc: PriceChanges, money: (cents: number) => s
     );
   }
   lines.push(`Calendário: ${pc.days.after} dias contra ${pc.days.before}. Custo = o do catálogo na data; preço = preço realizado (receita ÷ unidades).`);
-  return { headline, lines };
+  const unitsDropped = pc.unitsAfter < pc.unitsBefore;
+  const unitsPctTxt = pc.unitsBefore > 0 ? `${Math.abs(Math.round(((pc.unitsAfter - pc.unitsBefore) / pc.unitsBefore) * 100))}%` : "";
+  let verdict: PriceImpactReading["verdict"];
+  if (!m) {
+    verdict = { margin: "sem_dados", revenueRecovered: dRev >= 0, title: "Sem como medir a margem", detail: "Nenhum dos reajustados tem custo resolvido, então só dá para olhar o faturamento." };
+  } else {
+    const dM = m.afterCents - m.beforeCents;
+    const ok = dM >= 0;
+    const units = unitsDropped ? `mesmo com ${unitsPctTxt} menos unidades` : "e as unidades não caíram";
+    verdict = {
+      margin: ok ? "sim" : "nao",
+      revenueRecovered: dRev >= 0,
+      title: ok ? "Sim, a margem compensou a queda das vendas" : "Não, a margem não compensou a queda das vendas",
+      detail:
+        `A margem em R$ ${updown(dM, "subiu", "caiu")} ${abs(dM)} ${units}: o preço ${updown(m.priceEffectCents, "somou", "tirou")} ${abs(m.priceEffectCents)} e as unidades ${updown(m.volumeEffectCents, "somaram", "tiraram")} ${abs(m.volumeEffectCents)}. ` +
+        `O faturamento ${dRev >= 0 ? "também se recuperou" : "NÃO se recuperou"}: ${updown(dRev, "subiu", "caiu")} ${abs(dRev)}.`,
+    };
+  }
+  return { headline, verdict, lines };
 }
