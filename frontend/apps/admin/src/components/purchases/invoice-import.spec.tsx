@@ -108,17 +108,23 @@ describe("InvoiceImportDialog — sugestões por nome", () => {
     preview = { ...preview, items: [unmatched()], supplier: { id: 130, name: "Juntos+" }, duplicate_of: null };
   });
 
-  it("mostra os parecidos sem escolher nenhum: a linha fica de fora até a pessoa aceitar", async () => {
+  it("já vem com o melhor parecido escolhido no seletor, marcado como sugestão; o de medida diferente não é escolhido", async () => {
     await openWithFile();
 
-    expect(screen.getByText("Energético Monster (M1)")).toBeInTheDocument();
-    expect(screen.getByText(/medida diferente da nota/)).toBeInTheDocument();
+    expect(screen.getByText(/Sugerido pelo nome/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Registrar 1 item" })).toBeEnabled();
+  });
+
+  it("sem parecido de mesma medida, a linha fica de fora até a pessoa escolher", async () => {
+    preview = { ...preview, items: [{ ...unmatched(), suggestions: [{ sku: "M2", name: "Monster 269ml", score: 0.6, measure_differs: true }] }] };
+    await openWithFile();
+
+    expect(screen.queryByText(/Sugerido pelo nome/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Registrar 0 itens" })).toBeDisabled();
   });
 
-  it("aceitar a sugestão registra a linha e envia o código do fornecedor para o vínculo", async () => {
+  it("registrar a sugestão envia o código do fornecedor para o vínculo", async () => {
     await openWithFile();
-    fireEvent.click(screen.getByText("Energético Monster (M1)"));
     fireEvent.click(screen.getByRole("button", { name: "Registrar 1 item" }));
 
     await waitFor(() => expect(createPurchase).toHaveBeenCalledTimes(1));

@@ -93,7 +93,20 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
     }
   }
 
-  const skuFor = (item: InvoicePreview["items"][number]) => item.sku ?? products.find((p) => labelOf(p) === chosen[item.line])?.sku ?? null;
+  /** O melhor parecido pelo nome, já escolhido no seletor — só quando a medida bate com a da nota. A pessoa troca ou limpa. */
+  const suggestedOf = (item: InvoicePreview["items"][number]) => item.suggestions.find((s) => !s.measure_differs) ?? null;
+  const chosenLabel = (item: InvoicePreview["items"][number]) => {
+    if (chosen[item.line] !== undefined) return chosen[item.line];
+    const suggested = suggestedOf(item);
+    return suggested ? labelOf(suggested) : "";
+  };
+  const skuFor = (item: InvoicePreview["items"][number]) => item.sku ?? products.find((p) => labelOf(p) === chosenLabel(item))?.sku ?? null;
+  const isSuggested = (item: InvoicePreview["items"][number]) => !item.sku && chosen[item.line] === undefined && suggestedOf(item) !== null;
+  /** Os parecidos primeiro na lista do seletor, o resto do catálogo depois. */
+  const optionsFor = (item: InvoicePreview["items"][number]) => {
+    const top = item.suggestions.map((s) => labelOf(s));
+    return [...top, ...labels.filter((label) => !top.includes(label))];
+  };
   /** Embalagem da linha: a que a pessoa digitou, senão a sugerida (cadastro ou descrição), senão 1 (a nota já está em unidades). */
   const packOf = (item: InvoicePreview["items"][number]) => Number(packs[item.line] ?? item.pack_size_suggested ?? 1);
   const conversionOf = (item: InvoicePreview["items"][number]) => packConversion(item.quantity, item.unit_cost_cents, packOf(item));
@@ -144,7 +157,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger ?? <Button variant="outline">Importar nota fiscal</Button>}</DialogTrigger>
-      <DialogContent className="sm:max-w-4xl">
+      <DialogContent className="max-h-[92vh] grid-cols-[minmax(0,1fr)] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>Importar nota fiscal (NF-e)</DialogTitle>
           <DialogDescription>Envie o XML da nota. Você confere o que seria registrado antes de confirmar; nada é gravado até lá.</DialogDescription>
@@ -154,7 +167,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
         {reading && <p className="text-sm text-muted-foreground">Lendo a nota…</p>}
 
         {preview && (
-          <div className="flex flex-col gap-3">
+          <div className="flex min-w-0 flex-col gap-3">
             <div className="rounded-md border p-3 text-sm">
               <p className="font-medium">
                 Nota {preview.number} · {formatDate(preview.issued_on)}
@@ -190,7 +203,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
               {preview.duplicate_of !== null && <p className="mt-1 text-destructive">Esta nota já foi registrada (compra {preview.duplicate_of}). Não será duplicada.</p>}
             </div>
 
-            <div className="max-h-80 overflow-y-auto">
+            <div className="max-h-80 min-w-0 overflow-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -221,24 +234,9 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                             </>
                           ) : (
                             <>
-                              <Combobox options={labels} value={chosen[item.line] ?? ""} onChange={(label) => setChosen((c) => ({ ...c, [item.line]: label }))} placeholder="Escolha o produto" className="w-56" />
+                              <Combobox options={optionsFor(item)} value={chosenLabel(item)} onChange={(label) => setChosen((c) => ({ ...c, [item.line]: label }))} placeholder="Escolha o produto" className="w-64" />
+                              {isSuggested(item) && <p className="text-xs text-warning">Sugerido pelo nome — confira; para trocar, escolha outro no seletor.</p>}
                               {fixable && !sku && <p className="text-xs text-muted-foreground">{NO_MATCH}; fica de fora se não escolher.</p>}
-                              {fixable && !sku && item.suggestions.length > 0 && (
-                                <div className="flex flex-col gap-0.5 pt-1" aria-label="Parecidos no catálogo">
-                                  <p className="text-xs text-muted-foreground">Parecidos (confira antes de aceitar):</p>
-                                  {item.suggestions.map((suggestion) => (
-                                    <button
-                                      key={suggestion.sku}
-                                      type="button"
-                                      className="w-fit text-left text-xs text-primary underline-offset-2 hover:underline"
-                                      onClick={() => setChosen((c) => ({ ...c, [item.line]: labelOf(suggestion) }))}
-                                    >
-                                      {suggestion.name} ({suggestion.sku})
-                                      {suggestion.measure_differs && <span className="text-warning"> · medida diferente da nota</span>}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
                               {fixable && !sku && canCreateProduct && (
                                 <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setNewProductLine(item.line)}>
                                   Cadastrar produto novo
@@ -285,7 +283,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                         <TableCell>
                           {sku ? (
                             <Select value={conditions[item.line] ?? "paid"} onValueChange={(c) => setConditions((current) => ({ ...current, [item.line]: c as Condition }))}>
-                              <SelectTrigger aria-label={`Condição do item ${item.line}`} className="w-44">
+                              <SelectTrigger aria-label={`Condição do item ${item.line}`} className="w-36">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
