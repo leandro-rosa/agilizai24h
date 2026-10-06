@@ -4,7 +4,8 @@ import type { CompareTo } from './analysis.types'
 import { AnalysisService } from './analysis.service'
 
 /**
- * Read-only. `compareTo` is `prev_month` (default) or `avg_3m`; `period` is `YYYY-MM`.
+ * Read-only. `period` is the last month (`YYYY-MM`) and `from` the first, when a range of up to 12 months is asked for.
+ * `compareTo` is `prev_month` (default) or `avg_3m` (single month only; a range is compared with the period right before it).
  * Purchase figures come back as unavailable (`no_purchase_history`) until a purchase source exists.
  */
 @ApiTags('analysis')
@@ -19,9 +20,10 @@ export class AnalysisController {
     @Query('period') period: string,
     @Query('compareTo') compareTo: CompareTo = 'prev_month',
     @Query('storeId') storeId?: string,
+    @Query('from') from?: string,
     @Headers('x-correlation-id') correlationId?: string,
   ) {
-    return this.analysis.supplier(id, period, compareTo, correlationId, storeId ? Number(storeId) : undefined)
+    return this.analysis.supplier(id, period, compareTo, correlationId, storeId ? Number(storeId) : undefined, from)
   }
 
   @Get('products/:sku')
@@ -31,9 +33,10 @@ export class AnalysisController {
     @Query('period') period: string,
     @Query('compareTo') compareTo: CompareTo = 'prev_month',
     @Query('storeId') storeId?: string,
+    @Query('from') from?: string,
     @Headers('x-correlation-id') correlationId?: string,
   ) {
-    return this.analysis.product(sku, period, compareTo, correlationId, storeId ? Number(storeId) : undefined)
+    return this.analysis.product(sku, period, compareTo, correlationId, storeId ? Number(storeId) : undefined, from)
   }
 
   @Get('cross')
@@ -43,8 +46,9 @@ export class AnalysisController {
     @Query('sku') sku: string,
     @Query('period') period: string,
     @Query('compareTo') compareTo: CompareTo = 'prev_month',
+    @Query('from') from?: string,
     @Headers('x-correlation-id') correlationId?: string,
   ) {
-    return this.analysis.cross(supplierId, sku, period, compareTo, correlationId)
+    return this.analysis.cross(supplierId, sku, period, compareTo, correlationId, from)
   }
 }

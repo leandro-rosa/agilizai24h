@@ -42,7 +42,7 @@ describe('supplierInsights', () => {
     const insights = supplierInsights({ movement: now, comparison, products: [], networkLossShare: null, storesRestocked: 1, compareTo: 'prev_month', p: P })
     const outpace = insights.find(i => i.kind === 'purchases_outpace_sales')
 
-    expect(outpace?.text).toMatch(/compras aumentaram 20%, mas as vendas aumentaram apenas 6%/)
+    expect(outpace?.text).toMatch(/compras aumentaram 20%, mas as vendas aumentaram apenas 6%, em relação ao mês anterior\./)
     expect(outpace?.evidence.figures.purchasedChange).toBeCloseTo(0.2)
     expect(outpace?.evidence.figures.soldChange).toBeCloseTo(0.06)
   })
@@ -100,5 +100,17 @@ describe('productInsights', () => {
     const hint = productInsights({ movement: now as Movement, comparison, stores: [stores[0], stores[1], stores[2]], compareTo: 'prev_month', p: P, networkLossShare: null }).find(i => i.kind === 'concentrated_demand')
 
     expect(hint?.label).toBe('ESTIMATIVA')
+  })
+})
+
+describe('low-margin insight', () => {
+  it('names the products below the attention margin, worst first, with the threshold as evidence', () => {
+    const { now, comparison } = movements({ 1: { A: c(270, 245, 12, 245000) } }, { 1: { A: c(250, 218, 8, 218000) } })
+    const line = (sku: string, name: string, margin: number) => ({ sku, name, supplierId: 1, movement: { ...now, marginShare: { available: true as const, value: margin } }, comparison })
+    const lowMargin = [line('A', 'Água', 0.18), line('B', 'Refri', 0.05)]
+    const found = supplierInsights({ movement: now, comparison, products: lowMargin, lowMargin, networkLossShare: null, storesRestocked: 1, compareTo: 'prev_month', p: P }).find(i => i.kind === 'low_margin_products')
+
+    expect(found?.text).toBe('2 produtos têm margem bruta abaixo de 20%: Refri (5%), Água (18%).')
+    expect(found?.evidence.figures.threshold).toBe(0.2)
   })
 })

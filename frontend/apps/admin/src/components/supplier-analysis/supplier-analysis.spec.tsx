@@ -6,7 +6,9 @@ import { DataQualityNote } from "./data-quality-note";
 import { EvolutionTable } from "./evolution-table";
 import { InsightList } from "./insight-list";
 import { KpiStrip } from "./kpi-strip";
+import { MarginBar } from "./margin-bar";
 import { MovementBars } from "./movement-bars";
+import { ProfitabilityStrip } from "./profitability-strip";
 import { SupplierProductsTable } from "./supplier-products-table";
 
 const ok = (value: number, partial?: boolean): Figure => (partial ? { available: true, value, partial } : { available: true, value });
@@ -92,6 +94,10 @@ describe("MovementBars", () => {
     lossCents: ok(0),
     marginShare: ok(0.4),
     avgCostCents: ok(800),
+    avgPriceCents: ok(1300),
+    grossProfitCents: ok(5000),
+    markup: ok(1.6),
+    costCoverage: ok(1),
   };
 
   it("sem compras, usa o abastecido como base e avisa", () => {
@@ -149,7 +155,7 @@ describe("DataQualityNote", () => {
 });
 
 describe("SupplierProductsTable", () => {
-  const base = { purchasedUnits: noPurchases, purchasedCents: noPurchases, revenueCents: ok(0), lossCents: ok(0), marginShare: noBase.change, avgCostCents: noBase.change };
+  const base = { purchasedUnits: noPurchases, purchasedCents: noPurchases, revenueCents: ok(0), lossCents: ok(0), marginShare: noBase.change, avgCostCents: noBase.change, avgPriceCents: noBase.change, grossProfitCents: noBase.change, markup: noBase.change, costCoverage: noBase.change };
   const line = (sku: string, name: string, restocked: number, sold: number, lost: number) => ({
     sku,
     name,
@@ -180,5 +186,47 @@ describe("SupplierProductsTable", () => {
     render(<SupplierProductsTable lines={lines.slice(1) as never} />);
 
     expect(screen.getByText(/Nenhum produto deste fornecedor teve compra, abastecimento, venda ou perda/)).toBeInTheDocument();
+  });
+});
+
+describe("MarginBar", () => {
+  it("destaca a margem abaixo do corte de atenção e não desenha barra para margem ausente", () => {
+    const { rerender } = render(<MarginBar margin={ok(0.15)} threshold={0.2} />);
+    expect(screen.getByText("15,0%").className).toMatch(/text-warning/);
+
+    rerender(<MarginBar margin={ok(0.55)} threshold={0.2} />);
+    expect(screen.getByText("55,0%").className).not.toMatch(/text-warning/);
+
+    rerender(<MarginBar margin={{ available: false, reason: "no_cost" }} threshold={0.2} />);
+    expect(screen.getByText("Sem custo cadastrado")).toBeInTheDocument();
+  });
+});
+
+describe("ProfitabilityStrip", () => {
+  const totals = {
+    current: {
+      purchasedUnits: noPurchases, purchasedCents: noPurchases, restocked: ok(100), sold: ok(80), lost: ok(2), revenueCents: ok(100000), lossCents: ok(0),
+      marginShare: ok(0.575), avgCostCents: ok(300), avgPriceCents: ok(790), grossProfitCents: ok(5794279), markup: ok(2.23), costCoverage: ok(0.998),
+    },
+    comparison: Object.fromEntries(
+      ["purchasedUnits", "purchasedCents", "restocked", "sold", "lost", "revenueCents", "lossCents", "marginShare", "avgCostCents", "avgPriceCents", "grossProfitCents", "markup", "costCoverage"].map((key) => [key, noBase]),
+    ),
+  } as never;
+
+  it("mostra lucro bruto, margem, markup, produtos com atenção e a cobertura do custo", () => {
+    render(<ProfitabilityStrip totals={totals} compareTo="prev_month" rangeMonths={1} attention={{ threshold: 0.2, count: 3, rated: 40 }} />);
+
+    expect(screen.getByText("Lucro bruto")).toBeInTheDocument();
+    expect(screen.getByText("57,5%")).toBeInTheDocument();
+    expect(screen.getByText("2,23")).toBeInTheDocument();
+    expect(screen.getByText("3 SKUs")).toBeInTheDocument();
+    expect(screen.getByText(/7,5% dos 40 avaliados · margem < 20%/)).toBeInTheDocument();
+    expect(screen.getByText("Cobertura do custo: 99,8%")).toBeInTheDocument();
+  });
+
+  it("sem o bloco de atenção (produto), não inventa 'produtos com atenção'", () => {
+    render(<ProfitabilityStrip totals={totals} compareTo="prev_month" rangeMonths={1} />);
+
+    expect(screen.queryByText("Produtos com atenção")).not.toBeInTheDocument();
   });
 });

@@ -27,6 +27,14 @@ export interface Movement {
   lossCents: Figure;
   marginShare: Figure;
   avgCostCents: Figure;
+  /** Receita ÷ unidades vendidas. */
+  avgPriceCents: Figure;
+  /** Receita menos custo do vendido, nos SKUs com custo. */
+  grossProfitCents: Figure;
+  /** Preço ÷ custo (2,23 = vende a 2,23 vezes o custo). */
+  markup: Figure;
+  /** Parcela da receita cujos SKUs têm custo. Abaixo de 100% a margem é parcial. */
+  costCoverage: Figure;
 }
 
 export interface Variation {
@@ -69,7 +77,13 @@ export interface MonthlyPoint {
 }
 
 export interface AnalysisMeta {
+  /** Último mês do intervalo. */
   period: string;
+  /** Primeiro mês do intervalo (igual a `period` quando é um mês só). */
+  from: string;
+  months: number;
+  /** Período com o qual se compara, quando o intervalo tem vários meses. */
+  previous: { from: string; to: string } | null;
   compareTo: CompareTo;
   parameterVersion: number;
   dataQuality: {
@@ -90,6 +104,8 @@ export interface SupplierAnalysis {
   meta: AnalysisMeta;
   supplierId: number;
   totals: MovementWithComparison;
+  /** Produtos com margem bruta abaixo do corte, entre os que têm margem para avaliar. */
+  attention: { threshold: number; count: number; rated: number; skus: string[] };
   products: ProductLine[];
   evolution: MonthlyPoint[];
   insights: Insight[];
@@ -115,7 +131,10 @@ export interface CrossAnalysis {
 }
 
 export interface AnalysisArgs {
+  /** Último mês. */
   period: string;
+  /** Primeiro mês, quando o filtro cobre mais de um. */
+  from?: string;
   compareTo: CompareTo;
   /** Restringe os números a uma loja. Compras são da rede e ficam como "—" quando há loja. */
   storeId?: number;
@@ -128,18 +147,18 @@ export const supplierAnalysisApi = createApi({
   tagTypes: ["Analysis"],
   endpoints: (builder) => ({
     getSupplierAnalysis: builder.query<SupplierAnalysis, AnalysisArgs & { supplierId: number }>({
-      query: ({ supplierId, period, compareTo, storeId }) =>
-        `/analysis/suppliers/${supplierId}?period=${period}&compareTo=${compareTo}${storeId ? `&storeId=${storeId}` : ""}`,
+      query: ({ supplierId, period, from, compareTo, storeId }) =>
+        `/analysis/suppliers/${supplierId}?period=${period}${from ? `&from=${from}` : ""}&compareTo=${compareTo}${storeId ? `&storeId=${storeId}` : ""}`,
       providesTags: ["Analysis"],
     }),
     getProductAnalysis: builder.query<ProductAnalysis, AnalysisArgs & { sku: string }>({
-      query: ({ sku, period, compareTo, storeId }) =>
-        `/analysis/products/${encodeURIComponent(sku)}?period=${period}&compareTo=${compareTo}${storeId ? `&storeId=${storeId}` : ""}`,
+      query: ({ sku, period, from, compareTo, storeId }) =>
+        `/analysis/products/${encodeURIComponent(sku)}?period=${period}${from ? `&from=${from}` : ""}&compareTo=${compareTo}${storeId ? `&storeId=${storeId}` : ""}`,
       providesTags: ["Analysis"],
     }),
     getCrossAnalysis: builder.query<CrossAnalysis, AnalysisArgs & { supplierId: number; sku: string }>({
-      query: ({ supplierId, sku, period, compareTo }) =>
-        `/analysis/cross?supplierId=${supplierId}&sku=${encodeURIComponent(sku)}&period=${period}&compareTo=${compareTo}`,
+      query: ({ supplierId, sku, period, from, compareTo }) =>
+        `/analysis/cross?supplierId=${supplierId}&sku=${encodeURIComponent(sku)}&period=${period}${from ? `&from=${from}` : ""}&compareTo=${compareTo}`,
       providesTags: ["Analysis"],
     }),
   }),

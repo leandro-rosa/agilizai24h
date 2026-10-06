@@ -4,7 +4,7 @@ const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const integer = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
 
-export type FigureKind = "units" | "cents" | "share" | "skus";
+export type FigureKind = "units" | "cents" | "share" | "skus" | "ratio";
 
 /** Por que uma cifra não existe, na linguagem do operador. Nunca "0". */
 export const REASON_TEXT: Record<UnavailableReason, string> = {
@@ -22,6 +22,7 @@ export function formatMonth(period: string): string {
 export function formatValue(value: number, kind: FigureKind): string {
   if (kind === "cents") return brl.format(value / 100);
   if (kind === "share") return `${(value * 100).toFixed(1).replace(".", ",")}%`;
+  if (kind === "ratio") return value.toFixed(2).replace(".", ",");
   if (kind === "skus") return `${integer.format(value)} ${value === 1 ? "SKU" : "SKUs"}`;
   return `${integer.format(value)} un.`;
 }

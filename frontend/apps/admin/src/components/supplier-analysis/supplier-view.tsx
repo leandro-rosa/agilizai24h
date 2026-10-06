@@ -9,6 +9,7 @@ import { InsightList } from "./insight-list";
 import { KpiStrip, type Kpi } from "./kpi-strip";
 import { LinkProductToSupplier } from "./link-supplier";
 import { MovementBars } from "./movement-bars";
+import { ProfitabilityStrip } from "./profitability-strip";
 import { SupplierProductsTable } from "./supplier-products-table";
 
 const NO_BASE_VARIATION = { reference: { available: false, reason: "no_base" }, change: { available: false, reason: "no_base" } } as const;
@@ -35,7 +36,7 @@ export function movementKpis(totals: MovementWithComparison, extras: { linkedPro
       higherIsBetter: false,
       secondary: { figure: current.lossCents, kind: "cents" },
     },
-    { label: "Margem", figure: current.marginShare, kind: "share", variation: comparison.marginShare, higherIsBetter: true },
+    { label: "Receita", figure: current.revenueCents, kind: "cents", variation: comparison.revenueCents, higherIsBetter: true },
   );
 
   return kpis;
@@ -100,13 +101,14 @@ export function SupplierView({
           <DataQualityNote meta={analysis.meta} />
         </CardContent>
       </Card>
-      <KpiStrip items={movementKpis(analysis.totals, { linkedProducts: analysis.products.length })} compareTo={compareTo} />
+      <KpiStrip items={movementKpis(analysis.totals, { linkedProducts: analysis.products.length })} compareTo={compareTo} rangeMonths={analysis.meta.months} />
+      <ProfitabilityStrip totals={analysis.totals} compareTo={compareTo} rangeMonths={analysis.meta.months} attention={analysis.attention} />
       <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
         <InsightList title="Principais insights deste fornecedor" insights={analysis.insights} />
         <MovementBars movement={analysis.totals.current} />
       </div>
       {cross && <CrossCard cross={cross} supplier={supplier} />}
-      <SupplierProductsTable lines={analysis.products} onSelect={onSelectProduct} />
+      <SupplierProductsTable lines={analysis.products} onSelect={onSelectProduct} attentionThreshold={analysis.attention.threshold} attentionSkus={analysis.attention.skus} />
       <EvolutionTable points={analysis.evolution} />
       <LinkProductToSupplier supplier={supplier} products={products} />
     </div>

@@ -19,6 +19,7 @@ export const DEFAULT_PARAMETERS: Parameters = {
     minRestockedForSituation: 10,
     stableVariationShare: 0.05,
     concentrationShare: 0.4,
+    attentionMargin: 0.2,
   },
   schedule: { visitWeekdays: [1, 2, 4, 5] },
 }
