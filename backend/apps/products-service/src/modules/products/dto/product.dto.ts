@@ -62,6 +62,12 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   fractionable?: boolean
+
+  @ApiPropertyOptional({ nullable: true, description: 'Id do fornecedor no suppliers-service; null desvincula.' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  supplierId?: number | null
 }
 
 export class RecordCostDto {

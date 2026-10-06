@@ -10,6 +10,8 @@ export interface ProductDto {
   name: string
   package_type?: string | null
   units_per_package?: number | null
+  /** Declared supplier (suppliers-service id); null/absent when none is registered. */
+  supplier_id?: number | null
 }
 
 @Injectable()

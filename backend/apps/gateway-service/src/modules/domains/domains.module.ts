@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { AwsModule } from '@app/aws'
 import { DriveFilesController } from '../ingestion/drive-files.controller'
 import { IngestionController } from '../ingestion/ingestion.controller'
+import { AnalysisController } from './controllers/analysis.controller'
 import { OverviewController } from './controllers/overview.controller'
 import { FinanceController } from './controllers/finance.controller'
 import { InventoryController } from './controllers/inventory.controller'
@@ -36,6 +37,7 @@ import { TreasuryImportsController } from './controllers/treasury-imports.contro
     BillingController,
     CapexController,
     OverviewController,
+    AnalysisController,
     IngestionController,
     DriveFilesController,
   ],

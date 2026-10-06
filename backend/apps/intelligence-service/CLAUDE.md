@@ -200,6 +200,26 @@ previsto. Diferenças reais, para o backtest e o dono avaliarem — não escondi
   → a mais recente). **Flag "caixa fechada"**: guardada e exibida, nunca lida por
   cálculo nenhum.
 
+## Análise por fornecedor e produto (`/analysis/*`, via gateway `supply:read`)
+
+`GET /analysis/suppliers/:id`, `/analysis/products/:sku`, `/analysis/cross?supplierId&sku`, todos com
+`period=YYYY-MM`, `compareTo=prev_month|avg_3m` e `storeId` opcional. Módulo `src/modules/analysis/`:
+`analysis.metrics.ts` e `analysis.insights.ts` são puros (com spec); `analysis.facts.ts` lê
+abastecimento/perda/vendas por loja×mês (cache de 1 min, lojas sintéticas fora; 404 = "não importado",
+nunca zero); `purchase-source.ts` é a porta de compras — hoje só `NullPurchaseSource`
+(`no_purchase_history`), a Fase 2 troca o provider. Situação por loja e "perda acima da rede" usam o
+grupo `analysis` de parâmetros (provisórios; calibrar com a distribuição real antes de tratar como
+definitivos). Produto→fornecedor só pelo `supplier_id` declarado em products-service.
+
+## Análise por fornecedor e produto (`/analysis`, `src/modules/analysis/`) — via gateway
+
+`GET /analysis/suppliers/:id`, `/analysis/products/:sku`, `/analysis/cross?supplierId&sku`; query `period=YYYY-MM`, `compareTo=prev_month|avg_3m`, `storeId?`. Janela de 6 meses terminando em `period`. Funções puras em `analysis.metrics.ts` / `analysis.insights.ts`; `FactsLoader` lê supply/sales por loja×mês (404 = loja **ausente**, nunca zero; lojas/produtos sintéticos excluídos; cache 60 s).
+
+- Cifra = `Figure` (`available` | `reason`). Compras vêm de `PurchaseSource` (hoje `NullPurchaseSource` → `no_purchase_history`); a Fase 2 troca só o provider. Com `storeId`, compras ficam `no_base` (são da rede).
+- Fornecedor de um produto = só `Product.supplier_id` declarado. Insight que depende de compra não é gerado sem compra.
+- Parâmetros `analysis.*` (provisórios): `goodSellThrough` .6, `criticalSellThrough` .2, `attentionLossShare` .15, `lossAboveNetworkFactor` 1.25, `minRestockedForSituation` 10, `stableVariationShare` .05, `concentrationShare` .4.
+- **Calibração em dado real (set/2026, 391 células loja×SKU com ≥10 un.):** 64% Bom, 29% Atenção, 7% Crítico; mediana venda/abastecimento ≈ 0,8 (p10 0,25–0,56 conforme o giro). Venda/abastecimento passa de 1 com frequência porque a venda do mês também sai de saldo de meses anteriores — o índice é PREMISSA, não mede giro puro. Cortes seguem provisórios até o dono revisar.
+
 ## Importação da planilha de preços (`POST /baselines/import`)
 
 - **Ensaio por padrão**: sem `apply: true` nada é gravado; o relatório separa aceitas,

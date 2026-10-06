@@ -72,6 +72,14 @@ export function validateParameters(parameters: Parameters): string[] {
   check(parameters.backtest.salesAtRiskShare <= 1, 'backtest.salesAtRiskShare is a share between 0 and 1')
   check(parameters.refresh.availableStoreShare > 0 && parameters.refresh.availableStoreShare <= 1, 'refresh.availableStoreShare must be in (0, 1]')
 
+  const a = parameters.analysis
+  check(a.goodSellThrough > 0 && a.goodSellThrough <= 1, 'analysis.goodSellThrough must be in (0, 1]')
+  check(a.criticalSellThrough < a.goodSellThrough, 'analysis.criticalSellThrough must be below analysis.goodSellThrough — "Atenção" would be unreachable')
+  check(a.attentionLossShare <= 1, 'analysis.attentionLossShare is a share between 0 and 1')
+  check(a.lossAboveNetworkFactor >= 1, 'analysis.lossAboveNetworkFactor must be at least 1 (a factor below 1 would flag losses below the network)')
+  check(a.stableVariationShare < 1, 'analysis.stableVariationShare is a share below 1')
+  check(a.concentrationShare > 0 && a.concentrationShare <= 1, 'analysis.concentrationShare must be in (0, 1]')
+
   check(isValidWeekdays(parameters.schedule.visitWeekdays), 'schedule.visitWeekdays must be a non-empty list of distinct ISO weekdays, 1 (Monday) to 7 (Sunday)')
 
   return problems

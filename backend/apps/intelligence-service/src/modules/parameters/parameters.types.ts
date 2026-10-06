@@ -67,6 +67,23 @@ export interface Parameters {
     /** Share of active stores that must have supply AND sales imported for a month to count as available. */
     availableStoreShare: number
   }
+  /** Supplier / product analysis (add-supplier-product-analysis). All provisional until calibrated on real distributions. */
+  analysis: {
+    /** Sold ÷ restocked at or above this is "Bom" (0.6 = 60%). */
+    goodSellThrough: number
+    /** Sold ÷ restocked below this is "Crítico". Between the two is "Atenção". */
+    criticalSellThrough: number
+    /** Lost ÷ restocked at or above this share lifts a store/product to at least "Atenção". */
+    attentionLossShare: number
+    /** A loss rate counts as above the network's when it exceeds the network rate times this factor (1.25 = 25% higher). */
+    lossAboveNetworkFactor: number
+    /** Units restocked below which a store/product gets no situation: too little evidence to rate. */
+    minRestockedForSituation: number
+    /** A variation within ± this share counts as stable, not a rise or fall (0.05 = 5%). */
+    stableVariationShare: number
+    /** One product weighing at least this share of a supplier's revenue is called out as concentration. */
+    concentrationShare: number
+  }
   schedule: {
     /** ISO weekdays, 1 = Monday … 7 = Sunday. Default: Monday, Tuesday, Thursday, Friday. */
     visitWeekdays: number[]

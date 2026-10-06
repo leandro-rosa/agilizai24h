@@ -70,6 +70,20 @@ export class DomainClient {
     return this.call<T>('ingestion', this.config.getOrThrow<string>('INGESTION_SERVICE_URL'), call)
   }
 
+  /**
+   * The analysis reads every store for six months on a cold cache, so it gets
+   * its own, longer budget than the 3 s / 5 s of a single-service lookup.
+   */
+  intelligence<T>({ path, ...rest }: Omit<UpstreamCall, 'service' | 'url'> & { path: string }) {
+    const timeout = this.config.get<number>('INTELLIGENCE_TIMEOUT_MS') ?? 60000
+
+    return this.upstream.send<T>(
+      { ...rest, service: 'intelligence', url: `${this.config.getOrThrow<string>('INTELLIGENCE_SERVICE_URL')}${path}` },
+      timeout,
+      timeout + 5000,
+    )
+  }
+
   private call<T>(
     service: string,
     baseUrl: string,

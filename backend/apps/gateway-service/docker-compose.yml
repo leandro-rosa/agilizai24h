@@ -26,6 +26,7 @@ services:
       ACCOUNTING_SERVICE_URL: http://agiliz-accounting-dev:3000
       BILLING_SERVICE_URL: http://agiliz-billing-dev:3000
       CAPEX_SERVICE_URL: http://agiliz-capex-dev:3000
+      INTELLIGENCE_SERVICE_URL: http://agiliz-intelligence-dev:3000
       PORT: 3000
       # The panel's origin as the browser sees it — admin-dev's default host
       # port. Override if admin-prod (8080) or a different host is what's

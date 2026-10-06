@@ -62,6 +62,16 @@ class EnvironmentVariables {
   @IsNotEmpty()
   CAPEX_SERVICE_URL: string
 
+  @IsString()
+  @IsNotEmpty()
+  INTELLIGENCE_SERVICE_URL: string
+
+  /** Budget for the supplier / product analysis, which reads many stores and months (default 60 s). */
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  INTELLIGENCE_TIMEOUT_MS?: number
+
   /**
    * The admin panel's exact origin (scheme + host + port), for CORS.
    *

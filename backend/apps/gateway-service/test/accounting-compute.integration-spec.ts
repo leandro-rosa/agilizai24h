@@ -43,6 +43,7 @@ describe('accounting compute route', () => {
     process.env.ACCOUNTING_SERVICE_URL = base
     process.env.BILLING_SERVICE_URL = base
     process.env.CAPEX_SERVICE_URL = base
+    process.env.INTELLIGENCE_SERVICE_URL = base
     process.env.ADMIN_ORIGIN = 'http://localhost:3000'
     process.env.AWS_REGION = 'us-east-1'
     process.env.AWS_ACCESS_KEY_ID = 'test'

@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Package,
+  PackageSearch,
   PiggyBank,
   Receipt,
   Scale,
@@ -79,6 +80,10 @@ export const navGroups: NavGroup[] = [
       { title: "Estoque", href: "/inventory", icon: Boxes, permission: "inventory:read" },
       { title: "Estoque central", href: "/inventory/central", icon: Warehouse, permission: "inventory:read" },
     ],
+  },
+  {
+    label: "Compras",
+    items: [{ title: "Compras e Fornecedores", href: "/purchases", icon: PackageSearch, permission: "supply:read" }],
   },
   {
     label: "Financeiro",
