@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { DeleteOrderDialog } from "@/components/purchases/delete-order-dialog";
+import { PurchaseFormDialog } from "@/components/purchases/purchase-form-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -23,6 +25,8 @@ export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
   const dispatch = useAppDispatch();
   const [update] = useUpdatePurchaseItemMutation();
   const [open, setOpen] = useState<number | null>(null);
+  const [editing, setEditing] = useState<Purchase | null>(null);
+  const [deleting, setDeleting] = useState<Purchase | null>(null);
 
   async function change(itemId: number, changes: Parameters<typeof update>[0]["changes"], done: string) {
     try {
@@ -37,6 +41,7 @@ export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
   if (purchases.length === 0) return <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">Nenhuma compra registrada ainda.</p>;
 
   return (
+    <>
     <Table>
       <TableHeader>
         <TableRow>
@@ -73,6 +78,12 @@ export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
               <TableCell className="tabular text-right">{formatCents(purchase.on_sale_cents)}</TableCell>
               <TableCell className="tabular text-right">{purchase.bonus_units > 0 ? `${purchase.bonus_units} un.` : "—"}</TableCell>
               <TableCell className="text-right">
+                <Button variant="ghost" size="sm" onClick={() => setEditing(purchase)} aria-label={`Editar pedido ${purchase.id}`}>
+                  Editar
+                </Button>
+                <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleting(purchase)} aria-label={`Excluir pedido ${purchase.id}`}>
+                  Excluir
+                </Button>
                 <Button variant="ghost" size="sm" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : purchase.id)}>
                   {expanded ? "Ocultar itens" : "Ver itens"}
                 </Button>
@@ -151,5 +162,8 @@ export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
         })}
       </TableBody>
     </Table>
+      {editing && <PurchaseFormDialog order={editing} open onOpenChange={(open) => !open && setEditing(null)} />}
+      {deleting && <DeleteOrderDialog order={deleting} open onOpenChange={(open) => !open && setDeleting(null)} />}
+    </>
   );
 }

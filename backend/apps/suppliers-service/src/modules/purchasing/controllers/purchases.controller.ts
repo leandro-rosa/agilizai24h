@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { STAGES, type Stage } from '../constants/purchase-vocabulary'
 import { CreatePurchaseDto, SendOrderEmailDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
@@ -71,9 +71,16 @@ export class PurchasesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Delivery deadline, payment term and notes of an order' })
-  updateOrder(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateOrderDto) {
-    return this.purchases.updateOrder(id, dto)
+  @ApiOperation({ summary: 'Edit an order: dates, supplier (before receipt), invoice, terms, notes and the item list' })
+  updateOrder(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateOrderDto, @Headers('x-correlation-id') correlationId?: string) {
+    return this.purchases.updateOrder(id, dto, correlationId)
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Delete a purchase (refused once a confirmed settlement counted its items)' })
+  remove(@Param('id', ParseIntPipe) id: number, @Query('actor') actor?: string) {
+    return this.purchases.remove(id, actor)
   }
 
   @Get(':id/email-preview')

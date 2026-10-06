@@ -90,6 +90,33 @@ export interface NewPurchase {
   items: NewPurchaseItem[];
 }
 
+/** Uma linha do pedido editado: com `id` altera o item; sem, é linha nova; o que não vier é removido. */
+export interface EditItem {
+  id?: number;
+  sku: string;
+  description?: string;
+  quantity: number;
+  unit_cost_cents: number;
+  condition: Condition;
+  /** Só em pedido recebido. */
+  received_quantity?: number;
+}
+
+export interface OrderChanges {
+  expected_delivery_on?: string;
+  payment_term?: PaymentTerm;
+  payment_due_on?: string;
+  notes?: string;
+  ordered_on?: string;
+  supplier_id?: number;
+  /** Vazio apaga o número. */
+  invoice_number?: string;
+  invoice_key?: string;
+  without_invoice?: boolean;
+  received_on?: string;
+  items?: EditItem[];
+}
+
 export interface TransitionBody {
   to: Stage;
   invoice_number?: string;
@@ -257,9 +284,13 @@ export const purchasesApi = createApi({
       query: ({ id, ...body }) => ({ url: `/purchases/${id}/transition`, method: "POST", body }),
       invalidatesTags: ["Purchase", "Settlement", "Payments"],
     }),
-    updateOrder: builder.mutation<Purchase, { id: number; changes: { expected_delivery_on?: string; payment_term?: PaymentTerm; payment_due_on?: string; notes?: string } }>({
+    updateOrder: builder.mutation<Purchase, { id: number; changes: OrderChanges }>({
       query: ({ id, changes }) => ({ url: `/purchases/${id}`, method: "PATCH", body: changes }),
       invalidatesTags: ["Purchase", "Payments"],
+    }),
+    deletePurchase: builder.mutation<void, number>({
+      query: (id) => ({ url: `/purchases/${id}`, method: "DELETE" }),
+      invalidatesTags: ["Purchase", "Settlement", "Payments"],
     }),
     getEmailPreview: builder.query<EmailPreview, { id: number; message?: string }>({
       query: ({ id, message }) => `/purchases/${id}/email-preview${message ? `?message=${encodeURIComponent(message)}` : ""}`,
@@ -315,6 +346,7 @@ export const {
   useGetHistoryQuery,
   useTransitionPurchaseMutation,
   useUpdateOrderMutation,
+  useDeletePurchaseMutation,
   useGetEmailPreviewQuery,
   useSendOrderEmailMutation,
   useGetPendingPaymentsQuery,

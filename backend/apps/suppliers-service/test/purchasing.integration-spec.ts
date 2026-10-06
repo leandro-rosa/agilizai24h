@@ -151,4 +151,14 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
     await expect(purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-05', invoice_number: 'SINT-NF-A', items: [{ sku: 'SINT-1', supplier_code: 'SINT-COD-8', quantity: 1, unit_cost_cents: 1, condition: 'paid' }] })).rejects.toThrow()
     expect(await prisma.supplierProductCode.count({ where: { supplier_id: supplierId, code: 'SINT-COD-8' } })).toBe(0)
   })
+
+  it('edits an order in real SQL: items added, changed and removed together with the header, history kept', async () => {
+    const order = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-20', stage: 'requisition', actor: 'sint', items: [{ sku: 'SINT-1', quantity: 10, unit_cost_cents: 100, condition: 'paid' }, { sku: 'SINT-1', quantity: 3, unit_cost_cents: 100, condition: 'bonus' }] })
+
+    const edited = await purchases.updateOrder(order.id, { actor: 'sint', ordered_on: '2026-10-21', notes: 'editado', items: [{ id: order.items[0].id, sku: 'SINT-1', quantity: 12, unit_cost_cents: 90, condition: 'paid' }, { sku: 'SINT-1', quantity: 1, unit_cost_cents: 50, condition: 'on_sale' }] })
+
+    expect(edited).toMatchObject({ ordered_on: '2026-10-21', notes: 'editado' })
+    expect(edited.items.map(i => [i.quantity, i.unit_cost_cents, i.condition])).toEqual([[12, 90, 'paid'], [1, 50, 'on_sale']])
+    expect((await purchases.history(order.id)).at(-1)).toMatchObject({ actor: 'sint', note: expect.stringContaining('edited: ') })
+  })
 })

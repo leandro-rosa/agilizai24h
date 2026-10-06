@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { DeleteOrderDialog } from "@/components/purchases/delete-order-dialog";
+import { PurchaseFormDialog } from "@/components/purchases/purchase-form-dialog";
 import { SendOrderDialog } from "@/components/purchases/send-order-dialog";
 import { TransitionDialog } from "@/components/purchases/transition-dialog";
 import { StatusBadge } from "@/components/status-badge";
@@ -14,6 +16,8 @@ import { groupByStage, NEXT_ACTION, nextStage, orderAlerts, orderTotalCents, STA
 export function OrdersBoard({ purchases }: { purchases: Purchase[] }) {
   const columns = groupByStage(purchases);
   const [sending, setSending] = useState<Purchase | null>(null);
+  const [editing, setEditing] = useState<Purchase | null>(null);
+  const [deleting, setDeleting] = useState<Purchase | null>(null);
   const [moving, setMoving] = useState<{ order: Purchase; to: Stage } | null>(null);
 
   function advance(order: Purchase) {
@@ -55,17 +59,27 @@ export function OrdersBoard({ purchases }: { purchases: Purchase[] }) {
                     </StatusBadge>
                   ))}
                 </div>
-                {NEXT_ACTION[order.status] && (
-                  <Button size="sm" variant="outline" className="mt-1" onClick={() => advance(order)}>
-                    {NEXT_ACTION[order.status]}
+                <div className="mt-1 flex gap-1">
+                  {NEXT_ACTION[order.status] && (
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => advance(order)}>
+                      {NEXT_ACTION[order.status]}
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(order)} aria-label={`Editar pedido ${order.id}`}>
+                    Editar
                   </Button>
-                )}
+                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeleting(order)} aria-label={`Excluir pedido ${order.id}`}>
+                    Excluir
+                  </Button>
+                </div>
               </article>
             ))}
             {columns[stage].length === 0 && <p className="px-1 py-4 text-center text-xs text-muted-foreground">Nenhum pedido</p>}
           </section>
         ))}
       </div>
+      {editing && <PurchaseFormDialog order={editing} open onOpenChange={(open) => !open && setEditing(null)} />}
+      {deleting && <DeleteOrderDialog order={deleting} open onOpenChange={(open) => !open && setDeleting(null)} />}
       {sending && <SendOrderDialog order={sending} open onOpenChange={(open) => !open && setSending(null)} />}
       {moving && <TransitionDialog order={moving.order} to={moving.to} open onOpenChange={(open) => !open && setMoving(null)} />}
     </>

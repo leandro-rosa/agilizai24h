@@ -60,6 +60,10 @@ function fakePrisma() {
         return withItems(row)
       },
       update: async ({ where, data }: any) => Object.assign(db.purchases.find(p => p.id === where.id), data),
+      delete: async ({ where }: any) => {
+        db.purchases = db.purchases.filter(p => p.id !== where.id)
+        db.items = db.items.filter(i => i.purchase_id !== where.id)
+      },
       findMany: async ({ where, include }: any) =>
         db.purchases.filter(p => matches(p, where)).map(p => {
           const full = withItems(p)
@@ -78,6 +82,11 @@ function fakePrisma() {
         return item ? { ...item, purchase: db.purchases.find(p => p.id === item.purchase_id) } : null
       },
       update: async ({ where, data }: any) => Object.assign(db.items.find(i => i.id === where.id), data),
+      create: async ({ data }: any) => (db.items.push({ id: ++itemId, payment_status: 'pending', paid_on: null, payment_note: null, description: null, received_quantity: null, ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) }), data),
+      deleteMany: async ({ where }: any) => {
+        db.items = db.items.filter(i => !where.id.in.includes(i.id))
+        return { count: 0 }
+      },
     },
     settlement: {
       findMany: async ({ where }: any) =>
@@ -102,7 +111,7 @@ function fakePrisma() {
   return { prisma, db }
 }
 
-const catalogue = { products: async () => [{ id: 1, sku: 'Q1', name: 'Quinoa wrap' }, { id: 2, sku: 'Q2', name: 'Quinoa bar' }] }
+const catalogue = { products: async () => [{ id: 1, sku: 'Q1', name: 'Quinoa wrap' }, { id: 2, sku: 'Q2', name: 'Quinoa bar' }, { id: 3, sku: 'Q3', name: 'Quinoa cookie' }] }
 const item = (over: Record<string, unknown> = {}) => ({ sku: 'Q1', quantity: 100, unit_cost_cents: 500, condition: 'on_sale' as const, ...over })
 
 describe('PurchasesService', () => {
@@ -345,6 +354,88 @@ describe('order stages', () => {
 
     await service.updateItem(order.items[0].id, { payment_status: 'paid', paid_on: '2026-10-12' })
     expect((await service.pendingPayments()).total_cents).toBe(0)
+  })
+})
+
+describe('editing an order', () => {
+  const make = () => {
+    const { prisma, db } = fakePrisma()
+    const service = new PurchasesService(prisma as never, catalogue as never)
+    jest.spyOn(service, 'today').mockReturnValue('2026-10-12')
+
+    return { service, db }
+  }
+  const base = [item({ condition: 'paid', quantity: 100 }), item({ sku: 'Q2', condition: 'on_sale', quantity: 20 })]
+  const edit = (order: { items: { id: number }[] }, i: number, patch: Record<string, unknown>) => ({ id: order.items[i].id, ...(order.items[i] as object), ...patch }) as any
+
+  it('changes quantity and cost, adds and removes lines, and writes who edited it to the history', async () => {
+    const { service, db } = make()
+    const order = await service.create({ supplier_id: 5, ordered_on: '2026-10-05', stage: 'requisition', items: base })
+
+    const edited = await service.updateOrder(order.id, { actor: 'ana', items: [edit(order, 0, { quantity: 80, unit_cost_cents: 450 }), { sku: 'Q3', quantity: 5, unit_cost_cents: 100, condition: 'bonus' }] })
+
+    expect(edited.items.map(i => [i.sku, i.quantity, i.unit_cost_cents])).toEqual([['Q1', 80, 450], ['Q3', 5, 100]])
+    expect(db.events.at(-1)).toMatchObject({ from_status: 'requisition', to_status: 'requisition', actor: 'ana', note: 'edited: items (+1 -1 ~1)' })
+  })
+
+  it('edits the header: date, supplier, invoice number — and keeps the stage rule on the invoice', async () => {
+    const { service } = make()
+    const order = await service.create({ supplier_id: 5, ordered_on: '2026-10-05', stage: 'invoiced', invoice_number: '111', items: base })
+
+    await expect(service.updateOrder(order.id, { invoice_number: '' })).rejects.toThrow(/invoice number or an imported NF-e/)
+    const edited = await service.updateOrder(order.id, { invoice_number: '222', ordered_on: '2026-10-03', notes: 'corrigido' })
+    expect(edited).toMatchObject({ invoice_number: '222', ordered_on: '2026-10-03', notes: 'corrigido' })
+  })
+
+  it('refuses an unknown product and an item that belongs to another purchase', async () => {
+    const { service } = make()
+    const order = await service.create({ supplier_id: 5, ordered_on: '2026-10-05', stage: 'requisition', items: base })
+
+    await expect(service.updateOrder(order.id, { items: [{ sku: 'NOPE', quantity: 1, unit_cost_cents: 1, condition: 'paid' }] })).rejects.toThrow(/Unknown products/)
+    await expect(service.updateOrder(order.id, { items: [{ id: 9999, sku: 'Q1', quantity: 1, unit_cost_cents: 1, condition: 'paid' }] })).rejects.toThrow(/does not belong/)
+  })
+
+  it('a received purchase keeps its supplier, and an item already marked paid cannot be changed or removed', async () => {
+    const { service } = make()
+    const order = await service.create({ supplier_id: 5, ordered_on: '2026-10-05', stage: 'received', without_invoice: true, items: base })
+    await service.updateItem(order.items[0].id, { payment_status: 'paid', paid_on: '2026-10-12' })
+
+    await expect(service.updateOrder(order.id, { supplier_id: 6 })).rejects.toThrow(/supplier of a received purchase/)
+    await expect(service.updateOrder(order.id, { items: [edit(order, 0, { quantity: 90 }), edit(order, 1, {})] })).rejects.toThrow(/already marked as paid/)
+    await expect(service.updateOrder(order.id, { items: [edit(order, 1, {})] })).rejects.toThrow(/already marked as paid/)
+  })
+
+  it('a received purchase edits the received quantity, and a confirmed settlement locks its items', async () => {
+    const { service, db } = make()
+    const order = await service.create({ supplier_id: 5, ordered_on: '2026-10-05', stage: 'received', without_invoice: true, items: base })
+
+    const edited = await service.updateOrder(order.id, { items: [edit(order, 0, { received_quantity: 95 }), edit(order, 1, {})] })
+    expect(edited.items[0]).toMatchObject({ quantity: 100, received_quantity: 95, difference: 5 })
+
+    db.settlements.push({ id: 1, supplier_id: 5, state: 'confirmed', week_start: new Date('2026-10-05'), evidence: { lines: [{ itemId: order.items[1].id }] } })
+    await expect(service.updateOrder(order.id, { items: [edit(order, 0, { quantity: 90 }), edit(order, 1, {})] })).rejects.toThrow(/confirmed settlement/)
+    await expect(service.updateOrder(order.id, { notes: 'só uma nota' })).resolves.toMatchObject({ notes: 'só uma nota' })
+  })
+})
+
+describe('deleting an order', () => {
+  const make = () => {
+    const { prisma, db } = fakePrisma()
+
+    return { service: new PurchasesService(prisma as never, catalogue as never), db }
+  }
+
+  it('deletes a wrong entry with its items, but refuses one a confirmed settlement counted', async () => {
+    const { service, db } = make()
+    const order = await service.create({ supplier_id: 5, ordered_on: '2026-10-05', stage: 'received', without_invoice: true, items: [item({ condition: 'on_sale' })] })
+    const other = await service.create({ supplier_id: 5, ordered_on: '2026-10-06', stage: 'requisition', items: [item()] })
+
+    db.settlements.push({ id: 1, supplier_id: 5, state: 'confirmed', week_start: new Date('2026-10-05'), evidence: { lines: [{ itemId: order.items[0].id }] } })
+    await expect(service.remove(order.id, 'ana')).rejects.toThrow(/confirmed settlement/)
+
+    await service.remove(other.id, 'ana')
+    expect(db.purchases.map((p: any) => p.id)).toEqual([order.id])
+    await expect(service.remove(other.id)).rejects.toThrow(/not found/)
   })
 })
 

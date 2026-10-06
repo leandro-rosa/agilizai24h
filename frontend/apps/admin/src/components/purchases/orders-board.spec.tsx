@@ -3,6 +3,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentType } from "react";
 
 const send = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
+const updateOrder = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
+const removeOrder = jest.fn((_arg: unknown) => ({ unwrap: async () => undefined }));
 const transition = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
 let preview: Record<string, unknown>;
 
@@ -10,7 +12,14 @@ jest.doMock("../../lib/api/purchases", () => ({
   useGetEmailPreviewQuery: () => ({ data: preview, isLoading: false }),
   useSendOrderEmailMutation: () => [send, { isLoading: false }],
   useTransitionPurchaseMutation: () => [transition, { isLoading: false }],
+  useUpdateOrderMutation: () => [updateOrder, { isLoading: false }],
+  useDeletePurchaseMutation: () => [removeOrder, { isLoading: false }],
+  useCreatePurchaseMutation: () => [jest.fn(), { isLoading: false }],
 }));
+jest.doMock("../../lib/api/products", () => ({ useGetProductsQuery: () => ({ data: [{ id: 1, sku: "Q1", name: "Wrap" }, { id: 2, sku: "Q2", name: "Barra" }] }) }));
+jest.doMock("../../lib/api/suppliers", () => ({ useGetSuppliersQuery: () => ({ data: [{ id: 5, name: "Quinoa" }] }) }));
+jest.doMock("../../lib/hooks", () => ({ useAppDispatch: () => jest.fn() }));
+jest.doMock("../../lib/auth/use-permission", () => ({ useHasPermission: () => true }));
 jest.doMock("../../lib/purchases/order-pdf", () => ({ orderPdfBase64: async () => "UERG" }));
 
 const order = (id: number, status: string, extra: Record<string, unknown> = {}) => ({
@@ -38,10 +47,11 @@ describe("OrdersBoard", () => {
     expect(screen.getByTestId("order-1")).toHaveTextContent("ana@x.com");
   });
 
-  it("não há botão para avançar um pedido já recebido", () => {
+  it("um pedido já recebido só tem editar e excluir, sem botão de avançar", () => {
     render(<OrdersBoard purchases={[order(3, "received", { received_on: "2026-10-06", received_by: "bia@x.com" })]} />);
     expect(screen.getByTestId("order-3")).not.toHaveTextContent("Enviar");
-    expect(screen.getByTestId("order-3").querySelector("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Editar pedido 3" })).toBeInTheDocument();
+    expect(screen.getByTestId("order-3").querySelectorAll("button")).toHaveLength(2);
   });
 
   it("enviar só sai depois de confirmar na prévia", async () => {
@@ -81,5 +91,28 @@ describe("OrdersBoard", () => {
     expect(screen.getByRole("button", { name: "Confirmar" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Número da nota"), { target: { value: "123" } });
     expect(screen.getByRole("button", { name: "Confirmar" })).toBeEnabled();
+  });
+
+  it("editar abre o pedido preenchido e salva só o que mudou, com a lista de itens e os ids", async () => {
+    render(<OrdersBoard purchases={[order(1, "requisition", { items: [{ id: 10, sku: "Q1", description: "Wrap", quantity: 10, unit_cost_cents: 500, total_cents: 5000, condition: "paid", received_quantity: null, payment_status: "pending" }] })]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Editar pedido 1" }));
+
+    expect(screen.getByLabelText("Quantidade da linha 1")).toHaveValue("10");
+    expect(screen.getByLabelText("Custo da linha 1")).toHaveValue("5,00");
+    fireEvent.change(screen.getByLabelText("Quantidade da linha 1"), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+
+    await waitFor(() => expect(updateOrder).toHaveBeenCalledTimes(1));
+    expect(updateOrder.mock.calls[0][0]).toMatchObject({ id: 1, changes: { supplier_id: 5, items: [{ id: 10, sku: "Q1", quantity: 12, unit_cost_cents: 500, condition: "paid" }] } });
+  });
+
+  it("excluir pede confirmação e só então apaga", async () => {
+    render(<OrdersBoard purchases={[order(1, "requisition")]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Excluir pedido 1" }));
+    expect(removeOrder).not.toHaveBeenCalled();
+    expect(screen.getByText(/Não dá para desfazer/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Excluir pedido" }));
+    await waitFor(() => expect(removeOrder).toHaveBeenCalledWith(1));
   });
 });

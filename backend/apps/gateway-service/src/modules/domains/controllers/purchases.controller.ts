@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { BadRequestException, Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Req } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { S3Service } from '@app/aws'
 import { PERMISSIONS } from '@app/iam-contracts'
@@ -99,11 +99,19 @@ export class PurchasesController {
     return (await this.domains.suppliers({ method: 'post', path: `/purchases/${encodeURIComponent(id)}/transition`, payload: asActor(body, caller), correlationId: correlationOf(request) })).data
   }
 
+  @Delete(':id')
+  @HttpCode(204)
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Delete a purchase (a wrong entry or a test)' })
+  async remove(@Param('id') id: string, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    await this.domains.suppliers({ method: 'delete', path: `/purchases/${encodeURIComponent(id)}?actor=${encodeURIComponent(caller.email)}`, correlationId: correlationOf(request) })
+  }
+
   @Patch(':id')
   @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
-  @ApiOperation({ summary: 'Delivery deadline, payment term and notes of an order' })
-  async updateOrder(@Param('id') id: string, @Body() body: unknown, @Req() request: FastifyRequest) {
-    return (await this.domains.suppliers({ method: 'patch', path: `/purchases/${encodeURIComponent(id)}`, payload: body, correlationId: correlationOf(request) })).data
+  @ApiOperation({ summary: 'Edit an order: dates, supplier (before receipt), invoice, terms, notes and items' })
+  async updateOrder(@Param('id') id: string, @Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'patch', path: `/purchases/${encodeURIComponent(id)}`, payload: asActor(body, caller), correlationId: correlationOf(request) })).data
   }
 
   @Get(':id/history')

@@ -205,6 +205,45 @@ export class TransitionDto {
   actor?: string
 }
 
+/** One line of an edited order. With `id` it updates that item; without, it is a new line. Items left out are removed. */
+export class EditItemDto {
+  @ApiPropertyOptional({ description: 'Id do item existente; ausente = linha nova.' })
+  @IsOptional()
+  @IsInt()
+  id?: number
+
+  @ApiProperty({ example: '100115' })
+  @IsString()
+  @IsNotEmpty()
+  sku: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  description?: string
+
+  @ApiProperty()
+  @IsInt()
+  @Min(1)
+  quantity: number
+
+  @ApiProperty()
+  @IsInt()
+  @Min(0)
+  unit_cost_cents: number
+
+  @ApiProperty({ enum: CONDITIONS })
+  @IsIn(CONDITIONS)
+  condition: Condition
+
+  @ApiPropertyOptional({ description: 'Só em pedido já recebido: unidades que chegaram.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  received_quantity?: number
+}
+
 export class UpdateOrderDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -226,6 +265,51 @@ export class UpdateOrderDto {
   @IsString()
   @MaxLength(500)
   notes?: string
+
+  @ApiPropertyOptional({ description: 'Data do pedido.' })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  ordered_on?: string
+
+  @ApiPropertyOptional({ description: 'Só antes de receber.' })
+  @IsOptional()
+  @IsInt()
+  supplier_id?: number
+
+  @ApiPropertyOptional({ description: 'Vazio apaga o número.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  invoice_number?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  invoice_key?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  without_invoice?: boolean
+
+  @ApiPropertyOptional({ description: 'Dia do recebimento (só em pedido recebido).' })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  received_on?: string
+
+  @ApiPropertyOptional({ type: [EditItemDto], description: 'A lista completa de itens: o que não vier é removido.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => EditItemDto)
+  items?: EditItemDto[]
+
+  @ApiPropertyOptional({ description: 'Preenchido pelo gateway com o usuário da sessão.' })
+  @IsOptional()
+  @IsString()
+  actor?: string
 }
 
 export class SendOrderEmailDto {

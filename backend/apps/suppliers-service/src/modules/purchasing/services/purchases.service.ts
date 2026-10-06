@@ -1,8 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { ProductsClient } from '../clients/products.client'
 import { PAYMENT_TERMS, type Condition, type Origin, type PaymentStatus, type PaymentTerm, type Stage } from '../constants/purchase-vocabulary'
-import type { CreatePurchaseDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
+import type { CreatePurchaseDto, EditItemDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
 import { checkInvoice, checkMove, effectiveDueDate, isLate, isOverdue, resolveReceipt } from '../utils/order-flow'
 import { isDay } from '../utils/week'
 
@@ -357,26 +357,130 @@ export class PurchasesService {
   }
 
   /** Delivery deadline, payment term and notes: changeable at any stage (they are plans, not facts). */
-  async updateOrder(id: number, dto: UpdateOrderDto): Promise<PurchaseView> {
-    const order = await this.prisma.purchase.findUnique({ where: { id } })
+  async updateOrder(id: number, dto: UpdateOrderDto, correlationId?: string): Promise<PurchaseView> {
+    const order = await this.prisma.purchase.findUnique({ where: { id }, include: { items: { orderBy: { id: 'asc' } } } })
     if (!order) throw new NotFoundException(`Purchase ${id} not found`)
-    for (const [name, value] of [['expected_delivery_on', dto.expected_delivery_on], ['payment_due_on', dto.payment_due_on]] as const) {
+    for (const [name, value] of [['expected_delivery_on', dto.expected_delivery_on], ['payment_due_on', dto.payment_due_on], ['ordered_on', dto.ordered_on], ['received_on', dto.received_on]] as const) {
       if (value && !isDay(value)) throw new BadRequestException(`${name} must be a real date, YYYY-MM-DD`)
     }
     const term = dto.payment_term ?? order.payment_term
     if (term === 'due_date' && !(dto.payment_due_on ?? order.payment_due_on)) throw new BadRequestException('A due date is needed when the payment term is a boleto (due_date)')
 
-    await this.prisma.purchase.update({
-      where: { id },
-      data: {
-        ...(dto.expected_delivery_on ? { expected_delivery_on: asDate(dto.expected_delivery_on) } : {}),
-        ...(dto.payment_term ? { payment_term: dto.payment_term } : {}),
-        ...(dto.payment_due_on ? { payment_due_on: asDate(dto.payment_due_on) } : {}),
-        ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
-      },
+    const received = order.status === 'received'
+    if (dto.supplier_id !== undefined && dto.supplier_id !== order.supplier_id) {
+      if (received) throw new ConflictException('The supplier of a received purchase can no longer change')
+      if (!(await this.prisma.supplier.findUnique({ where: { id: dto.supplier_id } }))) throw new NotFoundException(`Supplier ${dto.supplier_id} not found`)
+    }
+    if (dto.received_on && !received) throw new BadRequestException('received_on only applies to a received purchase')
+
+    // The invoice, as it will be after the edit, still has to satisfy the stage the order is in.
+    const invoiceNumber = dto.invoice_number !== undefined ? dto.invoice_number.trim() || null : order.invoice_number
+    const invoiceKey = dto.invoice_key !== undefined ? dto.invoice_key.trim() || null : order.invoice_key
+    const withoutInvoice = dto.without_invoice ?? (invoiceNumber && invoiceNumber !== order.invoice_number ? false : order.without_invoice)
+    const invoiceProblem = checkInvoice(order.status as Stage, { invoiceNumber: invoiceNumber ?? undefined, invoiceKey: invoiceKey ?? undefined, withoutInvoice })
+    if (invoiceProblem) throw new BadRequestException(invoiceProblem)
+    const supplierId = dto.supplier_id ?? order.supplier_id
+    if (invoiceNumber && (invoiceNumber !== order.invoice_number || supplierId !== order.supplier_id)) {
+      const existing = await this.prisma.purchase.findFirst({ where: { supplier_id: supplierId, invoice_number: invoiceNumber } })
+      if (existing && existing.id !== id) throw new ConflictException(`Invoice ${invoiceNumber} of this supplier is already recorded (purchase ${existing.id})`)
+    }
+
+    const itemChanges = dto.items ? await this.planItemEdit(order, dto.items, received, correlationId) : null
+    if (received && (itemChanges?.touched || dto.received_on) && (await this.anySettled(order))) {
+      throw new ConflictException('This purchase was already counted in a confirmed settlement: its items and receipt date can no longer change')
+    }
+
+    const notes = [
+      dto.supplier_id !== undefined && dto.supplier_id !== order.supplier_id ? 'supplier' : null,
+      dto.ordered_on || dto.received_on ? 'dates' : null,
+      dto.invoice_number !== undefined || dto.invoice_key !== undefined || dto.without_invoice !== undefined ? 'invoice' : null,
+      dto.expected_delivery_on || dto.payment_term || dto.payment_due_on ? 'terms' : null,
+      itemChanges?.touched ? `items (+${itemChanges.created.length} -${itemChanges.removed.length} ~${itemChanges.updated.length})` : null,
+      dto.notes !== undefined ? 'notes' : null,
+    ].filter(Boolean)
+
+    await this.prisma.$transaction(async tx => {
+      if (itemChanges) {
+        if (itemChanges.removed.length > 0) await tx.purchaseItem.deleteMany({ where: { id: { in: itemChanges.removed } } })
+        for (const change of itemChanges.updated) await tx.purchaseItem.update({ where: { id: change.id }, data: change.data })
+        for (const data of itemChanges.created) await tx.purchaseItem.create({ data: { purchase_id: id, ...data } })
+      }
+      await tx.purchase.update({
+        where: { id },
+        data: {
+          ...(dto.supplier_id !== undefined ? { supplier_id: dto.supplier_id } : {}),
+          ...(dto.ordered_on ? { ordered_on: asDate(dto.ordered_on) } : {}),
+          ...(dto.received_on ? { received_on: asDate(dto.received_on) } : {}),
+          ...(dto.invoice_number !== undefined ? { invoice_number: invoiceNumber } : {}),
+          ...(dto.invoice_key !== undefined ? { invoice_key: invoiceKey } : {}),
+          ...(dto.invoice_number !== undefined || dto.invoice_key !== undefined || dto.without_invoice !== undefined ? { without_invoice: withoutInvoice } : {}),
+          ...(dto.expected_delivery_on ? { expected_delivery_on: asDate(dto.expected_delivery_on) } : {}),
+          ...(dto.payment_term ? { payment_term: dto.payment_term } : {}),
+          ...(dto.payment_due_on ? { payment_due_on: asDate(dto.payment_due_on) } : {}),
+          ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+        },
+      })
+      if (notes.length > 0) await tx.purchaseEvent.create({ data: { purchase_id: id, from_status: order.status, to_status: order.status, actor: dto.actor, note: `edited: ${notes.join(', ')}` } })
     })
 
     return this.findById(id)
+  }
+
+  /**
+   * Deletes a purchase with its items, history and e-mail log (a wrong entry, a test). A purchase whose items a confirmed or paid
+   * settlement already counted stays: the settlement's evidence points at them. Who deleted what is logged.
+   */
+  async remove(id: number, actor?: string): Promise<void> {
+    const order = await this.prisma.purchase.findUnique({ where: { id }, include: { items: { orderBy: { id: 'asc' } } } })
+    if (!order) throw new NotFoundException(`Purchase ${id} not found`)
+    if (await this.anySettled(order)) throw new ConflictException('This purchase was already counted in a confirmed settlement and cannot be deleted')
+
+    await this.prisma.purchase.delete({ where: { id } })
+    new Logger(PurchasesService.name).warn(`purchase ${id} (supplier ${order.supplier_id}, status ${order.status}, ${order.items.length} items, invoice ${order.invoice_number ?? '-'}) deleted by ${actor ?? 'unknown'}`)
+  }
+
+  /**
+   * What an edited item list does to the stored one: lines with an id are updated, lines without are new, ids left out are removed.
+   * A line already marked as paid cannot be changed or removed (the money was recorded against it); an unknown product is refused.
+   */
+  private async planItemEdit(order: { items: { id: number; sku: string; quantity: number; unit_cost_cents: number; condition: string; payment_status: string; received_quantity: number | null; description: string | null }[] }, edited: EditItemDto[], received: boolean, correlationId?: string) {
+    const known = new Set((await this.products.products(correlationId)).map(p => p.sku))
+    const unknown = [...new Set(edited.map(i => i.sku).filter(sku => !known.has(sku)))]
+    if (unknown.length > 0) throw new BadRequestException(`Unknown products: ${unknown.join(', ')}`)
+
+    const stored = new Map(order.items.map(i => [i.id, i]))
+    const keep = new Set<number>()
+    const updated: { id: number; data: Record<string, unknown> }[] = []
+    const created: { sku: string; description?: string; quantity: number; unit_cost_cents: number; condition: string; received_quantity?: number }[] = []
+    for (const line of edited) {
+      if (line.id === undefined) {
+        created.push({ sku: line.sku, description: line.description, quantity: line.quantity, unit_cost_cents: line.unit_cost_cents, condition: line.condition, received_quantity: received ? (line.received_quantity ?? line.quantity) : undefined })
+        continue
+      }
+      const before = stored.get(line.id)
+      if (!before) throw new BadRequestException(`Item ${line.id} does not belong to this purchase`)
+      keep.add(line.id)
+      const receivedQuantity = received ? (line.received_quantity ?? (line.quantity !== before.quantity ? line.quantity : before.received_quantity)) : null
+      const changed = before.sku !== line.sku || before.quantity !== line.quantity || before.unit_cost_cents !== line.unit_cost_cents || before.condition !== line.condition || (received && receivedQuantity !== before.received_quantity)
+      if (!changed) continue
+      if (before.payment_status === 'paid') throw new ConflictException(`Item ${line.sku} is already marked as paid: undo the payment record before changing it`)
+      updated.push({
+        id: line.id,
+        data: { sku: line.sku, description: line.description ?? before.description, quantity: line.quantity, unit_cost_cents: line.unit_cost_cents, condition: line.condition, ...(received ? { received_quantity: receivedQuantity } : {}), ...(line.condition !== before.condition ? { payment_status: 'pending', paid_on: null } : {}) },
+      })
+    }
+    const removed = order.items.filter(i => !keep.has(i.id)).map(i => i.id)
+    for (const gone of order.items.filter(i => removed.includes(i.id))) {
+      if (gone.payment_status === 'paid') throw new ConflictException(`Item ${gone.sku} is already marked as paid: undo the payment record before removing it`)
+    }
+
+    return { updated, created, removed, touched: updated.length + created.length + removed.length > 0 }
+  }
+
+  private async anySettled(order: { supplier_id: number; items: { id: number }[] }): Promise<boolean> {
+    for (const item of order.items) if (await this.isSettled(order.supplier_id, item.id)) return true
+
+    return false
   }
 
   /**
