@@ -508,10 +508,15 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
 - **Competência**: só meses com DRE da rede `closed` **e** ≤ `lastCompleteMonth()` (o
   mês em curso já apareceu como "closed" com receita zero). Se o mês anterior ainda
   está `open` no DRE, a tela avisa que a comparação é provisória.
-- **Receita por loja ≠ receita da rede**: o DRE da rede inclui receita lançada só na
-  rede (coffee break, mensalidade…). Em set/2026 as 20 lojas somam 74,6% da receita
-  da rede e caíram 12,5% (nenhuma cresceu) enquanto a rede caiu 2,8%; o insight
-  `stores-vs-network` e o card da rede mostram isso em vez de esconder.
+- **"Cresceu/recuou" por loja = venda da loja (sales-service), não receita líquida do DRE.**
+  O DRE por loja mistura venda com receita de contrato (mensalidade, coffee break,
+  frutas) que entra por fontes diferentes de um mês para o outro; em set/2026 ele dizia
+  "0 cresceram, 16 recuaram" enquanto as vendas mostravam lojas crescendo (JDI02 +22%,
+  VIN01 +9%, SUM01 +8%). `buildStoreSummary` usa venda quando os dois meses estão
+  importados (`basis: "vendas"`) e cai para o DRE (`basis: "dre"`, dito no card) senão.
+  Margem, perdas e resultado das "Pontos de atenção" continuam do DRE. O insight
+  `stores-vs-network` mostra venda das lojas × receita líquida da rede lado a lado quando
+  divergem ≥ 5 p.p. As listas de contribuição só citam lojas classificadas como cresceu/recuou.
 - **Venda importada pela metade** (`lib/overview/sales-coverage.ts`): loja com < 25% dos
   SKUs que costuma vender (mediana dos outros meses, ≥ 20 SKUs) é marcada e a tela avisa
   que faturamento/DRE do mês podem estar abaixo do real. Caso real: ago/2026 tinha 7

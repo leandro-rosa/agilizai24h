@@ -5,35 +5,65 @@ import type { StoreAttention, StoreContribution, StoreMonthPnl, StoreSummary } f
 const money = (cents: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(cents / 100);
 
+/** Venda registrada por loja (sales-service) no mês da competência e no anterior. */
+export interface SalesBasis {
+  current: Map<number, number>;
+  previous: Map<number, number>;
+}
+
+/**
+ * "Cresceu/recuou" é medido pela VENDA da loja (sales-service) quando os dois
+ * meses estão importados: é o que o operador chama de faturamento da loja. A
+ * receita líquida por loja do DRE mistura venda com receita de contrato
+ * (mensalidade, coffee break, frutas), que entra por fontes diferentes de um mês
+ * para o outro, e dava "ninguém cresceu" com 9 lojas vendendo mais. Sem as duas
+ * bases de venda, cai para o DRE e a tela diz isso. Resultado, margem e perdas
+ * continuam do DRE.
+ */
 export function buildStoreSummary(
   current: StoreMonthPnl[] | null,
   previous: StoreMonthPnl[] | null,
   activeCount: number | null,
   networkRevenuePreviousCents: number | null,
-  networkRevenueCurrentCents: number | null = null,
+  salesBasis: SalesBasis | null = null,
 ): StoreSummary | null {
   if (!current || !previous) return null;
   const prevById = new Map(previous.map((s) => [s.storeId, s]));
+  const salesPrevTotal = salesBasis ? [...salesBasis.previous.values()].reduce((a, b) => a + b, 0) : null;
+  let basisCurrent = 0;
+  let basisPrevious = 0;
   let up = 0;
   let down = 0;
   let stable = 0;
-  const contributions: StoreContribution[] = [];
+  const ups: StoreContribution[] = [];
+  const downs: StoreContribution[] = [];
   const attention: StoreAttention[] = [];
 
   for (const s of current) {
     const p = prevById.get(s.storeId);
     // Loja sem mês anterior (nova) não entra em "cresceu/recuou": sem base não há comparação.
     if (!p) continue;
-    const d = valueDelta(s.netRevenueCents, p.netRevenueCents);
-    const moved = d.pct === null ? (s.netRevenueCents > 0 ? 1 : 0) : d.pct;
-    if (moved > MATERIALITY.STORE_STABLE_BAND) up += 1;
-    else if (moved < -MATERIALITY.STORE_STABLE_BAND) down += 1;
-    else stable += 1;
-    contributions.push({ storeId: s.storeId, name: s.name, deltaCents: d.abs ?? 0, deltaPct: d.pct });
+    const curRev = salesBasis ? (salesBasis.current.get(s.storeId) ?? 0) : s.netRevenueCents;
+    const prevRev = salesBasis ? salesBasis.previous.get(s.storeId) : p.netRevenueCents;
+    // Venda sem mês anterior (loja nova ou mês sem importação) não entra: sem base não há comparação.
+    if (prevRev === undefined || (salesBasis && prevRev <= 0)) continue;
+    basisCurrent += curRev;
+    basisPrevious += prevRev;
+    const d = valueDelta(curRev, prevRev);
+    const moved = d.pct === null ? (curRev > 0 ? 1 : 0) : d.pct;
+    const contribution = { storeId: s.storeId, name: s.name, deltaCents: d.abs ?? 0, deltaPct: d.pct };
+    // As listas de contribuição seguem a mesma classificação dos contadores: loja "estável" não é citada como crescimento nem queda.
+    if (moved > MATERIALITY.STORE_STABLE_BAND) {
+      up += 1;
+      ups.push(contribution);
+    } else if (moved < -MATERIALITY.STORE_STABLE_BAND) {
+      down += 1;
+      downs.push(contribution);
+    } else stable += 1;
 
     const reasons: string[] = [];
-    if (isMaterial({ deltaAbs: d.abs, deltaPct: d.pct, base: networkRevenuePreviousCents }) && (d.abs ?? 0) < 0) {
-      reasons.push(`receita ${money(d.abs ?? 0)} vs. mês anterior`);
+    if (isMaterial({ deltaAbs: d.abs, deltaPct: d.pct, base: salesPrevTotal ?? networkRevenuePreviousCents }) && (d.abs ?? 0) < 0) {
+      reasons.push(`${salesBasis ? "vendas" : "receita"} ${money(d.abs ?? 0)} vs. mês anterior`);
     }
     if (s.netRevenueCents > 0 && s.lossCents / s.netRevenueCents >= MATERIALITY.STORE_LOSS_TO_REVENUE_ATTENTION) {
       reasons.push(`perdas = ${((s.lossCents / s.netRevenueCents) * 100).toFixed(1).replace(".", ",")}% da receita`);
@@ -47,18 +77,17 @@ export function buildStoreSummary(
     if (reasons.length) attention.push({ storeId: s.storeId, name: s.name, reasons, deltaCents: d.abs, deltaPct: d.pct });
   }
 
-  const storesRevenue = current.reduce((acc, x) => acc + x.netRevenueCents, 0);
   return {
     activeCount,
-    storesRevenueCents: storesRevenue,
-    storesRevenuePreviousCents: previous.reduce((acc, x) => acc + x.netRevenueCents, 0),
-    revenueCoverage: networkRevenueCurrentCents && networkRevenueCurrentCents > 0 ? storesRevenue / networkRevenueCurrentCents : null,
+    basis: salesBasis ? "vendas" : "dre",
+    storesRevenueCents: basisCurrent,
+    storesRevenuePreviousCents: basisPrevious,
     compared: up + down + stable,
     up,
     down,
     stable,
-    topGrowth: contributions.filter((c) => c.deltaCents > 0).sort((a, b) => b.deltaCents - a.deltaCents).slice(0, 3),
-    topDecline: contributions.filter((c) => c.deltaCents < 0).sort((a, b) => a.deltaCents - b.deltaCents).slice(0, 3),
+    topGrowth: ups.sort((a, b) => b.deltaCents - a.deltaCents).slice(0, 3),
+    topDecline: downs.sort((a, b) => a.deltaCents - b.deltaCents).slice(0, 3),
     attention: attention.sort((a, b) => b.reasons.length - a.reasons.length || (a.deltaCents ?? 0) - (b.deltaCents ?? 0)).slice(0, 5),
   };
 }

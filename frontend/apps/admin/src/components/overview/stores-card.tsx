@@ -43,11 +43,11 @@ export function StoresCard({ stores }: { stores: StoreSummary | null }) {
               {stores.activeCount !== null && <li className="text-xs text-muted-foreground">{stores.activeCount} lojas ativas no cadastro</li>}
             </ul>
           </div>
-          {stores.revenueCoverage !== null && stores.revenueCoverage < 0.995 && (
-            <p className="text-xs text-muted-foreground">
-              As lojas somam {moneyRound(stores.storesRevenueCents)} ({Math.round(stores.revenueCoverage * 100)}% da receita líquida da rede); o restante é receita lançada só no nível da rede e não entra nas comparações por loja.
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            {stores.basis === "vendas"
+              ? `Cresceu/recuou = vendas de cada loja (sales-service): ${moneyRound(stores.storesRevenuePreviousCents)} → ${moneyRound(stores.storesRevenueCents)}. Margem, perdas e resultado vêm do DRE.`
+              : "Falta importar as vendas de um dos meses; cresceu/recuou usa a receita líquida por loja do DRE, que inclui receita de contrato (mensalidade, coffee break, frutas)."}
+          </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <p className="text-xs font-semibold text-muted-foreground">Principais contribuições para o crescimento</p>

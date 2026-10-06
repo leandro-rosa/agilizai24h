@@ -65,19 +65,18 @@ export function buildInsights(i: InsightInput): Insight[] {
     });
   }
 
+  // Venda das lojas (sales-service) × receita líquida da rede (DRE): quando divergem, o leitor precisa ver as duas.
   const st = i.stores;
-  if (st && st.storesRevenuePreviousCents > 0 && i.revenueCurrentCents !== null && i.revenueCents !== null && i.revenueCents > 0) {
-    const storesPct = (st.storesRevenueCents - st.storesRevenuePreviousCents) / st.storesRevenuePreviousCents;
+  if (st && st.basis === "vendas" && st.storesRevenuePreviousCents > 0 && i.revenueCurrentCents !== null && i.revenueCents !== null && i.revenueCents > 0) {
+    const salesPct = (st.storesRevenueCents - st.storesRevenuePreviousCents) / st.storesRevenuePreviousCents;
     const networkPct = (i.revenueCurrentCents - i.revenueCents) / i.revenueCents;
-    if (Math.abs(storesPct - networkPct) >= 0.05 && Math.abs(storesPct) >= 0.02) {
-      const onlyNow = i.revenueCurrentCents - st.storesRevenueCents;
-      const onlyPrev = i.revenueCents - st.storesRevenuePreviousCents;
+    if (Math.abs(salesPct - networkPct) >= 0.05 && Math.abs(salesPct) >= 0.02) {
       out.push({
         id: "stores-vs-network",
-        tone: storesPct < 0 ? "negative" : "positive",
-        title: `Receita das lojas ${verb(storesPct, "cresceu", "caiu")} ${pctWord(storesPct)}, contra ${signedPct(networkPct)} da rede`,
-        detail: `${st.compared} lojas somam ${moneyCompact(st.storesRevenueCents)} (${st.storesRevenueCents >= st.storesRevenuePreviousCents ? "+" : "−"}${moneyCompact(Math.abs(st.storesRevenueCents - st.storesRevenuePreviousCents))} vs. ${prevLabel}). A receita lançada só na rede foi de ${moneyCompact(onlyPrev)} para ${moneyCompact(onlyNow)}${st.up === 0 && st.down > 0 ? `; nenhuma das ${st.compared} lojas cresceu` : ""}.`,
-        score: Math.abs(storesPct - networkPct) * 3,
+        tone: salesPct < 0 ? "negative" : "positive",
+        title: `Vendas das lojas ${verb(salesPct, "cresceram", "caíram")} ${pctWord(salesPct)}, contra ${signedPct(networkPct)} da receita líquida da rede`,
+        detail: `${st.compared} lojas venderam ${moneyCompact(st.storesRevenueCents)} (${prevLabel}: ${moneyCompact(st.storesRevenuePreviousCents)}); ${st.up} cresceram, ${st.down} recuaram e ${st.stable} ficaram estáveis. A receita líquida da rede (DRE) foi de ${moneyCompact(i.revenueCents)} para ${moneyCompact(i.revenueCurrentCents)}.`,
+        score: Math.abs(salesPct - networkPct) * 3,
       });
     }
   }

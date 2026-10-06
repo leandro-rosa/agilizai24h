@@ -73,23 +73,46 @@ describe("buildOverview", () => {
     expect(o.stores!.attention.map((s) => s.name)).toContain("Itaquá");
   });
 
-  it("store summary says how much of the network revenue the stores explain", () => {
-    expect(o.stores!.storesRevenueCents).toBe(5_900_000);
-    expect(o.stores!.revenueCoverage).toBeCloseTo(5_900_000 / 12_450_000);
+  const salesCell = (storeId: number, period: string, revenueCents: number) => ({ storeId, period, sku: "A", quantity: 1, revenueCents });
+  // DRE por loja (receita líquida, mistura venda com receita de contrato) diz que TODAS caíram; a venda registrada mostra o contrário em 2 lojas.
+  const salesInput = (): OverviewInput => ({
+    ...input(),
+    storeList: [{ id: 1, name: "HTL05" }, { id: 2, name: "Ascenty ADM" }, { id: 3, name: "Itaquá" }, { id: 4, name: "Mogi" }],
+    sales: {
+      ingestedPeriods: ["2026-09", "2026-10"],
+      seriesPeriods: ["2026-09", "2026-10"],
+      cells: [
+        salesCell(1, "2026-09", 1_000_000), salesCell(1, "2026-10", 1_300_000), // +30%
+        salesCell(2, "2026-09", 1_000_000), salesCell(2, "2026-10", 1_100_000), // +10%
+        salesCell(3, "2026-09", 1_000_000), salesCell(3, "2026-10", 800_000), // -20%
+        salesCell(4, "2026-09", 1_000_000), salesCell(4, "2026-10", 1_010_000), // +1% (estável)
+      ],
+    },
   });
 
-  it("flags when store revenue and network revenue diverge, naming the network-only revenue", () => {
+  it("store growth follows the stores' sales, not the DRE net revenue that mixes in contract revenue", () => {
+    const dreOnly = buildOverview(input());
+    expect(dreOnly.stores!.basis).toBe("dre");
+    const bySales = buildOverview(salesInput());
+    expect(bySales.stores!.basis).toBe("vendas");
+    expect(bySales.stores).toMatchObject({ up: 2, down: 1, stable: 1, compared: 4, storesRevenueCents: 4_210_000, storesRevenuePreviousCents: 4_000_000 });
+    expect(bySales.stores!.topGrowth.map((x) => x.name)).toEqual(["HTL05", "Ascenty ADM"]);
+    expect(bySales.stores!.topDecline.map((x) => x.name)).toEqual(["Itaquá"]);
+  });
+
+  it("falls back to the DRE basis when one of the two months has no imported sales", () => {
+    const x = buildOverview({ ...salesInput(), sales: { ...salesInput().sales!, ingestedPeriods: ["2026-10"] } });
+    expect(x.stores!.basis).toBe("dre");
+  });
+
+  it("shows both numbers when store sales and network DRE revenue diverge", () => {
     const x = buildOverview({
-      ...input(),
-      stores: {
-        current: [store(1, "A", 5_000_000), store(2, "B", 3_000_000)],
-        previous: [store(1, "A", 6_000_000), store(2, "B", 3_800_000)],
-        activeCount: 2,
-      },
+      ...salesInput(),
+      months: input().months.map((m, i) => (i === 0 ? { ...m, pnl: pnl(9_000_000, 4_000_000, 2_000_000) } : i === 1 ? { ...m, pnl: pnl(11_000_000, 4_000_000, 2_000_000) } : m)),
     });
     const ins = x.insights.find((i) => i.id === "stores-vs-network")!;
-    expect(ins.title).toMatch(/Receita das lojas caiu 18,4%, contra \+8,4% da rede/);
-    expect(ins.detail).toMatch(/nenhuma das 2 lojas cresceu/);
+    expect(ins.title).toMatch(/Vendas das lojas cresceram 5,3%, contra −18,2% da receita líquida da rede/);
+    expect(ins.detail).toMatch(/2 cresceram, 1 recuaram e 1 ficaram estáveis/);
   });
 
   it("a revenue fall names the stores that fell most, not the ones that grew", () => {
