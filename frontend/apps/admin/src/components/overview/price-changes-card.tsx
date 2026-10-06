@@ -26,6 +26,25 @@ export function PriceChangesCard({ changes }: { changes: PriceChanges | null }) 
         <p className={`text-lg font-semibold ${reading.verdict.margin === "sim" ? "text-success" : reading.verdict.margin === "nao" ? "text-destructive" : ""}`}>{reading.verdict.title}</p>
         <p className="text-sm leading-relaxed">{reading.verdict.detail}</p>
       </div>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div className="rounded-lg border border-border bg-muted/30 p-4">
+          <p className="text-xs font-semibold text-muted-foreground">E se os dois meses tivessem o mesmo número de dias?</p>
+          <p className="text-base font-semibold">{reading.days.title}</p>
+          <p className="text-sm leading-relaxed">{reading.days.detail}</p>
+        </div>
+        {reading.ticket ? (
+          <div className={`rounded-lg border p-4 ${reading.ticket.up ? "border-success/50 bg-success/10" : "border-destructive/50 bg-destructive/10"}`}>
+            <p className="text-xs font-semibold text-muted-foreground">O ticket médio subiu — e o reajuste explica?</p>
+            <p className={`text-base font-semibold ${reading.ticket.up ? "text-success" : "text-destructive"}`}>{reading.ticket.title}</p>
+            <p className="text-sm leading-relaxed">{reading.ticket.detail}</p>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border bg-muted/30 p-4">
+            <p className="text-xs font-semibold text-muted-foreground">O ticket médio subiu — e o reajuste explica?</p>
+            <p className="text-sm text-muted-foreground">Sem as compras do mês para calcular o ticket médio.</p>
+          </div>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
           label="Dinheiro que entrou (faturamento)"

@@ -114,3 +114,38 @@ describe("priceImpactReading", () => {
     expect(r.verdict.title).toBe("Não: sobrou menos dinheiro");
   });
 });
+
+describe("por dia e ticket médio", () => {
+  // Mês atual com 30 dias (set), anterior com 31 (ago). 3 SKUs: 100 un a R$10 -> 80 un a R$12.
+  const cells3 = ["A", "B", "C"].flatMap((k) => [cell(k, "2026-08", 100, 100_000), cell(k, "2026-09", 80, 96_000)]);
+  const tickets = { previous: { baskets: 300, revenueCents: 300_000, items: 300, couponCoverage: 0 }, current: { baskets: 240, revenueCents: 288_000, items: 240, couponCoverage: 0 } };
+  const pc = () => buildPriceChanges(buildPriceVolume("2026-09", "2026-08", cells3, both)!, {}, { A: 500, B: 500, C: 500 }, tickets)!;
+  const fmt = (c: number) => `R$${Math.round(c / 100)}`;
+
+  it("compara por dia e projeta o mês com os dias do anterior (estimativa)", () => {
+    const d = priceImpactReading(pc(), fmt).days;
+    expect(d.detail).toMatch(/O mês tem 30 dias e o anterior, 31/);
+    // 3000/31 = R$96,77/dia -> 2880/30 = R$96/dia: por dia caiu 0,8%; com 31 dias seria 2976 (ainda abaixo de 3000).
+    expect(d.title).toMatch(/Mesmo por dia, o faturamento caiu/);
+    expect(d.detail).toMatch(/cerca de R\$2976, ainda abaixo dos R\$3000/);
+    expect(d.detail).toMatch(/estimativa/);
+  });
+
+  it("ticket: sem o reajuste o ticket seria o dos preços antigos; o reajuste explica o aumento", () => {
+    const tk = pc().ticket!;
+    expect(tk.before).toBeCloseTo(1000); // R$10,00
+    expect(tk.after).toBeCloseTo(1200); // R$12,00
+    expect(tk.withoutRepricing).toBeCloseTo(1000); // (288000-48000)/240 -> R$10,00
+    expect(tk.repricingEffect).toBeCloseTo(200);
+    const r = priceImpactReading(pc(), fmt).ticket!;
+    expect(r.up).toBe(true);
+    expect(r.title).toMatch(/Sim: o ticket médio subiu de R\$ 10,00 para R\$ 12,00/);
+    expect(r.detail).toMatch(/O reajuste explica R\$ 2,00 dos R\$ 2,00 de aumento/);
+    expect(r.detail).toMatch(/sem número de cupom/);
+  });
+
+  it("sem as compras carregadas não há bloco de ticket", () => {
+    const x = buildPriceChanges(buildPriceVolume("2026-09", "2026-08", cells3, both)!, {}, null, null)!;
+    expect(priceImpactReading(x, fmt).ticket).toBeNull();
+  });
+});

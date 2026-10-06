@@ -133,7 +133,7 @@ export function buildOverview(input: OverviewInput): Overview {
     watchlist,
     stores,
     products,
-    priceChanges: buildPriceChanges(priceVolume, input.productNames, input.costBySku),
+    priceChanges: buildPriceChanges(priceVolume, input.productNames, input.costBySku, input.tickets ?? null),
     salesCoverage: coverage,
     tests,
     skuSuggestions,

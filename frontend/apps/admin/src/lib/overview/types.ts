@@ -9,6 +9,7 @@ import type { SalesCoverage } from "./sales-coverage";
 import type { CatalogueItem, LinkDecision, SkuSuggestion } from "./sku-match";
 import type { OpenInvoice, OverdueDetail } from "./overdue";
 import type { PriceChanges } from "./price-volume";
+import type { TicketMonth } from "./ticket";
 import type { SupplyCell, TestsSummary } from "./tests";
 
 export interface NetworkPnlMonth {
@@ -101,6 +102,8 @@ export interface OverviewInput {
   productNames: Record<string, string>;
   /** Lojas ativas (id + nome) — base para dizer em quais lojas um produto vendeu ou não. */
   storeList: { id: number; name: string }[] | null;
+  /** Compras (ticket médio) do mês e do anterior, das transações; null = não carregadas. */
+  tickets?: { current: TicketMonth; previous: TicketMonth } | null;
   /** Catálogo (sku + nome) e decisões de troca de código já tomadas pelo operador. */
   catalogue: CatalogueItem[];
   skuLinks: LinkDecision[];

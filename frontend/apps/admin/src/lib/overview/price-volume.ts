@@ -1,3 +1,4 @@
+import { ticketCents, type TicketMonth } from "./ticket";
 import type { SalesCell } from "./types";
 
 /**
@@ -168,6 +169,35 @@ export interface PriceImpact {
   } | null;
 }
 
+/** Ticket médio (todas as compras da rede) e o quanto do aumento é do reajuste. */
+export interface TicketImpact {
+  before: number;
+  after: number;
+  basketsBefore: number;
+  basketsAfter: number;
+  itemsPerBasketBefore: number | null;
+  itemsPerBasketAfter: number | null;
+  /** Ticket do mês atual se as mesmas vendas tivessem sido feitas aos preços do mês anterior (tira só o efeito do reajuste). */
+  withoutRepricing: number;
+  /** Quanto do ticket atual vem do reajuste (= after − withoutRepricing). */
+  repricingEffect: number;
+  couponCoverage: number;
+}
+
+/** Média por dia: o mês atual e o anterior têm números de dias diferentes. */
+export interface PerDay {
+  /** Todos os produtos. */
+  revenueBeforePerDayCents: number;
+  revenueAfterPerDayCents: number;
+  /** Só os reajustados. */
+  repricedRevenueBeforePerDayCents: number;
+  repricedRevenueAfterPerDayCents: number;
+  repricedUnitsBeforePerDay: number;
+  repricedUnitsAfterPerDay: number;
+  /** Receita de todos os produtos se o mês atual tivesse os dias do anterior, na média diária de agora (ESTIMATIVA). */
+  projectedRevenueAtPreviousDaysCents: number;
+}
+
 export interface PriceChanges {
   period: string;
   previousPeriod: string;
@@ -182,6 +212,9 @@ export interface PriceChanges {
   others: { count: number; unitsBefore: number; unitsAfter: number };
   days: { before: number; after: number };
   impact: PriceImpact;
+  perDay: PerDay;
+  /** null = transações não carregadas ou sem compras. */
+  ticket: TicketImpact | null;
   /** Os mais relevantes (por receita do mês atual). */
   rows: PriceChangeRow[];
 }
@@ -189,7 +222,7 @@ export interface PriceChanges {
 export const PRICE_CHANGES_ROWS = 10;
 
 /** Bloco "Reajustes de preço no mês": cada produto reajustado, com preço, unidades e margem antes e depois. */
-export function buildPriceChanges(pv: PriceVolume | null, names: Record<string, string>, costBySku: Record<string, number> | null): PriceChanges | null {
+export function buildPriceChanges(pv: PriceVolume | null, names: Record<string, string>, costBySku: Record<string, number> | null, tickets: { current: TicketMonth; previous: TicketMonth } | null = null): PriceChanges | null {
   if (!hasRepricing(pv)) return null;
   const r = pv.repriced;
   const rows = [...r.skus]
@@ -249,6 +282,36 @@ export function buildPriceChanges(pv: PriceVolume | null, names: Record<string, 
             volumeEffectCents: Math.round(m.volume),
           },
   };
+  const d0 = pv.days.before;
+  const d1 = pv.days.after;
+  const perDay: PerDay = {
+    revenueBeforePerDayCents: pv.revenueBeforeCents / d0,
+    revenueAfterPerDayCents: pv.revenueAfterCents / d1,
+    repricedRevenueBeforePerDayCents: revBefore / d0,
+    repricedRevenueAfterPerDayCents: revAfter / d1,
+    repricedUnitsBeforePerDay: r.unitsBefore / d0,
+    repricedUnitsAfterPerDay: r.unitsAfter / d1,
+    projectedRevenueAtPreviousDaysCents: Math.round((pv.revenueAfterCents / d1) * d0),
+  };
+  let ticket: TicketImpact | null = null;
+  const t0 = tickets ? ticketCents(tickets.previous) : null;
+  const t1 = tickets ? ticketCents(tickets.current) : null;
+  if (tickets && t0 !== null && t1 !== null) {
+    const cur = tickets.current;
+    // Mesmas compras do mês atual, aos preços do anterior: tira só o efeito do reajuste (receita do mês − efeito-preço).
+    const without = (pv.revenueAfterCents - r.priceEffectCents) / cur.baskets;
+    ticket = {
+      before: t0,
+      after: t1,
+      basketsBefore: tickets.previous.baskets,
+      basketsAfter: cur.baskets,
+      itemsPerBasketBefore: tickets.previous.baskets > 0 ? tickets.previous.items / tickets.previous.baskets : null,
+      itemsPerBasketAfter: cur.baskets > 0 ? cur.items / cur.baskets : null,
+      withoutRepricing: without,
+      repricingEffect: t1 - without,
+      couponCoverage: Math.min(cur.couponCoverage, tickets.previous.couponCoverage),
+    };
+  }
   return {
     period: pv.period,
     previousPeriod: pv.previousPeriod,
@@ -262,6 +325,8 @@ export function buildPriceChanges(pv: PriceVolume | null, names: Record<string, 
     others: { count: pv.others.count, unitsBefore: pv.others.unitsBefore, unitsAfter: pv.others.unitsAfter },
     days: pv.days,
     impact,
+    perDay,
+    ticket,
     rows,
   };
 }
@@ -291,6 +356,10 @@ export interface PriceImpactReading {
     title: string;
     detail: string;
   };
+  /** "E se os dois meses tivessem o mesmo número de dias?" — média por dia. */
+  days: { title: string; detail: string };
+  /** "O ticket médio subiu — e o reajuste explica?"; null quando as compras não foram carregadas. */
+  ticket: { title: string; detail: string; up: boolean } | null;
   lines: string[];
 }
 
@@ -351,6 +420,49 @@ export function priceImpactReading(pc: PriceChanges, money: (cents: number) => s
       `Nos outros ${pc.others.count} produtos, que não mudaram de preço, as unidades variaram ${fmt(oth)}${unitsPct < oth - 0.02 ? ". A queda ficou concentrada nos que subiram de preço, mas isso é só o que os números mostram: não prova que o preço causou a queda" : ""}.`,
     );
   }
-  lines.push(`Lucro bruto = preço de venda menos o custo do produto (custo do catálogo). Preço = média realmente cobrada, já com descontos. O mês tem ${pc.days.after} dias e o anterior, ${pc.days.before}.`);
-  return { headline, verdict, lines };
+  lines.push(`Lucro bruto = preço de venda menos o custo do produto (custo do catálogo). Preço = média realmente cobrada, já com descontos.`);
+
+  // Média por dia (setembro 30 dias × agosto 31): o calendário sozinho já mexe no faturamento do mês.
+  const pd = pc.perDay;
+  const pctSigned = (a: number, b: number) => (a > 0 ? `${b >= a ? "+" : "−"}${Math.abs(Math.round(((b - a) / a) * 1000) / 10).toString().replace(".", ",")}%` : "");
+  const allDayPct = pd.revenueBeforePerDayCents > 0 ? (pd.revenueAfterPerDayCents - pd.revenueBeforePerDayCents) / pd.revenueBeforePerDayCents : null;
+  const monthsDiffer = pc.days.before !== pc.days.after;
+  const projected = pd.projectedRevenueAtPreviousDaysCents;
+  const days = {
+    title:
+      allDayPct === null
+        ? "Sem base para comparar por dia"
+        : allDayPct >= 0
+          ? `Por dia, o faturamento não caiu: ${pctSigned(pd.revenueBeforePerDayCents, pd.revenueAfterPerDayCents)}`
+          : `Mesmo por dia, o faturamento caiu ${pctSigned(pd.revenueBeforePerDayCents, pd.revenueAfterPerDayCents).replace("−", "")}`,
+    detail:
+      `${monthsDiffer ? `O mês tem ${pc.days.after} dias e o anterior, ${pc.days.before}. ` : "Os dois meses têm o mesmo número de dias. "}` +
+      `Média por dia, em todos os produtos: ${money(Math.round(pd.revenueBeforePerDayCents))} → ${money(Math.round(pd.revenueAfterPerDayCents))} (${pctSigned(pd.revenueBeforePerDayCents, pd.revenueAfterPerDayCents)}). ` +
+      (monthsDiffer && pc.days.after < pc.days.before
+        ? `Se este mês tivesse ${pc.days.before} dias com a mesma média diária, o faturamento seria cerca de ${money(projected)}, ${projected >= pd.revenueBeforePerDayCents * pc.days.before ? "acima" : "ainda abaixo"} dos ${money(Math.round(pd.revenueBeforePerDayCents * pc.days.before))} do mês anterior (estimativa: supõe que o dia a mais venderia a média). `
+        : "") +
+      `Só nos reajustados, por dia: faturamento ${money(Math.round(pd.repricedRevenueBeforePerDayCents))} → ${money(Math.round(pd.repricedRevenueAfterPerDayCents))} (${pctSigned(pd.repricedRevenueBeforePerDayCents, pd.repricedRevenueAfterPerDayCents)}) e unidades ${Math.round(pd.repricedUnitsBeforePerDay)} → ${Math.round(pd.repricedUnitsAfterPerDay)} (${pctSigned(pd.repricedUnitsBeforePerDay, pd.repricedUnitsAfterPerDay)}).`,
+  };
+
+  // Ticket médio: subiu? o reajuste explica? (mesmas compras do mês aos preços do mês anterior)
+  const tk = pc.ticket;
+  const brl2 = (c: number) => `R$ ${(c / 100).toFixed(2).replace(".", ",")}`;
+  let ticket: PriceImpactReading["ticket"] = null;
+  if (tk) {
+    const up = tk.after >= tk.before;
+    const total = tk.after - tk.before;
+    ticket = {
+      up,
+      title: `${up ? "Sim" : "Não"}: o ticket médio ${up ? "subiu" : "caiu"} de ${brl2(tk.before)} para ${brl2(tk.after)} (${pctSigned(tk.before, tk.after)})`,
+      detail:
+        `Sem o reajuste (as mesmas compras do mês, aos preços do mês anterior), o ticket seria ${brl2(tk.withoutRepricing)}. ` +
+        (total > 0
+          ? `O reajuste explica ${brl2(Math.min(tk.repricingEffect, total) < 0 ? 0 : tk.repricingEffect)} dos ${brl2(total)} de aumento. `
+          : `O reajuste somou ${brl2(tk.repricingEffect)} ao ticket, que mesmo assim ${total < 0 ? "caiu" : "ficou igual"}. `) +
+        `Compras: ${n(tk.basketsBefore)} → ${n(tk.basketsAfter)} (${pctSigned(tk.basketsBefore, tk.basketsAfter)}).` +
+        (tk.itemsPerBasketBefore !== null && tk.itemsPerBasketAfter !== null ? ` Itens por compra: ${tk.itemsPerBasketBefore.toFixed(2).replace(".", ",")} → ${tk.itemsPerBasketAfter.toFixed(2).replace(".", ",")}.` : "") +
+        (tk.couponCoverage < 0.5 ? " Os arquivos vieram sem número de cupom: cada linha foi contada como uma compra, então o ticket é aproximado (compra de vários itens aparece separada)." : ""),
+    };
+  }
+  return { headline, verdict, days, ticket, lines };
 }
