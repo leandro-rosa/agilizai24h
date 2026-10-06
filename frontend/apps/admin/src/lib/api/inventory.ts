@@ -84,6 +84,22 @@ export function sumStock(storeId: number, range: PeriodRange, perMonth: (StoreSt
   return { storeId, range, items, has_inconsistencies: items.some((item) => item.inconsistent) };
 }
 
+/** Os itens de UM mês (só os registros do próprio mês — ver `sumStock`), sem somar nada: base da análise de pendências mês a mês. */
+export interface MonthItems {
+  period: string;
+  items: StockItem[];
+}
+
+export interface StoreMonthItems {
+  storeId: number;
+  months: MonthItems[];
+}
+
+function ownMonth(period: string, stock: StoreStock | undefined): MonthItems | null {
+  if (!stock) return null;
+  return { period, items: stock.items.filter((item) => item.period === period) };
+}
+
 export interface CentralStockLot {
   id: number;
   sku: string;
@@ -146,6 +162,39 @@ export const inventoryApi = createApi({
         if (error) return { error };
         const rows = stores.map((store, index) => sumStock(store.id, range, perStorePerMonth[index].map((r) => r.data)));
         return { data: rows };
+      },
+      providesTags: ["Minimum"],
+    }),
+    /**
+     * Itens por mês (sem somar), cada mês só com os registros do próprio mês. Um mês sem nada importado (404) simplesmente não aparece —
+     * nunca vira "zero movimento". Qualquer outra falha derruba a busca inteira.
+     */
+    getStockMonths: builder.query<MonthItems[], { storeId: number; range: PeriodRange }>({
+      async queryFn({ storeId, range }, _api, _extra, fetchWithBQ) {
+        const months = monthsInRange(range);
+        const perMonth = await Promise.all(
+          months.map((period) => fetchOr404<StoreStock>(fetchWithBQ, `/inventory/${storeId}?period=${encodeURIComponent(period)}`)),
+        );
+        const error = firstError(perMonth);
+        if (error) return { error };
+        return { data: months.flatMap((period, i) => ownMonth(period, perMonth[i].data) ?? []) };
+      },
+      providesTags: ["Minimum"],
+    }),
+    /** Rede inteira, mesma forma de `getNetworkStockRange`, mas por mês e por loja. */
+    getNetworkStockMonths: builder.query<StoreMonthItems[], { stores: Store[]; range: PeriodRange }>({
+      async queryFn({ stores, range }, _api, _extra, fetchWithBQ) {
+        const months = monthsInRange(range);
+        const perStorePerMonth = await Promise.all(
+          stores.map((store) =>
+            Promise.all(months.map((period) => fetchOr404<StoreStock>(fetchWithBQ, `/inventory/${store.id}?period=${encodeURIComponent(period)}`))),
+          ),
+        );
+        const error = firstError(perStorePerMonth.flat());
+        if (error) return { error };
+        return {
+          data: stores.map((store, si) => ({ storeId: store.id, months: months.flatMap((period, mi) => ownMonth(period, perStorePerMonth[si][mi].data) ?? []) })),
+        };
       },
       providesTags: ["Minimum"],
     }),
@@ -215,6 +264,8 @@ export const inventoryApi = createApi({
 export const {
   useGetStockRangeQuery,
   useGetNetworkStockRangeQuery,
+  useGetStockMonthsQuery,
+  useGetNetworkStockMonthsQuery,
   useSetMinimumMutation,
   useSetParLevelMutation,
   useListMinimumsQuery,

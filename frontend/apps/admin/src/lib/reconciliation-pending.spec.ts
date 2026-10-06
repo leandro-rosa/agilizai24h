@@ -1,52 +1,79 @@
-import type { StockItem } from "@/lib/api/inventory";
-import { buildPending, PENDING_BASELINE } from "./reconciliation-pending";
+import type { MonthItems, StockItem } from "@/lib/api/inventory";
+import { buildMonthlyPending, pendingFetchRange, pendingMonths, pendingTrend, PENDING_BASELINE } from "./reconciliation-pending";
 
-const item = (sku: string, over: Partial<StockItem> = {}): StockItem => ({
-  store_id: 1, sku, period: "2026-09", restocked: 0, sold: 0, removed: 0, adjustment: 0, closing_stock: 0, inconsistent: false, recorded_closing_balance: null, ...over,
+const item = (sku: string, period: string, over: Partial<StockItem> = {}): StockItem => ({
+  store_id: 1, sku, period, restocked: 0, sold: 0, removed: 0, adjustment: 0, closing_stock: 0, inconsistent: false, recorded_closing_balance: null, ...over,
+});
+const month = (period: string, items: StockItem[]): MonthItems => ({ period, items });
+
+describe("buildMonthlyPending — o estoque que veio do mês anterior conta", () => {
+  it("venda sem abastecimento no mês coberta pela contagem do mês anterior NÃO é pendência (abastecidos 18, vendidos 15, sobraram 3)", () => {
+    const aug = month("2026-08", [item("S", "2026-08", { restocked: 18, sold: 15, recorded_closing_balance: 3 })]);
+    const sep = month("2026-09", [item("S", "2026-09", { sold: 3, recorded_closing_balance: 0 })]);
+    const p = buildMonthlyPending([aug, sep], "2026-09");
+    expect(p.rows).toEqual([]); // 3 − 3 = 0
+    expect(p.hasData).toBe(true);
+    expect(p.productsInMonth).toBe(1);
+  });
+
+  it("vendeu mais do que o estoque que veio + o abastecido: pendência de saída maior que a entrada", () => {
+    const aug = month("2026-08", [item("S", "2026-08", { recorded_closing_balance: 3 })]);
+    const sep = month("2026-09", [item("S", "2026-09", { sold: 8, recorded_closing_balance: 0 })]);
+    const r = buildMonthlyPending([aug, sep], "2026-09").rows[0];
+    expect(r).toMatchObject({ opening: 3, expected: -5, missing: 5, kind: "saiu_mais_que_entrou", noRestockInMonth: true });
+  });
+
+  it("Sprite Zero: sem nenhuma entrada lançada, vendeu 15 e há 5 contadas no fim — o produto existia, faltam 20 de entrada", () => {
+    const sep = month("2026-09", [item("100114", "2026-09", { sold: 15, recorded_closing_balance: 5 })]);
+    const r = buildMonthlyPending([sep], "2026-09").rows[0];
+    expect(r.kind).toBe("entrada_nao_lancada");
+    expect(r.expected).toBe(-15);
+    expect(r.missing).toBe(20); // contagem 5 − esperado (−15)
+    expect(r.opening).toBeNull(); // sem contagem de agosto: contou como 0, e a linha diz isso
+  });
+
+  it("o erro de um mês não se acumula no seguinte: a contagem de fim de mês reancora", () => {
+    const jul = month("2026-07", [item("A", "2026-07", { sold: 10, recorded_closing_balance: 0 })]); // pendente em julho
+    const aug = month("2026-08", [item("A", "2026-08", { restocked: 5, sold: 5, recorded_closing_balance: 0 })]);
+    expect(buildMonthlyPending([jul, aug], "2026-07").productCount).toBe(1);
+    expect(buildMonthlyPending([jul, aug], "2026-08").productCount).toBe(0); // agosto parte da contagem 0, não de −10
+  });
+
+  it("ajuste de inventário soma ao saldo, como no serviço de estoque", () => {
+    const sep = month("2026-09", [item("A", "2026-09", { restocked: 2, sold: 5, adjustment: 3 })]);
+    expect(buildMonthlyPending([sep], "2026-09").rows).toEqual([]);
+  });
+
+  it("mês sem registro: hasData=false, nunca 'zero pendências'", () => {
+    const p = buildMonthlyPending([], "2026-09");
+    expect(p.hasData).toBe(false);
+    expect(p.productsInMonth).toBe(0);
+  });
+
+  it("ordena pelas unidades que mais faltam", () => {
+    const sep = month("2026-09", [item("A", "2026-09", { sold: 2 }), item("B", "2026-09", { sold: 9 })]);
+    expect(buildMonthlyPending([sep], "2026-09").rows.map((r) => r.sku)).toEqual(["B", "A"]);
+  });
 });
 
-describe("buildPending (a partir de julho, começando pela contagem de junho)", () => {
-  it("usa a contagem de junho como estoque inicial e só aponta o que ficou negativo", () => {
-    const opening = [item("A", { period: "2026-06", recorded_closing_balance: 5 }), item("B", { period: "2026-06", recorded_closing_balance: 0 })];
-    const movements = [
-      item("A", { restocked: 10, sold: 14 }), // 5 + 10 − 14 = 1 → ok
-      item("B", { restocked: 4, sold: 9, removed: 1 }), // 0 + 4 − 10 = −6 → pendente
-      item("C", { sold: 3 }), // sem contagem, nunca abastecido, vendeu 3 → −3
+describe("meses analisados e tendência", () => {
+  it("começa em julho; antes disso não se analisa", () => {
+    expect(PENDING_BASELINE).toBe("2026-07");
+    expect(pendingMonths("2026-09")).toEqual(["2026-07", "2026-08", "2026-09"]);
+    expect(pendingMonths("2026-05")).toEqual([]);
+    expect(pendingFetchRange("2026-09")).toEqual({ start: "2026-06", end: "2026-09" });
+  });
+
+  it("tendência mostra quantos negativos em cada mês", () => {
+    const months = [
+      month("2026-06", [item("A", "2026-06", { recorded_closing_balance: 0 })]),
+      month("2026-07", [item("A", "2026-07", { sold: 4 }), item("B", "2026-07", { sold: 2 })]),
+      month("2026-08", [item("A", "2026-08", { sold: 1 })]),
     ];
-    const s = buildPending(movements, opening);
-    expect(s.baseline).toBe(PENDING_BASELINE);
-    expect(s.openingPeriod).toBe("2026-06");
-    expect(s.rows.map((r) => [r.sku, r.missing])).toEqual([["B", 6], ["C", 3]]);
-    expect(s.missingUnits).toBe(9);
-    expect(s.productCount).toBe(2);
-  });
-
-  it("marca o produto nunca abastecido e o sem contagem; a contagem ausente nunca vira dado inventado", () => {
-    const s = buildPending([item("C", { sold: 3 }), item("D", { restocked: 2, sold: 5 })], []);
-    const c = s.rows.find((r) => r.sku === "C")!;
-    expect(c.neverRestocked).toBe(true);
-    expect(c.opening).toBeNull();
-    expect(s.neverRestockedCount).toBe(1);
-    expect(s.withoutOpeningCount).toBe(2);
-  });
-
-  it("o ajuste de inventário soma ao saldo, como no serviço de estoque", () => {
-    const s = buildPending([item("A", { restocked: 2, sold: 5, adjustment: 3 })], []);
-    expect(s.rows).toEqual([]); // 2 − 5 + 3 = 0
-  });
-
-  it("sem pendências: lista vazia e zeros", () => {
-    const s = buildPending([item("A", { restocked: 5, sold: 5 })], []);
-    expect(s).toMatchObject({ productCount: 0, missingUnits: 0, rows: [] });
-  });
-});
-
-describe("registro antigo devolvido pelo serviço de estoque", () => {
-  it("a contagem de junho só vale se o registro é do próprio junho", () => {
-    // O serviço devolve o ÚLTIMO registro até junho: para um produto sem junho, vem a contagem de fevereiro (5).
-    const opening = [item("A", { period: "2026-02", recorded_closing_balance: 5 })];
-    const s = buildPending([item("A", { restocked: 0, sold: 3 })], opening);
-    expect(s.rows[0].opening).toBeNull(); // contagem velha ignorada
-    expect(s.rows[0].missing).toBe(3); // e não 5 − 3 = 2 (que esconderia a pendência)
+    expect(pendingTrend(months, "2026-09")).toEqual([
+      { month: "2026-07", count: 2, hasData: true },
+      { month: "2026-08", count: 1, hasData: true },
+      { month: "2026-09", count: 0, hasData: false },
+    ]);
   });
 });
