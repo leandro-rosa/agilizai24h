@@ -7,6 +7,16 @@ export const SKU_MATCH = {
   /** Similaridade mínima (Jaccard sobre palavras sem peso/unidade). PREMISSA inicial. */
   MIN_SCORE: 0.5,
   MAX_CANDIDATES: 3,
+  /**
+   * "Passagem de bastão": o SKU antigo só é sugerido se já vinha vendendo e, na
+   * competência, caiu a no máximo esta fração do seu melhor mês anterior. Troca
+   * de código = o antigo some enquanto o novo sobe; dois produtos parecidos que
+   * vendem juntos (Monster 269 ml × 473 ml, sabores) não passam. PREMISSA inicial,
+   * calibrada nos pares reais de set/2026 (Snickers 314→128→58; Monster estável).
+   */
+  HANDOVER_MAX_RATIO: 0.5,
+  /** Melhor mês mínimo (un.) do SKU antigo: quem quase nunca vendeu não é "substituído" (ruído de 1 unidade). */
+  HANDOVER_MIN_PEAK: 10,
 } as const;
 
 export type LinkDecision = { old_sku: string; new_sku: string; decision: "same" | "different" };
@@ -41,6 +51,8 @@ export interface Predecessor {
   lastSoldPeriod: string | null;
   /** Unidades do SKU antigo na competência. */
   unitsInPeriod: number;
+  /** Melhor mês de vendas do SKU antigo antes da competência (na janela de vendas). */
+  peakUnits: number;
 }
 
 export interface SkuSuggestion {
@@ -54,12 +66,18 @@ export interface CatalogueItem {
   name: string;
 }
 
+export interface SalesInfo {
+  lastSoldPeriod: string | null;
+  unitsInPeriod: number;
+  peakBefore: number;
+}
+
 export interface SuggestArgs {
   newSkus: string[];
   catalogue: CatalogueItem[];
   links: LinkDecision[];
-  /** SKU → { último mês com venda, unidades na competência }. */
-  salesInfo: Map<string, { lastSoldPeriod: string | null; unitsInPeriod: number }>;
+  /** SKU → { último mês com venda, unidades na competência, melhor mês anterior }. */
+  salesInfo: Map<string, SalesInfo>;
 }
 
 /** Candidatos por SKU novo, já sem pares decididos ("same" ou "different") nem SKUs já vinculados. */
@@ -74,6 +92,11 @@ export function suggestPredecessors({ newSkus, catalogue, links, salesInfo }: Su
     if (!newName) continue;
     const candidates: Predecessor[] = catalogue
       .filter((c) => c.sku !== newSku && !alreadyOld.has(c.sku) && !decided.has(`${c.sku}>${newSku}`))
+      .filter((c) => {
+        const i = salesInfo.get(c.sku);
+        // Sem venda anterior não há como provar que o código antigo "saiu de linha".
+        return !!i && i.peakBefore >= SKU_MATCH.HANDOVER_MIN_PEAK && i.unitsInPeriod <= SKU_MATCH.HANDOVER_MAX_RATIO * i.peakBefore;
+      })
       .map((c) => ({ c, score: nameScore(c.name, newName) }))
       .filter((x) => x.score >= SKU_MATCH.MIN_SCORE)
       .sort((a, b) => b.score - a.score)
@@ -84,6 +107,7 @@ export function suggestPredecessors({ newSkus, catalogue, links, salesInfo }: Su
         score,
         lastSoldPeriod: salesInfo.get(c.sku)?.lastSoldPeriod ?? null,
         unitsInPeriod: salesInfo.get(c.sku)?.unitsInPeriod ?? 0,
+        peakUnits: salesInfo.get(c.sku)?.peakBefore ?? 0,
       }));
     if (candidates.length) out.push({ newSku, newName, candidates });
   }

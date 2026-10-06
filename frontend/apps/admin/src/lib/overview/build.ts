@@ -4,7 +4,7 @@ import { buildInsights } from "./insights";
 import { buildKpis } from "./kpis";
 import { buildLoss } from "./loss";
 import { buildProducts } from "./products";
-import { buildAliasMap, suggestPredecessors } from "./sku-match";
+import { buildAliasMap, suggestPredecessors, type SalesInfo } from "./sku-match";
 import { buildTests } from "./tests";
 import { buildReading } from "./reading";
 import { buildStoreSummary } from "./stores";
@@ -27,7 +27,7 @@ export function buildOverview(input: OverviewInput): Overview {
   const [cur, prev] = months;
 
   const kpis = buildKpis(months);
-  const stores = buildStoreSummary(input.stores.current, input.stores.previous, input.stores.activeCount, prev.pnl?.netRevenueCents ?? null);
+  const stores = buildStoreSummary(input.stores.current, input.stores.previous, input.stores.activeCount, prev.pnl?.netRevenueCents ?? null, cur.pnl?.netRevenueCents ?? null);
   const alias = buildAliasMap(input.skuLinks);
   const products = input.sales ? buildProducts(period, previousPeriod, input.sales, input.costBySku, input.productNames, input.storeList, alias) : null;
   const tests = input.supply
@@ -43,12 +43,18 @@ export function buildOverview(input: OverviewInput): Overview {
     : null;
 
   // Pergunta "é o mesmo produto de um código antigo?" para o que parece novo: SKU sem histórico e SKU em teste.
-  const salesInfo = new Map<string, { lastSoldPeriod: string | null; unitsInPeriod: number }>();
+  const byMonth = new Map<string, Map<string, number>>();
+  const lastSold = new Map<string, string>();
   for (const c of input.sales?.cells ?? []) {
-    const cur = salesInfo.get(c.sku) ?? { lastSoldPeriod: null, unitsInPeriod: 0 };
-    if (c.quantity > 0 && (cur.lastSoldPeriod === null || c.period > cur.lastSoldPeriod)) cur.lastSoldPeriod = c.period;
-    if (c.period === period) cur.unitsInPeriod += c.quantity;
-    salesInfo.set(c.sku, cur);
+    const m = byMonth.get(c.sku) ?? new Map<string, number>();
+    m.set(c.period, (m.get(c.period) ?? 0) + c.quantity);
+    byMonth.set(c.sku, m);
+    if (c.quantity > 0 && (lastSold.get(c.sku) ?? "") < c.period) lastSold.set(c.sku, c.period);
+  }
+  const salesInfo = new Map<string, SalesInfo>();
+  for (const [sku, m] of byMonth) {
+    const prior = [...m].filter(([per]) => per < period).map(([, u]) => u);
+    salesInfo.set(sku, { lastSoldPeriod: lastSold.get(sku) ?? null, unitsInPeriod: m.get(period) ?? 0, peakBefore: prior.length ? Math.max(...prior) : 0 });
   }
   const looksNew = new Set<string>([
     ...(products?.topSold ?? []).concat(products?.rising ?? [], products?.falling ?? [], products?.relevantChange ?? []).filter((r) => r.behavior === "novo").map((r) => r.sku),
@@ -72,6 +78,7 @@ export function buildOverview(input: OverviewInput): Overview {
     cashUses,
     capex,
     revenueCents: prev.pnl?.netRevenueCents ?? null,
+    revenueCurrentCents: cur.pnl?.netRevenueCents ?? null,
   });
 
   return {
@@ -79,6 +86,7 @@ export function buildOverview(input: OverviewInput): Overview {
     previousPeriod,
     avg3Periods: [addMonths(period, -1), addMonths(period, -2), addMonths(period, -3)],
     closed: input.closed,
+    previousClosed: input.previousClosed,
     closedAt: cur.pnl?.computedAt ?? null,
     kpis,
     insights,

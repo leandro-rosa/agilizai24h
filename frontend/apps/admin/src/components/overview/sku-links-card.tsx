@@ -4,7 +4,7 @@ import { ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { useDecideSkuLinkMutation } from "@/lib/api/products";
+import { useDecideSkuLinkMutation, useDeleteSkuLinkMutation, useGetProductsQuery, useGetSkuLinksQuery } from "@/lib/api/products";
 import { useHasPermission } from "@/lib/auth/use-permission";
 import { period as fmtPeriod } from "@/lib/format";
 import type { SkuSuggestion } from "@/lib/overview/sku-match";
@@ -18,8 +18,22 @@ import { Block } from "./shared";
 export function SkuLinksCard({ suggestions }: { suggestions: SkuSuggestion[] }) {
   const canWrite = useHasPermission("products:write");
   const [decide, { isLoading }] = useDecideSkuLinkMutation();
+  const [remove, { isLoading: removing }] = useDeleteSkuLinkMutation();
+  const { data: links } = useGetSkuLinksQuery();
+  const { data: products } = useGetProductsQuery();
+  const nameOf = (sku: string) => products?.find((p) => p.sku === sku)?.name ?? sku;
+  const decided = links ?? [];
 
-  if (suggestions.length === 0) return null;
+  async function onUndo(id: number) {
+    try {
+      await remove(id).unwrap();
+      toast.success("Decisão desfeita: o par volta a ser sugerido se ainda parecer uma troca.");
+    } catch {
+      toast.error("Não foi possível desfazer a decisão.");
+    }
+  }
+
+  if (suggestions.length === 0 && decided.length === 0) return null;
 
   async function onDecide(oldSku: string, newSku: string, decision: "same" | "different") {
     try {
@@ -32,11 +46,11 @@ export function SkuLinksCard({ suggestions }: { suggestions: SkuSuggestion[] }) 
   }
 
   return (
-    <Block title="Possível troca de código de barras — confirme" icon={<ArrowLeftRight className="size-4 text-primary" />} href="/products" linkLabel="Ver produtos">
-      <p className="text-sm text-muted-foreground">
-        Estes produtos aparecem como novos, mas há no catálogo um produto antigo com nome parecido. Se for o mesmo item com outro código,
+    <Block title={suggestions.length > 0 ? "Possível troca de código de barras — confirme" : "Trocas de código de barras já decididas"} icon={<ArrowLeftRight className="size-4 text-primary" />} href="/products" linkLabel="Ver produtos">
+      {suggestions.length > 0 && <p className="text-sm text-muted-foreground">
+        Estes produtos aparecem como novos, mas há no catálogo um produto de nome parecido cujas vendas caíram (vendia bem e quase parou). Se for o mesmo item com outro código,
         confirme: o histórico passa a ser somado e ele deixa de aparecer como novo ou em teste.
-      </p>
+      </p>}
       <ul className="flex flex-col gap-4">
         {suggestions.map((s) => (
           <li key={s.newSku} className="flex flex-col gap-2 rounded-lg border p-3">
@@ -48,8 +62,8 @@ export function SkuLinksCard({ suggestions }: { suggestions: SkuSuggestion[] }) 
                 <p className="text-sm">
                   É o mesmo que <span className="font-medium">{c.oldName}</span> <span className="text-muted-foreground">({c.oldSku})</span>?
                   <span className="block text-xs text-muted-foreground">
-                    {c.lastSoldPeriod ? `Última venda do código antigo: ${fmtPeriod(c.lastSoldPeriod)}` : "Sem venda do código antigo nos últimos 6 meses"}
-                    {c.unitsInPeriod > 0 ? ` · ainda vendeu ${c.unitsInPeriod} un. no mês` : ""} · semelhança de nome {Math.round(c.score * 100)}%
+                    Código antigo: chegou a vender {c.peakUnits} un./mês e vendeu {c.unitsInPeriod} un. no mês
+                    {c.lastSoldPeriod ? ` (última venda em ${fmtPeriod(c.lastSoldPeriod)})` : ""} · semelhança de nome {Math.round(c.score * 100)}%
                   </span>
                 </p>
                 {canWrite && (
@@ -64,6 +78,22 @@ export function SkuLinksCard({ suggestions }: { suggestions: SkuSuggestion[] }) 
         ))}
       </ul>
       {!canWrite && <p className="text-xs text-muted-foreground">Sem permissão para confirmar vínculos (products:write).</p>}
+      {decided.length > 0 && (
+        <details className="text-sm">
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Decisões já tomadas ({decided.length})</summary>
+          <ul className="mt-2 flex flex-col gap-2">
+            {decided.map((l) => (
+              <li key={l.id} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  {l.decision === "same" ? "Mesmo produto: " : "Não é o mesmo: "}
+                  <span className="font-medium">{nameOf(l.old_sku)}</span> → <span className="font-medium">{nameOf(l.new_sku)}</span>
+                </span>
+                {canWrite && <Button size="sm" variant="outline" disabled={removing} onClick={() => onUndo(l.id)}>Desfazer</Button>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </Block>
   );
 }

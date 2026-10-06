@@ -17,7 +17,10 @@ export interface InsightInput {
   cash: CashSummary;
   cashUses: CashUses | null;
   capex: CapexSummary | null;
+  /** Receita líquida do mês anterior (base de representatividade). */
   revenueCents: number | null;
+  /** Receita líquida da rede na competência (DRE). */
+  revenueCurrentCents: number | null;
 }
 
 const kpi = (kpis: KpiResult[], key: KpiResult["key"]) => kpis.find((k) => k.key === key)!;
@@ -37,21 +40,20 @@ export function buildInsights(i: InsightInput): Insight[] {
   const rev = kpi(i.kpis, "revenue");
   const revD = rev.vsPrevious as ValueDelta;
   if (revD.pct !== null && revD.abs !== null && Math.abs(revD.pct) >= 0.02) {
-    const where = i.stores?.topGrowth.length
-      ? `, concentrado principalmente em ${i.stores.topGrowth.map((s) => s.name).join(", ")}`
-      : "";
+    const movers = revD.pct >= 0 ? i.stores?.topGrowth : i.stores?.topDecline;
+    const where = movers?.length ? `, com ${revD.pct >= 0 ? "maior contribuição de" : "maiores quedas em"} ${movers.map((s) => s.name).join(", ")}` : "";
     out.push({
       id: "revenue",
       tone: revD.pct >= 0 ? "positive" : "negative",
       title: `Faturamento ${verb(revD.pct, "cresceu", "caiu")} ${pctWord(revD.pct)}`,
-      detail: `${moneyCompact(Math.abs(revD.abs))} ${verb(revD.pct, "acima", "abaixo")} de ${prevLabel}${revD.pct >= 0 ? where : ""}.`,
+      detail: `${moneyCompact(Math.abs(revD.abs))} ${verb(revD.pct, "acima", "abaixo")} de ${prevLabel}${where}.`,
       score: 1,
     });
   }
 
   const loss = kpi(i.kpis, "loss");
   const lossD = loss.vsPrevious as ValueDelta;
-  if (lossD.pct !== null && lossD.abs !== null && share(lossD.abs, base) >= 0.005 && Math.abs(lossD.pct) >= 0.1) {
+  if (lossD.pct !== null && lossD.abs !== null && share(lossD.abs, base) >= 0.002 && Math.abs(lossD.pct) >= 0.1) {
     const driver = i.loss?.byReason.filter((r) => r.deltaCents !== null).sort((a, b) => Math.abs(b.deltaCents ?? 0) - Math.abs(a.deltaCents ?? 0))[0];
     const driverTxt = driver && driver.deltaCents !== null && Math.sign(driver.deltaCents) === Math.sign(lossD.abs) ? `, com variação concentrada em “${reasonLabel(driver.reason)}” (${driver.deltaCents > 0 ? "+" : "−"}${moneyCompact(Math.abs(driver.deltaCents))})` : "";
     out.push({
@@ -61,6 +63,23 @@ export function buildInsights(i: InsightInput): Insight[] {
       detail: `${moneyCompact(loss.value ?? 0)} no mês vs. ${prevLabel}${driverTxt}.`,
       score: share(lossD.abs, base) * 2,
     });
+  }
+
+  const st = i.stores;
+  if (st && st.storesRevenuePreviousCents > 0 && i.revenueCurrentCents !== null && i.revenueCents !== null && i.revenueCents > 0) {
+    const storesPct = (st.storesRevenueCents - st.storesRevenuePreviousCents) / st.storesRevenuePreviousCents;
+    const networkPct = (i.revenueCurrentCents - i.revenueCents) / i.revenueCents;
+    if (Math.abs(storesPct - networkPct) >= 0.05 && Math.abs(storesPct) >= 0.02) {
+      const onlyNow = i.revenueCurrentCents - st.storesRevenueCents;
+      const onlyPrev = i.revenueCents - st.storesRevenuePreviousCents;
+      out.push({
+        id: "stores-vs-network",
+        tone: storesPct < 0 ? "negative" : "positive",
+        title: `Receita das lojas ${verb(storesPct, "cresceu", "caiu")} ${pctWord(storesPct)}, contra ${signedPct(networkPct)} da rede`,
+        detail: `${st.compared} lojas somam ${moneyCompact(st.storesRevenueCents)} (${st.storesRevenueCents >= st.storesRevenuePreviousCents ? "+" : "−"}${moneyCompact(Math.abs(st.storesRevenueCents - st.storesRevenuePreviousCents))} vs. ${prevLabel}). A receita lançada só na rede foi de ${moneyCompact(onlyPrev)} para ${moneyCompact(onlyNow)}${st.up === 0 && st.down > 0 ? `; nenhuma das ${st.compared} lojas cresceu` : ""}.`,
+        score: Math.abs(storesPct - networkPct) * 3,
+      });
+    }
   }
 
   const revPct = revD.pct;
@@ -104,7 +123,7 @@ export function buildInsights(i: InsightInput): Insight[] {
     out.push({
       id: e.key,
       tone: "neutral",
-      title: `${e.label} ${signedPct(e.deltaPct)}`,
+      title: `Despesa com ${e.label} ${signedPct(e.deltaPct)}`,
       detail: `${moneyCompact(e.currentCents)} no mês vs. ${moneyCompact(e.previousCents ?? 0)} em ${prevLabel}.`,
       score: share(e.deltaCents, base),
     });

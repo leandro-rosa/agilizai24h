@@ -491,10 +491,10 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   (positivo/atenção/mais dados) vem com os fatos ao lado, nunca aprovado/reprovado.
 - **Troca de código de barras** (`lib/overview/sku-match.ts`, `sku-links-card.tsx`):
   SKU "sem histórico" ou em teste é comparado por nome (Jaccard sem pesos/volumes,
-  mín. 50%) com o catálogo; a tela PERGUNTA ("É o mesmo produto"/"Não é") e grava em
+  mín. 50%) com o catálogo, e só sugere quando o código antigo já vendia (pico ≥ 10 un./mês) e na competência caiu a ≤ 50% desse pico ("passagem de bastão", `SKU_MATCH`; calibrado nos pares reais de set/2026: Snickers 314→58 entra, Monster 473 × 269 e sabores de leite em pó, que vendem juntos, não). A tela PERGUNTA ("É o mesmo produto"/"Não é") e grava em
   `products-service` (`SkuLink`, rota `/sku-links`, `products:write`). Vínculo "same"
   soma o histórico de vendas/abastecimento ao SKU novo (custo continua pelo código
-  original de cada venda); "different" silencia a sugestão. Nada é vinculado sozinho.
+  original de cada venda); "different" silencia a sugestão. Nada é vinculado sozinho; "Decisões já tomadas" no card permite desfazer.
 - **Distribuição por loja**: a coluna "Por loja" de cada produto abre o detalhe (lojas
   que venderam, mês anterior, e lojas sem venda no mês). "Sem venda" não prova que a
   loja não tem o produto no mix. O texto diz o que se distribui ("70% do aumento de
@@ -505,9 +505,16 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
 - Drill-down: links "Ver … →" levam às telas especializadas sem período
   (`/supply` e `/commercial-intelligence` guardam período/aba em estado local;
   só `/finance/pnl` lê `?period=`).
-- Verificado no browser contra um gateway **mock sintético** (nunca banco real);
-  falta a conferência número a número contra o stack real depois do rebuild das
-  imagens `admin` (nova dependência) e `accounting` (migration).
+- **Competência**: só meses com DRE da rede `closed` **e** ≤ `lastCompleteMonth()` (o
+  mês em curso já apareceu como "closed" com receita zero). Se o mês anterior ainda
+  está `open` no DRE, a tela avisa que a comparação é provisória.
+- **Receita por loja ≠ receita da rede**: o DRE da rede inclui receita lançada só na
+  rede (coffee break, mensalidade…). Em set/2026 as 20 lojas somam 74,6% da receita
+  da rede e caíram 12,5% (nenhuma cresceu) enquanto a rede caiu 2,8%; o insight
+  `stores-vs-network` e o card da rede mostram isso em vez de esconder.
+- Conferido contra o stack real (leitura direta dos serviços, set/2026): DRE, caixa,
+  perdas (R$ 4.145; 20/20 lojas com reconciliação incompleta — aviso na tela),
+  abastecido e a receber batem com as fontes. O motor roda sobre esses dados reais sem erro.
 
 ## `/commercial-intelligence` — Inteligência Comercial
 

@@ -11,7 +11,7 @@ import { useGetNetworkSalesByStoreMonthQuery } from "@/lib/api/sales";
 import { useGetNetworkSupplyByStoreMonthQuery } from "@/lib/api/supply";
 import { useGetStoresQuery } from "@/lib/api/stores";
 import { useGetTreasuryMonthsQuery } from "@/lib/api/treasury";
-import { addMonths, monthsInRange } from "@/lib/period-range";
+import { addMonths, lastCompleteMonth, monthsInRange } from "@/lib/period-range";
 import { capexMonth, cashMonth, financeMonth, investorMonth, pnlMonth, storePnl, treasuryMonth } from "./assemble";
 import { buildOverview } from "./build";
 import type { Overview, OverviewInput } from "./types";
@@ -21,10 +21,11 @@ const EMPTY: never[] = [];
 /** Competências disponíveis = meses com DRE da rede FECHADO (accounting). */
 export function useClosedPeriods() {
   const { data, isLoading, isError } = useGetPnlSeriesQuery({});
-  const periods = useMemo(
-    () => (data ?? EMPTY).filter((s) => s.store_id === null && s.status === "closed").map((s) => s.period).sort().reverse(),
-    [data],
-  );
+  // O mês em curso nunca é uma competência: pode estar "closed" com receita zero (fechado por engano, ainda sem dado).
+  const periods = useMemo(() => {
+    const latest = lastCompleteMonth();
+    return (data ?? EMPTY).filter((s) => s.store_id === null && s.status === "closed" && s.period <= latest).map((s) => s.period).sort().reverse();
+  }, [data]);
   return { periods, isLoading, isError };
 }
 
@@ -117,10 +118,11 @@ export function useMonthlyOverview(period: string | null) {
             openCents: aging.data.open_amount_cents,
           }
         : null,
+      previousClosed: pnlSeries.data.some((s) => s.period === previous && s.store_id === null && s.status === "closed"),
       closed: pnlSeries.data.some((s) => s.period === period && s.store_id === null && s.status === "closed"),
     };
     return buildOverview(input);
-  }, [period, periods, pnlSeries.data, stores.data, treasury.data, finance.data, items.data, contributions.data, byStoreNow.data, byStorePrev.data, sales.data, cells, salesRange, costs.data, products.data, aging.data, skuLinks.data, supply.data]);
+  }, [period, periods, pnlSeries.data, stores.data, treasury.data, finance.data, items.data, contributions.data, byStoreNow.data, byStorePrev.data, sales.data, cells, salesRange, costs.data, products.data, aging.data, skuLinks.data, supply.data, previous]);
 
   const unavailable: SectionState = {
     pnl: pnlSeries.isError,

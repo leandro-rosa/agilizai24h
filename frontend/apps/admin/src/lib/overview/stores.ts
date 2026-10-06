@@ -10,6 +10,7 @@ export function buildStoreSummary(
   previous: StoreMonthPnl[] | null,
   activeCount: number | null,
   networkRevenuePreviousCents: number | null,
+  networkRevenueCurrentCents: number | null = null,
 ): StoreSummary | null {
   if (!current || !previous) return null;
   const prevById = new Map(previous.map((s) => [s.storeId, s]));
@@ -46,13 +47,18 @@ export function buildStoreSummary(
     if (reasons.length) attention.push({ storeId: s.storeId, name: s.name, reasons, deltaCents: d.abs, deltaPct: d.pct });
   }
 
+  const storesRevenue = current.reduce((acc, x) => acc + x.netRevenueCents, 0);
   return {
     activeCount,
+    storesRevenueCents: storesRevenue,
+    storesRevenuePreviousCents: previous.reduce((acc, x) => acc + x.netRevenueCents, 0),
+    revenueCoverage: networkRevenueCurrentCents && networkRevenueCurrentCents > 0 ? storesRevenue / networkRevenueCurrentCents : null,
     compared: up + down + stable,
     up,
     down,
     stable,
     topGrowth: contributions.filter((c) => c.deltaCents > 0).sort((a, b) => b.deltaCents - a.deltaCents).slice(0, 3),
+    topDecline: contributions.filter((c) => c.deltaCents < 0).sort((a, b) => a.deltaCents - b.deltaCents).slice(0, 3),
     attention: attention.sort((a, b) => b.reasons.length - a.reasons.length || (a.deltaCents ?? 0) - (b.deltaCents ?? 0)).slice(0, 5),
   };
 }
