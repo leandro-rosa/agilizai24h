@@ -1,7 +1,8 @@
 import type { Parameters } from '../parameters/parameters.types'
 import type { CompareTo, Figure, Insight, Movement, ProductLine, StoreRow, Variation } from './analysis.types'
 
-const REFERENCE_TEXT: Record<CompareTo, string> = { prev_month: 'o mês anterior', avg_3m: 'a média dos 3 meses anteriores' }
+/** Each already carries its preposition ("ao", "à"), so a sentence reads "em relação ${ref}". */
+const REFERENCE_TEXT: Record<CompareTo, string> = { prev_month: 'ao mês anterior', avg_3m: 'à média dos 3 meses anteriores' }
 
 const value = (f: Figure): number | null => (f.available ? f.value : null)
 const pct = (share: number): string => `${Math.round(Math.abs(share) * 100)}%`
@@ -16,10 +17,14 @@ export interface SupplierInsightInput {
   movement: Movement
   comparison: Record<keyof Movement, Variation>
   products: ProductLine[]
+  /** Products whose margin is below the attention threshold. */
+  lowMargin?: ProductLine[]
   /** Lost ÷ restocked over the whole network that month, or null when unknown. */
   networkLossShare: number | null
   storesRestocked: number
   compareTo: CompareTo
+  /** How the comparison period is named in a sentence; defaults from `compareTo`. A multi-month range names its own. */
+  referenceText?: string
   p: Parameters['analysis']
 }
 
@@ -29,7 +34,7 @@ export interface SupplierInsightInput {
  */
 export function supplierInsights(i: SupplierInsightInput): Insight[] {
   const out: Insight[] = []
-  const ref = REFERENCE_TEXT[i.compareTo]
+  const ref = i.referenceText ?? REFERENCE_TEXT[i.compareTo]
   const bought = value(i.movement.purchasedUnits)
   const restocked = value(i.movement.restocked)
   const sold = value(i.movement.sold)
@@ -43,7 +48,7 @@ export function supplierInsights(i: SupplierInsightInput): Insight[] {
       kind: 'purchases_outpace_sales',
       label: 'MÉTRICA DERIVADA',
       tone: 'attention',
-      text: `As compras ${boughtChange > 0 ? 'aumentaram' : 'caíram'} ${pct(boughtChange)}, mas as vendas ${soldChange >= 0 ? 'aumentaram' : 'caíram'} apenas ${pct(soldChange)}, em relação a ${ref}.`,
+      text: `As compras ${boughtChange > 0 ? 'aumentaram' : 'caíram'} ${pct(boughtChange)}, mas as vendas ${soldChange >= 0 ? 'aumentaram' : 'caíram'} apenas ${pct(soldChange)}, em relação ${ref}.`,
       evidence: { figures: { purchasedChange: boughtChange, soldChange }, formula: '(atual − referência) ÷ referência, para compras e vendas em unidades', reference: ref },
     })
   } else if (boughtChange !== null && direction(boughtChange, i.p.stableVariationShare) !== 'stable') {
@@ -51,7 +56,7 @@ export function supplierInsights(i: SupplierInsightInput): Insight[] {
       kind: 'purchases_change',
       label: 'MÉTRICA DERIVADA',
       tone: 'info',
-      text: `Compras deste fornecedor ${boughtChange > 0 ? 'aumentaram' : 'caíram'} ${pct(boughtChange)} em relação a ${ref}.`,
+      text: `Compras deste fornecedor ${boughtChange > 0 ? 'aumentaram' : 'caíram'} ${pct(boughtChange)} em relação ${ref}.`,
       evidence: { figures: { purchasedChange: boughtChange }, formula: '(atual − referência) ÷ referência', reference: ref },
     })
   }
@@ -72,7 +77,7 @@ export function supplierInsights(i: SupplierInsightInput): Insight[] {
       kind: 'sales_change',
       label: 'FATO',
       tone: soldChange > 0 ? 'positive' : 'attention',
-      text: `As vendas dos produtos deste fornecedor ${soldChange > 0 ? 'cresceram' : 'caíram'} ${pct(soldChange)} em relação a ${ref}.`,
+      text: `As vendas dos produtos deste fornecedor ${soldChange > 0 ? 'cresceram' : 'caíram'} ${pct(soldChange)} em relação ${ref}.`,
       evidence: { figures: { sold, soldChange }, formula: '(vendido atual − referência) ÷ referência', reference: ref },
     })
   }
@@ -82,7 +87,7 @@ export function supplierInsights(i: SupplierInsightInput): Insight[] {
       kind: 'loss_up',
       label: 'FATO',
       tone: 'critical',
-      text: `A perda aumentou ${pct(lostChange)} em relação a ${ref}: ${units(lost)}`,
+      text: `A perda aumentou ${pct(lostChange)} em relação ${ref}: ${units(lost)}`,
       evidence: { figures: { lost, lostChange }, formula: '(perdido atual − referência) ÷ referência', reference: ref },
     })
   }
@@ -109,6 +114,23 @@ export function supplierInsights(i: SupplierInsightInput): Insight[] {
         },
       })
     }
+  }
+
+  const low = i.lowMargin ?? []
+  if (low.length > 0) {
+    const share = (line: ProductLine) => (line.movement.marginShare.available ? line.movement.marginShare.value : 0)
+    const worst = [...low].sort((a, b) => share(a) - share(b)).slice(0, 3)
+    out.push({
+      kind: 'low_margin_products',
+      label: 'MÉTRICA DERIVADA',
+      tone: 'attention',
+      text: `${low.length} ${low.length === 1 ? 'produto tem' : 'produtos têm'} margem bruta abaixo de ${pct(i.p.attentionMargin)}: ${worst.map(l => `${l.name} (${pct(share(l))})`).join(', ')}${low.length > 3 ? '…' : ''}.`,
+      evidence: {
+        figures: { products: low.length, threshold: i.p.attentionMargin, ...Object.fromEntries(worst.map(l => [l.name, share(l)])) },
+        formula: '(receita − custo do vendido) ÷ receita do produto, abaixo do corte de atenção',
+        reference: 'só produtos com custo cadastrado',
+      },
+    })
   }
 
   const totalRevenue = i.products.reduce((s, l) => s + (value(l.movement.revenueCents) ?? 0), 0)
@@ -144,6 +166,7 @@ export interface ProductInsightInput {
   comparison: Record<keyof Movement, Variation>
   stores: StoreRow[]
   compareTo: CompareTo
+  referenceText?: string
   p: Parameters['analysis']
   networkLossShare: number | null
 }

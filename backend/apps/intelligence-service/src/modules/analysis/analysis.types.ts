@@ -29,6 +29,14 @@ export interface Movement {
   marginShare: Figure
   /** Average unit cost of the SKUs, weighted by units sold. */
   avgCostCents: Figure
+  /** Revenue ÷ units sold. */
+  avgPriceCents: Figure
+  /** Revenue minus cost of what was sold, over the SKUs that have a cost. */
+  grossProfitCents: Figure
+  /** Price ÷ cost of what was sold (2.23 = sells at 2.23 times the cost). */
+  markup: Figure
+  /** Share of the revenue whose SKUs have a resolved cost. Below 100% the margin figures are partial. */
+  costCoverage: Figure
 }
 
 export interface Variation {
@@ -88,7 +96,14 @@ export interface ProductLine {
 }
 
 export interface AnalysisMeta {
+  /** Last month of the range (`to`). */
   period: string
+  /** First month of the range; equals `period` for a single month. */
+  from: string
+  /** Number of months in the range. */
+  months: number
+  /** The period the comparison is made against when the range spans several months (the one right before, same length). */
+  previous: { from: string; to: string } | null
   compareTo: CompareTo
   parameterVersion: number
   dataQuality: DataQuality
@@ -98,6 +113,8 @@ export interface SupplierAnalysis {
   meta: AnalysisMeta
   supplierId: number
   totals: MovementWithComparison
+  /** Products whose gross margin is below the threshold, out of those with a margin to judge. */
+  attention: { threshold: number; count: number; rated: number; skus: string[] }
   products: ProductLine[]
   /** Share of the supplier's revenue by SKU, largest first. */
   evolution: MonthlyPoint[]

@@ -58,6 +58,19 @@ describe('AnalysisService', () => {
     expect(result.totals.current.lost).toEqual({ available: true, value: 2 })
   })
 
+  it('flags products below the attention margin and gives the profit, price, markup and cost coverage', async () => {
+    const { service } = build()
+    const result = await service.supplier(5, '2026-10', 'prev_month')
+    const a = result.products.find(p => p.sku === 'A')!.movement
+
+    // A: 24 sold for 24000 cents at a unit cost of 600 → price 1000, profit 24000 − 14400, markup 1000/600.
+    expect(a.avgPriceCents).toEqual({ available: true, value: 1000 })
+    expect(a.grossProfitCents).toEqual({ available: true, value: 9600 })
+    expect(a.markup.available && a.markup.value).toBeCloseTo(24000 / 14400)
+    expect(a.costCoverage).toEqual({ available: true, value: 1 })
+    expect(result.attention).toMatchObject({ threshold: 0.2, count: 0, rated: 1 })
+  })
+
   it('never reads synthetic stores', async () => {
     const { service, supply } = build()
     await service.supplier(5, '2026-10', 'prev_month')
@@ -118,6 +131,42 @@ describe('AnalysisService', () => {
     expect(none.linked).toBe(false)
     expect(none.product.declaredSupplierId).toBeNull()
     expect(linked.suppliersUnavailableReason).toBe('no_purchase_history')
+  })
+
+  describe('a range of months', () => {
+    it('sums the range, names the period it is compared with, and reads the period before it', async () => {
+      const { service } = build()
+      const result = await service.supplier(5, '2026-10', 'prev_month', undefined, undefined, '2026-09')
+
+      expect(result.meta).toMatchObject({ from: '2026-09', period: '2026-10', months: 2, previous: { from: '2026-07', to: '2026-08' } })
+      // Only October has data in the fixture: September counts as missing, so the total is partial, not zero.
+      expect(result.totals.current.restocked).toEqual({ available: true, value: 40, partial: true })
+      expect(result.totals.comparison.restocked.change).toEqual({ available: false, reason: 'never_ingested' })
+      expect(result.evolution.map(p => p.month)).toEqual(['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'])
+    })
+
+    it('shows every month of a long range in the evolution', async () => {
+      const { service } = build()
+      const result = await service.supplier(5, '2026-10', 'prev_month', undefined, undefined, '2026-01')
+
+      expect(result.meta.months).toBe(10)
+      expect(result.evolution).toHaveLength(10)
+    })
+
+    it('refuses a reversed range, one over a year, and a 3-month average over a range', async () => {
+      const { service } = build()
+
+      await expect(service.supplier(5, '2026-05', 'prev_month', undefined, undefined, '2026-08')).rejects.toBeInstanceOf(BadRequestException)
+      await expect(service.supplier(5, '2026-10', 'prev_month', undefined, undefined, '2025-09')).rejects.toBeInstanceOf(BadRequestException)
+      await expect(service.supplier(5, '2026-10', 'avg_3m', undefined, undefined, '2026-09')).rejects.toBeInstanceOf(BadRequestException)
+    })
+
+    it('a single month behaves as before', async () => {
+      const { service } = build()
+      const result = await service.supplier(5, '2026-10', 'prev_month')
+
+      expect(result.meta).toMatchObject({ from: '2026-10', months: 1, previous: null })
+    })
   })
 
   it('rejects a bad period or comparison and an unknown product', async () => {

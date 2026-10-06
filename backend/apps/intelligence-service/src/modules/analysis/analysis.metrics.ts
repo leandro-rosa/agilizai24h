@@ -32,6 +32,10 @@ export const MOVEMENT_KEYS: (keyof Movement)[] = [
   'lossCents',
   'marginShare',
   'avgCostCents',
+  'avgPriceCents',
+  'grossProfitCents',
+  'markup',
+  'costCoverage',
 ]
 
 const ok = (value: number, partial = false): Figure => (partial ? { available: true, value, partial: true } : { available: true, value })
@@ -56,6 +60,14 @@ function sumCells(facts: MonthFacts, skus: Set<string>, storeId?: number) {
   return bySku
 }
 
+/** One month's worth of inputs to a movement; a range is several of these summed. */
+export interface MovementPart {
+  facts: MonthFacts
+  /** Unit cost as of that month, or null when none was resolved. */
+  cost: (sku: string) => number | null
+  purchases: Map<string, PurchaseMonth> | null
+}
+
 /** `cost(sku)` is the unit cost as of the month, or null when none was resolved. */
 export function movementOf(
   facts: MonthFacts,
@@ -64,69 +76,149 @@ export function movementOf(
   purchases: Map<string, PurchaseMonth> | null,
   storeId?: number,
 ): Movement {
-  const bySku = sumCells(facts, skus, storeId)
-  const supplyGap = facts.storesMissingSupply.length > 0 && (storeId === undefined || facts.storesMissingSupply.includes(storeId))
-  const salesGap = facts.storesMissingSales.length > 0 && (storeId === undefined || facts.storesMissingSales.includes(storeId))
-  const everySupplyMissing = storeId !== undefined ? facts.storesMissingSupply.includes(storeId) : facts.storesMissingSupply.length >= facts.storeCount
-  const everySalesMissing = storeId !== undefined ? facts.storesMissingSales.includes(storeId) : facts.storesMissingSales.length >= facts.storeCount
+  return movementOfParts([{ facts, cost, purchases }], skus, storeId)
+}
 
-  const fromSupply = (pick: (cell: Cell) => number): Figure =>
-    everySupplyMissing ? { available: false, reason: 'never_ingested' } : ok([...bySku.values()].reduce((s, c) => s + pick(c), 0), supplyGap)
-  const fromSales = (pick: (cell: Cell) => number): Figure =>
-    everySalesMissing ? { available: false, reason: 'never_ingested' } : ok([...bySku.values()].reduce((s, c) => s + pick(c), 0), salesGap)
+/**
+ * The movement over one or more months. Quantities and money add up month by
+ * month, each month valued at its own cost; a month whose supply (or sales) was
+ * never ingested for every store contributes nothing and makes the total partial,
+ * and only when no month has data is the figure unavailable.
+ */
+export function movementOfParts(parts: MovementPart[], skus: Set<string>, storeId?: number): Movement {
+  let restocked = 0
+  let lost = 0
+  let sold = 0
+  let revenue = 0
+  let supplyUsed = 0
+  let salesUsed = 0
+  let supplyPartial = false
+  let salesPartial = false
 
   let lossCents = 0
   let lossMissingCost = false
+  let anyLoss = false
   let costOfSold = 0
   let soldWithCost = 0
   let revenueWithCost = 0
   let soldWithoutCost = false
 
-  for (const [sku, cell] of bySku) {
-    const unit = cost(sku)
-    if (cell.lost > 0) {
-      if (unit === null) lossMissingCost = true
-      else lossCents += cell.lost * unit
+  for (const { facts, cost } of parts) {
+    const bySku = sumCells(facts, skus, storeId)
+    const supplyGap = facts.storesMissingSupply.length > 0 && (storeId === undefined || facts.storesMissingSupply.includes(storeId))
+    const salesGap = facts.storesMissingSales.length > 0 && (storeId === undefined || facts.storesMissingSales.includes(storeId))
+    const everySupplyMissing = storeId !== undefined ? facts.storesMissingSupply.includes(storeId) : facts.storesMissingSupply.length >= facts.storeCount
+    const everySalesMissing = storeId !== undefined ? facts.storesMissingSales.includes(storeId) : facts.storesMissingSales.length >= facts.storeCount
+
+    if (everySupplyMissing) supplyPartial = true
+    else {
+      supplyUsed++
+      if (supplyGap) supplyPartial = true
+      for (const [sku, cell] of bySku) {
+        restocked += cell.restocked
+        lost += cell.lost
+        if (cell.lost > 0) {
+          anyLoss = true
+          const unit = cost(sku)
+          if (unit === null) lossMissingCost = true
+          else lossCents += cell.lost * unit
+        }
+      }
     }
-    if (cell.sold > 0) {
-      if (unit === null) soldWithoutCost = true
-      else {
-        costOfSold += cell.sold * unit
-        soldWithCost += cell.sold
-        revenueWithCost += cell.revenueCents
+
+    if (everySalesMissing) salesPartial = true
+    else {
+      salesUsed++
+      if (salesGap) salesPartial = true
+      for (const [sku, cell] of bySku) {
+        sold += cell.sold
+        revenue += cell.revenueCents
+        if (cell.sold > 0) {
+          const unit = cost(sku)
+          if (unit === null) soldWithoutCost = true
+          else {
+            costOfSold += cell.sold * unit
+            soldWithCost += cell.sold
+            revenueWithCost += cell.revenueCents
+          }
+        }
       }
     }
   }
 
-  const anyLoss = [...bySku.values()].some(c => c.lost > 0)
-  const lossValue: Figure = everySupplyMissing
-    ? { available: false, reason: 'never_ingested' }
-    : anyLoss && lossMissingCost && lossCents === 0
-      ? { available: false, reason: 'no_cost' }
-      : ok(lossCents, supplyGap || lossMissingCost)
+  const neverSupply: Figure = { available: false, reason: 'never_ingested' }
+  const lossValue: Figure =
+    supplyUsed === 0 ? neverSupply : anyLoss && lossMissingCost && lossCents === 0 ? { available: false, reason: 'no_cost' } : ok(lossCents, supplyPartial || lossMissingCost)
 
-  const marginShare: Figure = everySalesMissing
-    ? { available: false, reason: 'never_ingested' }
-    : revenueWithCost <= 0
-      ? { available: false, reason: soldWithoutCost ? 'no_cost' : 'no_base' }
-      : ok((revenueWithCost - costOfSold) / revenueWithCost, salesGap || soldWithoutCost)
+  const marginShare: Figure =
+    salesUsed === 0
+      ? { available: false, reason: 'never_ingested' }
+      : revenueWithCost <= 0
+        ? { available: false, reason: soldWithoutCost ? 'no_cost' : 'no_base' }
+        : ok((revenueWithCost - costOfSold) / revenueWithCost, salesPartial || soldWithoutCost)
+
+  const profitPartial = salesPartial || soldWithoutCost
+  const noCostReason = soldWithoutCost ? 'no_cost' : 'no_base'
+  const grossProfit: Figure = salesUsed === 0 ? { available: false, reason: 'never_ingested' } : revenueWithCost <= 0 ? { available: false, reason: noCostReason } : ok(revenueWithCost - costOfSold, profitPartial)
+  const markup: Figure = salesUsed === 0 ? { available: false, reason: 'never_ingested' } : costOfSold <= 0 ? { available: false, reason: noCostReason } : ok(revenueWithCost / costOfSold, profitPartial)
+  const costCoverage: Figure = salesUsed === 0 ? { available: false, reason: 'never_ingested' } : revenue <= 0 ? { available: false, reason: 'no_base' } : ok(revenueWithCost / revenue, salesPartial)
+  const avgPrice: Figure = salesUsed === 0 ? { available: false, reason: 'never_ingested' } : sold <= 0 ? { available: false, reason: 'no_base' } : ok(revenue / sold, salesPartial)
 
   const avgCost: Figure = soldWithCost > 0 ? ok(costOfSold / soldWithCost, soldWithoutCost) : { available: false, reason: soldWithoutCost ? 'no_cost' : 'no_base' }
 
   // Purchases are bought for the network, not per store: under a store filter they cannot be attributed.
-  const purchasedUnits: Figure = storeId !== undefined ? { available: false, reason: 'no_base' } : purchases ? ok([...purchases].filter(([sku]) => skus.has(sku)).reduce((s, [, p]) => s + p.units, 0)) : NO_PURCHASE_HISTORY
-  const purchasedCents: Figure = storeId !== undefined ? { available: false, reason: 'no_base' } : purchases ? ok([...purchases].filter(([sku]) => skus.has(sku)).reduce((s, [, p]) => s + p.cents, 0)) : NO_PURCHASE_HISTORY
+  const withPurchases = parts.filter(part => part.purchases !== null)
+  const sumPurchases = (pick: (p: PurchaseMonth) => number): Figure => {
+    if (storeId !== undefined) return { available: false, reason: 'no_base' }
+    if (withPurchases.length === 0) return NO_PURCHASE_HISTORY
+
+    const total = withPurchases.reduce((sum, part) => sum + [...part.purchases!].filter(([sku]) => skus.has(sku)).reduce((s, [, p]) => s + pick(p), 0), 0)
+
+    return ok(total, withPurchases.length < parts.length)
+  }
 
   return {
-    purchasedUnits,
-    purchasedCents,
-    restocked: fromSupply(c => c.restocked),
-    sold: fromSales(c => c.sold),
-    lost: fromSupply(c => c.lost),
-    revenueCents: fromSales(c => c.revenueCents),
+    purchasedUnits: sumPurchases(p => p.units),
+    purchasedCents: sumPurchases(p => p.cents),
+    restocked: supplyUsed === 0 ? neverSupply : ok(restocked, supplyPartial),
+    sold: salesUsed === 0 ? { available: false, reason: 'never_ingested' } : ok(sold, salesPartial),
+    lost: supplyUsed === 0 ? neverSupply : ok(lost, supplyPartial),
+    revenueCents: salesUsed === 0 ? { available: false, reason: 'never_ingested' } : ok(revenue, salesPartial),
     lossCents: lossValue,
     marginShare,
     avgCostCents: avgCost,
+    avgPriceCents: avgPrice,
+    grossProfitCents: grossProfit,
+    markup,
+    costCoverage,
+  }
+}
+
+/** Sums the cells of several months into one, for per-store and network ratios over a range. Missing lists are the stores missing in every month. */
+export function mergeFacts(all: MonthFacts[]): MonthFacts {
+  const cells = new Map<number, Map<string, Cell>>()
+  for (const facts of all)
+    for (const [store, bySku] of facts.cells) {
+      const target = cells.get(store) ?? new Map<string, Cell>()
+      for (const [sku, cell] of bySku) {
+        const acc = target.get(sku) ?? { restocked: 0, sold: 0, lost: 0, revenueCents: 0 }
+        acc.restocked += cell.restocked
+        acc.sold += cell.sold
+        acc.lost += cell.lost
+        acc.revenueCents += cell.revenueCents
+        target.set(sku, acc)
+      }
+      cells.set(store, target)
+    }
+
+  const missingInAll = (pick: (f: MonthFacts) => number[]): number[] => (all.length === 0 ? [] : pick(all[0]).filter(id => all.every(f => pick(f).includes(id))))
+
+  return {
+    month: all.length > 0 ? `${all[0].month}..${all[all.length - 1].month}` : '',
+    cells,
+    storesMissingSupply: missingInAll(f => f.storesMissingSupply),
+    storesMissingSales: missingInAll(f => f.storesMissingSales),
+    storeCount: all[0]?.storeCount ?? 0,
   }
 }
 

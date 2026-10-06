@@ -8,6 +8,7 @@ import { InsightList } from "./insight-list";
 import { KpiStrip, type Kpi } from "./kpi-strip";
 import { LinkSupplierToProduct } from "./link-supplier";
 import { MovementBars } from "./movement-bars";
+import { ProfitabilityStrip } from "./profitability-strip";
 import { StorePerformanceTable } from "./store-performance-table";
 
 function productKpis(analysis: ProductAnalysis): Kpi[] {
@@ -52,7 +53,8 @@ export function ProductView({
           <DataQualityNote meta={analysis.meta} />
         </CardContent>
       </Card>
-      <KpiStrip items={productKpis(analysis)} compareTo={compareTo} columns={4} />
+      <KpiStrip items={productKpis(analysis)} compareTo={compareTo} columns={4} rangeMonths={analysis.meta.months} />
+      <ProfitabilityStrip totals={analysis.totals} compareTo={compareTo} rangeMonths={analysis.meta.months} />
       <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
         <InsightList title="Principais insights deste produto" insights={analysis.insights} />
         <MovementBars movement={analysis.totals.current} />

@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 
+import { MonthRangePicker } from "@/components/month-range-picker";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { ProductView } from "@/components/supplier-analysis/product-view";
@@ -20,22 +22,27 @@ import {
   useGetSupplierAnalysisQuery,
   type CompareTo,
 } from "@/lib/api/supplier-analysis";
-import { SUPPLIER_CATEGORIES, SUPPLIER_CATEGORY_LABELS, useGetSuppliersQuery } from "@/lib/api/suppliers";
-import { addMonths, lastCompleteMonth } from "@/lib/period-range";
-import { formatMonth } from "@/lib/supplier-analysis/format";
+import { SUPPLIER_CATEGORIES, SUPPLIER_CATEGORY_LABELS, suppliersApi, useGetSuppliersQuery } from "@/lib/api/suppliers";
+import { useAppDispatch } from "@/lib/hooks";
+import { addMonths, lastCompleteMonth, monthsInRange, type PeriodRange } from "@/lib/period-range";
+import { supplierLabel } from "@/lib/supplier-analysis/supplier-label";
 
 type Mode = "supplier" | "product";
 const ALL = "all";
 
-function periodOptions(current: string): string[] {
-  return Array.from({ length: 18 }, (_, i) => addMonths(current, -i));
-}
+/** O mais longo que a análise lê de uma vez: um ano (e o ano anterior, para comparar). */
+const MAX_RANGE_MONTHS = 12;
 
 export default function PurchasesPage() {
   const latest = useMemo(() => lastCompleteMonth(), []);
   const [mode, setMode] = useState<Mode>("supplier");
-  const [period, setPeriod] = useState(latest);
-  const [compareTo, setCompareTo] = useState<CompareTo>("prev_month");
+  const [range, setRange] = useState<PeriodRange>({ start: latest, end: latest });
+  const rangeLength = monthsInRange(range).length;
+  const period = range.end;
+  const from = rangeLength > 1 ? range.start : undefined;
+  const [compareChoice, setCompareChoice] = useState<CompareTo>("prev_month");
+  // Um intervalo de vários meses se compara com o período imediatamente anterior; a média de 3 meses é de um mês só.
+  const compareTo: CompareTo = rangeLength > 1 ? "prev_month" : compareChoice;
   const [category, setCategory] = useState(ALL);
   const [supplierId, setSupplierId] = useState<number | null>(null);
   const [productLabel, setProductLabel] = useState("");
@@ -46,7 +53,7 @@ export default function PurchasesPage() {
   const storesQuery = useGetStoresQuery();
 
   const suppliers = suppliersQuery.data ?? [];
-  const products = productsQuery.data ?? [];
+  const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data]);
   const labelOf = (product: { name: string; sku: string }) => `${product.name} (${product.sku})`;
   const product = products.find((p) => labelOf(p) === productLabel);
   const supplier = suppliers.find((s) => s.id === supplierId);
@@ -54,13 +61,29 @@ export default function PurchasesPage() {
   // o cadastro tem banco, software e outros que nunca aparecem em compra de mercadoria.
   const linkedSupplierIds = useMemo(() => new Set(products.flatMap((p) => (p.supplier_id == null ? [] : [p.supplier_id]))), [products]);
   const analysedSuppliers = suppliers.filter((s) => linkedSupplierIds.has(s.id));
+
+  // O seletor mostra a grafia da planilha, que está nos aliases do fornecedor.
+  const dispatch = useAppDispatch();
+  const [aliases, setAliases] = useState<Map<number, string[]>>(new Map());
+  const analysedKey = analysedSuppliers.map((s) => s.id).join(",");
+  useEffect(() => {
+    const ids = analysedKey ? analysedKey.split(",").map(Number) : [];
+    let cancelled = false;
+    Promise.all(ids.map((id) => dispatch(suppliersApi.endpoints.getSupplier.initiate(id)).unwrap().catch(() => null))).then((details) => {
+      if (!cancelled) setAliases(new Map(details.flatMap((d) => (d ? [[d.id, d.aliases.map((a) => a.alias)] as [number, string[]]] : []))));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [analysedKey, dispatch]);
+  const labelOfSupplier = (s: { id: number; name: string }) => supplierLabel(s.name, aliases.get(s.id) ?? []);
   const visibleSuppliers = category === ALL ? analysedSuppliers : analysedSuppliers.filter((s) => s.category === category);
   const store = storeId === ALL ? undefined : Number(storeId);
 
-  const base = { period, compareTo, storeId: store };
+  const base = { period, from, compareTo, storeId: store };
   const supplierQuery = useGetSupplierAnalysisQuery({ ...base, supplierId: supplierId ?? 0 }, { skip: mode !== "supplier" || supplierId === null });
   const crossQuery = useGetCrossAnalysisQuery(
-    { period, compareTo, supplierId: supplierId ?? 0, sku: product?.sku ?? "" },
+    { period, from, compareTo, supplierId: supplierId ?? 0, sku: product?.sku ?? "" },
     { skip: mode !== "supplier" || supplierId === null || !product },
   );
   const productQuery = useGetProductAnalysisQuery({ ...base, sku: product?.sku ?? "" }, { skip: mode !== "product" || !product });
@@ -69,34 +92,39 @@ export default function PurchasesPage() {
   const supplierProductLabels = products.filter((p) => p.supplier_id === supplierId).map(labelOf);
   const productOptions = mode === "supplier" ? supplierProductLabels : products.map(labelOf);
 
+  function changeRange(next: PeriodRange) {
+    if (monthsInRange(next).length > MAX_RANGE_MONTHS) {
+      toast.info(`O período vai até ${MAX_RANGE_MONTHS} meses; mostrando os últimos ${MAX_RANGE_MONTHS} até ${next.end}.`);
+      setRange({ start: addMonths(next.end, -(MAX_RANGE_MONTHS - 1)), end: next.end });
+      return;
+    }
+    setRange(next);
+  }
+
+  /** Desloca o intervalo inteiro pelo seu próprio tamanho, sem passar do último mês fechado. */
+  function shiftRange(direction: -1 | 1) {
+    const end = addMonths(range.end, direction * rangeLength);
+    if (end > latest) return;
+    setRange({ start: addMonths(range.start, direction * rangeLength), end });
+  }
+
   function selectProductFromSupplier(sku: string) {
     const found = products.find((p) => p.sku === sku);
     if (found) setProductLabel(labelOf(found));
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4">
       <PageHeader
         title="Compras e Fornecedores"
         description="Acompanhe o que foi comprado, abastecido, vendido e perdido."
         actions={
           <div className="flex items-center gap-1">
-            <Select value={period} onValueChange={setPeriod}>
-              <SelectTrigger className="w-36" aria-label="Período">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {periodOptions(latest).map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {formatMonth(p)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="icon" aria-label="Mês anterior" onClick={() => setPeriod(addMonths(period, -1))}>
+            <MonthRangePicker value={range} onChange={changeRange} />
+            <Button variant="outline" size="icon" aria-label="Período anterior" onClick={() => shiftRange(-1)}>
               <ChevronLeft className="size-4" />
             </Button>
-            <Button variant="outline" size="icon" aria-label="Próximo mês" disabled={period >= latest} onClick={() => setPeriod(addMonths(period, 1))}>
+            <Button variant="outline" size="icon" aria-label="Próximo período" disabled={range.end >= latest} onClick={() => shiftRange(1)}>
               <ChevronRight className="size-4" />
             </Button>
           </div>
@@ -143,9 +171,9 @@ export default function PurchasesPage() {
                     <SelectValue placeholder="Escolha o fornecedor" />
                   </SelectTrigger>
                   <SelectContent>
-                    {visibleSuppliers.map((s) => (
+                    {[...visibleSuppliers].sort((a, b) => labelOfSupplier(a).localeCompare(labelOfSupplier(b), "pt-BR")).map((s) => (
                       <SelectItem key={s.id} value={String(s.id)}>
-                        {s.name}
+                        {labelOfSupplier(s)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -184,8 +212,14 @@ export default function PurchasesPage() {
             <div className="flex gap-3 text-sm text-foreground">
               {(["prev_month", "avg_3m"] as const).map((option) => (
                 <label key={option} className="flex items-center gap-1.5">
-                  <input type="radio" name="compare" checked={compareTo === option} onChange={() => setCompareTo(option)} />
-                  {option === "prev_month" ? "Mês anterior" : "Média 3 meses"}
+                  <input
+                    type="radio"
+                    name="compare"
+                    checked={compareTo === option}
+                    disabled={option === "avg_3m" && rangeLength > 1}
+                    onChange={() => setCompareChoice(option)}
+                  />
+                  {option === "prev_month" ? (rangeLength > 1 ? "Período anterior" : "Mês anterior") : "Média 3 meses"}
                 </label>
               ))}
             </div>

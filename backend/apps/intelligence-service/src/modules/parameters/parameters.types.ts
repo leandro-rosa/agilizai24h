@@ -83,6 +83,8 @@ export interface Parameters {
     stableVariationShare: number
     /** One product weighing at least this share of a supplier's revenue is called out as concentration. */
     concentrationShare: number
+    /** A product whose gross margin is below this share is flagged "atenção" (0.2 = 20%, as in the PDV's margin report). */
+    attentionMargin: number
   }
   schedule: {
     /** ISO weekdays, 1 = Monday … 7 = Sunday. Default: Monday, Tuesday, Thursday, Friday. */

@@ -79,6 +79,7 @@ export function validateParameters(parameters: Parameters): string[] {
   check(a.lossAboveNetworkFactor >= 1, 'analysis.lossAboveNetworkFactor must be at least 1 (a factor below 1 would flag losses below the network)')
   check(a.stableVariationShare < 1, 'analysis.stableVariationShare is a share below 1')
   check(a.concentrationShare > 0 && a.concentrationShare <= 1, 'analysis.concentrationShare must be in (0, 1]')
+  check(a.attentionMargin >= 0 && a.attentionMargin < 1, 'analysis.attentionMargin is a margin share between 0 and 1')
 
   check(isValidWeekdays(parameters.schedule.visitWeekdays), 'schedule.visitWeekdays must be a non-empty list of distinct ISO weekdays, 1 (Monday) to 7 (Sunday)')
 

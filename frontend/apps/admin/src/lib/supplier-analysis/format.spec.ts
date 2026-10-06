@@ -18,6 +18,7 @@ describe("formatFigure", () => {
     expect(formatFigure(ok(245, true), "units")).toBe("~245 un.");
     expect(formatFigure(ok(842000), "cents")).toMatch(/8\.420,00/);
     expect(formatFigure(ok(0.429), "share")).toBe("42,9%");
+    expect(formatFigure(ok(2.2254), "ratio")).toBe("2,23");
   });
 });
 
