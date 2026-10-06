@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common'
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { PRODUCT_CATEGORY_VALUES, type ProductCategory } from '../constants/product-vocabulary'
 import {
@@ -6,6 +6,7 @@ import {
   BulkPriceDto,
   CreateOverrideDto,
   CreateProductDto,
+  DecideSkuLinkDto,
   RecordCostDto,
   RecordPriceDto,
   ResolveNamesDto,
@@ -15,6 +16,7 @@ import {
 import { CostService } from '../services/cost.service'
 import { PriceService } from '../services/price.service'
 import { ProductsService } from '../services/products.service'
+import { SkuLinkService } from '../services/sku-link.service'
 
 @ApiTags('products')
 @Controller()
@@ -23,7 +25,27 @@ export class ProductsController {
     private readonly products: ProductsService,
     private readonly costs: CostService,
     private readonly prices: PriceService,
+    private readonly skuLinks: SkuLinkService,
   ) {}
+
+  @Get('sku-links')
+  @ApiOperation({ summary: 'Operator decisions on SKU pairs (same product with a changed barcode, or not)' })
+  listSkuLinks() {
+    return this.skuLinks.list()
+  }
+
+  @Put('sku-links')
+  @ApiOperation({ summary: 'Confirm or reject that a new SKU is the same product as an old one' })
+  decideSkuLink(@Body() dto: DecideSkuLinkDto) {
+    return this.skuLinks.decide(dto.old_sku, dto.new_sku, dto.decision)
+  }
+
+  @Delete('sku-links/:id')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Undo a decision' })
+  removeSkuLink(@Param('id', ParseIntPipe) id: number) {
+    return this.skuLinks.remove(id)
+  }
 
   @Get('products')
   @ApiOperation({ summary: 'List catalogue products' })

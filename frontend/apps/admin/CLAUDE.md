@@ -483,8 +483,23 @@ ponto de atenção, e um PDF próprio (A4 paisagem, não é print da tela).
   `t()` troca por equivalentes. Cada exportação chama
   `POST /accounting/monthly-summary/:period` (hash do conteúdo + parâmetros);
   a versão sobe só se a base do DRE ou o conteúdo mudaram.
-- **Lacunas declaradas na própria tela** (`PHASE1_LIMITATIONS`): **Produtos em
-  teste** (não existe flag nem data de lançamento de SKU), investidores só têm
+- **Produtos em teste** (`lib/overview/tests.ts`, `components/overview/tests-card.tsx`):
+  não há cadastro; a lista é DERIVADA do abastecimento (9 meses, fan-out por loja):
+  SKU cujo primeiro abastecimento na rede caiu nos últimos 3 meses, depois do início
+  do histórico importado, em até 9 lojas. Constantes `TESTS` são PREMISSA provisória
+  (validar com a lista real). O supply guarda só o MÊS, não a data da visita. Sinal
+  (positivo/atenção/mais dados) vem com os fatos ao lado, nunca aprovado/reprovado.
+- **Troca de código de barras** (`lib/overview/sku-match.ts`, `sku-links-card.tsx`):
+  SKU "sem histórico" ou em teste é comparado por nome (Jaccard sem pesos/volumes,
+  mín. 50%) com o catálogo; a tela PERGUNTA ("É o mesmo produto"/"Não é") e grava em
+  `products-service` (`SkuLink`, rota `/sku-links`, `products:write`). Vínculo "same"
+  soma o histórico de vendas/abastecimento ao SKU novo (custo continua pelo código
+  original de cada venda); "different" silencia a sugestão. Nada é vinculado sozinho.
+- **Distribuição por loja**: a coluna "Por loja" de cada produto abre o detalhe (lojas
+  que venderam, mês anterior, e lojas sem venda no mês). "Sem venda" não prova que a
+  loja não tem o produto no mix. O texto diz o que se distribui ("70% do aumento de
+  unidades veio de 2 lojas").
+- **Lacunas declaradas na própria tela** (`PHASE1_LIMITATIONS`): investidores só têm
   aporte, notas fiscais a emitir não existem, "a vencer" é o total em aberto
   (sem corte em 30 dias), categorias de despesa são rótulo livre do de-para.
 - Drill-down: links "Ver … →" levam às telas especializadas sem período

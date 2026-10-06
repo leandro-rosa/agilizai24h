@@ -6,8 +6,9 @@ import { useGetPnlByStoreQuery, useGetPnlSeriesQuery } from "@/lib/api/accountin
 import { useGetAgingQuery } from "@/lib/api/billing";
 import { useGetAllContributionsQuery, useGetItemsQuery } from "@/lib/api/capex";
 import { useGetNetworkFinanceSeriesQuery } from "@/lib/api/finance";
-import { useGetCostsAsOfQuery, useGetProductsQuery } from "@/lib/api/products";
+import { useGetCostsAsOfQuery, useGetProductsQuery, useGetSkuLinksQuery } from "@/lib/api/products";
 import { useGetNetworkSalesByStoreMonthQuery } from "@/lib/api/sales";
+import { useGetNetworkSupplyByStoreMonthQuery } from "@/lib/api/supply";
 import { useGetStoresQuery } from "@/lib/api/stores";
 import { useGetTreasuryMonthsQuery } from "@/lib/api/treasury";
 import { addMonths, monthsInRange } from "@/lib/period-range";
@@ -35,6 +36,7 @@ export interface SectionState {
   stores: boolean;
   capex: boolean;
   investors: boolean;
+  supply: boolean;
   aging: boolean;
 }
 
@@ -60,6 +62,10 @@ export function useMonthlyOverview(period: string | null) {
   const contributions = useGetAllContributionsQuery(undefined, { skip });
   const aging = useGetAgingQuery(undefined, { skip });
   const salesRange = useMemo(() => ({ start: addMonths(p, -5), end: p }), [p]);
+  const skuLinks = useGetSkuLinksQuery(undefined, { skip });
+  // 9 meses: 3 de janela de teste + 6 para saber se o SKU já era abastecido antes.
+  const supplyRange = useMemo(() => ({ start: addMonths(p, -8), end: p }), [p]);
+  const supply = useGetNetworkSupplyByStoreMonthQuery({ stores: stores.data ?? EMPTY, range: supplyRange }, { skip: skip || !stores.data });
   const sales = useGetNetworkSalesByStoreMonthQuery({ stores: stores.data ?? EMPTY, range: salesRange }, { skip: skip || !stores.data });
 
   const cells = useMemo(
@@ -94,6 +100,14 @@ export function useMonthlyOverview(period: string | null) {
       sales: sales.data ? { cells, ingestedPeriods: ingested, seriesPeriods: monthsInRange(salesRange) } : null,
       costBySku: costs.data ? Object.fromEntries(costs.data.resolved.map((r) => [r.sku, r.cost_cents])) : null,
       storeList: stores.data ? stores.data.filter((x) => x.status === "active").map((x) => ({ id: x.id, name: x.name })) : null,
+      catalogue: (products.data ?? EMPTY).map((x) => ({ sku: x.sku, name: x.name })),
+      skuLinks: (skuLinks.data ?? EMPTY).map((l) => ({ old_sku: l.old_sku, new_sku: l.new_sku, decision: l.decision })),
+      supply: supply.data
+        ? {
+            cells: supply.data.flatMap((m) => m.restocks.map((r) => ({ storeId: m.storeId, period: m.period, sku: r.sku, quantity: r.quantity_restocked }))),
+            ingestedPeriods: [...new Set(supply.data.map((m) => m.period))],
+          }
+        : null,
       productNames: Object.fromEntries((products.data ?? EMPTY).map((x) => [x.sku, x.name])),
       aging: aging.data
         ? {
@@ -106,7 +120,7 @@ export function useMonthlyOverview(period: string | null) {
       closed: pnlSeries.data.some((s) => s.period === period && s.store_id === null && s.status === "closed"),
     };
     return buildOverview(input);
-  }, [period, periods, pnlSeries.data, stores.data, treasury.data, finance.data, items.data, contributions.data, byStoreNow.data, byStorePrev.data, sales.data, cells, salesRange, costs.data, products.data, aging.data]);
+  }, [period, periods, pnlSeries.data, stores.data, treasury.data, finance.data, items.data, contributions.data, byStoreNow.data, byStorePrev.data, sales.data, cells, salesRange, costs.data, products.data, aging.data, skuLinks.data, supply.data]);
 
   const unavailable: SectionState = {
     pnl: pnlSeries.isError,
@@ -116,6 +130,7 @@ export function useMonthlyOverview(period: string | null) {
     stores: byStoreNow.isError || byStorePrev.isError,
     capex: items.isError,
     investors: contributions.isError,
+    supply: supply.isError,
     aging: aging.isError,
   };
 
@@ -125,6 +140,7 @@ export function useMonthlyOverview(period: string | null) {
     isLoading: !skip && (pnlSeries.isLoading || stores.isLoading),
     /** Produtos/finance ainda chegando — a tela mostra esqueleto no bloco, não bloqueia o resto. */
     productsLoading: sales.isLoading || costs.isLoading || products.isLoading,
+    supplyLoading: supply.isLoading,
     financeLoading: finance.isLoading,
     refetch: () => {
       pnlSeries.refetch();

@@ -37,15 +37,20 @@ export function buildProducts(
   costBySku: Record<string, number> | null,
   names: Record<string, string>,
   storeList: { id: number; name: string }[] | null = null,
+  /** SKU antigo → SKU atual, só de trocas de código confirmadas pelo operador. */
+  alias: Record<string, string> = {},
 ): ProductsSummary | null {
   if (!sales.ingestedPeriods.includes(period)) return null;
   const hasComparison = sales.ingestedPeriods.includes(previousPeriod);
 
+  // Agrupa pelo SKU atual: o histórico de um código antigo confirmado soma ao novo. O custo continua
+  // sendo buscado pelo código original de cada venda (`c.sku`), nunca pelo do grupo.
   const bySku = new Map<string, SalesCell[]>();
   for (const c of sales.cells) {
-    const list = bySku.get(c.sku) ?? [];
+    const key = alias[c.sku] ?? c.sku;
+    const list = bySku.get(key) ?? [];
     list.push(c);
-    bySku.set(c.sku, list);
+    bySku.set(key, list);
   }
 
   const totalRevenue = sales.cells.filter((c) => c.period === period).reduce((s, c) => s + c.revenueCents, 0);

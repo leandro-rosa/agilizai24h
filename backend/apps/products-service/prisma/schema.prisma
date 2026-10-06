@@ -137,3 +137,20 @@ model ProductNameOverride {
 
   @@map("product_name_override")
 }
+
+/// Decisão de um operador sobre um par de SKUs: o `new_sku` é o MESMO produto
+/// que o `old_sku` com outro código de barras ("same"), ou NÃO é ("different",
+/// para a tela não perguntar de novo). O sistema só SUGERE pares por nome;
+/// nenhuma vinculação é feita sem esta confirmação humana.
+model SkuLink {
+  id         Int      @id @default(autoincrement())
+  old_sku    String
+  new_sku    String
+  /// same | different
+  decision   String
+  decided_at DateTime @default(now())
+
+  @@unique([old_sku, new_sku])
+  @@index([new_sku])
+  @@map("sku_link")
+}

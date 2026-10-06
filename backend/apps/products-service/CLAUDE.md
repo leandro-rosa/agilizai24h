@@ -96,3 +96,15 @@ visível.
   de venda, que já a declaram.
 - Correção retroativa de custo é feita gravando uma versão corretiva para a
   mesma data de vigência; não há trilha de auditoria de correções.
+
+
+## Vínculos de SKU (`SkuLink`) — troca de código de barras
+
+`GET/PUT /sku-links`, `DELETE /sku-links/:id` (gateway: `/sku-links`, `products:read`/`products:write`).
+O operador confirma na Visão Geral que um SKU novo é o MESMO produto de um antigo com
+outro código (`decision = same`) ou que não é (`different`, só silencia a sugestão do
+front). O backend nunca sugere nem vincula sozinho. `utils/sku-link.ts` recusa auto-vínculo,
+ciclo e um mesmo código antigo virando dois produtos; os dois SKUs precisam existir no
+catálogo. O efeito (somar histórico) é calculado no frontend (`lib/overview/sku-match.ts`);
+nenhum dado de vendas/abastecimento é reescrito. Gap: sem tela de revisão/desfazer
+(o `DELETE` existe, sem UI).

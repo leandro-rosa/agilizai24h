@@ -34,6 +34,9 @@ function input(): OverviewInput {
     costBySku: null,
     productNames: { A: "Produto A", B: "Produto B" },
     storeList: null,
+    catalogue: [],
+    skuLinks: [],
+    supply: null,
     aging: { referenceDate: "2026-11-03", overdueCents: 0, notDueCents: 1_250_000, openCents: 1_250_000 },
     closed: true,
   };
@@ -106,5 +109,6 @@ describe("buildOverview", () => {
 
   it("declares phase-1 limitations", () => {
     expect(o.limitations.join(" ")).toMatch(/Produtos em teste/);
+    expect(o.tests).toBeNull();
   });
 });

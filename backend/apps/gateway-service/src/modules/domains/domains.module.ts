@@ -5,7 +5,7 @@ import { IngestionController } from '../ingestion/ingestion.controller'
 import { OverviewController } from './controllers/overview.controller'
 import { FinanceController } from './controllers/finance.controller'
 import { InventoryController } from './controllers/inventory.controller'
-import { ProductsController } from './controllers/products.controller'
+import { ProductsController, SkuLinksController } from './controllers/products.controller'
 import { SalesController } from './controllers/sales.controller'
 import { StoresController } from './controllers/stores.controller'
 import { SupplyController } from './controllers/supply.controller'
@@ -22,6 +22,7 @@ import { TreasuryImportsController } from './controllers/treasury-imports.contro
   controllers: [
     StoresController,
     ProductsController,
+    SkuLinksController,
     SalesController,
     SupplyController,
     InventoryController,
