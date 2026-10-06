@@ -5,12 +5,18 @@ import { gatewayBaseQuery } from "./base-query";
 export type Condition = "paid" | "bonus" | "on_sale";
 export type PaymentStatus = "pending" | "paid";
 export type SettlementState = "proposal" | "confirmed" | "paid";
+export type Stage = "requisition" | "awaiting_invoice" | "invoiced" | "awaiting_receipt" | "received";
+export type PaymentTerm = "on_receipt" | "due_date";
 
 export interface PurchaseItem {
   id: number;
   sku: string;
   description: string | null;
+  /** Unidades pedidas. */
   quantity: number;
+  /** Unidades recebidas (só depois de recebido) e a diferença para o pedido (positivo = faltou). */
+  received_quantity: number | null;
+  difference: number | null;
   unit_cost_cents: number;
   condition: Condition;
   payment_status: PaymentStatus;
@@ -25,9 +31,28 @@ export interface Purchase {
   supplier_name: string | null;
   ordered_on: string;
   origin: "manual" | "nfe";
+  status: Stage;
   invoice_number: string | null;
   invoice_key: string | null;
+  without_invoice: boolean;
   notes: string | null;
+  created_by: string | null;
+  sent_at: string | null;
+  sent_by: string | null;
+  invoiced_at: string | null;
+  invoiced_by: string | null;
+  received_on: string | null;
+  received_at: string | null;
+  received_by: string | null;
+  expected_delivery_on: string | null;
+  payment_term: PaymentTerm | null;
+  payment_due_on: string | null;
+  /** O dia em que o pagamento vence: o do recebimento (paga ao receber) ou o do boleto; vazio enquanto não se sabe. */
+  payment_due_effective: string | null;
+  /** Prazo de entrega vencido sem recebimento. */
+  late: boolean;
+  /** Há item pago pendente e o vencimento passou. */
+  overdue: boolean;
   items: PurchaseItem[];
   /** Gasto: itens pagos ao custo. Consignado só é devido conforme vende; bonificação não custa nada. */
   paid_cents: number;
@@ -41,6 +66,8 @@ export interface NewPurchaseItem {
   quantity: number;
   unit_cost_cents: number;
   condition: Condition;
+  /** Só ao criar já recebido. */
+  received_quantity?: number;
 }
 
 export interface NewPurchase {
@@ -51,7 +78,65 @@ export interface NewPurchase {
   invoice_object_key?: string;
   origin?: "manual" | "nfe";
   notes?: string;
+  /** Etapa em que o pedido entra. Omitida = já recebido (lançamento antigo). */
+  stage?: Stage;
+  without_invoice?: boolean;
+  received_on?: string;
+  expected_delivery_on?: string;
+  payment_term?: PaymentTerm;
+  payment_due_on?: string;
   items: NewPurchaseItem[];
+}
+
+export interface TransitionBody {
+  to: Stage;
+  invoice_number?: string;
+  invoice_key?: string;
+  without_invoice?: boolean;
+  received_on?: string;
+  received?: { item_id: number; quantity: number }[];
+  note?: string;
+}
+
+export interface EmailPreview {
+  /** E-mail do cadastro do fornecedor; vazio = não dá para enviar até informar um. */
+  to: string | null;
+  supplier_name: string | null;
+  subject: string;
+  default_message: string;
+  text: string;
+  html: string;
+  attachment: { suggested_filename: string };
+  /** SMTP configurado. Sem isso nada é enviado. */
+  configured: boolean;
+  already_sent: boolean;
+  sent: { to: string; subject: string; result: string; error: string | null; sent_by: string | null; created_at: string }[];
+}
+
+export interface SendEmailBody {
+  to: string;
+  message?: string;
+  subject?: string;
+  attachment_base64?: string;
+  attachment_name?: string;
+  resend?: boolean;
+  save_to_supplier?: boolean;
+}
+
+export interface PendingPaymentGroup {
+  /** Dia de vencimento; vazio = paga ao receber, ainda não recebido. */
+  due_on: string | null;
+  total_cents: number;
+  overdue: boolean;
+  items: { purchase_id: number; item_id: number; supplier_name: string | null; sku: string; description: string | null; quantity: number; total_cents: number }[];
+}
+
+export interface HistoryEntry {
+  from_status: Stage | null;
+  to_status: Stage;
+  actor: string | null;
+  note: string | null;
+  created_at: string;
 }
 
 export interface InvoicePreviewItem {
@@ -130,15 +215,17 @@ export interface WriteOff {
 export const purchasesApi = createApi({
   reducerPath: "purchasesApi",
   baseQuery: gatewayBaseQuery,
-  tagTypes: ["Purchase", "Settlement"],
+  tagTypes: ["Purchase", "Settlement", "Payments"],
   endpoints: (builder) => ({
-    getPurchases: builder.query<Purchase[], { supplierId?: number; from?: string; to?: string; invoicesOnly?: boolean } | void>({
+    getPurchases: builder.query<Purchase[], { supplierId?: number; from?: string; to?: string; invoicesOnly?: boolean; status?: Stage; openOnly?: boolean } | void>({
       query: (args) => {
         const params = new URLSearchParams();
         if (args?.supplierId) params.set("supplier_id", String(args.supplierId));
         if (args?.from) params.set("from", args.from);
         if (args?.to) params.set("to", args.to);
         if (args?.invoicesOnly) params.set("invoices_only", "true");
+        if (args?.status) params.set("status", args.status);
+        if (args?.openOnly) params.set("open_only", "true");
         const query = params.toString();
         return `/purchases${query ? `?${query}` : ""}`;
       },
@@ -146,11 +233,39 @@ export const purchasesApi = createApi({
     }),
     createPurchase: builder.mutation<Purchase, NewPurchase>({
       query: (body) => ({ url: "/purchases", method: "POST", body }),
-      invalidatesTags: ["Purchase", "Settlement"],
+      invalidatesTags: ["Purchase", "Settlement", "Payments"],
     }),
     updatePurchaseItem: builder.mutation<PurchaseItem, { itemId: number; changes: { condition?: Condition; payment_status?: PaymentStatus; paid_on?: string; payment_note?: string } }>({
       query: ({ itemId, changes }) => ({ url: `/purchases/items/${itemId}`, method: "PATCH", body: changes }),
       invalidatesTags: ["Purchase", "Settlement"],
+    }),
+    getPurchase: builder.query<Purchase, number>({
+      query: (id) => `/purchases/${id}`,
+      providesTags: ["Purchase"],
+    }),
+    getHistory: builder.query<HistoryEntry[], number>({
+      query: (id) => `/purchases/${id}/history`,
+      providesTags: ["Purchase"],
+    }),
+    transitionPurchase: builder.mutation<Purchase, { id: number } & TransitionBody>({
+      query: ({ id, ...body }) => ({ url: `/purchases/${id}/transition`, method: "POST", body }),
+      invalidatesTags: ["Purchase", "Settlement", "Payments"],
+    }),
+    updateOrder: builder.mutation<Purchase, { id: number; changes: { expected_delivery_on?: string; payment_term?: PaymentTerm; payment_due_on?: string; notes?: string } }>({
+      query: ({ id, changes }) => ({ url: `/purchases/${id}`, method: "PATCH", body: changes }),
+      invalidatesTags: ["Purchase", "Payments"],
+    }),
+    getEmailPreview: builder.query<EmailPreview, { id: number; message?: string }>({
+      query: ({ id, message }) => `/purchases/${id}/email-preview${message ? `?message=${encodeURIComponent(message)}` : ""}`,
+      providesTags: ["Purchase"],
+    }),
+    sendOrderEmail: builder.mutation<{ order: Purchase; email: { to: string; subject: string; message_id: string } }, { id: number } & SendEmailBody>({
+      query: ({ id, ...body }) => ({ url: `/purchases/${id}/send`, method: "POST", body }),
+      invalidatesTags: ["Purchase", "Payments"],
+    }),
+    getPendingPayments: builder.query<{ total_cents: number; groups: PendingPaymentGroup[] }, void>({
+      query: () => "/purchases/payments/pending",
+      providesTags: ["Purchase", "Payments"],
     }),
     /** Lê a NF-e e mostra o que seria registrado. Não grava nada. */
     previewInvoice: builder.mutation<InvoicePreview, File>({
@@ -190,6 +305,13 @@ export const purchasesApi = createApi({
 });
 
 export const {
+  useGetPurchaseQuery,
+  useGetHistoryQuery,
+  useTransitionPurchaseMutation,
+  useUpdateOrderMutation,
+  useGetEmailPreviewQuery,
+  useSendOrderEmailMutation,
+  useGetPendingPaymentsQuery,
   useGetPurchasesQuery,
   useCreatePurchaseMutation,
   useUpdatePurchaseItemMutation,

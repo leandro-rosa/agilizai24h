@@ -10,11 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCreatePurchaseMutation, usePreviewInvoiceMutation, type Condition, type InvoicePreview } from "@/lib/api/purchases";
-import { useGetProductsQuery } from "@/lib/api/products";
+import { useGetProductsQuery, type Product } from "@/lib/api/products";
+import { useHasPermission } from "@/lib/auth/use-permission";
 import { useAddAliasMutation, useGetSuppliersQuery, useUpdateSupplierMutation } from "@/lib/api/suppliers";
 import { supplierAnalysisApi } from "@/lib/api/supplier-analysis";
 import { useAppDispatch } from "@/lib/hooks";
 import { CONDITION_LABEL, formatCents, formatDate, packConversion } from "@/lib/purchases/money";
+import { NewProductDialog } from "./new-product-dialog";
+import { EMPTY_TERMS, OrderTermsFields, termsPayload, termsProblem, type OrderTerms } from "./order-terms-fields";
 import { useUpdateProductMutation } from "@/lib/api/products";
 
 const NO_MATCH = "Produto não encontrado no cadastro";
@@ -40,7 +43,17 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
   const [read, { isLoading: reading }] = usePreviewInvoiceMutation();
   const [create, { isLoading: saving }] = useCreatePurchaseMutation();
   const productsQuery = useGetProductsQuery();
-  const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data]);
+  // Produto recém-cadastrado entra na lista na hora, sem esperar o cadastro ser relido.
+  const [created, setCreated] = useState<Product[]>([]);
+  const products = useMemo(() => {
+    const known = new Set((productsQuery.data ?? []).map((p) => p.sku));
+    return [...(productsQuery.data ?? []), ...created.filter((p) => !known.has(p.sku))];
+  }, [productsQuery.data, created]);
+  const canCreateProduct = useHasPermission("products:write");
+  const [newProductLine, setNewProductLine] = useState<number | null>(null);
+  const [alreadyReceived, setAlreadyReceived] = useState(false);
+  const [receivedOn, setReceivedOn] = useState(() => new Date().toISOString().slice(0, 10));
+  const [terms, setTerms] = useState<OrderTerms>(EMPTY_TERMS);
 
   const labelOf = (p: { name: string; sku: string }) => `${p.name} (${p.sku})`;
   const labels = useMemo(() => products.map(labelOf), [products]);
@@ -54,6 +67,8 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
       setConditions({});
       setChosen({});
       setPacks({});
+      setAlreadyReceived(false);
+      setTerms(EMPTY_TERMS);
     } catch (failure) {
       const message = (failure as { data?: { message?: string } })?.data?.message;
       toast.error(message ?? "Não foi possível ler a nota. Confirme que é um XML de NF-e.");
@@ -86,7 +101,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
   const invalid = withProduct.filter((item) => conversionOf(item) === null);
   const resolved = withProduct.filter((item) => conversionOf(item) !== null);
   const left = preview ? preview.items.length - withProduct.length : 0;
-  const blocked = !preview || !preview.supplier || preview.duplicate_of !== null || resolved.length === 0 || invalid.length > 0;
+  const blocked = !preview || !preview.supplier || preview.duplicate_of !== null || resolved.length === 0 || invalid.length > 0 || termsProblem(terms) !== null;
 
   async function confirm() {
     if (!preview?.supplier) return;
@@ -98,6 +113,10 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
         invoice_key: preview.key ?? undefined,
         invoice_object_key: preview.object_key,
         origin: "nfe",
+        // A nota já foi emitida: entra em "Faturado" (ou já "Recebido", se a mercadoria chegou).
+        stage: alreadyReceived ? "received" : "invoiced",
+        received_on: alreadyReceived ? receivedOn : undefined,
+        ...termsPayload(terms),
         items: resolved.map((item) => {
           const converted = conversionOf(item) as { units: number; unitCostCents: number };
           return { sku: skuFor(item) as string, description: item.description, quantity: converted.units, unit_cost_cents: converted.unitCostCents, condition: conditions[item.line] ?? "paid" };
@@ -201,6 +220,11 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                             <>
                               <Combobox options={labels} value={chosen[item.line] ?? ""} onChange={(label) => setChosen((c) => ({ ...c, [item.line]: label }))} placeholder="Escolha o produto" className="w-56" />
                               {fixable && !sku && <p className="text-xs text-muted-foreground">{NO_MATCH}; fica de fora se não escolher.</p>}
+                              {fixable && !sku && canCreateProduct && (
+                                <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setNewProductLine(item.line)}>
+                                  Cadastrar produto novo
+                                </Button>
+                              )}
                             </>
                           )}
                         </TableCell>
@@ -263,6 +287,19 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                 </TableBody>
               </Table>
             </div>
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={alreadyReceived} onChange={(e) => setAlreadyReceived(e.target.checked)} />
+                Já recebi a mercadoria
+              </label>
+              {alreadyReceived && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  Recebido em
+                  <Input type="date" className="w-40" value={receivedOn} onChange={(e) => setReceivedOn(e.target.value)} aria-label="Data do recebimento" />
+                </label>
+              )}
+            </div>
+            <OrderTermsFields value={terms} onChange={setTerms} />
             <p className="text-xs text-muted-foreground">A nota costuma trazer o preço do fardo ou da caixa. Informe quantas unidades vêm em cada um: o painel registra unidades e o custo de UMA unidade.</p>
             <label className="flex items-center gap-1.5 text-sm">
               <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
@@ -282,6 +319,24 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
           </Button>
         </DialogFooter>
       </DialogContent>
+    
+      {preview && newProductLine !== null && (
+        <NewProductDialog
+          open
+          onOpenChange={(next) => !next && setNewProductLine(null)}
+          initial={{ sku: preview.items.find((i) => i.line === newProductLine)?.code, name: preview.items.find((i) => i.line === newProductLine)?.description }}
+          unitCostCents={(() => {
+            const line = preview.items.find((i) => i.line === newProductLine);
+            return line ? (conversionOf(line)?.unitCostCents ?? line.unit_cost_cents) : null;
+          })()}
+          supplierId={preview.supplier?.id}
+          onCreated={(product) => {
+            setCreated((current) => [...current, product]);
+            setChosen((current) => ({ ...current, [newProductLine]: labelOf(product) }));
+            setNewProductLine(null);
+          }}
+        />
+      )}
     </Dialog>
   );
 }

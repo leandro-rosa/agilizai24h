@@ -43,6 +43,10 @@ services:
     environment:
       DATABASE_URL: postgresql://${SUPPLIERS_POSTGRES_USER:-agiliz}:${SUPPLIERS_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-suppliers-postgres:5432/${SUPPLIERS_POSTGRES_DB:-suppliers}
       SALES_SERVICE_URL: http://agiliz-sales-dev:3000
+      # Development sends to the local mail catcher (agiliz-mailpit): nothing leaves the machine.
+      SMTP_HOST: agiliz-mailpit
+      SMTP_PORT: "1025"
+      MAIL_FROM: pedidos@agiliz.local
       PRODUCTS_SERVICE_URL: http://agiliz-products-dev:3000
       PORT: 3000
     # No published host port: domain services stay internal to agiliz_network,
@@ -73,6 +77,13 @@ services:
     environment:
       DATABASE_URL: postgresql://${SUPPLIERS_POSTGRES_USER:-agiliz}:${SUPPLIERS_POSTGRES_PASSWORD:-agiliz-dev-secret}@agiliz-suppliers-postgres:5432/${SUPPLIERS_POSTGRES_DB:-suppliers}
       SALES_SERVICE_URL: http://agiliz-sales-prod:3000
+      # Real sending is the owner's to configure (.env); with these empty the panel says e-mail is not configured.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
       PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
       PORT: 3000
     expose:

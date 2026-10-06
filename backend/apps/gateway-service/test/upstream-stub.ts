@@ -25,10 +25,21 @@ export class UpstreamStub {
   private routes = new Map<string, StubRoute>()
   private calls: string[] = []
   private rawCalls: string[] = []
+  private bodies = new Map<string, unknown>()
 
   async start(): Promise<number> {
     this.server = createServer((req, res) => {
       const key = `${req.method} ${(req.url ?? '').split('?')[0]}`
+      const chunks: Buffer[] = []
+      req.on('data', chunk => chunks.push(chunk as Buffer))
+      req.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8')
+        try {
+          this.bodies.set(key, text ? JSON.parse(text) : undefined)
+        } catch {
+          this.bodies.set(key, text)
+        }
+      })
       this.calls.push(key)
       this.rawCalls.push(`${req.method} ${req.url ?? ''}`)
 
@@ -72,9 +83,15 @@ export class UpstreamStub {
     return this.rawCalls.includes(`${method} ${pathWithQuery}`)
   }
 
+  /** The JSON body of the last request to `method path`, for checking what the gateway forwarded. */
+  lastBody(method: string, path: string): unknown {
+    return this.bodies.get(`${method} ${path}`)
+  }
+
   resetCalls(): void {
     this.calls = []
     this.rawCalls = []
+    this.bodies.clear()
   }
 
   async stop(): Promise<void> {

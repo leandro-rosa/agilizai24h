@@ -22,6 +22,35 @@ class EnvironmentVariables {
   @IsNotEmpty()
   PRODUCTS_SERVICE_URL: string
 
+  /**
+   * Outgoing e-mail (orders to suppliers). All optional: with no SMTP_HOST the panel reports "e-mail not configured" and sends
+   * nothing. In development point it at the local mail catcher; real credentials are the owner's to set.
+   */
+  @IsOptional()
+  @IsString()
+  SMTP_HOST?: string
+
+  @IsOptional()
+  @IsString()
+  SMTP_PORT?: string
+
+  @IsOptional()
+  @IsString()
+  SMTP_USER?: string
+
+  @IsOptional()
+  @IsString()
+  SMTP_PASS?: string
+
+  @IsOptional()
+  @IsString()
+  SMTP_SECURE?: string
+
+  /** The sender shown to the supplier. Required whenever SMTP_HOST is set. */
+  @IsOptional()
+  @IsString()
+  MAIL_FROM?: string
+
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -35,6 +64,7 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   if (errors.length > 0) {
     throw new Error(`Invalid environment configuration:\n${errors.toString()}`)
   }
+  if (validated.SMTP_HOST && !validated.MAIL_FROM) throw new Error('Invalid environment configuration: MAIL_FROM is required when SMTP_HOST is set')
 
   return validated
 }

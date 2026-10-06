@@ -97,14 +97,15 @@ export class SettlementService {
     const existing = await this.prisma.settlement.findUnique({ where: { supplier_id_week_start: { supplier_id: dto.supplier_id, week_start: weekDate } } })
     if (existing && existing.state !== 'proposal') throw new ConflictException(`The week of ${weekStart} is already ${existing.state}: it can no longer be recomputed`)
 
+    // Delivered means RECEIVED: an order still waiting for receipt is not part of any settlement, and what counts is the received quantity.
     const purchases = await this.prisma.purchase.findMany({
-      where: { supplier_id: dto.supplier_id, ordered_on: { lte: new Date(`${to}T00:00:00Z`) } },
+      where: { supplier_id: dto.supplier_id, status: 'received', received_on: { lte: new Date(`${to}T00:00:00Z`) } },
       include: { items: { where: { condition: 'on_sale' } } },
     })
     const items: OnSaleItem[] = purchases.flatMap(p =>
-      p.items.map(i => ({ itemId: i.id, deliveredOn: day(p.ordered_on) as string, sku: i.sku, quantity: i.quantity, unitCostCents: i.unit_cost_cents })),
+      p.items.map(i => ({ itemId: i.id, deliveredOn: day(p.received_on ?? p.ordered_on) as string, sku: i.sku, quantity: i.received_quantity ?? i.quantity, unitCostCents: i.unit_cost_cents })),
     )
-    if (items.length === 0) throw new BadRequestException('This supplier has no on-sale items delivered up to that week')
+    if (items.length === 0) throw new BadRequestException('This supplier has no on-sale items received up to that week')
 
     const prior = await this.priorLines(dto.supplier_id, weekDate)
     const writeOffs: WriteOff[] = (dto.write_offs ?? []).map(w => ({ itemId: w.item_id, expired: w.expired ?? 0, returned: w.returned ?? 0 }))

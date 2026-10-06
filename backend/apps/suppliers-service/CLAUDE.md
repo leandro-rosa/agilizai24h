@@ -71,3 +71,7 @@ valor não deve exigir migration.
 - Teste de SQL real: `test/purchasing.integration-spec.ts` roda **só** contra banco descartável (`PURCHASING_IT_THROWAWAY_DB=true`); nunca contra o banco real (a base de histórico de compras se moveria).
 - Gaps: sem devolução física modelada; custo pago não altera `CostVersion` do products-service.
 
+
+## Pedidos em etapas e e-mail (`add-purchase-orders-and-email`)
+
+`Purchase.status`: `requisition → awaiting_invoice → invoiced → awaiting_receipt → received`, só para frente, definitivo após `received` (`utils/order-flow.ts`, puro). Nota (nº, chave ou `without_invoice`) exigida a partir de `invoiced`. **Só `received` conta**: `summary`, acerto e mês de compra usam `received_on` e `received_quantity ?? quantity`; pedidos abertos aparecem à parte (`open_orders`). Compras antigas migraram como `received`. `PurchaseEvent` guarda o histórico e `PurchaseEmail` cada tentativa de envio. E-mail atrás da porta `MailTransport` (`mail/`, nodemailer SMTP; fake nos testes; Mailpit no dev): envio só com confirmação, falha não muda a etapa, reenvio só com `resend`, anexo só PDF ≤700 KB. Env opcionais `SMTP_HOST/PORT/SECURE/USER/PASS` e `MAIL_FROM` (sem SMTP o painel diz "não configurado"). Real SMTP é decisão do dono.

@@ -13,3 +13,18 @@ export type SettlementState = (typeof SETTLEMENT_STATES)[number]
 
 /** PT-BR labels for the screen; the codes above are what the API speaks. */
 export const CONDITION_LABELS: Record<Condition, string> = { paid: 'Pago', bonus: 'Bonificação', on_sale: 'Consignado (pago sobre a venda)' }
+
+/** Order stages, in order. A purchase moves forward one stage at a time and is final at `received`. */
+export const STAGES = ['requisition', 'awaiting_invoice', 'invoiced', 'awaiting_receipt', 'received'] as const
+export type Stage = (typeof STAGES)[number]
+
+export const STAGE_LABELS: Record<Stage, string> = {
+  requisition: 'Requisição de compra',
+  awaiting_invoice: 'Aguardando faturamento',
+  invoiced: 'Faturado',
+  awaiting_receipt: 'Aguardando recebimento',
+  received: 'Recebido',
+}
+
+export const PAYMENT_TERMS = ['on_receipt', 'due_date'] as const
+export type PaymentTerm = (typeof PAYMENT_TERMS)[number]

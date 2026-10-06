@@ -146,6 +146,15 @@ export const productsApi = createApi({
       query: ({ sku, ...body }) => ({ url: `/products/${sku}/prices`, method: "POST", body }),
       invalidatesTags: ["Product"],
     }),
+    createProduct: builder.mutation<Product, { sku: string; name: string; category: Product["category"]; ean?: string; supplierId?: number }>({
+      query: (body) => ({ url: "/products", method: "POST", body }),
+      invalidatesTags: ["Product"],
+    }),
+    /** Custo de referência datado (não existe "custo atual": toda cifra de custo vale a partir de uma data). */
+    recordCost: builder.mutation<unknown, { sku: string; effective_from: string; cost_cents: number }>({
+      query: ({ sku, ...body }) => ({ url: `/products/${encodeURIComponent(sku)}/costs`, method: "POST", body }),
+      invalidatesTags: ["Product"],
+    }),
     updateProduct: builder.mutation<
       Product,
       { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number; packageType?: string; fractionable?: boolean; supplierId?: number | null } }
@@ -167,4 +176,6 @@ export const {
   useGetPricesAsOfQuery,
   useRecordPriceMutation,
   useUpdateProductMutation,
+  useCreateProductMutation,
+  useRecordCostMutation,
 } = productsApi;

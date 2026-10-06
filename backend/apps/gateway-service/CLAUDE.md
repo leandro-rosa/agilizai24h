@@ -163,3 +163,7 @@ vs CORS-com-credenciais" que ficava em aberto aqui (design de
   deliberado (determinismo, zero infra), mas significa que uma divergência de
   contrato entre gateway e um serviço de domínio não é pega aqui — só pelo
   teste e2e que `add-web-real-data` vai trazer.
+
+## Pedidos em etapas e e-mail (`add-purchase-orders-and-email`)
+
+`PurchasesController` ganhou `POST /purchases/:id/transition`, `PATCH /purchases/:id`, `GET /purchases/:id/history`, `GET /purchases/:id/email-preview`, `POST /purchases/:id/send` e `GET /purchases/payments/pending` (`suppliers:read`/`suppliers:write`). O ator (`created_by`/`sent_by`/`received_by`…) é **sempre `caller.email` da sessão**: o gateway sobrescreve qualquer `actor` vindo no corpo (`asActor`).

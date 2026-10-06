@@ -4,9 +4,17 @@ import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { S3Service } from '@app/aws'
 import { PERMISSIONS } from '@app/iam-contracts'
 import type { FastifyRequest } from 'fastify'
+import { Caller } from '../../auth/guards/caller.decorator'
 import { RequiresPermission } from '../../auth/guards/session.constants'
+import type { AuthenticatedCaller } from '../../auth/services/session.service'
 import { DomainClient } from '../../upstream/domain.client'
 import { correlationOf } from './stores.controller'
+
+/**
+ * The actor of every write is the logged-in user: it is set here from the session and overrides whatever the client put in the body,
+ * so "who created, sent, invoiced or received" can never be typed by the person it is about.
+ */
+const asActor = (body: unknown, caller: AuthenticatedCaller) => ({ ...(typeof body === 'object' && body !== null ? body : {}), actor: caller.email })
 
 const withQuery = (path: string, query: Record<string, string>) => {
   const search = new URLSearchParams(query).toString()
@@ -71,8 +79,60 @@ export class PurchasesController {
   @Post()
   @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
   @ApiOperation({ summary: 'Record a purchase' })
-  async create(@Body() body: unknown, @Req() request: FastifyRequest) {
-    return (await this.domains.suppliers({ method: 'post', path: '/purchases', payload: body, correlationId: correlationOf(request) })).data
+  async create(@Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: '/purchases', payload: asActor(body, caller), correlationId: correlationOf(request) })).data
+  }
+
+  /** Declared before `:id` so "payments" is not read as an id. */
+  @Get('payments/pending')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
+  @ApiOperation({ summary: 'What is still to be paid, by due day' })
+  async pendingPayments(@Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'get', path: '/purchases/payments/pending', correlationId: correlationOf(request) })).data
+  }
+
+  @Post(':id/transition')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Move an order to its next stage' })
+  async transition(@Param('id') id: string, @Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: `/purchases/${encodeURIComponent(id)}/transition`, payload: asActor(body, caller), correlationId: correlationOf(request) })).data
+  }
+
+  @Patch(':id')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Delivery deadline, payment term and notes of an order' })
+  async updateOrder(@Param('id') id: string, @Body() body: unknown, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'patch', path: `/purchases/${encodeURIComponent(id)}`, payload: body, correlationId: correlationOf(request) })).data
+  }
+
+  @Get(':id/history')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
+  @ApiOperation({ summary: 'The stage history of an order' })
+  async history(@Param('id') id: string, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'get', path: `/purchases/${encodeURIComponent(id)}/history`, correlationId: correlationOf(request) })).data
+  }
+
+  @Get(':id/email-preview')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
+  @ApiOperation({ summary: 'Preview of the e-mail of an order (sends nothing)' })
+  async emailPreview(@Param('id') id: string, @Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'get', path: withQuery(`/purchases/${encodeURIComponent(id)}/email-preview`, query), correlationId: correlationOf(request) })).data
+  }
+
+  @Post(':id/send')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Send the order to the supplier by e-mail, after the operator confirmed the preview' })
+  async send(@Param('id') id: string, @Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: `/purchases/${encodeURIComponent(id)}/send`, payload: asActor(body, caller), correlationId: correlationOf(request) })).data
+  }
+
+  @Get(':id/emails')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
+  @ApiOperation({ summary: 'Every send attempt of an order' })
+  async emailLog(@Param('id') id: string, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'get', path: `/purchases/${encodeURIComponent(id)}/emails`, correlationId: correlationOf(request) })).data
   }
 
   @Patch('items/:itemId')

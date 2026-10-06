@@ -25,6 +25,7 @@ jest.doMock("../../lib/api/suppliers", () => ({
   useUpdateSupplierMutation: () => [jest.fn()],
 }));
 jest.doMock("../../lib/hooks", () => ({ useAppDispatch: () => jest.fn() }));
+jest.doMock("../../lib/auth/use-permission", () => ({ useHasPermission: () => true }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { InvoiceImportDialog }: { InvoiceImportDialog: ComponentType } = require("./invoice-import-dialog");
@@ -65,9 +66,20 @@ describe("InvoiceImportDialog — o preço da nota é do fardo", () => {
 
     await waitFor(() => expect(createPurchase).toHaveBeenCalledTimes(1));
     const sent = createPurchase.mock.calls[0][0] as { items: { sku: string; quantity: number; unit_cost_cents: number; condition: string }[]; origin: string; invoice_number: string };
-    expect(sent).toMatchObject({ origin: "nfe", invoice_number: "4990356" });
+    expect(sent).toMatchObject({ origin: "nfe", invoice_number: "4990356", stage: "invoiced" });
     expect(sent.items).toEqual([expect.objectContaining({ sku: "M1", quantity: 150, unit_cost_cents: 725, condition: "paid" })]);
     expect(updateProduct).toHaveBeenCalledWith({ id: 9, changes: { unitsPerPackage: 6 } });
+  });
+
+  it("pode entrar já recebido, com a data do recebimento, e leva o prazo e o boleto", async () => {
+    await openWithFile();
+    fireEvent.click(screen.getByLabelText("Já recebi a mercadoria"));
+    fireEvent.change(screen.getByLabelText("Data do recebimento"), { target: { value: "2026-09-04" } });
+    fireEvent.change(screen.getByLabelText("Prazo de entrega"), { target: { value: "2026-09-03" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar 1 item" }));
+
+    await waitFor(() => expect(createPurchase).toHaveBeenCalledTimes(1));
+    expect(createPurchase.mock.calls[0][0]).toMatchObject({ stage: "received", received_on: "2026-09-04", expected_delivery_on: "2026-09-03" });
   });
 
   it("embalagem inválida bloqueia o registro em vez de adivinhar", async () => {

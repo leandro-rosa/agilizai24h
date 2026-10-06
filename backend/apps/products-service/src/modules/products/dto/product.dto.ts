@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Min, ArrayNotEmpty, IsArray, ValidateNested } from 'class-validator'
+import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Matches, Min, ArrayNotEmpty, IsArray, ValidateNested } from 'class-validator'
 import { PRODUCT_CATEGORY_VALUES, type ProductCategory } from '../constants/product-vocabulary'
 
 export class CreateProductDto {
@@ -33,6 +33,17 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   fractionable?: boolean
+
+  @ApiPropertyOptional({ example: '7891234567895', description: 'Código de barras (8 a 14 dígitos). Único.' })
+  @IsOptional()
+  @Matches(/^\d{8,14}$/, { message: 'ean must be 8 to 14 digits' })
+  ean?: string
+
+  @ApiPropertyOptional({ description: 'Fornecedor declarado (id no suppliers-service).' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  supplierId?: number
 }
 
 export class UpdateProductDto {

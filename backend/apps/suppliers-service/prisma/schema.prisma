@@ -77,15 +77,40 @@ model Purchase {
   /// Onde o arquivo bruto ficou no storage, para auditoria.
   invoice_object_key String?
   notes       String?
+
+  /// requisition | awaiting_invoice | invoiced | awaiting_receipt | received. Só `received` conta como compra.
+  /// Compras anteriores às etapas migraram como `received`.
+  status      String   @default("received")
+  /// Quem registrou o pedido (e-mail da sessão, nunca o que o cliente manda).
+  created_by  String?
+  sent_at     DateTime?
+  sent_by     String?
+  invoiced_at DateTime?
+  invoiced_by String?
+  /// Fornecedor que não emite nota: o passo "faturado" é aceito sem número.
+  without_invoice Boolean @default(false)
+  /// Dia do recebimento. Mês da compra para a análise e o acerto (cai em ordered_on para as antigas).
+  received_on DateTime? @db.Date
+  received_at DateTime?
+  received_by String?
+  /// Prazo de entrega combinado.
+  expected_delivery_on DateTime? @db.Date
+  /// on_receipt (paga ao receber) | due_date (boleto para o dia payment_due_on) | NULL (não informado).
+  payment_term   String?
+  payment_due_on DateTime? @db.Date
+
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
-  supplier Supplier       @relation(fields: [supplier_id], references: [id])
+  supplier Supplier        @relation(fields: [supplier_id], references: [id])
   items    PurchaseItem[]
+  events   PurchaseEvent[]
+  emails   PurchaseEmail[]
 
   @@unique([supplier_id, invoice_number])
   @@index([supplier_id, ordered_on])
   @@index([ordered_on])
+  @@index([status])
   @@map("purchase")
 }
 
@@ -99,6 +124,8 @@ model PurchaseItem {
   description String?
   /// Unidades. Embalagem (caixa de 24) já convertida na entrada.
   quantity    Int
+  /// Unidades recebidas. Padrão = pedido; a diferença fica visível. NULL só enquanto não recebido.
+  received_quantity Int?
   /// Centavos por unidade. Bonificação grava o custo de referência (ou 0), nunca é cobrada.
   unit_cost_cents Int
   /// paid | bonus | on_sale
@@ -142,4 +169,41 @@ model Settlement {
   @@unique([supplier_id, week_start])
   @@index([state])
   @@map("settlement")
+}
+
+/// Histórico de etapas de um pedido: de/para, quem e quando. Nunca editado.
+model PurchaseEvent {
+  id          Int      @id @default(autoincrement())
+  purchase_id Int
+  /// NULL quando o pedido nasceu direto numa etapa.
+  from_status String?
+  to_status   String
+  actor       String?
+  note        String?
+  created_at  DateTime @default(now())
+
+  purchase Purchase @relation(fields: [purchase_id], references: [id], onDelete: Cascade)
+
+  @@index([purchase_id])
+  @@map("purchase_event")
+}
+
+/// Registro de cada tentativa de envio do pedido ao fornecedor, com sucesso ou erro.
+model PurchaseEmail {
+  id          Int      @id @default(autoincrement())
+  purchase_id Int
+  to_address  String
+  subject     String
+  has_attachment Boolean @default(false)
+  /// sent | failed
+  result      String
+  error       String?
+  message_id  String?
+  sent_by     String?
+  created_at  DateTime @default(now())
+
+  purchase Purchase @relation(fields: [purchase_id], references: [id], onDelete: Cascade)
+
+  @@index([purchase_id])
+  @@map("purchase_email")
 }
