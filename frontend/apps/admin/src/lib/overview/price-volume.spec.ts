@@ -97,5 +97,18 @@ describe("priceImpactReading", () => {
     expect(r.lines.join(" ")).toMatch(/ganho de preço \(\+R\$480\) foi maior que o efeito das unidades \(−R\$300\)/);
     expect(r.lines.join(" ")).toMatch(/Vendas: unidades −20%/);
     expect(r.lines.join(" ")).not.toMatch(/\bcausou\b/);
+    // Resposta direta: margem compensou (subiu R$180 com 20% menos unidades), faturamento não.
+    expect(r.verdict.margin).toBe("sim");
+    expect(r.verdict.revenueRecovered).toBe(false);
+    expect(r.verdict.title).toBe("Sim, a margem compensou a queda das vendas");
+    expect(r.verdict.detail).toMatch(/mesmo com 20% menos unidades/);
+    expect(r.verdict.detail).toMatch(/NÃO se recuperou/);
+  });
+
+  it("quando a margem em R$ cai, diz que não compensou", () => {
+    // Preço sobe pouco e as unidades despencam: A 100 un a R$10 -> 40 un a R$10,50, custo R$5.
+    const c = [cell("A", "2026-08", 100, 100_000), cell("A", "2026-09", 40, 42_000), cell("B", "2026-08", 100, 100_000), cell("B", "2026-09", 40, 42_000), cell("C", "2026-08", 100, 100_000), cell("C", "2026-09", 40, 42_000)];
+    const pc = buildPriceChanges(buildPriceVolume("2026-09", "2026-08", c, both)!, {}, { A: 500, B: 500, C: 500 })!;
+    expect(priceImpactReading(pc, (x) => `R$${Math.round(x / 100)}`).verdict.margin).toBe("nao");
   });
 });

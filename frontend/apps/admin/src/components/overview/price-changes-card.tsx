@@ -19,7 +19,13 @@ export function PriceChangesCard({ changes }: { changes: PriceChanges | null }) 
   const reading = priceImpactReading(changes, moneyRound);
   return (
     <Block title="Reajustes de preço no mês" icon={<Tag className="size-4 text-primary" />} href="/products" linkLabel="Ver produtos">
-      <p className="text-sm font-medium">{reading.headline}</p>
+      <div
+        className={`rounded-lg border p-4 ${reading.verdict.margin === "sim" ? "border-success/50 bg-success/10" : reading.verdict.margin === "nao" ? "border-destructive/50 bg-destructive/10" : "border-border bg-muted/30"}`}
+      >
+        <p className="text-xs font-semibold text-muted-foreground">A queda nas vendas foi compensada em margem?</p>
+        <p className={`text-lg font-semibold ${reading.verdict.margin === "sim" ? "text-success" : reading.verdict.margin === "nao" ? "text-destructive" : ""}`}>{reading.verdict.title}</p>
+        <p className="text-sm">{reading.verdict.detail}</p>
+      </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
           label="Faturamento dos reajustados"

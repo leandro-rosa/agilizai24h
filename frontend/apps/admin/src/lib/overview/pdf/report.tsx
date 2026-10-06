@@ -439,7 +439,11 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
               const unitsPct = pc.unitsBefore > 0 ? (pc.unitsAfter - pc.unitsBefore) / pc.unitsBefore : null;
               return (
                 <>
-                  <Text style={[s.bold, { marginBottom: 6 }]}>{t(rd.headline)}</Text>
+                  <View style={{ borderWidth: 1, borderRadius: 8, padding: 8, marginBottom: 6, borderColor: rd.verdict.margin === "sim" ? C.good : rd.verdict.margin === "nao" ? C.bad : C.border }}>
+                    <Text style={s.small}>A queda nas vendas foi compensada em margem?</Text>
+                    <Text style={{ fontSize: 12, fontFamily: "Helvetica-Bold", color: rd.verdict.margin === "sim" ? C.good : rd.verdict.margin === "nao" ? C.bad : C.ink, marginVertical: 2 }}>{t(rd.verdict.title)}</Text>
+                    <Text>{t(rd.verdict.detail)}</Text>
+                  </View>
                   <View style={[s.row, { marginBottom: 6 }]}>
                     <Stat label="Faturamento dos reajustados" value={brl(im.revenueAfterCents)} color={dRev < 0 ? C.bad : C.good} note={`${brl(im.revenueBeforeCents)} -> ${brl(im.revenueAfterCents)} (${dRev < 0 ? "-" : "+"}${brl(Math.abs(dRev))})`} />
                     <Stat label="Margem de contribuição (R$)" value={im.margin ? brl(im.margin.afterCents) : "-"} color={dMar === null ? undefined : dMar < 0 ? C.bad : C.good} note={im.margin && dMar !== null ? `${brl(im.margin.beforeCents)} -> ${brl(im.margin.afterCents)} (${dMar < 0 ? "-" : "+"}${brl(Math.abs(dMar))})` : "sem custo resolvido"} />
