@@ -1,0 +1,62 @@
+import { describe, expect, it } from "@jest/globals";
+
+import type { Figure } from "@/lib/api/supplier-analysis";
+import { changeTone, formatChange, formatFigure, formatMonth, funnelShares } from "./format";
+
+const ok = (value: number, partial?: boolean): Figure => (partial ? { available: true, value, partial } : { available: true, value });
+const none = (reason: "no_purchase_history" | "never_ingested" | "no_cost" | "no_base"): Figure => ({ available: false, reason });
+
+describe("formatFigure", () => {
+  it("nunca desenha uma cifra ausente como zero", () => {
+    expect(formatFigure(none("no_purchase_history"), "units")).toBe("Sem histórico de compras");
+    expect(formatFigure(none("never_ingested"), "units")).toBe("Dado não importado");
+    expect(formatFigure(none("no_base"), "share")).toBe("—");
+    expect(formatFigure(ok(0), "units")).toBe("0 un.");
+  });
+
+  it("marca com ~ a cifra parcial e formata dinheiro e participação", () => {
+    expect(formatFigure(ok(245, true), "units")).toBe("~245 un.");
+    expect(formatFigure(ok(842000), "cents")).toMatch(/8\.420,00/);
+    expect(formatFigure(ok(0.429), "share")).toBe("42,9%");
+  });
+});
+
+describe("variações", () => {
+  it("formata com sinal e devolve null quando não há comparação", () => {
+    expect(formatChange(ok(0.185))).toBe("+19%");
+    expect(formatChange(ok(-0.5))).toBe("-50%");
+    expect(formatChange(none("no_purchase_history"))).toBeNull();
+  });
+
+  it("lê a variação pela ótica do negócio: perda maior é ruim, venda maior é boa, faixa estável é neutra", () => {
+    expect(changeTone(ok(0.12), true)).toBe("positive");
+    expect(changeTone(ok(0.5), false)).toBe("critical");
+    expect(changeTone(ok(-0.2), false)).toBe("positive");
+    expect(changeTone(ok(0.03), true)).toBe("neutral");
+    expect(changeTone(ok(0.5), null)).toBe("neutral");
+    expect(changeTone(none("no_base"), true)).toBe("neutral");
+  });
+});
+
+describe("funnelShares", () => {
+  it("usa o comprado como base quando existe", () => {
+    const result = funnelShares(ok(300), ok(270), ok(245), ok(12));
+    expect(result?.base).toBe("purchased");
+    expect(result?.steps.map((s) => Math.round(s.share * 100))).toEqual([100, 90, 82, 4]);
+  });
+
+  it("sem compra, usa o abastecido como base e não inventa a barra de comprado", () => {
+    const result = funnelShares(none("no_purchase_history"), ok(270), ok(135), ok(27));
+    expect(result?.base).toBe("restocked");
+    expect(result?.steps.map((s) => s.key)).toEqual(["restocked", "sold", "lost"]);
+    expect(result?.steps[1].share).toBeCloseTo(0.5);
+  });
+
+  it("devolve null quando não há base", () => {
+    expect(funnelShares(none("no_purchase_history"), none("never_ingested"), ok(1), ok(0))).toBeNull();
+  });
+});
+
+describe("formatMonth", () => {
+  it("abrevia em português", () => expect(formatMonth("2026-10")).toBe("out/2026"));
+});

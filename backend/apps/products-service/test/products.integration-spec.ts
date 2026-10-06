@@ -85,6 +85,21 @@ describe('products integration', () => {
       expect(updated.fractionable).toBe(false)
     })
 
+    it('update links and unlinks the declared supplier, leaving other fields alone', async () => {
+      const product = await createProduct('Produto com fornecedor')
+      expect(product.supplier_id).toBeNull()
+
+      const linked = await products.update(product.id, { supplierId: 7 })
+      expect(linked.supplier_id).toBe(7)
+      expect(linked.name).toBe('Produto com fornecedor')
+
+      const untouched = await products.update(product.id, { packageType: 'caixa' })
+      expect(untouched.supplier_id).toBe(7)
+
+      const unlinked = await products.update(product.id, { supplierId: null })
+      expect(unlinked.supplier_id).toBeNull()
+    })
+
     it('list and findById also return packaging fields', async () => {
       const sku = unique('SKU')
       createdSkus.push(sku)

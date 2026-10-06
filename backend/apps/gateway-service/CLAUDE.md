@@ -54,6 +54,9 @@ request) e, por rota, dos 12 serviços de domínio — `stores`, `products`,
 | `GET /overview` | `stores:read` | Agrega, com falha parcial explícita |
 | `GET /health`, `GET /docs` | pública | |
 
+**Análise (`/analysis/*`)** → `intelligence-service` (`INTELLIGENCE_SERVICE_URL`, obrigatória), `supply:read`.
+Orçamento próprio de timeout (`INTELLIGENCE_TIMEOUT_MS`, padrão 60 s): em cache frio lê todas as lojas por 6 meses.
+
 ## Semântica de falha — o ponto inteiro deste serviço
 
 | Status | Significa | O painel deve |

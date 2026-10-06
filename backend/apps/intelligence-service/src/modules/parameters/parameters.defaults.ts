@@ -11,6 +11,15 @@ export const DEFAULT_PARAMETERS: Parameters = {
   priority: { highCents: 30000, mediumCents: 10000 },
   backtest: { minFollowingCycles: 2, salesAtRiskShare: 0.1 },
   refresh: { availableStoreShare: 0.9 },
+  analysis: {
+    goodSellThrough: 0.6,
+    criticalSellThrough: 0.2,
+    attentionLossShare: 0.15,
+    lossAboveNetworkFactor: 1.25,
+    minRestockedForSituation: 10,
+    stableVariationShare: 0.05,
+    concentrationShare: 0.4,
+  },
   schedule: { visitWeekdays: [1, 2, 4, 5] },
 }
 

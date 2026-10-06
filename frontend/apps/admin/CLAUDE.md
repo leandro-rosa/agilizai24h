@@ -900,6 +900,19 @@ tela ainda não conhece) e os seis endpoints em `src/lib/api/ingestion.ts`
   pasta real; a aceitação real é a tarefa 13.3 da change): todos os estados,
   os corpos das requisições, claro/escuro e janela de 1170px.
 
+## `/purchases` — Compras e Fornecedores (`add-supplier-product-analysis`)
+
+Abas "Por fornecedor" / "Por produto", filtros (categoria, fornecedor, produto, loja), período com seta
+de mês anterior e "Comparar com: mês anterior | média 3 meses". Todos os números e insights vêm de
+`GET /analysis/*` no gateway → `intelligence-service` (`src/lib/api/supplier-analysis.ts`); o painel só
+renderiza. Cada cifra é `Figure` (disponível **ou** com o motivo da ausência): nada que falta vira 0
+(`lib/supplier-analysis/format.ts`). Compras ainda não existem (Fase 2: nota fiscal + lançamento
+manual), então valor/unidades compradas dizem "Sem histórico de compras" e os insights que dependem
+delas não são gerados. Com loja filtrada, compras (da rede) ficam "—". Produto só pertence a fornecedor
+pelo vínculo cadastrado (`link-supplier.tsx` grava `supplierId` via `PATCH /products/:id`); hoje 0 dos
+255 produtos têm vínculo, então o modo fornecedor começa vazio até alguém vincular. Sem botões de
+Importar nota/Lançar compra nem itens Pedidos/Notas fiscais no menu até a Fase 2.
+
 ## Scripts
 
 `pnpm dev` (Turbopack) / `build` / `start` / `lint` / `typecheck`. ESLint flat

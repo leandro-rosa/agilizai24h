@@ -200,6 +200,17 @@ previsto. Diferenças reais, para o backtest e o dono avaliarem — não escondi
   → a mais recente). **Flag "caixa fechada"**: guardada e exibida, nunca lida por
   cálculo nenhum.
 
+## Análise por fornecedor e produto (`/analysis/*`, via gateway `supply:read`)
+
+`GET /analysis/suppliers/:id`, `/analysis/products/:sku`, `/analysis/cross?supplierId&sku`, todos com
+`period=YYYY-MM`, `compareTo=prev_month|avg_3m` e `storeId` opcional. Módulo `src/modules/analysis/`:
+`analysis.metrics.ts` e `analysis.insights.ts` são puros (com spec); `analysis.facts.ts` lê
+abastecimento/perda/vendas por loja×mês (cache de 1 min, lojas sintéticas fora; 404 = "não importado",
+nunca zero); `purchase-source.ts` é a porta de compras — hoje só `NullPurchaseSource`
+(`no_purchase_history`), a Fase 2 troca o provider. Situação por loja e "perda acima da rede" usam o
+grupo `analysis` de parâmetros (provisórios; calibrar com a distribuição real antes de tratar como
+definitivos). Produto→fornecedor só pelo `supplier_id` declarado em products-service.
+
 ## Importação da planilha de preços (`POST /baselines/import`)
 
 - **Ensaio por padrão**: sem `apply: true` nada é gravado; o relatório separa aceitas,

@@ -13,6 +13,8 @@ export interface ProductView {
   units_per_package: number | null
   package_type: string | null
   fractionable: boolean | null
+  /** Declared supplier (suppliers-service id), or null when none is registered. Never inferred. */
+  supplier_id: number | null
   /** Populated by the ingestion pipeline, not by create()/update() here — read-only from this API. */
   shelf_life_days: number | null
 }
@@ -85,7 +87,7 @@ export class ProductsService {
 
   async update(
     id: number,
-    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number; packageType?: string; fractionable?: boolean },
+    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number; packageType?: string; fractionable?: boolean; supplierId?: number | null },
   ): Promise<ProductView> {
     const existing = await this.prisma.product.findUnique({ where: { id } })
     if (!existing) throw new NotFoundException(`Product ${id} not found`)
@@ -98,6 +100,7 @@ export class ProductsService {
         ...(changes.unitsPerPackage !== undefined ? { units_per_package: changes.unitsPerPackage } : {}),
         ...(changes.packageType !== undefined ? { package_type: changes.packageType } : {}),
         ...(changes.fractionable !== undefined ? { fractionable: changes.fractionable } : {}),
+        ...(changes.supplierId !== undefined ? { supplier_id: changes.supplierId } : {}),
       },
     })
 
@@ -237,6 +240,7 @@ function toView(product: {
   units_per_package: number | null
   package_type: string | null
   fractionable: boolean | null
+  supplier_id: number | null
   shelf_life_days: number | null
 }): ProductView {
   return {
@@ -248,5 +252,6 @@ function toView(product: {
     shelf_life_days: product.shelf_life_days,
     package_type: product.package_type,
     fractionable: product.fractionable,
+    supplier_id: product.supplier_id,
   }
 }

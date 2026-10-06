@@ -9,6 +9,7 @@ import { BacktestModule } from './modules/backtest/backtest.module'
 import { BacktestWorker } from './modules/backtest/backtest.worker'
 import { BACKTEST_QUEUES } from './modules/backtest/backtest.constants'
 import { DbClientModule } from './modules/db-client/db-client.module'
+import { AnalysisModule } from './modules/analysis/analysis.module'
 import { BaselineModule } from './modules/baseline/baseline.module'
 import { FlagsModule } from './modules/flags/flags.module'
 import { ParametersModule } from './modules/parameters/parameters.module'
@@ -29,6 +30,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     DbClientModule,
     SourcesModule,
     ParametersModule,
+    AnalysisModule,
     ScheduleModule,
     BaselineModule,
     FlagsModule,

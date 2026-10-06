@@ -9,6 +9,7 @@ import { overviewApi } from "@/lib/api/overview";
 import { productsApi } from "@/lib/api/products";
 import { salesApi } from "@/lib/api/sales";
 import { storesApi } from "@/lib/api/stores";
+import { supplierAnalysisApi } from "@/lib/api/supplier-analysis";
 import { suppliersApi } from "@/lib/api/suppliers";
 import { treasuryApi } from "@/lib/api/treasury";
 import { accountingApi } from "@/lib/api/accounting";
@@ -30,6 +31,7 @@ export function makeStore() {
       [overviewApi.reducerPath]: overviewApi.reducer,
       [ingestionApi.reducerPath]: ingestionApi.reducer,
       [suppliersApi.reducerPath]: suppliersApi.reducer,
+      [supplierAnalysisApi.reducerPath]: supplierAnalysisApi.reducer,
       [treasuryApi.reducerPath]: treasuryApi.reducer,
       [accountingApi.reducerPath]: accountingApi.reducer,
       [billingApi.reducerPath]: billingApi.reducer,
@@ -48,6 +50,7 @@ export function makeStore() {
         overviewApi.middleware,
         ingestionApi.middleware,
         suppliersApi.middleware,
+        supplierAnalysisApi.middleware,
         treasuryApi.middleware,
         accountingApi.middleware,
         billingApi.middleware,

@@ -48,6 +48,7 @@ describe('gateway integration', () => {
     process.env.ACCOUNTING_SERVICE_URL = base
     process.env.BILLING_SERVICE_URL = base
     process.env.CAPEX_SERVICE_URL = base
+    process.env.INTELLIGENCE_SERVICE_URL = base
     process.env.ADMIN_ORIGIN = 'http://localhost:3000'
     process.env.AWS_REGION = 'us-east-1'
     process.env.AWS_ACCESS_KEY_ID = 'test'
@@ -242,6 +243,23 @@ describe('gateway integration', () => {
         .expect(200)
 
       expect(stub.calledWith('PATCH', '/products/1')).toBe(true)
+    })
+  })
+
+  describe('supplier / product analysis proxy routes', () => {
+    it('GET /analysis/suppliers/:id requires supply:read and forwards the query to intelligence-service', async () => {
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.STORES_READ] } })
+
+      await request(server()).get('/analysis/suppliers/5?period=2026-10').set('Cookie', `${SESSION}=good`).expect(403)
+
+      expect(stub.calledWith('GET', '/analysis/suppliers/5')).toBe(false)
+
+      stub.on('POST', '/auth/introspect', { status: 200, body: { ...validSession, permissions: [PERMISSIONS.SUPPLY_READ] } })
+      stub.on('GET', '/analysis/suppliers/5', { status: 200, body: { supplierId: 5 } })
+
+      await request(server()).get('/analysis/suppliers/5?period=2026-10&compareTo=avg_3m').set('Cookie', `${SESSION}=good`).expect(200)
+
+      expect(stub.calledWithQuery('GET', '/analysis/suppliers/5?period=2026-10&compareTo=avg_3m')).toBe(true)
     })
   })
 

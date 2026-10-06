@@ -106,3 +106,18 @@ describe('mergeParameters', () => {
     expect(() => mergeParameters(DEFAULT_PARAMETERS, { tolerance: { nope: 1 } } as never)).toThrow(/unknown parameter/)
   })
 })
+
+describe('the supplier / product analysis parameters', () => {
+  it('are provisional, valid by default, and refuse an unreachable "Atenção" band', () => {
+    expect(isProvisional('analysis.goodSellThrough')).toBe(true)
+    expect(validateParameters(DEFAULT_PARAMETERS)).toEqual([])
+
+    const inverted = mergeParameters(DEFAULT_PARAMETERS, { analysis: { criticalSellThrough: 0.7 } })
+    expect(validateParameters(inverted).join(' ')).toMatch(/criticalSellThrough must be below/)
+  })
+
+  it('refuse a loss-versus-network factor below 1', () => {
+    const bad = mergeParameters(DEFAULT_PARAMETERS, { analysis: { lossAboveNetworkFactor: 0.8 } })
+    expect(validateParameters(bad).join(' ')).toMatch(/lossAboveNetworkFactor/)
+  })
+})

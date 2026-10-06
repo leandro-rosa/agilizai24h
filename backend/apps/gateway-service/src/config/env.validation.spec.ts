@@ -14,6 +14,7 @@ const valid = {
   ACCOUNTING_SERVICE_URL: 'http://accounting:3000',
   BILLING_SERVICE_URL: 'http://billing:3000',
   CAPEX_SERVICE_URL: 'http://capex:3000',
+  INTELLIGENCE_SERVICE_URL: 'http://intelligence:3000',
   AWS_REGION: 'us-east-1',
   AWS_ACCESS_KEY_ID: 'key',
   AWS_SECRET_ACCESS_KEY: 'secret',

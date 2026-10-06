@@ -148,7 +148,7 @@ export const productsApi = createApi({
     }),
     updateProduct: builder.mutation<
       Product,
-      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number; packageType?: string; fractionable?: boolean } }
+      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number; packageType?: string; fractionable?: boolean; supplierId?: number | null } }
     >({
       query: ({ id, changes }) => ({ url: `/products/${id}`, method: "PATCH", body: changes }),
       invalidatesTags: ["Product"],
