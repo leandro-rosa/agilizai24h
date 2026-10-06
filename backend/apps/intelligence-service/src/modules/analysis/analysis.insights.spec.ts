@@ -19,8 +19,8 @@ const c = (restocked: number, sold: number, lost: number, revenueCents = 0): Cel
 function movements(current: Record<number, Record<string, Cell>>, previous: Record<number, Record<string, Cell>>, purchases?: [number, number]) {
   const skus = new Set(['A', 'B'])
   const cost = () => 100
-  const now = movementOf(monthOf(current), skus, cost, purchases ? new Map([['A', { units: purchases[0], cents: purchases[0] * 100 }]]) : null)
-  const before = movementOf(monthOf(previous), skus, cost, purchases ? new Map([['A', { units: purchases[1], cents: purchases[1] * 100 }]]) : null)
+  const now = movementOf(monthOf(current), skus, cost, purchases ? new Map([['A', { units: purchases[0], cents: purchases[0] * 100, bonusUnits: 0 }]]) : null)
+  const before = movementOf(monthOf(previous), skus, cost, purchases ? new Map([['A', { units: purchases[1], cents: purchases[1] * 100, bonusUnits: 0 }]]) : null)
 
   return { now, comparison: compareMovements(now, [before], 'prev_month') as ReturnType<typeof compareMovements> }
 }
@@ -112,5 +112,18 @@ describe('low-margin insight', () => {
 
     expect(found?.text).toBe('2 produtos têm margem bruta abaixo de 20%: Refri (5%), Água (18%).')
     expect(found?.evidence.figures.threshold).toBe(0.2)
+  })
+})
+
+describe('bonus insight', () => {
+  it('says how many units came as a bonus, only when there are some', () => {
+    const skus = new Set(['A'])
+    const bonusMonth = movementOf(monthOf({ 1: { A: c(10, 5, 0, 5000) } }), skus, () => 0, new Map([['A', { units: 0, cents: 0, bonusUnits: 12 }]]))
+    const none = movementOf(monthOf({ 1: { A: c(10, 5, 0, 5000) } }), skus, () => 100, new Map([['A', { units: 10, cents: 1000, bonusUnits: 0 }]]))
+    const comparison = compareMovements(bonusMonth, [bonusMonth], 'prev_month')
+    const run = (movement: Movement) => supplierInsights({ movement, comparison, products: [], networkLossShare: null, storesRestocked: 1, compareTo: 'prev_month', p: P })
+
+    expect(run(bonusMonth).find(i => i.kind === 'bonus_received')?.text).toMatch(/12 un\. como bonificação/)
+    expect(run(none).map(i => i.kind)).not.toContain('bonus_received')
   })
 })

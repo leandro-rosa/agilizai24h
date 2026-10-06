@@ -42,7 +42,7 @@ describe('movementOf', () => {
   })
 
   it('fills purchases when a source has them, counting only the requested SKUs', () => {
-    const m = movementOf(month, new Set(['A']), cost, new Map([['A', { units: 300, cents: 180000 }], ['Z', { units: 9, cents: 9 }]]))
+    const m = movementOf(month, new Set(['A']), cost, new Map([['A', { units: 300, cents: 180000, bonusUnits: 0 }], ['Z', { units: 9, cents: 9, bonusUnits: 0 }]]))
 
     expect(m.purchasedUnits).toEqual(ok(300))
     expect(m.purchasedCents).toEqual(ok(180000))
@@ -92,11 +92,45 @@ describe('profitability figures', () => {
   })
 })
 
+describe('bonus items are left out of margin and markup', () => {
+  const month = facts({ stores: { 1: { A: cell(30, 10, 0, 10000), S: cell(20, 15, 0, 11850) } } })
+  const purchases = new Map([
+    ['A', { units: 30, cents: 15000, bonusUnits: 0 }],
+    ['S', { units: 0, cents: 0, bonusUnits: 20 }],
+  ])
+
+  it('does not read a zero-cost bonus product as a 100% margin: its sales count, its margin does not', () => {
+    const m = movementOf(month, new Set(['S']), () => 0, purchases)
+
+    expect(m.sold).toEqual(ok(15))
+    expect(m.revenueCents).toEqual(ok(11850))
+    expect(m.marginShare).toEqual({ available: false, reason: 'bonus' })
+    expect(m.markup).toEqual({ available: false, reason: 'bonus' })
+    expect(m.grossProfitCents).toEqual({ available: false, reason: 'bonus' })
+    expect(m.bonusUnits).toEqual(ok(20))
+  })
+
+  it('computes margin over the paid SKUs only when a supplier has both', () => {
+    const m = movementOf(month, new Set(['A', 'S']), sku => (sku === 'A' ? 500 : 0), purchases)
+
+    // A: revenue 10000, cost 10 × 500 = 5000 → 50%. The bonus product's revenue is not in the margin.
+    expect(m.marginShare).toEqual(ok(0.5))
+    expect(m.grossProfitCents).toEqual(ok(5000))
+    // Coverage is over the revenue that has a cost basis: bonus revenue is out of the denominator.
+    expect(m.costCoverage).toEqual(ok(1))
+    expect(m.bonusUnits).toEqual(ok(20))
+  })
+
+  it('reports no bonus figure while there are no purchase records', () => {
+    expect(movementOf(month, new Set(['S']), () => 0, null).bonusUnits).toEqual({ available: false, reason: 'no_purchase_history' })
+  })
+})
+
 describe('movementOf under a store filter', () => {
   const month = facts({ stores: { 1: { A: cell(30, 24, 2, 24000) }, 2: { A: cell(30, 5, 8, 5000) } } })
 
   it('sums only that store and does not attribute network purchases to it', () => {
-    const m = movementOf(month, new Set(['A']), () => 600, new Map([['A', { units: 300, cents: 1 }]]), 2)
+    const m = movementOf(month, new Set(['A']), () => 600, new Map([['A', { units: 300, cents: 1, bonusUnits: 0 }]]), 2)
 
     expect(m.restocked).toEqual(ok(30))
     expect(m.sold).toEqual(ok(5))
@@ -191,7 +225,7 @@ describe('movementOfParts over several months', () => {
   })
 
   it('reports purchases only for months that have them, flagged partial when some do not', () => {
-    const withPurchases = { facts: oct, cost: () => 600, purchases: new Map([['A', { units: 100, cents: 1 }]]) }
+    const withPurchases = { facts: oct, cost: () => 600, purchases: new Map([['A', { units: 100, cents: 1, bonusUnits: 0 }]]) }
     const m = movementOfParts([part(sep, 500), withPurchases], new Set(['A']))
 
     expect(m.purchasedUnits).toEqual({ available: true, value: 100, partial: true })

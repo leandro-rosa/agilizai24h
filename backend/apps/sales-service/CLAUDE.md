@@ -132,3 +132,8 @@ DATABASE_URL=... REDIS_QUEUE_HOST=127.0.0.1 REDIS_QUEUE_PORT=6390 \
 - `BullMQController` do `hold-it` fica exposto em `/holdit/bullmq` (default da
   lib). Como o serviço é interno à rede, não é alcançável de fora, mas vale
   desabilitar (`exposeController: false`) se algum dia for exposto.
+
+## Vendidos por SKU numa janela de dias (`GET /sales/network/sold-by-sku?from&to&skus`)
+
+Soma da rede dos recibos `OK` com data (`occurred_at`), por SKU. Devolve também `months_without_dated_receipts` (mês sem recibo ou com recibo sem data: o dia é **desconhecido, não zero**) e `stores_missing`. Base do acerto semanal do consignado. Declarado antes de `:storeId`.
+

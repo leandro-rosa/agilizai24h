@@ -10,6 +10,7 @@ import { DriveScanWorker } from './modules/drive-source/jobs/drive-scan.worker'
 import { DriveValidateWorker } from './modules/drive-source/jobs/drive-validate.worker'
 import { DriveSourceModule } from './modules/drive-source/drive-source.module'
 import { IngestionModule } from './modules/ingestion/ingestion.module'
+import { PurchaseInvoiceModule } from './modules/purchase-invoice/purchase-invoice.module'
 import { REGISTERED_QUEUES } from './registered-queues'
 import { TreasuryDriveImportWorker } from './modules/treasury-drive-source/jobs/treasury-drive-import.worker'
 import { TreasuryDriveScanWorker } from './modules/treasury-drive-source/jobs/treasury-drive-scan.worker'
@@ -33,6 +34,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     HealthModule,
     DbClientModule,
     IngestionModule,
+    PurchaseInvoiceModule,
     DriveSourceModule,
     TreasuryDriveSourceModule,
     TreasuryIngestionModule,

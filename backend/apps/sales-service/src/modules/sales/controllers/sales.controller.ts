@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common'
+import { BadRequestException, Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { SalesService } from '../services/sales.service'
 import { SalesTransactionsService } from '../services/sales-transactions.service'
@@ -10,6 +10,22 @@ export class SalesController {
     private readonly sales: SalesService,
     private readonly transactions: SalesTransactionsService,
   ) {}
+
+  /** Declared before `:storeId` so "network" is not read as a store id. */
+  @Get('network/sold-by-sku')
+  @ApiOperation({
+    summary: 'Units sold per SKU over a window of days, network-wide, from dated receipts',
+    description: 'Only `OK` receipts with a timestamp count. `months_without_dated_receipts` lists the months of the window whose day sales are unknown.',
+  })
+  @ApiQuery({ name: 'from', required: true, example: '2026-10-05' })
+  @ApiQuery({ name: 'to', required: true, example: '2026-10-11' })
+  @ApiQuery({ name: 'skus', required: true, description: 'Comma separated' })
+  soldBySku(@Query('from') from: string, @Query('to') to: string, @Query('skus') skus: string) {
+    const real = (day?: string) => !!day && /^\d{4}-\d{2}-\d{2}$/.test(day) && new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) === day
+    if (!real(from) || !real(to) || from > to) throw new BadRequestException('from and to must be real dates, YYYY-MM-DD, with from <= to')
+
+    return this.transactions.soldBySku(from, to, (skus ?? '').split(',').map(s => s.trim()).filter(Boolean))
+  }
 
   @Get(':storeId')
   @ApiOperation({

@@ -72,6 +72,17 @@ export function supplierInsights(i: SupplierInsightInput): Insight[] {
     })
   }
 
+  const bonus = value(i.movement.bonusUnits)
+  if (bonus !== null && bonus > 0) {
+    out.push({
+      kind: 'bonus_received',
+      label: 'FATO',
+      tone: 'info',
+      text: `Foram recebidas ${units(bonus)} como bonificação neste período: não entram no gasto, na margem nem no markup.`,
+      evidence: { figures: { bonusUnits: bonus } },
+    })
+  }
+
   if (sold !== null && soldChange !== null && direction(soldChange, i.p.stableVariationShare) !== 'stable') {
     out.push({
       kind: 'sales_change',

@@ -261,3 +261,8 @@ definitivos). Produto→fornecedor só pelo `supplier_id` declarado em products-
 integração esvaziam as tabelas e **se recusam a rodar** contra algo que pareça o
 banco real (`test/support/reset-db.ts`); nunca aponte `DATABASE_URL` para o banco
 de quem opera.
+
+### Compras reais e bonificação (`add-purchases-and-settlement`)
+
+`PurchaseSource` agora é `HttpPurchaseSource` (lê `suppliers-service /purchases/summary`, cache 60 s; `SUPPLIERS_SERVICE_URL`). Mês antes da primeira compra → `null` (**"Sem histórico de compras", nunca zero**); depois da base, SKU sem compra é zero real. `purchasedUnits/Cents` = pago + consignado; **`bonusUnits` à parte**; SKU recebido só como bonificação no mês fica **fora de margem, markup, lucro e atenção** (motivo `bonus`) e fora do denominador da cobertura do custo. Falha do suppliers-service **não** vira "sem histórico": a análise falha de forma explícita.
+

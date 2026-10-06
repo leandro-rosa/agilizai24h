@@ -5,7 +5,7 @@
  * so a consumer cannot render a missing figure as 0 (the same rule as the
  * partitioned cost result in products-service).
  */
-export type UnavailableReason = 'no_purchase_history' | 'never_ingested' | 'no_cost' | 'no_base'
+export type UnavailableReason = 'no_purchase_history' | 'never_ingested' | 'no_cost' | 'no_base' | 'bonus'
 
 export type Figure =
   | {
@@ -27,6 +27,8 @@ export type InsightLabel = 'FATO' | 'MÉTRICA DERIVADA' | 'ESTIMATIVA'
 export interface Movement {
   purchasedUnits: Figure
   purchasedCents: Figure
+  /** Units received as a bonus (bonificação): not bought, not spend, and left out of margin and markup. */
+  bonusUnits: Figure
   restocked: Figure
   sold: Figure
   lost: Figure

@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common'
 import { AnalysisController } from './analysis.controller'
 import { AnalysisService } from './analysis.service'
-import { NullPurchaseSource, PurchaseSource } from './purchase-source'
+import { HttpPurchaseSource, PurchaseSource } from './purchase-source'
 
-/** Phase 1: no purchase source exists, so the null one is wired. Phase 2 swaps the provider, nothing else. */
+/** Purchases come from suppliers-service. `NullPurchaseSource` is only for tests. */
 @Module({
   controllers: [AnalysisController],
-  providers: [AnalysisService, { provide: PurchaseSource, useClass: NullPurchaseSource }],
+  providers: [AnalysisService, { provide: PurchaseSource, useClass: HttpPurchaseSource }],
 })
 export class AnalysisModule {}

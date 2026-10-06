@@ -7,7 +7,7 @@ import { gatewayBaseQuery } from "./base-query";
  * Uma cifra nunca é um número solto: ou está disponível, ou diz POR QUE não está
  * — assim nada que falta é desenhado como 0.
  */
-export type UnavailableReason = "no_purchase_history" | "never_ingested" | "no_cost" | "no_base";
+export type UnavailableReason = "no_purchase_history" | "never_ingested" | "no_cost" | "no_base" | "bonus";
 
 export type Figure =
   | { available: true; value: number; partial?: boolean; /** Rateado, não registrado (a perda de um dia). */ estimated?: boolean }
@@ -20,6 +20,8 @@ export type InsightLabel = "FATO" | "MÉTRICA DERIVADA" | "ESTIMATIVA";
 export interface Movement {
   purchasedUnits: Figure;
   purchasedCents: Figure;
+  /** Unidades recebidas como bonificação: não são compra nem gasto, e ficam fora da margem. */
+  bonusUnits: Figure;
   restocked: Figure;
   sold: Figure;
   lost: Figure;

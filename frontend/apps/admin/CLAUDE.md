@@ -1029,3 +1029,8 @@ que faz a sessão funcionar.
   só têm typecheck/lint/build verificados.
 - `frontend/common/` continua vazio; este app não compartilha nada com o
   `site` ainda (nenhum ganho óbvio de baixo risco identificado).
+
+## Compras: pedidos, notas e acerto (`add-purchases-and-settlement`)
+
+Menu "Compras": **Compras e Fornecedores** (`/purchases`, análise), **Pedidos** (`/purchases/orders`), **Notas fiscais de compra** (`/purchases/invoices`) e **Acerto semanal** (`/purchases/settlements`). Ações "Importar nota fiscal" (XML da NF-e → prévia com linhas resolvidas/sem correspondência, condição por item, nada grava antes de confirmar) e "Lançar compra" (manual; nº da nota opcional). Cada item é **Pago**, **Bonificação** (não custa nada, fora da margem) ou **Consignado** (só se paga o que vender). Acerto: o painel calcula uma **proposta** com a evidência (entregue, vendido, vencido, devolvido, sem vender, devido); vencido/devolvido são digitados por quem acerta; só vale depois de confirmar; semana parcial exige "confirmar mesmo parcial"; "pago" é só registro. Item de menu ativo = o mais específico (`lib/active-nav.ts`). Dado real em 2026-10-06: nenhuma compra registrada ainda (a base começa quando a primeira entrar).
+

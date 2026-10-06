@@ -13,6 +13,15 @@ class EnvironmentVariables {
   @IsNotEmpty()
   DATABASE_URL: string
 
+  /** The services this one reads (never writes): sold units for the weekly settlement, and the catalogue to validate SKUs. */
+  @IsString()
+  @IsNotEmpty()
+  SALES_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  PRODUCTS_SERVICE_URL: string
+
   @IsOptional()
   @IsInt()
   @Min(1)

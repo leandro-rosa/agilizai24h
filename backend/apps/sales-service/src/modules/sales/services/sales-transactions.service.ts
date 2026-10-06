@@ -100,6 +100,46 @@ export class SalesTransactionsService {
 
     return records.map(toView)
   }
+
+  /**
+   * Units sold per SKU over a window of days, network-wide, from the dated receipts (`OK` results only) — what the
+   * weekly settlement of consigned items is built on. Months whose receipts carry no timestamp (or no receipts at all)
+   * are reported, because for them the sold units of a day are unknown, not zero.
+   */
+  async soldBySku(from: string, to: string, skus: string[]): Promise<SoldBySku> {
+    const months = monthsOfWindow(from, to)
+    const start = new Date(`${from}T00:00:00Z`)
+    const end = new Date(new Date(`${to}T00:00:00Z`).getTime() + 86_400_000)
+
+    const grouped = skus.length
+      ? await this.prisma.salesTransaction.groupBy({
+          by: ['sku'],
+          where: { result: 'OK', sku: { in: skus }, occurred_at: { gte: start, lt: end } },
+          _sum: { quantity: true, amount_paid_cents: true },
+        })
+      : []
+
+    const withoutDated: string[] = []
+    let storesMissing = 0
+    for (const period of months) {
+      const [total, undated, transactionStores, recordStores] = await Promise.all([
+        this.prisma.salesTransaction.count({ where: { period } }),
+        this.prisma.salesTransaction.count({ where: { period, occurred_at: null } }),
+        this.prisma.salesTransaction.findMany({ where: { period }, distinct: ['store_id'], select: { store_id: true } }),
+        this.prisma.salesRecord.findMany({ where: { period }, distinct: ['store_id'], select: { store_id: true } }),
+      ])
+      if (total === 0 || undated > 0) withoutDated.push(period)
+      else storesMissing = Math.max(storesMissing, Math.max(0, recordStores.length - transactionStores.length))
+    }
+
+    return {
+      from,
+      to,
+      rows: grouped.map(row => ({ sku: row.sku, quantity: row._sum.quantity ?? 0, revenue_cents: row._sum.amount_paid_cents ?? 0 })),
+      months_without_dated_receipts: withoutDated,
+      stores_missing: storesMissing,
+    }
+  }
 }
 
 function toView(record: SalesTransactionView): SalesTransactionView {
@@ -126,4 +166,29 @@ function toView(record: SalesTransactionView): SalesTransactionView {
     buyer_number: record.buyer_number,
     ingestion_id: record.ingestion_id,
   }
+}
+
+export interface SoldBySku {
+  from: string
+  to: string
+  rows: { sku: string; quantity: number; revenue_cents: number }[]
+  months_without_dated_receipts: string[]
+  stores_missing: number
+}
+
+/** Every `YYYY-MM` a window of days touches. */
+export function monthsOfWindow(from: string, to: string): string[] {
+  const out: string[] = []
+  let [year, month] = from.slice(0, 7).split('-').map(Number)
+  const [endYear, endMonth] = to.slice(0, 7).split('-').map(Number)
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    out.push(`${year}-${String(month).padStart(2, '0')}`)
+    month++
+    if (month > 12) {
+      month = 1
+      year++
+    }
+  }
+
+  return out
 }

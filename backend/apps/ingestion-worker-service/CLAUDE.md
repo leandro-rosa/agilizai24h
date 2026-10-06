@@ -586,3 +586,8 @@ Ver referências de spec/plano (original e extensão multi-bank) logo acima.
 ## Data/Hora das vendas por transação (corrigido 2026-10-06)
 
 `Data/Hora` chega do ExcelJS como `Date`, mas passa pela fila (BullMQ → JSON) e vira texto ISO; `toExcelDate` só aceitava `Date`/número e devolvia `null`, então **todas** as transações de ago/set-2026 ficaram sem `occurred_at`. `toExcelDate` agora lê texto ISO e `dd/mm/aaaa [hh:mm[:ss]]` (e recusa data impossível). Ago e set foram reimportados (mesmos arquivos, totais mensais idênticos): 100% das linhas datadas. Meses anteriores a ago/2026 não têm detalhe por transação (só o agregado mensal).
+
+## NF-e de compra (`src/modules/purchase-invoice/`)
+
+`POST /purchase-invoices/parse {xml}` → emitente (CNPJ/CPF), número, data (como escrita, sem mudar fuso), itens (código, EAN ou `null` se "SEM GTIN", quantidade, custo unitário em centavos). **Sem estado, sem fila, sem banco** (um XML pequeno; a prévia precisa do resultado na hora); o gateway guarda o arquivo bruto antes. Leitor de XML próprio e mínimo (`xml.ts`, sem dependência nova). XML que não é NF-e, ou sem o que uma compra precisa, é **422** com o motivo — nunca se adivinha. Quantidade fracionada é sinalizada (`quantityIsWhole`), não arredondada.
+

@@ -6,6 +6,8 @@ import { toast } from "sonner";
 
 import { DateRangePicker, type DayRange as PickerRange } from "@/components/date-range-picker";
 import { PageHeader } from "@/components/page-header";
+import { InvoiceImportDialog } from "@/components/purchases/invoice-import-dialog";
+import { PurchaseFormDialog } from "@/components/purchases/purchase-form-dialog";
 import { RequestState } from "@/components/request-state";
 import { ProductView } from "@/components/supplier-analysis/product-view";
 import { SupplierView } from "@/components/supplier-analysis/supplier-view";
@@ -140,7 +142,9 @@ export default function PurchasesPage() {
         title="Compras e Fornecedores"
         description="Acompanhe o que foi comprado, abastecido, vendido e perdido."
         actions={
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
+            <InvoiceImportDialog />
+            <PurchaseFormDialog />
             <DateRangePicker value={draft ?? range} onChange={onPick} />
             <Button variant="outline" size="icon" aria-label="Período anterior" onClick={() => shift(-1)}>
               <ChevronLeft className="size-4" />
