@@ -13,7 +13,7 @@ import type { Overview, OverviewInput } from "./types";
 
 /** Limites declarados — viram texto da tela e do PDF, não rodapé escondido. */
 export const PHASE1_LIMITATIONS = [
-  "Produtos em teste: não há cadastro. A lista é derivada do abastecimento (mês do primeiro abastecimento do SKU na rede, em poucas lojas) com regras provisórias; o sistema guarda só o mês, não a data da visita.",
+  "Produtos em teste: não há cadastro. A lista é derivada do abastecimento (mês do primeiro abastecimento do SKU na rede, nos últimos 3 meses) com regras provisórias; o sistema guarda só o mês, não a data da visita.",
   "Troca de código de barras: o sistema só sugere pares por nome parecido; o vínculo exige confirmação do operador.",
   "Investidores: só existem aportes (o campo de tipo descreve o que foi aportado). Devolução, distribuição e remuneração não existem no sistema.",
   "Notas fiscais pendentes (a emitir): o conceito não existe; só há notas emitidas a receber.",

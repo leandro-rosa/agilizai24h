@@ -173,7 +173,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
         <View style={s.card}>
           <Text style={s.h2}>Produtos em teste</Text>
           {!o.tests ? <Unavail what="abastecimento" /> : o.tests.rows.length === 0 ? (
-            <Text style={s.small}>Nenhum SKU com primeiro abastecimento nos ultimos {TESTS.WINDOW_MONTHS} meses em ate {TESTS.MAX_STORES} lojas.</Text>
+            <Text style={s.small}>Nenhum SKU com primeiro abastecimento nos ultimos {TESTS.WINDOW_MONTHS} meses.</Text>
           ) : (
             <View>
               <View style={s.th}>
@@ -198,7 +198,7 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
               ))}
             </View>
           )}
-          <Text style={[s.small, { marginTop: 4 }]}>Lista derivada do abastecimento (primeiro abastecimento na rede em ate {TESTS.MAX_STORES} lojas, regra provisoria). Sinal e evidencia, nao decisao.</Text>
+          <Text style={[s.small, { marginTop: 4 }]}>Lista derivada do abastecimento (primeiro abastecimento na rede nos ultimos {TESTS.WINDOW_MONTHS} meses, regra provisoria). Sinal e evidencia, nao decisao.</Text>
         </View>
         <Footer o={o} meta={meta} />
       </Page>
