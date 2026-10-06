@@ -160,6 +160,9 @@ export interface PriceImpact {
     /** Margem ÷ receita, nos mesmos SKUs. */
     pctBefore: number | null;
     pctAfter: number | null;
+    /** Unidades vendidas nos SKUs com custo (base do "lucro bruto por unidade"). */
+    unitsBefore: number;
+    unitsAfter: number;
     priceEffectCents: number;
     volumeEffectCents: number;
   } | null;
@@ -210,7 +213,7 @@ export function buildPriceChanges(pv: PriceVolume | null, names: Record<string, 
     });
   let revBefore = 0;
   let revAfter = 0;
-  const m = { covered: 0, before: 0, after: 0, revBefore: 0, revAfter: 0, price: 0, volume: 0 };
+  const m = { covered: 0, before: 0, after: 0, revBefore: 0, revAfter: 0, price: 0, volume: 0, unitsBefore: 0, unitsAfter: 0 };
   for (const x of r.skus) {
     const rev0 = x.priceBeforeCents * x.unitsBefore;
     const rev1 = x.priceAfterCents * x.unitsAfter;
@@ -223,6 +226,8 @@ export function buildPriceChanges(pv: PriceVolume | null, names: Record<string, 
     m.after += (x.priceAfterCents - cost) * x.unitsAfter;
     m.revBefore += rev0;
     m.revAfter += rev1;
+    m.unitsBefore += x.unitsBefore;
+    m.unitsAfter += x.unitsAfter;
     m.price += (x.priceAfterCents - x.priceBeforeCents) * x.unitsAfter;
     m.volume += (x.unitsAfter - x.unitsBefore) * (x.priceBeforeCents - cost);
   }
@@ -238,6 +243,8 @@ export function buildPriceChanges(pv: PriceVolume | null, names: Record<string, 
             afterCents: Math.round(m.after),
             pctBefore: m.revBefore > 0 ? m.before / m.revBefore : null,
             pctAfter: m.revAfter > 0 ? m.after / m.revAfter : null,
+            unitsBefore: m.unitsBefore,
+            unitsAfter: m.unitsAfter,
             priceEffectCents: Math.round(m.price),
             volumeEffectCents: Math.round(m.volume),
           },
@@ -287,61 +294,63 @@ export interface PriceImpactReading {
   lines: string[];
 }
 
-const updown = (d: number, up: string, down: string) => (d >= 0 ? up : down);
-
 /**
- * Leitura do saldo do reajuste. Só aritmética: compara o ganho de preço com a perda de unidades
- * (em faturamento e em margem) e diz se o saldo foi positivo ou negativo. NÃO afirma que o preço causou a queda de unidades.
+ * Leitura do saldo do reajuste, em linguagem simples. "Lucro bruto" = o que sobra do preço de venda depois de pagar o custo
+ * do produto (é a margem de contribuição do painel). Só aritmética: NÃO afirma que o preço causou a queda de unidades.
  */
 export function priceImpactReading(pc: PriceChanges, money: (cents: number) => string): PriceImpactReading {
   const i = pc.impact;
+  const m = i.margin;
   const dRev = i.revenueAfterCents - i.revenueBeforeCents;
   const abs = (c: number) => money(Math.abs(c));
-  const revPct = i.revenueBeforeCents > 0 ? dRev / i.revenueBeforeCents : null;
-  const pctTxt = (v: number | null) => (v === null ? "" : ` (${v >= 0 ? "+" : "−"}${Math.abs(v * 100).toFixed(1).replace(".", ",")}%)`);
-  const lines: string[] = [`Faturamento dos ${pc.count} reajustados: ${money(i.revenueBeforeCents)} → ${money(i.revenueAfterCents)}${pctTxt(revPct)}.`];
-  const m = i.margin;
-  let headline = `Faturamento dos reajustados ${updown(dRev, "subiu", "caiu")} ${abs(dRev)}.`;
-  if (m) {
-    const dM = m.afterCents - m.beforeCents;
-    headline = `Nos reajustados, o faturamento ${updown(dRev, "subiu", "caiu")} ${abs(dRev)} e a margem de contribuição em R$ ${updown(dM, "subiu", "caiu")} ${abs(dM)}.`;
-    const pp = m.pctBefore !== null && m.pctAfter !== null ? ` (${Math.round(m.pctBefore * 100)}% → ${Math.round(m.pctAfter * 100)}% da receita)` : "";
-    lines.push(`Margem de contribuição: ${money(m.beforeCents)} → ${money(m.afterCents)}${pp}.`);
-    const bigger = m.priceEffectCents >= Math.abs(m.volumeEffectCents);
-    lines.push(
-      `O ganho de preço (${updown(m.priceEffectCents, "+", "−")}${abs(m.priceEffectCents)}) foi ${bigger ? "maior" : "menor"} que o efeito das unidades (${updown(m.volumeEffectCents, "+", "−")}${abs(m.volumeEffectCents)}) na margem: saldo ${updown(dM, "+", "−")}${abs(dM)}.`,
-    );
-    if (m.coveredCount < pc.count) lines.push(`Margem calculada em ${m.coveredCount} de ${pc.count} produtos (os demais sem custo resolvido).`);
-  } else {
-    lines.push("Margem não calculada: nenhum dos reajustados tem custo resolvido.");
-  }
-  const pctOf = (a: number, b: number) => (a > 0 ? (b - a) / a : null);
-  const rep = pctOf(pc.unitsBefore, pc.unitsAfter);
-  const oth = pctOf(pc.others.unitsBefore, pc.others.unitsAfter);
-  if (rep !== null) {
-    const fmt = (v: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v * 100).toFixed(0)}%`;
-    lines.push(
-      `Vendas: unidades ${fmt(rep)} (${pc.unitsBefore.toLocaleString("pt-BR")} → ${pc.unitsAfter.toLocaleString("pt-BR")}) nos reajustados${oth !== null ? ` contra ${fmt(oth)} nos ${pc.others.count} demais produtos` : ""}${oth !== null && rep < oth - 0.02 ? " — a queda se concentra onde o preço subiu, o que não prova causa" : ""}.`,
-    );
-  }
-  lines.push(`Calendário: ${pc.days.after} dias contra ${pc.days.before}. Custo = o do catálogo na data; preço = preço realizado (receita ÷ unidades).`);
-  const unitsDropped = pc.unitsAfter < pc.unitsBefore;
-  const unitsPctTxt = pc.unitsBefore > 0 ? `${Math.abs(Math.round(((pc.unitsAfter - pc.unitsBefore) / pc.unitsBefore) * 100))}%` : "";
+  const n = (v: number) => v.toLocaleString("pt-BR");
+  const pctAbs = (v: number) => `${Math.abs(Math.round(v * 100))}%`;
+  const unitsPct = pc.unitsBefore > 0 ? (pc.unitsAfter - pc.unitsBefore) / pc.unitsBefore : null;
+  const unitsFell = pc.unitsAfter < pc.unitsBefore;
+  const unitsPhrase =
+    unitsPct === null
+      ? ""
+      : `vendeu ${pctAbs(unitsPct)} ${unitsFell ? "menos" : "mais"} unidades (${n(pc.unitsBefore)} → ${n(pc.unitsAfter)})`;
+  const revPhrase = `entrou ${abs(dRev)} ${dRev >= 0 ? "a mais" : "a menos"} de faturamento`;
+  const head = `Nos ${pc.count} produtos reajustados`;
+
+  const lines: string[] = [];
+  let headline: string;
   let verdict: PriceImpactReading["verdict"];
   if (!m) {
-    verdict = { margin: "sem_dados", revenueRecovered: dRev >= 0, title: "Sem como medir a margem", detail: "Nenhum dos reajustados tem custo resolvido, então só dá para olhar o faturamento." };
+    headline = `${head}: ${unitsPhrase}, ${revPhrase}.`;
+    verdict = { margin: "sem_dados", revenueRecovered: dRev >= 0, title: "Não dá para medir o lucro", detail: `${head}: ${unitsPhrase}, ${revPhrase}. Nenhum deles tem custo cadastrado, então não sei quanto sobrou de lucro.` };
+    lines.push("Falta o custo dos produtos para calcular o lucro bruto.");
   } else {
     const dM = m.afterCents - m.beforeCents;
     const ok = dM >= 0;
-    const units = unitsDropped ? `mesmo com ${unitsPctTxt} menos unidades` : "e as unidades não caíram";
+    headline = `${head}: ${unitsPhrase}, ${revPhrase} e o lucro bruto ${ok ? "subiu" : "caiu"} ${abs(dM)}.`;
     verdict = {
       margin: ok ? "sim" : "nao",
       revenueRecovered: dRev >= 0,
-      title: ok ? "Sim, a margem compensou a queda das vendas" : "Não, a margem não compensou a queda das vendas",
+      title: ok ? (unitsFell ? "Sim: vendeu menos, mas sobrou mais dinheiro" : "Sim: vendeu mais e sobrou mais dinheiro") : "Não: sobrou menos dinheiro",
       detail:
-        `A margem em R$ ${updown(dM, "subiu", "caiu")} ${abs(dM)} ${units}: o preço ${updown(m.priceEffectCents, "somou", "tirou")} ${abs(m.priceEffectCents)} e as unidades ${updown(m.volumeEffectCents, "somaram", "tiraram")} ${abs(m.volumeEffectCents)}. ` +
-        `O faturamento ${dRev >= 0 ? "também se recuperou" : "NÃO se recuperou"}: ${updown(dRev, "subiu", "caiu")} ${abs(dRev)}.`,
+        `${head}: ${unitsPhrase}; ${revPhrase}; e, depois de pagar o custo dos produtos, sobraram ${abs(dM)} ${ok ? "a mais" : "a menos"} (${money(m.beforeCents)} → ${money(m.afterCents)}). ` +
+        `Ou seja: o faturamento ${dRev >= 0 ? "também subiu" : "NÃO se recuperou"}, mas o lucro bruto ${ok ? "compensou a queda das vendas" : "não compensou a queda das vendas"}.`,
     };
+    const perUnit = (c: number, u: number) => (u > 0 ? `R$ ${(c / u / 100).toFixed(2).replace(".", ",")}` : null);
+    const pu0 = perUnit(m.beforeCents, m.unitsBefore);
+    const pu1 = perUnit(m.afterCents, m.unitsAfter);
+    if (pu0 && pu1) lines.push(`Cada unidade vendida deixava ${pu0} de lucro bruto e agora deixa ${pu1}.`);
+    if (m.pctBefore !== null && m.pctAfter !== null) lines.push(`De cada R$ 100 vendidos, sobravam R$ ${Math.round(m.pctBefore * 100)} e agora sobram R$ ${Math.round(m.pctAfter * 100)}.`);
+    lines.push(
+      `Como o saldo fecha: o preço mais alto rendeu ${m.priceEffectCents >= 0 ? "+" : "−"}${abs(m.priceEffectCents)} e as unidades que deixaram de ser vendidas ${m.volumeEffectCents >= 0 ? "renderam" : "custaram"} ${m.volumeEffectCents >= 0 ? "+" : "−"}${abs(m.volumeEffectCents)}; saldo ${dM >= 0 ? "+" : "−"}${abs(dM)}.`,
+    );
+    if (m.coveredCount < pc.count) lines.push(`O lucro foi calculado em ${m.coveredCount} dos ${pc.count} produtos (os outros não têm custo cadastrado).`);
   }
+  const pctOf = (a: number, b: number) => (a > 0 ? (b - a) / a : null);
+  const oth = pctOf(pc.others.unitsBefore, pc.others.unitsAfter);
+  if (oth !== null && unitsPct !== null) {
+    const fmt = (v: number) => `${v >= 0 ? "+" : "−"}${pctAbs(v)}`;
+    lines.push(
+      `Nos outros ${pc.others.count} produtos, que não mudaram de preço, as unidades variaram ${fmt(oth)}${unitsPct < oth - 0.02 ? ". A queda ficou concentrada nos que subiram de preço, mas isso é só o que os números mostram: não prova que o preço causou a queda" : ""}.`,
+    );
+  }
+  lines.push(`Lucro bruto = preço de venda menos o custo do produto (custo do catálogo). Preço = média realmente cobrada, já com descontos. O mês tem ${pc.days.after} dias e o anterior, ${pc.days.before}.`);
   return { headline, verdict, lines };
 }

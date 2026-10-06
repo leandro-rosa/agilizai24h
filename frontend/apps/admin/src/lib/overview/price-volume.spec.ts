@@ -89,26 +89,28 @@ describe("buildPriceChanges — saldo do reajuste", () => {
 
 
 describe("priceImpactReading", () => {
-  it("diz o saldo em faturamento e margem sem afirmar causa", () => {
+  it("explica em linguagem simples: vendeu menos, entrou menos, mas sobrou mais", () => {
     const cells2 = ["A", "B", "C"].flatMap((k) => [cell(k, "2026-08", 100, 100_000), cell(k, "2026-09", 80, 96_000)]);
     const pc = buildPriceChanges(buildPriceVolume("2026-09", "2026-08", cells2, both)!, {}, { A: 500, B: 500, C: 500 })!;
     const r = priceImpactReading(pc, (c) => `R$${Math.round(c / 100)}`);
-    expect(r.headline).toBe("Nos reajustados, o faturamento caiu R$120 e a margem de contribuição em R$ subiu R$180.");
-    expect(r.lines.join(" ")).toMatch(/ganho de preço \(\+R\$480\) foi maior que o efeito das unidades \(−R\$300\)/);
-    expect(r.lines.join(" ")).toMatch(/Vendas: unidades −20%/);
-    expect(r.lines.join(" ")).not.toMatch(/\bcausou\b/);
-    // Resposta direta: margem compensou (subiu R$180 com 20% menos unidades), faturamento não.
     expect(r.verdict.margin).toBe("sim");
     expect(r.verdict.revenueRecovered).toBe(false);
-    expect(r.verdict.title).toBe("Sim, a margem compensou a queda das vendas");
-    expect(r.verdict.detail).toMatch(/mesmo com 20% menos unidades/);
+    expect(r.verdict.title).toBe("Sim: vendeu menos, mas sobrou mais dinheiro");
+    expect(r.verdict.detail).toMatch(/vendeu 20% menos unidades \(300 → 240\)/);
+    expect(r.verdict.detail).toMatch(/entrou R\$120 a menos de faturamento/);
+    expect(r.verdict.detail).toMatch(/sobraram R\$180 a mais/);
     expect(r.verdict.detail).toMatch(/NÃO se recuperou/);
+    const all = r.lines.join(" ");
+    expect(all).toMatch(/Cada unidade vendida deixava R\$ 5,00 de lucro bruto e agora deixa R\$ 7,00/);
+    expect(all).toMatch(/De cada R\$ 100 vendidos, sobravam R\$ 50 e agora sobram R\$ 58/);
+    expect(all).not.toMatch(/\bcausou\b|margem de contribuição|efeito das unidades/);
   });
 
-  it("quando a margem em R$ cai, diz que não compensou", () => {
-    // Preço sobe pouco e as unidades despencam: A 100 un a R$10 -> 40 un a R$10,50, custo R$5.
-    const c = [cell("A", "2026-08", 100, 100_000), cell("A", "2026-09", 40, 42_000), cell("B", "2026-08", 100, 100_000), cell("B", "2026-09", 40, 42_000), cell("C", "2026-08", 100, 100_000), cell("C", "2026-09", 40, 42_000)];
+  it("quando o lucro cai, diz que sobrou menos dinheiro", () => {
+    const c = ["A", "B", "C"].flatMap((k) => [cell(k, "2026-08", 100, 100_000), cell(k, "2026-09", 40, 42_000)]);
     const pc = buildPriceChanges(buildPriceVolume("2026-09", "2026-08", c, both)!, {}, { A: 500, B: 500, C: 500 })!;
-    expect(priceImpactReading(pc, (x) => `R$${Math.round(x / 100)}`).verdict.margin).toBe("nao");
+    const r = priceImpactReading(pc, (x) => `R$${Math.round(x / 100)}`);
+    expect(r.verdict.margin).toBe("nao");
+    expect(r.verdict.title).toBe("Não: sobrou menos dinheiro");
   });
 });

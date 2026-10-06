@@ -22,32 +22,32 @@ export function PriceChangesCard({ changes }: { changes: PriceChanges | null }) 
       <div
         className={`rounded-lg border p-4 ${reading.verdict.margin === "sim" ? "border-success/50 bg-success/10" : reading.verdict.margin === "nao" ? "border-destructive/50 bg-destructive/10" : "border-border bg-muted/30"}`}
       >
-        <p className="text-xs font-semibold text-muted-foreground">A queda nas vendas foi compensada em margem?</p>
+        <p className="text-xs font-semibold text-muted-foreground">Vendeu menos — o lucro compensou?</p>
         <p className={`text-lg font-semibold ${reading.verdict.margin === "sim" ? "text-success" : reading.verdict.margin === "nao" ? "text-destructive" : ""}`}>{reading.verdict.title}</p>
-        <p className="text-sm">{reading.verdict.detail}</p>
+        <p className="text-sm leading-relaxed">{reading.verdict.detail}</p>
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
-          label="Faturamento dos reajustados"
+          label="Dinheiro que entrou (faturamento)"
           value={moneyRound(impact.revenueAfterCents)}
           hint={`${moneyRound(impact.revenueBeforeCents)} → ${moneyRound(impact.revenueAfterCents)} (${signedMoney(impact.revenueAfterCents - impact.revenueBeforeCents)})`}
           tone={impact.revenueAfterCents < impact.revenueBeforeCents ? "critical" : "positive"}
         />
         <Stat
-          label="Margem de contribuição (R$)"
+          label="Lucro bruto (sobra após o custo)"
           value={impact.margin ? moneyRound(impact.margin.afterCents) : "—"}
           hint={impact.margin ? `${moneyRound(impact.margin.beforeCents)} → ${moneyRound(impact.margin.afterCents)} (${signedMoney(impact.margin.afterCents - impact.margin.beforeCents)})` : "sem custo resolvido"}
           tone={impact.margin ? (impact.margin.afterCents < impact.margin.beforeCents ? "critical" : "positive") : undefined}
         />
-        <Stat label="Margem sobre a receita" value={impact.margin ? pctText(impact.margin.pctAfter, 0) : "—"} hint={impact.margin ? `era ${pctText(impact.margin.pctBefore, 0)}` : undefined} />
+        <Stat label="Lucro de cada R$ 100 vendidos" value={impact.margin && impact.margin.pctAfter !== null ? `R$ ${Math.round(impact.margin.pctAfter * 100)}` : "—"} hint={impact.margin && impact.margin.pctBefore !== null ? `antes: R$ ${Math.round(impact.margin.pctBefore * 100)}` : undefined} />
         <Stat
-          label="Unidades dos reajustados"
+          label="Unidades vendidas"
           value={count(changes.unitsAfter)}
           hint={`${count(changes.unitsBefore)} → ${count(changes.unitsAfter)} (${signedPct(changes.unitsBefore > 0 ? (changes.unitsAfter - changes.unitsBefore) / changes.unitsBefore : null, 0)})`}
           tone={changes.unitsAfter < changes.unitsBefore ? "critical" : "positive"}
         />
       </div>
-      <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+      <ul className="flex list-disc flex-col gap-1 pl-5 text-sm text-muted-foreground">
         {reading.lines.map((l) => <li key={l}>{l}</li>)}
       </ul>
       <div className="overflow-x-auto">
@@ -57,8 +57,8 @@ export function PriceChangesCard({ changes }: { changes: PriceChanges | null }) 
               <TableHead>Produto</TableHead>
               <TableHead className="text-right">Preço</TableHead>
               <TableHead className="text-right">Unidades</TableHead>
-              <TableHead className="text-right">Margem</TableHead>
-              <TableHead className="text-right">Receita</TableHead>
+              <TableHead className="text-right" title="Lucro bruto ÷ preço: quanto de cada R$ vendido sobra depois do custo">Lucro bruto (% do preço)</TableHead>
+              <TableHead className="text-right" title="Faturamento do produto no mês menos o do mês anterior">Faturamento (mudança)</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -83,7 +83,7 @@ export function PriceChangesCard({ changes }: { changes: PriceChanges | null }) 
         </Table>
       </div>
       <p className="text-xs text-muted-foreground">
-        Mostra os {changes.rows.length} de maior receita entre {changes.count} reajustados. Margem sobre o preço realizado, com o custo datado do produto; “—” = custo não resolvido.
+        Mostra os {changes.rows.length} de maior receita entre {changes.count} reajustados. “Lucro bruto (% do preço)” usa o custo do catálogo; “—” = produto sem custo cadastrado.
       </p>
     </Block>
   );
