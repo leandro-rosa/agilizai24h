@@ -6,6 +6,7 @@ import { BEHAVIOR_LABELS } from "../product-behavior";
 import { baseText } from "../ranking";
 import { signedPct, signedPp, type RateDelta, type ValueDelta } from "../compare";
 import { monthName } from "../reading";
+import { overdueSummary } from "../overdue";
 import { SIGNAL_LABELS } from "../tests";
 import type { CashUseLine, Highlight, Insight, KpiResult, LossChange, Overview, ProductRow, StoreExplainers } from "../types";
 
@@ -544,9 +545,14 @@ export function MonthlyReport({ o, meta }: { o: Overview; meta: ReportMeta }) {
                 </>
               )}
               <View style={[s.line, { marginTop: 5 }]}>
-                <Text style={s.small}>A receber vencido{o.cash.agingReference ? ` (em ${date(o.cash.agingReference)})` : ""}</Text>
-                <Text style={[s.bold, { color: o.cash.overdueCents ? C.bad : C.ink }]}>{o.cash.overdueCents === null ? "sem dados" : brl(o.cash.overdueCents)}</Text>
+                <Text style={s.small}>Notas vencidas e não pagas{o.cash.agingReference ? ` (em ${date(o.cash.agingReference)})` : ""}</Text>
+                <Text style={[s.bold, { color: o.cash.overdueDetail && o.cash.overdueDetail.long.cents > 0 ? C.bad : C.ink }]}>{o.cash.overdueCents === null ? "sem dados" : brl(o.cash.overdueCents)}</Text>
               </View>
+              {o.cash.overdueDetail ? (
+                <Text style={[s.small, { marginBottom: 2 }]}>
+                  {t(overdueSummary(o.cash.overdueDetail, brl))}.{o.cash.overdueDetail.short.cents > 0 ? " Atraso curto costuma ser pagamento ainda não baixado (extrato não lançado)." : ""}
+                </Text>
+              ) : null}
               <View style={s.line}>
                 <Text style={s.small}>A vencer (todas as notas em aberto)</Text>
                 <Text style={s.bold}>{o.cash.notDueCents === null ? "sem dados" : brl(o.cash.notDueCents)}</Text>

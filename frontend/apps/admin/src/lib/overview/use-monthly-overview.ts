@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 
 import { useGetPnlByStoreQuery, useGetPnlSeriesQuery } from "@/lib/api/accounting";
-import { useGetAgingQuery } from "@/lib/api/billing";
+import { useGetAgingQuery, useGetInvoicesQuery } from "@/lib/api/billing";
 import { useGetAllContributionsQuery, useGetItemsQuery } from "@/lib/api/capex";
 import { useGetNetworkFinanceSeriesQuery } from "@/lib/api/finance";
 import { useGetCostsAsOfQuery, useGetProductsQuery, useGetSkuLinksQuery } from "@/lib/api/products";
@@ -62,6 +62,8 @@ export function useMonthlyOverview(period: string | null) {
   const items = useGetItemsQuery(undefined, { skip });
   const contributions = useGetAllContributionsQuery(undefined, { skip });
   const aging = useGetAgingQuery(undefined, { skip });
+  // Notas em aberto (emitidas e não pagas): dão o cliente e os dias de atraso por trás do total vencido.
+  const openInvoices = useGetInvoicesQuery({ status: "issued" }, { skip });
   const salesRange = useMemo(() => ({ start: addMonths(p, -5), end: p }), [p]);
   const skuLinks = useGetSkuLinksQuery(undefined, { skip });
   // 9 meses: 3 de janela de teste + 6 para saber se o SKU já era abastecido antes.
@@ -117,13 +119,14 @@ export function useMonthlyOverview(period: string | null) {
             overdueCents: aging.data.overdue_amount_cents,
             notDueCents: aging.data.buckets.find((b) => b.key === "not_due")?.amount_cents ?? 0,
             openCents: aging.data.open_amount_cents,
+            openInvoices: openInvoices.data?.map((i) => ({ clientName: i.client?.name ?? `Cliente ${i.client_id}`, amountCents: i.amount_cents, dueOn: i.due_on })),
           }
         : null,
       previousClosed: pnlSeries.data.some((s) => s.period === previous && s.store_id === null && s.status === "closed"),
       closed: pnlSeries.data.some((s) => s.period === period && s.store_id === null && s.status === "closed"),
     };
     return buildOverview(input);
-  }, [period, periods, pnlSeries.data, stores.data, treasury.data, finance.data, items.data, contributions.data, byStoreNow.data, byStorePrev.data, sales.data, cells, salesRange, costs.data, products.data, aging.data, skuLinks.data, supply.data, previous]);
+  }, [period, periods, pnlSeries.data, stores.data, treasury.data, finance.data, items.data, contributions.data, byStoreNow.data, byStorePrev.data, sales.data, cells, salesRange, costs.data, products.data, aging.data, openInvoices.data, skuLinks.data, supply.data, previous]);
 
   const unavailable: SectionState = {
     pnl: pnlSeries.isError,

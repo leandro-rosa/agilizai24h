@@ -1,3 +1,4 @@
+import { buildOverdueDetail, type OpenInvoice } from "./overdue";
 import { avgOfAll, valueDelta } from "./compare";
 import { isMaterial } from "./materiality";
 import { rankScore, recurrenceOf } from "./ranking";
@@ -74,7 +75,7 @@ export function buildCashUses(months: MonthInput[]): CashUses | null {
 export function buildCashSummary(
   cur: MonthInput,
   prev: MonthInput,
-  aging: { referenceDate: string; overdueCents: number; notDueCents: number } | null,
+  aging: { referenceDate: string; overdueCents: number; notDueCents: number; openInvoices?: OpenInvoice[] } | null,
 ): CashSummary {
   const cashDelta = cur.cash && prev.cash ? cur.cash.closingCents - prev.cash.closingCents : null;
   return {
@@ -85,6 +86,7 @@ export function buildCashSummary(
     overdueCents: aging?.overdueCents ?? null,
     notDueCents: aging?.notDueCents ?? null,
     agingReference: aging?.referenceDate ?? null,
+    overdueDetail: aging?.openInvoices ? buildOverdueDetail(aging.openInvoices, aging.referenceDate) : null,
     // Em vez de o saldo final subtrair do saldo inicial do mesmo mês — o inicial do mês já é o final do anterior.
     cashDeltaCents: cur.cash ? cur.cash.closingCents - cur.cash.openingCents : cashDelta,
     operatingPositiveCashFell: (cur.pnl?.operatingProfitCents ?? 0) > 0 && !!cur.cash && cur.cash.closingCents < cur.cash.openingCents,

@@ -269,3 +269,23 @@ describe("preço × volume", () => {
     expect(o.insights.some((x) => x.id === "price-volume")).toBe(false);
   });
 });
+
+describe("notas vencidas por cliente e dias", () => {
+  const withInvoices = (dueOn: string) =>
+    buildOverview({
+      ...salesInput(),
+      aging: { referenceDate: "2026-11-03", overdueCents: 3_334_800, notDueCents: 0, openCents: 3_334_800, openInvoices: [{ clientName: "Ascenty", amountCents: 3_334_800, dueOn }] },
+    });
+
+  it("atraso curto: aparece o cliente e os dias, mas não entra em 'o que acompanhar'", () => {
+    const o = withInvoices("2026-11-01"); // 2 dias
+    expect(o.cash.overdueDetail?.byClient[0].name).toBe("Ascenty");
+    expect(o.cash.overdueDetail?.maxDaysOverdue).toBe(2);
+    expect(o.watchlist.some((w) => w.id === "caixa:vencido")).toBe(false);
+  });
+
+  it("atraso longo entra em 'o que acompanhar'", () => {
+    const o = withInvoices("2026-10-01"); // 33 dias
+    expect(o.watchlist.some((w) => w.id === "caixa:vencido")).toBe(true);
+  });
+});
