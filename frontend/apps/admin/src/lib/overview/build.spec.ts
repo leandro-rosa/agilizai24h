@@ -238,3 +238,34 @@ describe("executive hierarchy", () => {
     expect(calm.watchlist.length).toBeLessThanOrEqual(5);
   });
 });
+
+describe("preço × volume", () => {
+  const sku = (s: string, period: string, quantity: number, revenueCents: number) => ({ storeId: 1, period, sku: s, quantity, revenueCents });
+  // Três SKUs reajustados de R$ 10 para R$ 12 com menos unidades; faturamento da rede cai e a margem sobe (fixture sintética).
+  const fell = (): OverviewInput => {
+    const base = salesInputWith(["A", "B", "C"].flatMap((s) => [sku(s, "2026-09", 100, 100_000), sku(s, "2026-10", 80, 96_000)]));
+    const [cur, ...rest] = base.months;
+    return { ...base, months: [{ ...cur, pnl: pnl(10_800_000, 4_900_000, 2_900_000) }, ...rest] };
+  };
+
+  it("mostra o efeito preço e volume com a base em unidades e sem afirmar causa", () => {
+    const o = buildOverview(fell());
+    const i = o.insights.find((x) => x.id === "price-volume")!;
+    expect(i).toBeDefined();
+    expect(i.title).toMatch(/3 produtos/);
+    expect(i.detail).toMatch(/300 → 240 un/);
+    expect(i.detail).toMatch(/Observação/);
+    expect(i.detail).not.toMatch(/\bcausou\b|\bpor causa\b/);
+    expect(i.detail).toMatch(/margem operacional subiu/);
+  });
+
+  it("entra no que acompanhar quando o faturamento caiu", () => {
+    const o = buildOverview(fell());
+    expect(o.watchlist.some((w) => w.id === "preco:reajuste")).toBe(true);
+  });
+
+  it("sem reajuste relevante não gera o achado", () => {
+    const o = buildOverview(salesInputWith([sku("A", "2026-09", 100, 100_000), sku("A", "2026-10", 100, 100_000)]));
+    expect(o.insights.some((x) => x.id === "price-volume")).toBe(false);
+  });
+});

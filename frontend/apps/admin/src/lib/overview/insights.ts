@@ -1,7 +1,8 @@
 import { moneyCompact, period as fmtPeriod } from "../format";
-import { signedPct, type ValueDelta } from "./compare";
+import { signedPct, signedPp, type RateDelta, type ValueDelta } from "./compare";
 import { isMaterial } from "./materiality";
 import { BEHAVIOR_LABELS, distributionText } from "./product-behavior";
+import { hasRepricing, type PriceVolume } from "./price-volume";
 import { baseText, needsBase, rankScore, recurrenceOf } from "./ranking";
 import type { CapexSummary, CashSummary, CashUses, Insight, KpiResult, LossSummary, ProductRow, ProductsSummary, StoreSummary } from "./types";
 
@@ -23,6 +24,8 @@ export interface InsightInput {
   revenueCurrentCents: number | null;
   /** Séries mensais, do mais antigo ao mais novo (competência por último), para medir recorrência. */
   series: { revenue: (number | null)[]; loss: (number | null)[] };
+  /** Efeito preço × volume nas vendas de produtos; null quando falta venda de um dos meses. */
+  priceVolume?: PriceVolume | null;
 }
 
 const kpi = (kpis: KpiResult[], key: KpiResult["key"]) => kpis.find((k) => k.key === key)!;
@@ -66,6 +69,50 @@ function productInsight(p: ProductRow, input: InsightInput, previousLabel: strin
  * recorrência e lojas afetadas) — não pelo tamanho do %. Cada item traz a base
  * (anterior → atual) e só descreve fatos e correlações; nenhuma causa é afirmada.
  */
+const signedMoney = (cents: number) => `${cents < 0 ? "−" : "+"}${moneyCompact(Math.abs(cents))}`;
+
+/**
+ * Reajuste de preço × unidades: decomposição aritmética da receita de produtos. Sempre
+ * observação — o texto nunca diz que o reajuste CAUSOU a variação das unidades.
+ */
+function priceVolumeInsight(i: InsightInput): Insight | null {
+  const pv = i.priceVolume;
+  if (!hasRepricing(pv)) return null;
+  const r = pv.repriced;
+  const pctOf = (a: number, b: number) => (a > 0 ? (b - a) / a : null);
+  const repUnits = pctOf(r.unitsBefore, r.unitsAfter);
+  const othUnits = pctOf(pv.others.unitsBefore, pv.others.unitsAfter);
+  const margin = (kpi(i.kpis, "operatingMargin").vsPrevious as RateDelta).pp;
+  const revPct = (kpi(i.kpis, "revenue").vsPrevious as ValueDelta).pct;
+  const prev = fmtPeriod(pv.previousPeriod);
+  const others = pv.others.count > 0 ? ` Nos demais ${pv.others.count} produtos: ${baseText(pv.others.unitsBefore, pv.others.unitsAfter, un, "un")}.` : "";
+  const cmp =
+    repUnits !== null && othUnits !== null
+      ? repUnits < othUnits - 0.02
+        ? `as unidades variaram ${signedPct(repUnits, 0)} nos reajustados e ${signedPct(othUnits, 0)} nos demais — os dois movimentos coincidem nos mesmos produtos, o que não prova causa. `
+        : `as unidades variaram ${signedPct(repUnits, 0)} nos reajustados e ${signedPct(othUnits, 0)} nos demais — a queda não é maior onde o preço subiu. `
+      : "";
+  const mgn =
+    margin !== null && revPct !== null && revPct < 0 && margin > 0
+      ? `o faturamento caiu e a margem operacional subiu ${signedPp(margin).replace(/^\+/, "")}; o sistema não separa quanto da margem veio de preço e quanto de custo. `
+      : "";
+  return {
+    id: "price-volume",
+    tone: "neutral",
+    title: `Reajuste de preço em ${plural(r.count, "produto", "produtos")} (${r.raised} subiram, ${r.lowered} baixaram): preço ${signedMoney(r.priceEffectCents)}, unidades ${signedMoney(r.volumeEffectCents)}`,
+    detail:
+      `Nos reajustados (preço realizado variou ≥ 3%): ${baseText(r.unitsBefore, r.unitsAfter, un, "un")} vs. ${prev}.${others} ` +
+      `Observação: ${cmp}${mgn}calendário de ${pv.days.after} dias contra ${pv.days.before}. (Estimativa: preço realizado = receita ÷ unidades do mês.)`,
+    href: HREF.products,
+    score: rankScore({
+      impactCents: Math.max(Math.abs(r.priceEffectCents), Math.abs(r.volumeEffectCents)),
+      baseCents: pv.revenueBeforeCents,
+      share: pv.revenueAfterCents > 0 ? Math.min(1, r.skus.reduce((s, x) => s + x.priceAfterCents * x.unitsAfter, 0) / pv.revenueAfterCents) : 0,
+      breadth: r.count / (r.count + pv.others.count),
+    }),
+  };
+}
+
 export function buildInsights(i: InsightInput): Insight[] {
   const out: Insight[] = [];
   const prevLabel = fmtPeriod(i.previousPeriod);
@@ -87,6 +134,9 @@ export function buildInsights(i: InsightInput): Insight[] {
       score: rankScore({ impactCents: revD.abs, baseCents: base, share: 1, recurrence: recurrenceOf(i.series.revenue), breadth: compared ? (ex?.storeCount ?? 0) / compared : 0 }),
     });
   }
+
+  const pvIns = priceVolumeInsight(i);
+  if (pvIns) out.push(pvIns);
 
   // Venda das lojas × receita líquida da rede (DRE): quando divergem, o leitor precisa ver as duas.
   const st = i.stores;

@@ -4,6 +4,7 @@ import { buildHighlights } from "./highlights";
 import { buildInsights } from "./insights";
 import { buildKpis } from "./kpis";
 import { buildLoss } from "./loss";
+import { buildPriceVolume } from "./price-volume";
 import { buildProducts } from "./products";
 import { buildAliasMap, suggestPredecessors, type SalesInfo } from "./sku-match";
 import { buildTests } from "./tests";
@@ -84,7 +85,9 @@ export function buildOverview(input: OverviewInput): Overview {
   const capex = buildCapex(months);
   const investors = buildInvestors(months);
 
+  const priceVolume = input.sales ? buildPriceVolume(period, previousPeriod, input.sales.cells, input.sales.ingestedPeriods) : null;
   const insights = buildInsights({
+    priceVolume,
     period,
     previousPeriod,
     kpis,
@@ -114,6 +117,7 @@ export function buildOverview(input: OverviewInput): Overview {
     cash,
     coverage,
     pendingSkuSuggestions: skuSuggestions.length,
+    revenueFell: ((kpis.find((k) => k.key === "revenue")?.vsPrevious as { pct: number | null } | undefined)?.pct ?? 0) < 0,
   });
 
   return {
