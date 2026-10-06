@@ -138,6 +138,14 @@ motivo/produto que antes vivia aqui (`LossTables`/`ReasonSkuBreakdown`,
 o drill-down por loja em `NetworkStoreDetail`) foi removido daqui — ficou
 só em `Perdas`, pra não duplicar a mesma informação em duas abas.
 
+**Pendências desde julho** (`src/lib/reconciliation-pending.ts`, `components/supply/pending-dialog.tsx`; pedido do operador 2026-10-07: "o time
+não sabia mexer no sistema de abastecimento, vai ter muita coisa errada antes de julho"): em `Reconciliação`, o badge "Pendente" de cada loja
+(e o link no aviso da visão de uma loja) abre os produtos cujo saldo ficaria negativo se a conta recomeçasse na CONTAGEM de fim de junho
+(`recorded_closing_balance`) e somasse só julho em diante (`PENDING_BASELINE`). Produto sem contagem conta como 0 e é dito; "nunca abastecido"
+é marcado. É só uma lista para achar onde corrigir: NÃO muda o saldo do serviço de estoque nem as cifras da reconciliação, e não diz a causa.
+Medido em set/2026: 699 pares loja×produto negativos desde janeiro caem para ~265 desde julho (3.262 → 764 unidades sem abastecimento).
+Mudar o cálculo do saldo no `inventory-service` para começar em julho ficou decidido como passo posterior (muda cifras; pede aprovação).
+
 **`Perdas`** (`src/components/supply/loss-tab.tsx` + `src/lib/
 loss-insights.ts`) é o centro de investigação de perda: 6 KPIs com
 tendência vs. mês anterior, "Perda por loja" (toggle R$/Perda%/Unidades,
