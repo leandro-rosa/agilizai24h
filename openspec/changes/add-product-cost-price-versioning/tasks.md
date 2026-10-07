@@ -56,8 +56,8 @@
 
 ## 6. Purchases and margin tabs
 
-- [ ] 6.1 Aba Compras and the deep link to the purchase
-- [ ] 6.2 Aba Margem from the existing product analysis, labelled
+- [x] 6.1 Aba Compras and the deep link to the purchase
+- [x] 6.2 Aba Margem from the existing product analysis, labelled
 
 ## 7. Pricing
 

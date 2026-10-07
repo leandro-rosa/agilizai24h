@@ -24,6 +24,11 @@ export interface PurchaseItem {
   paid_on: string | null;
   payment_note: string | null;
   total_cents: number;
+  /** O original da compra em embalagem, como veio na nota; nulos quando não foi registrado ("original não registrado"). */
+  pack_quantity?: number | null;
+  pack_unit_price_cents?: number | null;
+  units_per_pack?: number | null;
+  purchase_unit?: string | null;
   /** O custo da nota a caminho do produto; `state` nulo até a compra ser recebida. Brinde nunca envia custo (`skipped_bonus`). */
   cost_sync?: CostSync;
 }
@@ -374,9 +379,10 @@ export const purchasesApi = createApi({
   baseQuery: gatewayBaseQuery,
   tagTypes: ["Purchase", "Settlement", "Payments"],
   endpoints: (builder) => ({
-    getPurchases: builder.query<Purchase[], { supplierId?: number; from?: string; to?: string; invoicesOnly?: boolean; status?: Stage; openOnly?: boolean } | void>({
+    getPurchases: builder.query<Purchase[], { supplierId?: number; from?: string; to?: string; invoicesOnly?: boolean; status?: Stage; openOnly?: boolean; sku?: string } | void>({
       query: (args) => {
         const params = new URLSearchParams();
+        if (args?.sku) params.set("sku", args.sku);
         if (args?.supplierId) params.set("supplier_id", String(args.supplierId));
         if (args?.from) params.set("from", args.from);
         if (args?.to) params.set("to", args.to);

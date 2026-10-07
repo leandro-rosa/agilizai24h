@@ -871,7 +871,15 @@ O painel (`components/products/product-drawer.tsx`) tem quatro abas, todas leitu
 - **Histórico**: linha do tempo única de custo e preço, "R$ 5,70 → R$ 6,20", origem, usuário, nota, fornecedor e motivo.
 
 **Novo custo / Novo preço** (`manual-version-dialog.tsx`): valor, data de início e **motivo obrigatório**; o gateway força origem "Manual" e o usuário da sessão, e o painel nem
-manda esses campos. Aviso fixo: custo de data passada só muda o CMV do mês quando ele for reapurado. As abas **Compras** e **Margem** são a etapa 6 (ainda não existem).
+manda esses campos. Aviso fixo: custo de data passada só muda o CMV do mês quando ele for reapurado. 
+**Compras** (`product-purchases-tab.tsx`, `GET /purchases?sku=`): as compras do produto, mostrando só os itens dele — data (recebimento), fornecedor, nota (link `?purchase=ID`), unidades, custo
+unitário, o **original da embalagem como veio na nota** ("10 CX × R$ 93,00 · 15 un. por embalagem"; compra antiga diz "original não registrado"), condição e **o que a compra fez no custo** (custo
+criado com o valor anterior, igual ao vigente, bonificação que não cria custo, "quando a compra for recebida", avisos de variação e de mês fechado).
+**Margem** (`product-margin-tab.tsx`): os últimos 6 meses completos, cada um lido da MESMA análise de produto de Compras (`GET /analysis/products/:sku` por mês, nenhuma conta nova no navegador): vendido,
+receita, preço e custo médios, margem do produto `(receita − custo do vendido) ÷ receita` (só sobre vendas com custo) e markup. A tela diz a base: o custo vigente no último dia do mês vale para o mês
+inteiro (regra do CMV do financeiro), e **um mês em que o custo mudou no meio vem sinalizado** ("Custo mudou em 10/09/2026: R$ 5,70 → R$ 6,20", `costChangesWithin`). Um mês antigo nunca usa o custo de hoje;
+mês sem venda importada diz "Dado não importado", nunca 0%. A margem do produto não inclui imposto, taxas, perda nem rateio (isso é a margem econômica da Precificação Inteligente).
+`/purchases/invoices?purchase=ID` mostra só essa compra, com os itens abertos, e um link para ver todas as notas (é o link que as abas de custo e de compras usam).
 Não visto no navegador logado (sem credencial); specs com API mockada e relógio fixo.
 
 ## `/ingestion` — "Arquivos no Drive" (`add-drive-ingestion-source`)

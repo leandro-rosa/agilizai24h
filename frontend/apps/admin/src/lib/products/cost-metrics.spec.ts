@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 
 import type { CostVersionView } from "@/lib/api/products";
-import { costInForce, costNumbers, lastClosedMonth } from "./cost-metrics";
+import { costChangesWithin, costInForce, costNumbers, lastClosedMonth, lastMonths } from "./cost-metrics";
 
 let id = 0;
 const v = (effective_from: string, cost_cents: number, over: Partial<CostVersionView> = {}): CostVersionView => ({
@@ -58,5 +58,29 @@ describe("costNumbers", () => {
   it("o mês de fechamento mais recente é o anterior ao de hoje, na virada de ano também", () => {
     expect(lastClosedMonth("2026-10-20")).toBe("2026-09");
     expect(lastClosedMonth("2026-01-05")).toBe("2025-12");
+  });
+});
+
+describe("costChangesWithin", () => {
+  const series = [v("2026-08-01", 570, { source: "catalogue_sync" }), v("2026-10-10", 620, { source: "invoice" }), v("2026-10-20", 620, { source: "invoice" }), v("2026-11-01", 650, { source: "manual" })];
+
+  it("aponta a mudança do custo no meio do mês, com o valor antes e depois", () => {
+    expect(costChangesWithin(series, "2026-10")).toEqual([{ date: "2026-10-10", from: 570, to: 620 }]);
+  });
+
+  it("uma versão no dia 1 vale o mês inteiro e não é mudança dentro do mês; repetir o valor também não", () => {
+    expect(costChangesWithin(series, "2026-11")).toEqual([]);
+    expect(costChangesWithin(series, "2026-08")).toEqual([]);
+    expect(costChangesWithin(series, "2026-09")).toEqual([]);
+  });
+
+  it("antes da primeira versão não afirma mudança", () => {
+    expect(costChangesWithin([v("2026-08-15", 570)], "2026-08")).toEqual([]);
+  });
+});
+
+describe("lastMonths", () => {
+  it("lista os meses completos mais recentes, atravessando o ano", () => {
+    expect(lastMonths("2026-02-10", 4)).toEqual(["2026-01", "2025-12", "2025-11", "2025-10"]);
   });
 });

@@ -62,10 +62,10 @@ const CONDITION_TONE = { paid: "neutral", bonus: "positive", on_sale: "attention
  * Compras e o que está dentro de cada uma. Pago = gasto ao custo; consignado só é devido conforme vende (acerto semanal);
  * bonificação não custa nada. A condição muda até o item entrar num acerto confirmado — depois disso o painel recusa.
  */
-export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
+export function PurchasesTable({ purchases, initialOpen }: { purchases: Purchase[]; /** A compra que já vem com os itens abertos (o link de uma nota vindo do produto). */ initialOpen?: number }) {
   const dispatch = useAppDispatch();
   const [update] = useUpdatePurchaseItemMutation();
-  const [open, setOpen] = useState<number | null>(null);
+  const [open, setOpen] = useState<number | null>(initialOpen ?? null);
   const [editing, setEditing] = useState<Purchase | null>(null);
   const [deleting, setDeleting] = useState<Purchase | null>(null);
   const [pendingOf, setPendingOf] = useState<number | null>(null);

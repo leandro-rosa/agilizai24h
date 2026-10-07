@@ -59,3 +59,32 @@ export function lastClosedMonth(today: string): string {
 
   return previous.toISOString().slice(0, 7);
 }
+
+export interface CostChange {
+  date: string;
+  from: number;
+  to: number;
+}
+
+/**
+ * As mudanças do custo vigente DENTRO de um mês (depois do dia 1). O CMV do mês usa só o custo do último dia, então um mês em que o custo mudou no
+ * meio vale a ressalva: parte das vendas aconteceu ao custo antigo. Uma versão que começa no dia 1, ou que repete o mesmo valor, não é mudança.
+ */
+export function costChangesWithin(versions: CostVersionView[], month: string): CostChange[] {
+  const dates = [...new Set(versions.map((v) => dayOf(v.effective_from)).filter((d) => d.startsWith(month) && d > `${month}-01`))].sort();
+  const changes: CostChange[] = [];
+  for (const date of dates) {
+    const before = costInForce(versions, new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10));
+    const after = costInForce(versions, date);
+    if (before && after && before.cost_cents !== after.cost_cents) changes.push({ date, from: before.cost_cents, to: after.cost_cents });
+  }
+
+  return changes;
+}
+
+/** Os últimos `count` meses completos, do mais recente ao mais antigo, `YYYY-MM`. */
+export function lastMonths(today: string, count: number): string[] {
+  const [year, month] = today.split("-").map(Number);
+
+  return Array.from({ length: count }, (_, index) => new Date(Date.UTC(year, month - 2 - index, 1)).toISOString().slice(0, 7));
+}

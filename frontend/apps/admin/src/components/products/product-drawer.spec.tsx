@@ -13,6 +13,15 @@ let prices: unknown[] = [];
 let margins: unknown[] = [];
 let events: unknown[] = [];
 
+let purchases: unknown[] = [];
+let analysisByMonth: Record<string, Record<string, unknown>> = {};
+jest.doMock("../../lib/api/purchases", () => ({ useGetPurchasesQuery: () => ({ data: purchases, isLoading: false, isError: false }) }));
+jest.doMock("../../lib/api/supplier-analysis", () => ({
+  useGetProductAnalysisQuery: ({ fromDate }: { fromDate: string }) => {
+    const movement = analysisByMonth[fromDate.slice(0, 7)];
+    return movement ? { data: { totals: { current: movement } }, isLoading: false, isError: false } : { isLoading: false, isError: true };
+  },
+}));
 jest.doMock("../../lib/api/products", () => ({
   useGetProductCostsQuery: () => ({ data: costs, isLoading: false, isError: false }),
   useGetProductPricesQuery: () => ({ data: prices, isLoading: false, isError: false }),
@@ -260,5 +269,89 @@ describe("ProductDrawer — abas", () => {
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Custos" }), { button: 0 });
 
     expect(onTabChange).toHaveBeenCalledWith("costs");
+  });
+});
+
+const fig = (value: number, partial = false) => ({ available: true, value, partial });
+const gone = (reason: string) => ({ available: false, reason });
+const movement = (over: Record<string, unknown> = {}) => ({ sold: fig(100), revenueCents: fig(129000), avgPriceCents: fig(1290), avgCostCents: fig(620), marginShare: fig(0.5194), markup: fig(2.08), ...over });
+
+describe("ProductDrawer — margem", () => {
+  beforeEach(() => {
+    costs = [
+      cost({ id: 1, effective_from: "2026-08-01T00:00:00.000Z", cost_cents: 570, source: "catalogue_sync" }),
+      cost({ id: 2, effective_from: "2026-09-10T00:00:00.000Z", cost_cents: 620, source: "invoice" }),
+    ];
+    analysisByMonth = { "2026-09": movement(), "2026-08": movement({ marginShare: fig(0.559), avgCostCents: fig(570) }), "2026-07": movement({ sold: gone("never_ingested"), revenueCents: gone("never_ingested"), avgPriceCents: gone("never_ingested"), avgCostCents: gone("never_ingested"), marginShare: gone("never_ingested"), markup: gone("never_ingested") }) };
+  });
+
+  it("explica a base do CMV e mostra a margem de cada mês, lida da análise existente", () => {
+    draw("margin");
+
+    expect(screen.getByText(/Base do CMV: o custo vigente no último dia de cada mês/)).toBeInTheDocument();
+    const september = screen.getByText("set/2026").closest("tr") as HTMLElement;
+    expect(september).toHaveTextContent("51,9%");
+    expect(september).toHaveTextContent("R$ 6,20");
+    const august = screen.getByText("ago/2026").closest("tr") as HTMLElement;
+    expect(august).toHaveTextContent("55,9%");
+    expect(august).toHaveTextContent("R$ 5,70");
+  });
+
+  it("sinaliza o mês em que o custo mudou no meio, com o antes e o depois", () => {
+    draw("margin");
+
+    const september = screen.getByText("set/2026").closest("tr") as HTMLElement;
+    expect(september).toHaveTextContent("Custo mudou em 10/09/2026: R$ 5,70 → R$ 6,20");
+    expect(screen.getByText("ago/2026").closest("tr")).not.toHaveTextContent("Custo mudou");
+  });
+
+  it("um mês sem venda importada diz isso, nunca zero; um mês que falhou diz que falhou", () => {
+    draw("margin");
+
+    expect(screen.getByText("jul/2026").closest("tr")).toHaveTextContent("Dado não importado");
+    expect(screen.getByText("jul/2026").closest("tr")).not.toHaveTextContent("0,0%");
+    // Outubro/2026 ainda não é mês completo; os meses sem resposta aparecem como falha.
+    expect(screen.getAllByText("Não foi possível calcular este mês.").length).toBeGreaterThan(0);
+  });
+});
+
+describe("ProductDrawer — compras", () => {
+  const item = (over: Record<string, unknown> = {}) => ({ id: 11, sku: "110024", description: "Marmita", quantity: 150, received_quantity: 150, unit_cost_cents: 620, condition: "paid", pack_quantity: 10, pack_unit_price_cents: 9300, units_per_pack: 15, purchase_unit: "CX", cost_sync: { state: "synced", previous_cost_cents: 570, alerts: ["large_variation"] }, ...over });
+  const purchase = (over: Record<string, unknown> = {}) => ({ id: 9, supplier_id: 5, supplier_name: "Juntos+", ordered_on: "2026-10-05", received_on: "2026-10-10", status: "received", invoice_number: "13021", items: [item()], ...over });
+
+  it("lista as compras do produto com a nota (link), o original da embalagem e o que ela fez no custo", () => {
+    purchases = [purchase()];
+    draw("purchases");
+
+    expect(screen.getByRole("link", { name: "NF 13021" })).toHaveAttribute("href", "/purchases/invoices?purchase=9");
+    const row = screen.getByText("Juntos+").closest("tr") as HTMLElement;
+    expect(row).toHaveTextContent("10/10/2026");
+    expect(row).toHaveTextContent("recebida");
+    expect(row).toHaveTextContent("10 CX × R$ 93,00");
+    expect(row).toHaveTextContent("15 un. por embalagem");
+    expect(row).toHaveTextContent("Custo criado");
+    expect(row).toHaveTextContent("antes R$ 5,70");
+    expect(row).toHaveTextContent("Variação grande");
+  });
+
+  it("compra antiga diz 'original não registrado'; compra não recebida mostra a etapa e que o custo vem no recebimento", () => {
+    purchases = [purchase({ id: 10, status: "awaiting_receipt", received_on: null, items: [item({ id: 12, pack_quantity: null, pack_unit_price_cents: null, units_per_pack: null, received_quantity: null, cost_sync: { state: null, alerts: [] } })] })];
+    draw("purchases");
+
+    const row = screen.getByText("Juntos+").closest("tr") as HTMLElement;
+    expect(row).toHaveTextContent("original não registrado");
+    expect(row).toHaveTextContent("Aguardando recebimento");
+    expect(row).toHaveTextContent("Quando a compra for recebida");
+  });
+
+  it("bonificação diz que não cria custo, e sem compra a aba explica", () => {
+    purchases = [purchase({ items: [item({ condition: "bonus", cost_sync: { state: "skipped_bonus", alerts: [] } })] })];
+    const { unmount } = draw("purchases");
+    expect(screen.getByText("Bonificação: não cria custo")).toBeInTheDocument();
+    unmount();
+
+    purchases = [];
+    draw("purchases");
+    expect(screen.getByText("Nenhuma compra registrada para este produto.")).toBeInTheDocument();
   });
 });

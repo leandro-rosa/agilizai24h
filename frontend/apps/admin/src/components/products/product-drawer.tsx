@@ -13,10 +13,12 @@ import { formatCents } from "@/lib/purchases/money";
 import { costNumbers, lastClosedMonth } from "@/lib/products/cost-metrics";
 import { CATEGORY_LABEL, SOURCE_LABEL, STATUS_LABEL, isoDay, originText } from "@/lib/products/labels";
 import { EanSection } from "./ean-section";
+import { ProductMarginTab } from "./product-margin-tab";
+import { ProductPurchasesTab } from "./product-purchases-tab";
 import { ManualVersionDialog } from "./manual-version-dialog";
 
-export type DrawerTab = "overview" | "costs" | "prices" | "history";
-export const DRAWER_TABS: DrawerTab[] = ["overview", "costs", "prices", "history"];
+export type DrawerTab = "overview" | "costs" | "prices" | "history" | "purchases" | "margin";
+export const DRAWER_TABS: DrawerTab[] = ["overview", "costs", "prices", "history", "purchases", "margin"];
 
 const today = () => new Date().toISOString().slice(0, 10);
 const pct = (value: number | null) => (value === null ? "—" : `${(value * 100).toFixed(1).replace(".", ",")}%`);
@@ -61,6 +63,8 @@ export function ProductDrawer({
               <TabsTrigger value="costs">Custos</TabsTrigger>
               <TabsTrigger value="prices">Preços</TabsTrigger>
               <TabsTrigger value="history">Histórico</TabsTrigger>
+              <TabsTrigger value="purchases">Compras</TabsTrigger>
+              <TabsTrigger value="margin">Margem</TabsTrigger>
             </TabsList>
             <TabsContent value="overview" className="mt-4">
               <OverviewTab product={product} supplierName={supplierName} canWrite={canWrite} onEdit={onEdit} />
@@ -73,6 +77,12 @@ export function ProductDrawer({
             </TabsContent>
             <TabsContent value="history" className="mt-4">
               <HistoryTab product={product} supplierName={supplierName} />
+            </TabsContent>
+            <TabsContent value="purchases" className="mt-4">
+              <ProductPurchasesTab product={product} supplierName={supplierName} />
+            </TabsContent>
+            <TabsContent value="margin" className="mt-4">
+              <ProductMarginTab product={product} />
             </TabsContent>
           </Tabs>
         </div>
