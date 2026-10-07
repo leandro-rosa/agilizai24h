@@ -526,4 +526,46 @@ describe('products integration', () => {
       expect((await products.findById(product.id)).eans).toEqual([])
     })
   })
+
+  describe('invoice costs (real SQL)', () => {
+    const invoiceMeta = (item: number) => ({ source: 'invoice', supplierId: 5, purchaseId: 9, purchaseItemId: item, sourceRef: `it-purchase-item:${unique(String(item))}`, invoiceNumber: '13021', purchaseQuantity: 150, purchaseTotalCents: 93000 })
+
+    it('a rise creates the version with its provenance and reports the cost it replaced; the same cost afterwards creates nothing', async () => {
+      const product = await createProduct(unique('Produto'))
+      await costs.recordCost(product.sku, new Date('2026-08-01'), 570, { source: 'catalogue_sync' })
+
+      const rise = await costs.recordCost(product.sku, new Date('2026-10-10'), 620, invoiceMeta(1))
+      expect(rise).toMatchObject({ created: true, unchanged: false, previous_cost_cents: 570, cost_cents: 620 })
+
+      const same = await costs.recordCost(product.sku, new Date('2026-10-20'), 620, invoiceMeta(2))
+      expect(same).toMatchObject({ created: false, unchanged: true })
+
+      const versions = await costs.listVersions(product.id)
+      expect(versions.map(v => [v.cost_cents, v.source, v.valid_to])).toEqual([
+        [570, 'catalogue_sync', '2026-10-09'],
+        [620, 'invoice', null],
+      ])
+      expect(versions[1]).toMatchObject({ supplier_id: 5, purchase_id: 9, invoice_number: '13021', purchase_quantity: 150, purchase_total_cents: 93000 })
+    })
+
+    it('the same idempotency key creates the version once, even when sent twice', async () => {
+      const product = await createProduct(unique('Produto'))
+      const meta = invoiceMeta(7)
+      await costs.recordCost(product.sku, new Date('2026-10-10'), 850, meta)
+      const again = await costs.recordCost(product.sku, new Date('2026-10-10'), 850, meta)
+
+      expect(again.created).toBe(false)
+      expect(await prisma.costVersion.count({ where: { product_id: product.id } })).toBe(1)
+    })
+
+    it('the history of a product keeps August at the August cost after the October invoice (acceptance case, real SQL)', async () => {
+      const product = await createProduct(unique('Produto'))
+      await costs.recordCost(product.sku, new Date('2026-08-01'), 570, { source: 'catalogue_sync' })
+      const august = await costs.costAsOf(product.sku, new Date('2026-08-31'))
+      await costs.recordCost(product.sku, new Date('2026-10-10'), 620, invoiceMeta(3))
+
+      expect(await costs.costAsOf(product.sku, new Date('2026-08-31'))).toEqual(august)
+      expect((await costs.costAsOf(product.sku, new Date('2026-10-31'))).cost_cents).toBe(620)
+    })
+  })
 })

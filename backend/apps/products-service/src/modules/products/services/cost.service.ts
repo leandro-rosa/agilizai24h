@@ -15,11 +15,15 @@ import type { BulkCostResult, ResolvedCost, UnresolvedCost } from '@app/products
 
 /** What recording a cost reports: the version, and whether it is the one in force for its date. */
 export interface RecordedCost extends ResolvedCost {
-  version_id: number
+  version_id: number | null
   source: string
-  /** False when the same version already existed and nothing was written. */
+  /** False when the same version already existed, or when an invoice cost equals the cost already in force (nothing was written). */
   created: boolean
   in_force: boolean
+  /** An invoice cost equal to the cost in force on its date writes nothing: the invoice confirms the cost, it does not change it. */
+  unchanged: boolean
+  /** The cost in force the day BEFORE this version takes effect; null when there was none (the first cost of a product). */
+  previous_cost_cents: number | null
 }
 
 @Injectable()
@@ -49,6 +53,30 @@ export class CostService {
       ? await this.prisma.costVersion.findFirst({ where: { source: provenance.source, source_ref: provenance.source_ref } })
       : await this.prisma.costVersion.findFirst({ where: { product_id: product.id, effective_from: effectiveFrom, cost_cents: costCents, source: provenance.source } })
 
+    const before = await this.prisma.costVersion.findMany({ where: { product_id: product.id, effective_from: { lt: effectiveFrom } } })
+    const previous = resolveVersionAsOf(before, new Date(effectiveFrom.getTime() - 86_400_000), COST_RANK)
+
+    // An invoice at the cost already in force changes nothing, so it creates no version: otherwise every purchase at an
+    // unchanged price would clutter the history with identical rows. (Same-day versions count: they ARE in force on that date.)
+    if (provenance.source === 'invoice' && !existing) {
+      const sameDay = await this.prisma.costVersion.findMany({ where: { product_id: product.id, effective_from: { lte: effectiveFrom } } })
+      const inForceNow = resolveVersionAsOf(sameDay, effectiveFrom, COST_RANK)
+      if (inForceNow && inForceNow.cost_cents === costCents) {
+        return {
+          sku,
+          product_id: product.id,
+          cost_cents: inForceNow.cost_cents,
+          effective_from: toDateString(inForceNow.effective_from),
+          version_id: inForceNow.id,
+          source: inForceNow.source,
+          created: false,
+          in_force: true,
+          unchanged: true,
+          previous_cost_cents: inForceNow.cost_cents,
+        }
+      }
+    }
+
     const version =
       existing ?? (await this.prisma.costVersion.create({ data: { product_id: product.id, effective_from: effectiveFrom, cost_cents: costCents, ...provenance } }))
 
@@ -65,6 +93,8 @@ export class CostService {
       created: existing === null,
       // False when another version of the same date outranks this one (an invoice over a manual entry).
       in_force: inForce?.id === version.id,
+      unchanged: false,
+      previous_cost_cents: previous ? previous.cost_cents : null,
     }
   }
 

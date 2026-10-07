@@ -18,6 +18,7 @@ function table(valueField: 'cost_cents' | 'price_cents') {
     Object.entries(where).every(([key, expected]) => {
       const actual = row[key]
       if (expected && typeof expected === 'object' && 'lte' in expected) return (actual as Date).getTime() <= (expected.lte as Date).getTime()
+      if (expected && typeof expected === 'object' && 'lt' in expected) return (actual as Date).getTime() < (expected.lt as Date).getTime()
       if (expected && typeof expected === 'object' && 'in' in expected) return (expected.in as unknown[]).includes(actual)
       if (expected instanceof Date) return (actual as Date).getTime() === expected.getTime()
       return actual === expected
@@ -127,6 +128,51 @@ describe('cost versions are append-only', () => {
 
     await expect(cost.recordCost('MONS', day('2026-08-01'), 570, { source: 'manual', actor: 'ana@agiliz.ai' })).rejects.toBeInstanceOf(BadRequestException)
     expect(costs.rows).toHaveLength(0)
+  })
+})
+
+describe('an invoice cost', () => {
+  it('rises: creates the version and reports the cost it replaced', async () => {
+    const { cost, costs } = build()
+    await cost.recordCost('MONS', day('2026-08-01'), 570, { source: 'catalogue_sync' })
+    const result = await cost.recordCost('MONS', day('2026-10-10'), 620, invoice())
+
+    expect(result).toMatchObject({ created: true, unchanged: false, in_force: true, previous_cost_cents: 570, cost_cents: 620 })
+    expect(costs.rows).toHaveLength(2)
+  })
+
+  it('at the cost already in force creates NO version, so a purchase at an unchanged price does not clutter the history', async () => {
+    const { cost, costs } = build()
+    await cost.recordCost('MONS', day('2026-08-01'), 620, { source: 'catalogue_sync' })
+    const result = await cost.recordCost('MONS', day('2026-10-10'), 620, invoice())
+
+    expect(result).toMatchObject({ created: false, unchanged: true, previous_cost_cents: 620 })
+    expect(costs.rows).toHaveLength(1)
+  })
+
+  it('the first cost of a product has no previous cost and is created', async () => {
+    const { cost, costs } = build()
+    const result = await cost.recordCost('MONS', day('2026-10-10'), 850, invoice())
+
+    expect(result).toMatchObject({ created: true, unchanged: false, previous_cost_cents: null, cost_cents: 850 })
+    expect(costs.rows[0]).toMatchObject({ source: 'invoice', cost_cents: 850 })
+  })
+
+  it('a manual cost at the same value is still recorded: only an invoice is treated as a confirmation', async () => {
+    const { cost, costs } = build()
+    await cost.recordCost('MONS', day('2026-08-01'), 620, { source: 'catalogue_sync' })
+    await cost.recordCost('MONS', day('2026-10-10'), 620, manual())
+
+    expect(costs.rows).toHaveLength(2)
+  })
+
+  it('an older invoice received late compares with the cost in force on ITS date, not with today\'s', async () => {
+    const { cost } = build()
+    await cost.recordCost('MONS', day('2026-08-01'), 570, { source: 'catalogue_sync' })
+    await cost.recordCost('MONS', day('2026-10-10'), 620, invoice(31))
+    const late = await cost.recordCost('MONS', day('2026-09-05'), 570, invoice(32))
+
+    expect(late).toMatchObject({ unchanged: true, previous_cost_cents: 570 })
   })
 })
 
