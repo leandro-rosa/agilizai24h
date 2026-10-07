@@ -45,7 +45,8 @@ function describeFilters(filters: Filters, options: ReturnType<typeof filterOpti
   return parts.length === 0 ? "nenhum" : parts.join("; ");
 }
 
-export function PricingScreen() {
+/** `embedded`: dentro da área Produtos e Precificação, que já tem o título; só a barra de ferramentas (período, loja, regras, exportar) aparece. */
+export function PricingScreen({ embedded = false }: { embedded?: boolean }) {
   const [period, setPeriod] = useState(lastCompleteMonth());
   const [storeId, setStoreId] = useState<number | null>(null);
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
@@ -111,6 +112,19 @@ export function PricingScreen() {
 
   return (
     <div className="flex flex-col gap-6">
+      {embedded ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-2xl text-sm text-muted-foreground">Análise, simulação e aprovação de preços sobre o cadastro de produtos. A IA sugere; quem aprova é você.</p>
+          <div className="flex flex-col items-stretch gap-2 lg:flex-row lg:items-center">
+            <ScopeBar period={period} onPeriodChange={setPeriod} storeId={storeId} onStoreIdChange={setStoreId} />
+            <Button variant="outline" size="sm" onClick={() => setRulesOpen(true)}>
+              <Landmark aria-hidden />
+              Regras de negócio
+            </Button>
+            <ExportButtons model={exportModel} unavailableReason="Aguarde o relatório carregar: não há nada para exportar ainda." />
+          </div>
+        </div>
+      ) : (
       <PageHeader
         title="Precificação Inteligente"
         description="A IA analisa custos, vendas, perdas e estrutura financeira para sugerir preços mais saudáveis para cada produto."
@@ -125,6 +139,8 @@ export function PricingScreen() {
           </div>
         }
       />
+
+      )}
 
       <RequestState isLoading={isLoading} error={error} onRetry={refetch}>
         {latest && (

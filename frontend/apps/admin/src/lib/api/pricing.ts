@@ -300,6 +300,12 @@ export interface NewProductSuggestion {
   minimumPriceCents: number | null;
   suggestedPriceCents: number | null;
   suggestedMargin: number | null;
+  /** O custo por unidade vendida em que a sugestão se apoia (centavos). */
+  unitCostCents?: number | null;
+  /** Sugestão inicial: não há vendas por trás dela. */
+  initial?: boolean;
+  /** A margem no preço que a pessoa digitou, pela mesma estrutura do motor. */
+  typedPrice?: { priceCents: number; margin: number } | null;
   targetMargin: number;
   minimumMargin: number;
   dataUsed: { code: string; label: string; value: string; origin: string }[];
@@ -365,9 +371,13 @@ export const pricingApi = createApi({
       },
       keepUnusedDataFor: 0,
     }),
+    /** Sugestão para um produto que ainda não existe (o formulário de produto novo), pelo mesmo motor. Lista o que falta em vez de um preço. */
+    draftSuggestion: builder.mutation<{ meta: { parameterVersion: number; asOf: string }; suggestion: NewProductSuggestion }, { category: string | null; unitCostCents: number | null; typedPriceCents?: number | null; name?: string }>({
+      query: (body) => ({ url: "/pricing/draft-suggestion", method: "POST", body }),
+    }),
     chooseNewProductPrice: builder.mutation<
       unknown,
-      { sku: string; idempotencyKey: string; choice: NewProductChoiceKind; chosenPriceCents?: number; reason?: string; costCents?: number; costOrigin?: string; costNotReceived?: boolean }
+      { sku: string; idempotencyKey: string; choice: NewProductChoiceKind; chosenPriceCents?: number; reason?: string; costCents?: number; costOrigin?: string; costNotReceived?: boolean; effectiveFrom?: string }
     >({
       query: ({ sku, ...body }) => ({ url: `/pricing/new-product/${encodeURIComponent(sku)}/choice`, method: "POST", body }),
       invalidatesTags: ["Decisions", "Report"],
@@ -400,6 +410,7 @@ export const {
   useApplyPriceMutation,
   useGetNewProductSuggestionQuery,
   useChooseNewProductPriceMutation,
+  useDraftSuggestionMutation,
   useGetPricingParametersQuery,
   useGetPricingParameterVersionsQuery,
   useGetPricingParameterVersionQuery,

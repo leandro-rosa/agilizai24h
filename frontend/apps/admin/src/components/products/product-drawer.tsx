@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useGetProductCostsQuery, useGetProductMarginsQuery, useGetProductPricesQuery, useGetProductTimelineQuery, type Product } from "@/lib/api/products";
+import { useGetCategoriesQuery, useGetProductCostsQuery, useGetProductMarginsQuery, useGetProductPricesQuery, useGetProductTimelineQuery, type Product } from "@/lib/api/products";
 import { formatCents } from "@/lib/purchases/money";
 import { costNumbers, lastClosedMonth } from "@/lib/products/cost-metrics";
-import { CATEGORY_LABEL, SOURCE_LABEL, STATUS_LABEL, isoDay, originText } from "@/lib/products/labels";
+import { SOURCE_LABEL, STATUS_LABEL, isoDay, originText } from "@/lib/products/labels";
+import { categoryName } from "@/lib/products/taxonomy";
 import { EanSection } from "./ean-section";
 import { ProductMarginTab } from "./product-margin-tab";
 import { ProductPurchasesTab } from "./product-purchases-tab";
@@ -46,13 +47,15 @@ export function ProductDrawer({
   canWrite: boolean;
   onEdit: () => void;
 }) {
+  const categories = useGetCategoriesQuery().data;
+
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">
         <SheetHeader>
           <SheetTitle>{product.name}</SheetTitle>
           <SheetDescription>
-            SKU {product.sku} · {CATEGORY_LABEL[product.category]}
+            SKU {product.sku} · {categoryName(product.category, categories)}
             {product.status && product.status !== "active" ? ` · ${STATUS_LABEL[product.status] ?? product.status}` : ""}
           </SheetDescription>
         </SheetHeader>
@@ -101,6 +104,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function OverviewTab({ product, supplierName, canWrite, onEdit }: { product: Product; supplierName: (id: number | null | undefined) => string | null; canWrite: boolean; onEdit: () => void }) {
+  const categories = useGetCategoriesQuery().data;
+
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
@@ -108,7 +113,7 @@ function OverviewTab({ product, supplierName, canWrite, onEdit }: { product: Pro
           <h3 className="text-sm font-semibold">Identificação</h3>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" asChild>
-              <Link href={`/purchases/pricing?sku=${encodeURIComponent(product.sku)}`}>Abrir na Precificação</Link>
+              <Link href={`/products?view=pricing&sku=${encodeURIComponent(product.sku)}`}>Abrir na Precificação</Link>
             </Button>
             {canWrite && (
               <Button size="sm" variant="outline" onClick={onEdit}>
@@ -121,7 +126,7 @@ function OverviewTab({ product, supplierName, canWrite, onEdit }: { product: Pro
           <Field label="Código interno (SKU)">
             <span className="font-mono">{product.sku}</span>
           </Field>
-          <Field label="Categoria">{CATEGORY_LABEL[product.category]}</Field>
+          <Field label="Categoria">{categoryName(product.category, categories)}</Field>
           <Field label="Subcategoria">{product.subcategory ?? "—"}</Field>
           <Field label="Marca">{product.brand ?? "—"}</Field>
           <Field label="Unidade de venda">{product.sale_unit ?? "un"}</Field>

@@ -5,6 +5,8 @@ import { CATEGORY_LABEL, STATUS_LABEL, originText } from "./labels";
 
 export interface ProductSheetInput {
   product: Product;
+  /** O nome da categoria no cadastro de categorias (a chave se não vier). */
+  categoryName?: string;
   /** Último custo unitário (centavos) e o dia em que passou a valer; nulos = sem custo (célula vazia, nunca zero). */
   costCents: number | null;
   costDate: string | null;
@@ -19,13 +21,13 @@ export const PRODUCT_HEADER = ["SKU", "Nome", "Categoria", "Subcategoria", "Marc
 
 /** O catálogo, sem preço de venda nem margem: isso é análise e mora na Precificação. */
 export function productRows(items: ProductSheetInput[]): Cell[][] {
-  return items.map(({ product, costCents, costDate }) => {
+  return items.map(({ product, categoryName, costCents, costDate }) => {
     const eans = product.eans ?? [];
 
     return [
       product.sku,
       product.name,
-      CATEGORY_LABEL[product.category],
+      categoryName ?? CATEGORY_LABEL[product.category] ?? product.category,
       product.subcategory ?? null,
       product.brand ?? null,
       STATUS_LABEL[product.status ?? "active"] ?? product.status ?? null,

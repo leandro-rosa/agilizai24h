@@ -3,8 +3,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentType } from "react";
 
 const createFromInvoice = jest.fn((_arg: unknown) => ({ unwrap: async () => ({ id: 77, sku: "110024", name: "Novo sabor de marmita", category: "meal" }) }));
-const createManual = jest.fn((_arg: unknown) => ({ unwrap: async () => ({ id: 78, sku: "110025", name: "Produto à mão", category: "snack" }) }));
+const suggestCall = jest.fn((_arg: unknown) => ({ unwrap: async () => classifier }));
 const choose = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
+let classifier: Record<string, unknown> = { confidence: "none", best: null, alternatives: [] };
+const taxonomy = [
+  { id: 1, key: "meal", name: "Refeição", keywords: [], status: "active", products: 0, subcategories: [] },
+  { id: 2, key: "snack", name: "Lanche", keywords: [], status: "active", products: 0, subcategories: [{ id: 5, category_id: 2, name: "Chocolates", keywords: [], status: "active", products: 0 }] },
+  { id: 3, key: "beverage", name: "Bebida", keywords: [], status: "active", products: 0, subcategories: [{ id: 6, category_id: 3, name: "Energéticos", keywords: [], status: "active", products: 0 }, { id: 7, category_id: 3, name: "Chás", keywords: [], status: "active", products: 0 }] },
+];
 let nextSku: { suggested: string | null } = { suggested: "110024" };
 let suggestion: Record<string, unknown> = {
   sku: "110024", name: "Novo sabor de marmita", label: "Produto novo — sem histórico de vendas", status: "suggested", confidence: "low",
@@ -16,7 +22,8 @@ let suggestion: Record<string, unknown> = {
 jest.doMock("../../lib/api/products", () => ({
   useGetNextSkuQuery: () => ({ data: nextSku, isSuccess: true }),
   useCreateProductFromInvoiceMutation: () => [createFromInvoice, { isLoading: false }],
-  useCreateProductMutation: () => [createManual, { isLoading: false }],
+  useGetCategoriesQuery: () => ({ data: taxonomy }),
+  useSuggestClassificationMutation: () => [suggestCall, { isLoading: false }],
 }));
 jest.doMock("../../lib/api/pricing", () => ({
   useGetNewProductSuggestionQuery: () => ({ data: { meta: { parameterVersion: 3, asOf: "2026-09-30" }, suggestion }, isLoading: false, isError: false }),
@@ -53,6 +60,7 @@ describe("RegisterFromInvoiceDialog — cadastro a partir da nota", () => {
     jest.clearAllMocks();
     polyfillRadix();
     nextSku = { suggested: "110024" };
+    classifier = { confidence: "none", best: null, alternatives: [] };
   });
 
   it("vem preenchido com o que a nota traz e pede só o que falta; o SKU é uma sugestão, não uma regra", () => {
@@ -88,13 +96,12 @@ describe("RegisterFromInvoiceDialog — cadastro a partir da nota", () => {
 
   it("envia os campos do formulário e a evidência da nota (número, data, fornecedor), nunca origem nem usuário", async () => {
     open();
-    pickCategory("Refeição / marmita");
-    fireEvent.change(screen.getByLabelText("Subcategoria do produto novo"), { target: { value: "Marmitas" } });
+    pickCategory("Refeição");
     fireEvent.click(screen.getByRole("button", { name: "Cadastrar produto" }));
 
     await waitFor(() => expect(createFromInvoice).toHaveBeenCalledTimes(1));
     const sent = createFromInvoice.mock.calls[0][0] as Record<string, unknown>;
-    expect(sent).toMatchObject({ sku: "110024", name: "Novo sabor de marmita", category: "meal", subcategory: "Marmitas", saleUnit: "un", ean: "7891000100103", supplierId: 5, invoiceNumber: "13021", originOn: "2026-10-10" });
+    expect(sent).toMatchObject({ sku: "110024", name: "Novo sabor de marmita", category: "meal", classificationConfirmed: true, saleUnit: "un", ean: "7891000100103", supplierId: 5, invoiceNumber: "13021", originOn: "2026-10-10" });
     expect(sent).not.toHaveProperty("origin");
     expect(sent).not.toHaveProperty("actor");
     expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ sku: "110024" }));
@@ -129,7 +136,7 @@ describe("RegisterFromInvoiceDialog — o preço do produto novo", () => {
     polyfillRadix();
     nextSku = { suggested: "110024" };
     open();
-    pickCategory("Refeição / marmita");
+    pickCategory("Refeição");
     fireEvent.click(screen.getByRole("button", { name: "Cadastrar produto" }));
     await screen.findByText("Produto novo — sem histórico de vendas");
   });
@@ -183,53 +190,71 @@ describe("RegisterFromInvoiceDialog — sem dados para sugerir", () => {
   });
 });
 
-describe("RegisterFromInvoiceDialog — cadastro à mão (o mesmo formulário, sem a nota)", () => {
+describe("RegisterFromInvoiceDialog — classificação pelo nome", () => {
+  const best = (categoryKey: string, categoryName: string, subcategory: string | null) => ({ categoryKey, categoryName, subcategory, matched: ["x"], score: 2 });
+
   beforeEach(() => {
     jest.clearAllMocks();
     polyfillRadix();
     nextSku = { suggested: "110024" };
   });
 
-  const openManual = () => render(<RegisterFromInvoiceDialog open onOpenChange={onOpenChange} onCreated={onCreated} />);
+  it("o nome da linha sugere categoria e subcategoria, e a tela diz que foi automático", async () => {
+    classifier = { confidence: "clear", best: best("beverage", "Bebida", "Energéticos"), alternatives: [] };
+    open();
 
-  it("não mostra a evidência da nota nem pergunta custo; o título é Novo produto e traz marca, unidade de compra e o fator", () => {
-    openManual();
-
-    expect(screen.getByText("Novo produto")).toBeInTheDocument();
-    expect(screen.queryByText(/Cadastro originado de NF-e/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Marca do produto novo")).toBeInTheDocument();
-    expect(screen.getByLabelText("Unidade de compra do produto novo")).toBeInTheDocument();
-    expect(screen.getByText("Fator: unidades por caixa/fardo")).toBeInTheDocument();
-    expect(screen.getByLabelText("SKU do produto novo")).toHaveValue("110024");
+    expect(await screen.findByText("Sugerida automaticamente")).toBeInTheDocument();
+    expect(suggestCall).toHaveBeenCalledWith({ name: "Novo sabor de marmita" });
+    expect(screen.getByRole("combobox", { name: "Categoria do produto novo" })).toHaveTextContent("Bebida");
+    expect(screen.getByRole("combobox", { name: "Subcategoria do produto novo" })).toHaveTextContent("Energéticos");
   });
 
-  it("cria pelo mesmo serviço de cadastro (sem origem nem fornecedor da nota), fecha e não abre o passo de preço", async () => {
-    openManual();
-    fireEvent.change(screen.getByLabelText("Nome do produto novo"), { target: { value: "Produto à mão" } });
+  it("uma escolha manual não é sobrescrita quando o nome continua mudando", async () => {
+    classifier = { confidence: "clear", best: best("beverage", "Bebida", "Energéticos"), alternatives: [] };
+    open();
+    await screen.findByText("Sugerida automaticamente");
     pickCategory("Lanche");
-    fireEvent.change(screen.getByLabelText("Marca do produto novo"), { target: { value: "Marca" } });
-    fireEvent.change(screen.getByLabelText("Unidade de compra do produto novo"), { target: { value: "CX" } });
-    fireEvent.change(screen.getByLabelText("Unidades por embalagem do produto novo"), { target: { value: "12" } });
-    fireEvent.click(screen.getByRole("button", { name: "Cadastrar produto" }));
+    expect(screen.queryByText("Sugerida automaticamente")).not.toBeInTheDocument();
 
-    await waitFor(() => expect(createManual).toHaveBeenCalledTimes(1));
-    expect(createManual.mock.calls[0][0]).toMatchObject({ sku: "110024", name: "Produto à mão", category: "snack", brand: "Marca", purchaseUnit: "CX", unitsPerPackage: 12 });
-    expect(createManual.mock.calls[0][0]).not.toHaveProperty("invoiceNumber");
-    expect(createFromInvoice).not.toHaveBeenCalled();
-    expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ sku: "110025" }));
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(screen.queryByText("Produto novo — sem histórico de vendas")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Nome do produto novo"), { target: { value: "Monster Energy 269 ml" } });
+    await waitFor(() => expect(suggestCall).toHaveBeenCalledWith({ name: "Monster Energy 269 ml" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(screen.getByRole("combobox", { name: "Categoria do produto novo" })).toHaveTextContent("Lanche");
   });
 
-  it("um EAN que é de outro produto é recusado também no cadastro à mão, nomeando o dono", async () => {
-    createManual.mockReturnValueOnce({ unwrap: async () => Promise.reject({ data: { message: "O EAN 789 pertence ao produto 110001", code: "ean_linked", sku: "110001" } }) } as never);
-    openManual();
-    fireEvent.change(screen.getByLabelText("Nome do produto novo"), { target: { value: "X" } });
+  it("nome ambíguo oferece as alternativas, não escolhe nenhuma, e escolher uma preenche e vale como manual", async () => {
+    classifier = { confidence: "ambiguous", best: null, alternatives: [best("beverage", "Bebida", "Chás"), best("snack", "Lanche", "Chocolates")] };
+    open();
+
+    const group = await screen.findByRole("group", { name: "Sugestões de classificação" });
+    expect(screen.getByRole("combobox", { name: "Categoria do produto novo" })).toHaveTextContent("Escolha");
+    fireEvent.click(screen.getByRole("button", { name: "Lanche > Chocolates" }));
+
+    expect(group).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Categoria do produto novo" })).toHaveTextContent("Lanche");
+    expect(screen.queryByText("Sugerida automaticamente")).not.toBeInTheDocument();
+  });
+
+  it("a subcategoria só oferece as da categoria escolhida", () => {
+    open();
     pickCategory("Bebida");
-    fireEvent.change(screen.getByLabelText("Código de barras do produto novo"), { target: { value: "7891000000001" } });
+    const trigger = screen.getByRole("combobox", { name: "Subcategoria do produto novo" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+
+    expect(screen.getByRole("option", { name: "Energéticos" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Chás" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Chocolates" })).not.toBeInTheDocument();
+  });
+
+  it("o cadastro envia a classificação confirmada: foi salva por uma pessoa", async () => {
+    classifier = { confidence: "clear", best: best("beverage", "Bebida", "Energéticos"), alternatives: [] };
+    open();
+    await screen.findByText("Sugerida automaticamente");
     fireEvent.click(screen.getByRole("button", { name: "Cadastrar produto" }));
 
-    expect(await screen.findByText("Este EAN já está vinculado ao produto 110001.")).toBeInTheDocument();
-    expect(onCreated).not.toHaveBeenCalled();
+    await waitFor(() => expect(createFromInvoice).toHaveBeenCalledTimes(1));
+    expect(createFromInvoice.mock.calls[0][0]).toMatchObject({ category: "beverage", subcategory: "Energéticos", classificationConfirmed: true });
   });
 });

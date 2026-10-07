@@ -14,12 +14,12 @@
 
 ## 3. Admin
 
-- [ ] 3.1 Taxonomy API and hook used by every product form and filter
-- [ ] 3.2 Categorias view (categories, subcategories, keywords, counts, review list)
-- [ ] 3.3 Classification from the name in the manual form, the Excel preview and the invoice form
-- [ ] 3.4 Unified area with the three views, one menu entry, redirects
-- [ ] 3.5 Integrated new-product form with live suggestion, explicit save and approve, pending price
+- [x] 3.1 Taxonomy API and hook used by every product form and filter
+- [x] 3.2 Categorias view (categories, subcategories, keywords, counts, review list)
+- [x] 3.3 Classification from the name in the manual form, the Excel preview and the invoice form
+- [x] 3.4 Unified area with the three views, one menu entry, redirects
+- [x] 3.5 Integrated new-product form with live suggestion, explicit save and approve, pending price
 
 ## 4. Verification
 
-- [ ] 4.1 Tests for every item above, typecheck, lint, documentation
+- [x] 4.1 Tests for every item above, typecheck, lint, documentation

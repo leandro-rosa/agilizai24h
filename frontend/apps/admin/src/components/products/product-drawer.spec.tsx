@@ -23,6 +23,7 @@ jest.doMock("../../lib/api/supplier-analysis", () => ({
   },
 }));
 jest.doMock("../../lib/api/products", () => ({
+  useGetCategoriesQuery: () => ({ data: [{ id: 1, key: "meal", name: "Refeição", keywords: [], status: "active", products: 1, subcategories: [] }] }),
   useGetProductCostsQuery: () => ({ data: costs, isLoading: false, isError: false }),
   useGetProductPricesQuery: () => ({ data: prices, isLoading: false, isError: false }),
   useGetProductMarginsQuery: () => ({ data: { product_id: 2, history_available_from: "2026-08-01", intervals: margins }, isLoading: false }),
@@ -67,7 +68,7 @@ describe("ProductDrawer — visão geral", () => {
     expect(screen.getByText("Marmitas")).toBeInTheDocument();
     expect(screen.getByText("12 un. por caixa")).toBeInTheDocument();
     expect(screen.getByText("Crystal")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Abrir na Precificação" })).toHaveAttribute("href", "/purchases/pricing?sku=110024");
+    expect(screen.getByRole("link", { name: "Abrir na Precificação" })).toHaveAttribute("href", "/products?view=pricing&sku=110024");
     expect(screen.getByTestId("origin")).toHaveTextContent("Cadastro originado de NF-e 13021 em 10/10/2026 por ana@agiliz.ai");
   });
 

@@ -21,7 +21,6 @@ import {
   ShoppingCart,
   Sparkles,
   Store as StoreIcon,
-  Tags,
   Truck,
   Upload,
   Users,
@@ -91,7 +90,6 @@ export const navGroups: NavGroup[] = [
     label: "Compras",
     items: [
       { title: "Compras e Fornecedores", href: "/purchases", icon: PackageSearch, permission: "supply:read" },
-      { title: "Precificação Inteligente", href: "/purchases/pricing", icon: Tags, permission: "products:read" },
       { title: "Pedidos", href: "/purchases/orders", icon: ClipboardList, permission: "suppliers:read" },
       { title: "Notas fiscais de compra", href: "/purchases/invoices", icon: FileInput, permission: "suppliers:read" },
       { title: "A pagar", href: "/purchases/payments", icon: Wallet, permission: "suppliers:read" },
@@ -133,7 +131,7 @@ export const navGroups: NavGroup[] = [
   {
     label: "Cadastros",
     items: [
-      { title: "Produtos", href: "/products", icon: Package, permission: "products:read" },
+      { title: "Produtos e Precificação", href: "/products", icon: Package, permission: "products:read" },
       { title: "Lojas", href: "/stores", icon: StoreIcon, permission: "stores:read" },
       { title: "Fornecedores", href: "/suppliers", icon: Handshake, permission: "suppliers:read" },
     ],

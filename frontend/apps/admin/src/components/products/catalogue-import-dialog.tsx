@@ -262,6 +262,12 @@ function PreviewRow({ item }: { item: ImportRowResult }) {
             </p>
           ))}
         {item.addEan && <p>Vincula o EAN {item.addEan}</p>}
+        {item.classification === "suggested" && <p className="text-warning">Categoria sugerida pelo nome do produto: confira depois na aba Categorias.</p>}
+        {(item.notes ?? []).map((note) => (
+          <p key={note} className="text-muted-foreground">
+            {note}
+          </p>
+        ))}
         {item.clears.length > 0 && <p className="text-warning">Vai limpar: {item.clears.map((field) => FIELD_NAME[field] ?? field).join(", ")}</p>}
       </TableCell>
     </TableRow>

@@ -108,6 +108,18 @@ describe("CatalogueImportDialog", () => {
     expect(screen.getByText(/não duplica nada/)).toBeInTheDocument();
   });
 
+  it("mostra quando a categoria foi sugerida pelo nome e quando uma classificação confirmada foi mantida", async () => {
+    preview = {
+      summary: { create: 1, update: 1, unchanged: 0, conflict: 0 },
+      rows: [row({ row: 2, classification: "suggested", changes: [{ field: "category", from: null, to: "beverage" }] }), row({ row: 3, sku: "110025", action: "update", changes: [{ field: "name", from: "A", to: "B" }], notes: ["Classificação já confirmada por uma pessoa: categoria e subcategoria da planilha não foram aplicadas"] })],
+    };
+    await upload();
+    fireEvent.click(screen.getByRole("button", { name: "Ver prévia" }));
+
+    expect(await screen.findByText(/Categoria sugerida pelo nome do produto/)).toBeInTheDocument();
+    expect(screen.getByText(/Classificação já confirmada por uma pessoa/)).toBeInTheDocument();
+  });
+
   it("uma prévia sem nada a criar ou atualizar não deixa aplicar", async () => {
     preview = { summary: { create: 0, update: 0, unchanged: 2, conflict: 0 }, rows: [] };
     await upload();

@@ -6,7 +6,10 @@ export interface Product {
   id: number;
   sku: string;
   name: string;
-  category: "meal" | "snack" | "beverage" | "essential";
+  /** A chave de uma categoria do cadastro de categorias (as quatro iniciais e as que forem criadas). */
+  category: string;
+  /** Verdadeiro quando uma pessoa salvou a classificação por um formulário: importação e nota não a mudam. */
+  classification_confirmed?: boolean;
   /** Campos das abas de produto da planilha — todos opcionais no serviço. */
   subcategory?: string | null;
   ean?: string | null;
@@ -46,8 +49,9 @@ export interface ProductEan {
 export interface NewProductFromInvoice {
   sku: string;
   name: string;
-  category: Product["category"];
+  category: string;
   subcategory?: string;
+  classificationConfirmed?: boolean;
   saleUnit?: string;
   brand?: string;
   purchaseUnit?: string;
@@ -132,6 +136,50 @@ export interface MarginInterval {
   price_reason: string | null;
 }
 
+/** Categorias e subcategorias gerenciadas: a lista única de todos os formulários, filtros e importações. */
+export interface SubcategoryRow {
+  id: number;
+  category_id: number;
+  name: string;
+  keywords: string[];
+  status: "active" | "inactive";
+  /** Produtos que usam esta subcategoria. */
+  products: number;
+}
+
+export interface CategoryRow {
+  id: number;
+  key: string;
+  name: string;
+  keywords: string[];
+  status: "active" | "inactive";
+  products: number;
+  subcategories: SubcategoryRow[];
+}
+
+export interface ClassificationCandidate {
+  categoryKey: string;
+  categoryName: string;
+  subcategory: string | null;
+  matched: string[];
+  score: number;
+}
+
+/** `clear` = um vencedor; `ambiguous` = empate (nenhum é escolhido); `none` = nada casou. */
+export interface ClassificationResult {
+  confidence: "clear" | "ambiguous" | "none";
+  best: ClassificationCandidate | null;
+  alternatives: ClassificationCandidate[];
+}
+
+export interface ClassificationReviewItem {
+  sku: string;
+  name: string;
+  current: { category: string; subcategory: string | null; confirmed: boolean };
+  proposed: { category: string; categoryName: string; subcategory: string | null };
+  matched: string[];
+}
+
 /** Uma linha da planilha já mapeada pelo operador. Célula vazia = não informado. */
 export interface ImportRow {
   row: number;
@@ -156,6 +204,10 @@ export interface ImportRowResult {
   clears: string[];
   addEan: string | null;
   problems: string[];
+  /** O que a importação NÃO fez e por quê (ex.: manteve uma classificação confirmada); não é conflito. */
+  notes?: string[];
+  /** De onde veio a categoria: dada pela linha ou sugerida pelo nome. */
+  classification?: "given" | "suggested" | null;
 }
 
 export interface ImportPreview {
@@ -212,7 +264,7 @@ export interface SyncIssue {
 export interface SyncCreate {
   sku: string;
   name: string;
-  category: Product["category"];
+  category: string;
   subcategory: string | null;
   ean: string | null;
   supplier: string | null;
@@ -245,7 +297,7 @@ export interface SyncApplyResult {
 export const productsApi = createApi({
   reducerPath: "productsApi",
   baseQuery: gatewayBaseQuery,
-  tagTypes: ["Product", "SkuLink", "ProductHistory"],
+  tagTypes: ["Product", "SkuLink", "ProductHistory", "Taxonomy"],
   endpoints: (builder) => ({
     getProducts: builder.query<Product[], void>({
       query: () => "/products",
@@ -301,7 +353,7 @@ export const productsApi = createApi({
     }),
     createProduct: builder.mutation<
       Product,
-      { sku: string; name: string; category: Product["category"]; ean?: string; supplierId?: number; subcategory?: string; brand?: string; saleUnit?: string; purchaseUnit?: string; packageType?: string; unitsPerPackage?: number; fractionable?: boolean }
+      { sku: string; name: string; category: string; ean?: string; supplierId?: number; subcategory?: string; classificationConfirmed?: boolean; brand?: string; saleUnit?: string; purchaseUnit?: string; packageType?: string; unitsPerPackage?: number; fractionable?: boolean }
     >({
       query: (body) => ({ url: "/products", method: "POST", body }),
       invalidatesTags: ["Product"],
@@ -343,6 +395,39 @@ export const productsApi = createApi({
       query: () => "/catalogue/last-change",
       providesTags: ["Product", "ProductHistory"],
     }),
+    getCategories: builder.query<CategoryRow[], void>({
+      query: () => "/categories",
+      providesTags: ["Taxonomy"],
+    }),
+    createCategory: builder.mutation<CategoryRow, { name: string; keywords?: string[] }>({
+      query: (body) => ({ url: "/categories", method: "POST", body }),
+      invalidatesTags: ["Taxonomy"],
+    }),
+    updateCategory: builder.mutation<CategoryRow, { id: number; changes: { name?: string; keywords?: string[]; status?: "active" | "inactive" } }>({
+      query: ({ id, changes }) => ({ url: `/categories/${id}`, method: "PATCH", body: changes }),
+      invalidatesTags: ["Taxonomy", "Product"],
+    }),
+    createSubcategory: builder.mutation<CategoryRow, { categoryId: number; name: string; keywords?: string[] }>({
+      query: ({ categoryId, ...body }) => ({ url: `/categories/${categoryId}/subcategories`, method: "POST", body }),
+      invalidatesTags: ["Taxonomy"],
+    }),
+    updateSubcategory: builder.mutation<CategoryRow, { id: number; changes: { name?: string; keywords?: string[]; status?: "active" | "inactive" } }>({
+      query: ({ id, changes }) => ({ url: `/subcategories/${id}`, method: "PATCH", body: changes }),
+      // Renomear uma subcategoria renomeia nos produtos.
+      invalidatesTags: ["Taxonomy", "Product"],
+    }),
+    /** Sugere categoria e subcategoria pelo nome; não aplica nada. */
+    suggestClassification: builder.mutation<ClassificationResult, { name: string }>({
+      query: (body) => ({ url: "/classification/suggest", method: "POST", body }),
+    }),
+    getClassificationReview: builder.query<ClassificationReviewItem[], void>({
+      query: () => "/classification/review",
+      providesTags: ["Taxonomy", "Product"],
+    }),
+    applyClassification: builder.mutation<{ applied: number; results: { sku: string; ok: boolean; error?: string }[] }, { items: { sku: string; category: string; subcategory: string | null }[] }>({
+      query: (body) => ({ url: "/classification/apply", method: "POST", body }),
+      invalidatesTags: ["Taxonomy", "Product"],
+    }),
     getNextSku: builder.query<NextSku, void>({
       query: () => "/products/next-sku",
       // Cada abertura do formulário pergunta de novo: outro cadastro pode ter usado o número.
@@ -359,7 +444,7 @@ export const productsApi = createApi({
     }),
     updateProduct: builder.mutation<
       Product,
-      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number | null; packageType?: string | null; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: "active" | "discontinued"; saleUnit?: string; brand?: string | null; purchaseUnit?: string | null } }
+      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number | null; packageType?: string | null; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; classificationConfirmed?: boolean; status?: "active" | "discontinued"; saleUnit?: string; brand?: string | null; purchaseUnit?: string | null } }
     >({
       query: ({ id, changes }) => ({ url: `/products/${id}`, method: "PATCH", body: changes }),
       invalidatesTags: ["Product"],
@@ -380,6 +465,14 @@ export const {
   useUpdateProductMutation,
   useCreateProductMutation,
   useGetNextSkuQuery,
+  useGetCategoriesQuery,
+  useCreateCategoryMutation,
+  useUpdateCategoryMutation,
+  useCreateSubcategoryMutation,
+  useUpdateSubcategoryMutation,
+  useSuggestClassificationMutation,
+  useGetClassificationReviewQuery,
+  useApplyClassificationMutation,
   usePreviewCatalogueImportMutation,
   useApplyCatalogueImportMutation,
   useGetCatalogueLastChangeQuery,

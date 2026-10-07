@@ -39,6 +39,14 @@ describe("planilha do catálogo", () => {
     expect(free[13]).toBe(0);
   });
 
+  it("a categoria vem do nome no cadastro de categorias; sem ele, a chave (nunca em branco)", () => {
+    const [named] = productRows([item({ categoryName: "Congelados" })]);
+    const [fallback] = productRows([item({ product: { ...product, category: "nova-categoria" } })]);
+
+    expect(named[2]).toBe("Congelados");
+    expect(fallback[2]).toBe("nova-categoria");
+  });
+
   it("a aba de EANs traz um por linha, inclusive os inativos, com situação e validade", () => {
     const rows = eanRows([item(), { product: bare, costCents: null, costDate: null }]);
 
