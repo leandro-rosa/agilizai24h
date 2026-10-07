@@ -21,6 +21,7 @@
 - [x] 3.5 Brand aliases (Sodexo = Pluxee) as a pricing parameter, applied before matching sales brands to registered fees
 - [x] 3.6 Fixed fee per sale: weight by brand, spread over the units sold by receipt-line share, add to the unit cost without multiplying it by loss
 - [x] 3.4 Unit tests for the spec scenarios (weighted, simple fallback, missing brand, mix weighting)
+- [x] 3.7 Alias PagSeguro = PagBank; disclose registered plans no sale uses and average plans only when no registered name matches the sale
 
 ## 4. Pricing parameters (intelligence-service)
 
@@ -54,7 +55,6 @@
 ## 8. Verification
 
 - [x] 8.1 Run `pnpm turbo run lint typecheck` and the affected services' tests
-- [x] 3.7 Alias PagSeguro = PagBank; disclose registered plans no sale uses and average plans only when no registered name matches the sale
 - [ ] 8.4 Register the confirmed fees (PagSeguro pix/debit/credit; Pluxee 6,90%, Ticket 5,99% + R$ 0,89, VR Benefícios 6,85%, Alelo 6,9%) and the 7,07% tax rate once the owner gives the effective dates and authorises writing to the dev database
 - [ ] 8.2 Run the engine on real data (read-only) for one store and one month and review the report with the owner before building the screen; confirm no price version was created in products-service
 - [x] 8.3 Confirm the Smart Supply engine's tests and parameter version are unchanged
