@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Matches, Min, ArrayNotEmpty, IsArray, ValidateNested } from 'class-validator'
-import { PRODUCT_CATEGORY_VALUES, WRITABLE_VERSION_SOURCES, type ProductCategory } from '../constants/product-vocabulary'
+import { PRODUCT_CATEGORY_VALUES, WRITABLE_EAN_SOURCES, WRITABLE_VERSION_SOURCES, type ProductCategory } from '../constants/product-vocabulary'
 
 export class CreateProductDto {
   @ApiProperty({ example: 'REF-GUA-350' })
@@ -260,4 +260,72 @@ export class SyncApplyDto extends SyncPreviewDto {
   @IsString() new_products_from: string
   @ApiProperty({ example: '2026-10-06', description: 'Início de vigência de MUDANÇAS em produtos existentes' })
   @IsString() changes_from: string
+}
+
+
+export class AddEanDto {
+  @ApiProperty({ example: '7891000107836', description: 'Só dígitos, de 8 a 14.' })
+  @IsString()
+  @Matches(/^\d{8,14}$/, { message: 'ean must be 8 to 14 digits' })
+  ean: string
+
+  @ApiPropertyOptional({ example: '2026-10-01', description: 'Quando este EAN passa a ser o código de barras do produto.' })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  valid_from?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  note?: string
+
+  @ApiPropertyOptional({ description: 'Torna este EAN o principal. Não mexe nos outros.' })
+  @IsOptional()
+  @IsBoolean()
+  make_primary?: boolean
+
+  @ApiPropertyOptional({ description: 'Torna este EAN o principal E inativa o principal atual (fica no histórico, com data de fim).' })
+  @IsOptional()
+  @IsBoolean()
+  retire_current?: boolean
+
+  @ApiPropertyOptional({ enum: WRITABLE_EAN_SOURCES })
+  @IsOptional()
+  @IsIn(WRITABLE_EAN_SOURCES)
+  source?: string
+
+  @ApiPropertyOptional({ description: 'O usuário da sessão; o gateway define, nunca confie num valor do navegador.' })
+  @IsOptional()
+  @IsString()
+  actor?: string
+}
+
+export class UpdateEanDto {
+  @ApiPropertyOptional({ enum: ['active', 'inactive'] })
+  @IsOptional()
+  @IsIn(['active', 'inactive'])
+  status?: 'active' | 'inactive'
+
+  @ApiPropertyOptional({ example: '2026-10-09', description: 'Fim da validade ao inativar (hoje se omitido).' })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  valid_to?: string
+
+  @ApiPropertyOptional({ description: 'true torna este o EAN principal (tem de estar ativo); false tira a marca.' })
+  @IsOptional()
+  @IsBoolean()
+  primary?: boolean
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  note?: string | null
+}
+
+export class ResolveEansDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  eans: string[]
 }

@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
+import { principalOf } from '../utils/ean'
 import { COST_RANK, NO_RANK, resolveByProduct } from '../utils/resolve-version'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { normalizeName } from '../utils/normalize-name'
@@ -27,13 +28,13 @@ export class CatalogueSyncService {
   private async currentCatalogue(): Promise<CatalogueEntry[]> {
     const today = new Date(new Date().toISOString().slice(0, 10))
     const [products, costs, prices] = await Promise.all([
-      this.prisma.product.findMany({ select: { id: true, sku: true, name: true, ean: true } }),
+      this.prisma.product.findMany({ select: { id: true, sku: true, name: true, eans: { select: { ean: true, status: true, is_primary: true, id: true } } } }),
       this.prisma.costVersion.findMany({ where: { effective_from: { lte: today } } }),
       this.prisma.priceVersion.findMany({ where: { effective_from: { lte: today } } }),
     ])
     const cost = new Map([...resolveByProduct(costs, today, COST_RANK)].map(([id, version]) => [id, version.cost_cents]))
     const price = new Map([...resolveByProduct(prices, today, NO_RANK)].map(([id, version]) => [id, version.price_cents]))
-    return products.map(p => ({ sku: p.sku, name: p.name, ean: p.ean, cost_cents: cost.get(p.id) ?? null, price_cents: price.get(p.id) ?? null }))
+    return products.map(p => ({ sku: p.sku, name: p.name, ean: principalOf(p.eans)?.ean ?? null, eans: p.eans.map(e => e.ean), cost_cents: cost.get(p.id) ?? null, price_cents: price.get(p.id) ?? null }))
   }
 
   /** Só calcula e devolve o plano — não grava nada. */
@@ -78,7 +79,7 @@ export class CatalogueSyncService {
             category: item.category,
             normalized_name: normalizeName(item.name),
             subcategory: item.subcategory,
-            ean: item.ean,
+            ...(item.ean ? { eans: { create: { ean: item.ean, status: 'active', is_primary: true, source: 'catalogue_sync' } } } : {}),
             package_type: item.package_type,
           },
         })

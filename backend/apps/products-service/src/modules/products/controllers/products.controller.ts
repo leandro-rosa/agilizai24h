@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Po
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { PRODUCT_CATEGORY_VALUES, type ProductCategory } from '../constants/product-vocabulary'
 import {
+  AddEanDto,
   BulkCostDto,
   BulkPriceDto,
   CreateOverrideDto,
@@ -11,12 +12,15 @@ import {
   SyncPreviewDto,
   RecordCostDto,
   RecordPriceDto,
+  ResolveEansDto,
   ResolveNamesDto,
   ResolveSkusDto,
+  UpdateEanDto,
   UpdateProductDto,
 } from '../dto/product.dto'
 import { CatalogueSyncService } from '../services/catalogue-sync.service'
 import { CostService } from '../services/cost.service'
+import { EanService } from '../services/ean.service'
 import { PriceService } from '../services/price.service'
 import { ProductsService } from '../services/products.service'
 import { SkuLinkService } from '../services/sku-link.service'
@@ -27,6 +31,7 @@ export class ProductsController {
   constructor(
     private readonly products: ProductsService,
     private readonly costs: CostService,
+    private readonly eans: EanService,
     private readonly prices: PriceService,
     private readonly skuLinks: SkuLinkService,
     private readonly catalogueSync: CatalogueSyncService,
@@ -89,6 +94,39 @@ export class ProductsController {
   @ApiOperation({ summary: 'Update a product' })
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateProductDto) {
     return this.products.update(id, dto)
+  }
+
+  @Get('products/:id/eans')
+  @ApiOperation({ summary: 'Every EAN the product has or ever had, with status and validity' })
+  listEans(@Param('id', ParseIntPipe) id: number) {
+    return this.eans.list(id)
+  }
+
+  @Post('products/:id/eans')
+  @ApiOperation({
+    summary: 'Link another EAN to the product',
+    description:
+      'A product can have several EANs. 409 when the EAN is active on another product (naming it) or already linked here. `retire_current` makes it the principal and retires the old principal, which stays in the history. Nothing is ever deleted and no product is created.',
+  })
+  addEan(@Param('id', ParseIntPipe) id: number, @Body() dto: AddEanDto) {
+    return this.eans.add(id, { ean: dto.ean, validFrom: dto.valid_from, note: dto.note, makePrimary: dto.make_primary, retireCurrent: dto.retire_current, source: dto.source, actor: dto.actor })
+  }
+
+  @Patch('products/:id/eans/:eanId')
+  @ApiOperation({ summary: 'Inactivate or reactivate an EAN, change the principal, or edit its note. There is no delete.' })
+  updateEan(@Param('id', ParseIntPipe) id: number, @Param('eanId', ParseIntPipe) eanId: number, @Body() dto: UpdateEanDto) {
+    return this.eans.update(id, eanId, { status: dto.status, validTo: dto.valid_to, primary: dto.primary, note: dto.note })
+  }
+
+  @Post('eans/resolve')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Find the SKU of EANs, active or historical',
+    description:
+      'Partitioned: `resolved` (match active or historical) and `unresolved` with a reason (`ean_not_identified`, `ean_ambiguous`, `ean_invalid`). An unknown EAN never creates a product.',
+  })
+  resolveEans(@Body() dto: ResolveEansDto) {
+    return this.eans.resolve(dto.eans)
   }
 
   @Post('products/:sku/costs')

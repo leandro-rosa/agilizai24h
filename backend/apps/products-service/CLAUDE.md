@@ -121,6 +121,28 @@ primeira versão, ausente — nunca cai para a mais nova. O contrato do `bulk` (
 - `product.sale_unit` (padrão `un`); o código interno é o SKU.
 - Teste de integração (`test/`) roda contra o banco do ambiente: **só contra um banco descartável**.
 
+## Vários EANs por produto (`ProductEan`)
+
+O **SKU identifica o produto; o EAN identifica a embalagem.** Um produto pode ter vários EANs ao longo do tempo (embalagem nova, outro
+fornecedor), e trocar de EAN **não** cria produto: o histórico de custo, preço, compras, vendas e margem continua do SKU. A coluna única
+`product.ean` deixou de existir; no lugar, `product_ean` (`status active|inactive`, `is_primary`, `valid_from`/`valid_to`, `source`,
+`actor`, `note`).
+
+- **Nada é apagado.** Não há `DELETE`: parar de usar um EAN é **inativá-lo** (grava `valid_to`; ele continua achando o SKU) e pode ser
+  reativado no mesmo vínculo. `POST /products/:id/eans` aceita `make_primary` e `retire_current` (novo principal + o antigo inativo com data
+  de fim, `valid_from − 1 dia`). `PATCH /products/:id/eans/:eanId` inativa/reativa, troca o principal ou edita a observação.
+- **Travas no banco** (índices parciais da migration): um EAN **ativo** pertence a **um** produto; no máximo **um principal** por produto,
+  e ele é ativo; `(product_id, ean)` único. O serviço checa antes e devolve 409 **nomeando o produto**; uma corrida cai no mesmo 409.
+- **Quem acha o SKU** (`POST /eans/resolve`, particionado como os outros lookups; regra pura em `utils/ean.ts`): EAN ativo → o produto;
+  sem ativo, **histórico em exatamente um produto → resolve, marcado `historical`**; histórico em **mais de um → `ean_ambiguous`** (não
+  resolve, devolve os candidatos); sem vínculo → **`ean_not_identified`** e **nenhum produto é criado**; formato ruim → `ean_invalid`.
+- **Criar produto com um EAN que já pertence (ou pertenceu) a outro produto é recusado** (409): é um vínculo a acrescentar àquele produto.
+  A sincronização da planilha também enxerga os EANs históricos e avisa "já pertence (ou já pertenceu) ao SKU X".
+- O `ean` do `ProductView` é o **principal** (ou o ativo mais recente); nunca um inativo. Vínculos vindos da carga inicial: `source =
+  legacy_import`, **`valid_from` vazio** (nunca registrado, não se inventa data).
+- **Dado real (2026-10-07): só 1 dos 255 produtos tinha EAN cadastrado** — a planilha de precificação tem EAN, mas a sincronização nunca
+  reescreve produto existente. Enquanto isso não for corrigido, a NF-e casa por EAN em quase nada.
+
 ## Vínculos de SKU (`SkuLink`) — troca de código de barras
 
 `GET/PUT /sku-links`, `DELETE /sku-links/:id` (gateway: `/sku-links`, `products:read`/`products:write`).
@@ -157,6 +179,6 @@ custo/preço**; nunca reescreve nome, categoria ou EAN de produto existente.
   é escolhido à mão (sem leitura automática do Drive); depois de cadastrar, as linhas já rejeitadas
   como `unknown_sku` só entram numa NOVA importação de vendas/abastecimento.
 
-`ProductView` agora devolve `ean` (casamento das linhas de NF-e de compra) além de `supplier_id`.
+`ProductView` devolve `ean` (o principal), `eans` (todos, com status e validade) e `supplier_id`.
 
 `POST /products` aceita `ean` (8–14 dígitos; duplicado → 409) e `supplierId`, para cadastrar produto novo dentro do formulário de compra.

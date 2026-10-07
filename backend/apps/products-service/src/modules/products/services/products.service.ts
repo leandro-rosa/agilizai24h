@@ -1,25 +1,16 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { NameOverrideRepository } from '../../db-client/repositories/name-override.repository'
 import { ProductRepository } from '../../db-client/repositories/product.repository'
 import { UNRESOLVED_REASONS, type ProductCategory, type UnresolvedReason } from '../constants/product-vocabulary'
+import { cleanEan } from '../utils/ean'
 import { normalizeName } from '../utils/normalize-name'
+import { toProductView, type ProductView } from '../utils/product-view'
 
-export interface ProductView {
-  id: number
-  sku: string
-  name: string
-  category: string
-  units_per_package: number | null
-  package_type: string | null
-  fractionable: boolean | null
-  /** Barcode, unique when set: what an invoice line is matched by first. */
-  ean: string | null
-  /** Declared supplier (suppliers-service id), or null when none is registered. Never inferred. */
-  supplier_id: number | null
-  /** Populated by the ingestion pipeline, not by create()/update() here — read-only from this API. */
-  shelf_life_days: number | null
-}
+export type { ProductView }
+
+/** Every product read carries ALL its EAN links, so `ean` and `eans` always agree. */
+const WITH_EANS = { eans: { orderBy: [{ is_primary: 'desc' as const }, { status: 'asc' as const }, { id: 'asc' as const }] } }
 
 export interface CreateProductInput {
   sku: string
@@ -76,15 +67,18 @@ export class ProductsService {
     const existing = await this.prisma.product.findUnique({ where: { sku: input.sku } })
     if (existing) throw new ConflictException(`A product with SKU ${input.sku} already exists`)
 
-    if (input.ean) {
-      const sameEan = await this.prisma.product.findUnique({ where: { ean: input.ean } })
-      if (sameEan) throw new ConflictException(`The barcode ${input.ean} already belongs to product ${sameEan.sku}`)
+    const ean = input.ean === undefined || input.ean === null ? null : cleanEan(input.ean)
+    if (input.ean && !ean) throw new BadRequestException('EAN inválido: use só dígitos, de 8 a 14')
+    if (ean) {
+      // The EAN may belong to another product today or only historically; either way a new SKU must not take it:
+      // a barcode already tied to a product is a link to add to THAT product, not a reason for a second one.
+      const linked = await this.prisma.productEan.findFirst({ where: { ean }, include: { product: { select: { sku: true } } }, orderBy: { status: 'asc' } })
+      if (linked) throw new ConflictException(`O EAN ${ean} ${linked.status === 'active' ? 'pertence' : 'já pertenceu'} ao produto ${linked.product.sku}; vincule-o a ele em vez de criar outro produto`)
     }
 
     const created = await this.prisma.product.create({
       data: {
         sku: input.sku,
-        ean: input.ean ?? null,
         supplier_id: input.supplierId ?? null,
         name: input.name,
         category: input.category,
@@ -92,10 +86,12 @@ export class ProductsService {
         units_per_package: input.unitsPerPackage ?? null,
         package_type: input.packageType ?? null,
         fractionable: input.fractionable ?? null,
+        ...(ean ? { eans: { create: { ean, status: 'active', is_primary: true, source: 'other' } } } : {}),
       },
+      include: WITH_EANS,
     })
 
-    return toView(created)
+    return toProductView(created)
   }
 
   async update(
@@ -115,25 +111,27 @@ export class ProductsService {
         ...(changes.fractionable !== undefined ? { fractionable: changes.fractionable } : {}),
         ...(changes.supplierId !== undefined ? { supplier_id: changes.supplierId } : {}),
       },
+      include: WITH_EANS,
     })
 
-    return toView(updated)
+    return toProductView(updated)
   }
 
   async findById(id: number): Promise<ProductView> {
-    const product = await this.prisma.product.findUnique({ where: { id } })
+    const product = await this.prisma.product.findUnique({ where: { id }, include: WITH_EANS })
     if (!product) throw new NotFoundException(`Product ${id} not found`)
 
-    return toView(product)
+    return toProductView(product)
   }
 
   async list(category?: ProductCategory): Promise<ProductView[]> {
     const products = await this.prisma.product.findMany({
       where: category ? { category } : undefined,
       orderBy: [{ sku: 'asc' }],
+      include: WITH_EANS,
     })
 
-    return products.map(toView)
+    return products.map(toProductView)
   }
 
   /**
@@ -146,7 +144,7 @@ export class ProductsService {
    */
   async resolveSkus(skus: string[]): Promise<SkuResolutionResult> {
     const requested = [...new Set(skus)]
-    const found = await this.prisma.product.findMany({ where: { sku: { in: requested } } })
+    const found = await this.prisma.product.findMany({ where: { sku: { in: requested } }, include: WITH_EANS })
     const foundBySku = new Map(found.map(product => [product.sku, product]))
 
     const matched: ProductView[] = []
@@ -154,7 +152,7 @@ export class ProductsService {
 
     for (const sku of requested) {
       const product = foundBySku.get(sku)
-      if (product) matched.push(toView(product))
+      if (product) matched.push(toProductView(product))
       else unmatched.push({ sku, reason: UNRESOLVED_REASONS.UNKNOWN_SKU })
     }
 
@@ -186,14 +184,14 @@ export class ProductsService {
 
       const override = overrideByNormalized.get(normalized)
       if (override) {
-        matched.push({ source_name: sourceName, product: toView(override), matched_by: 'override' })
+        matched.push({ source_name: sourceName, product: toProductView(override), matched_by: 'override' })
         continue
       }
 
-      const candidates = await this.products.findByNormalizedName(normalized)
+      const candidates = await this.products.findByNormalizedNameWithEans(normalized)
 
       if (candidates.length === 1) {
-        matched.push({ source_name: sourceName, product: toView(candidates[0]), matched_by: 'normalization' })
+        matched.push({ source_name: sourceName, product: toProductView(candidates[0]), matched_by: 'normalization' })
         continue
       }
 
@@ -209,7 +207,7 @@ export class ProductsService {
   }
 
   async addOverride(sourceName: string, sku: string): Promise<NameMatch> {
-    const product = await this.prisma.product.findUnique({ where: { sku } })
+    const product = await this.prisma.product.findUnique({ where: { sku }, include: WITH_EANS })
     if (!product) throw new NotFoundException(`Unknown SKU ${sku}`)
 
     const normalized = normalizeName(sourceName)
@@ -220,12 +218,12 @@ export class ProductsService {
       update: { source_name: sourceName, product_id: product.id },
     })
 
-    return { source_name: sourceName, product: toView(product), matched_by: 'override' }
+    return { source_name: sourceName, product: toProductView(product), matched_by: 'override' }
   }
 
   async listOverrides() {
     const rows = await this.prisma.productNameOverride.findMany({
-      include: { product: true },
+      include: { product: { include: WITH_EANS } },
       orderBy: { source_normalized_name: 'asc' },
     })
 
@@ -233,7 +231,7 @@ export class ProductsService {
       id: row.id,
       source_name: row.source_name,
       source_normalized_name: row.source_normalized_name,
-      product: toView(row.product),
+      product: toProductView(row.product),
     }))
   }
 
@@ -242,31 +240,5 @@ export class ProductsService {
     if (!existing) throw new NotFoundException(`Override ${id} not found`)
 
     await this.prisma.productNameOverride.delete({ where: { id } })
-  }
-}
-
-function toView(product: {
-  id: number
-  sku: string
-  name: string
-  category: string
-  units_per_package: number | null
-  package_type: string | null
-  fractionable: boolean | null
-  ean: string | null
-  supplier_id: number | null
-  shelf_life_days: number | null
-}): ProductView {
-  return {
-    id: product.id,
-    sku: product.sku,
-    name: product.name,
-    category: product.category,
-    units_per_package: product.units_per_package,
-    shelf_life_days: product.shelf_life_days,
-    package_type: product.package_type,
-    fractionable: product.fractionable,
-    ean: product.ean,
-    supplier_id: product.supplier_id,
   }
 }

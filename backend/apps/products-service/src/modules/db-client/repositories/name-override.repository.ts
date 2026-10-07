@@ -12,7 +12,7 @@ export class NameOverrideRepository extends PrismaRepository<ProductNameOverride
   findByNormalizedNames(normalized: string[]) {
     return this.prismaClient.productNameOverride.findMany({
       where: { source_normalized_name: { in: normalized } },
-      include: { product: true },
+      include: { product: { include: { eans: { orderBy: [{ is_primary: 'desc' as const }, { status: 'asc' as const }, { id: 'asc' as const }] } } } },
     })
   }
 }

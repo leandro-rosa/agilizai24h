@@ -4,12 +4,14 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import { AppModule } from '../src/app.module'
 import { PrismaClientService } from '../src/modules/db-client/prisma-client.service'
 import { CostService } from '../src/modules/products/services/cost.service'
+import { EanService } from '../src/modules/products/services/ean.service'
 import { ProductsService } from '../src/modules/products/services/products.service'
 
 describe('products integration', () => {
   let app: TestingModule
   let products: ProductsService
   let costs: CostService
+  let eans: EanService
   let prisma: PrismaClientService
 
   const createdSkus: string[] = []
@@ -29,6 +31,7 @@ describe('products integration', () => {
     app = await moduleRef.init()
     products = app.get(ProductsService)
     costs = app.get(CostService)
+    eans = app.get(EanService)
     prisma = app.get(PrismaClientService)
   }, 60000)
 
@@ -349,6 +352,178 @@ describe('products integration', () => {
       await products.removeOverride(entry.id)
 
       expect((await products.resolveNames([sourceName])).unmatched).toHaveLength(1)
+    })
+  })
+
+  describe('several EANs per product', () => {
+    /** 13 digits, unique per call: real barcodes would collide between runs. */
+    const newEan = () => String(1_000_000_000_000 + Math.floor(Math.random() * 8_999_999_999_999))
+    const productWith = async (ean?: string) => {
+      const sku = unique('SKU')
+      createdSkus.push(sku)
+      return products.create({ sku, name: unique('Suflair'), category: 'snack', ean })
+    }
+    const statusOf = async (productId: number) => Object.fromEntries((await eans.list(productId)).map(link => [link.ean, link]))
+
+    it('registers a product with one EAN, which is active and the principal', async () => {
+      const ean = newEan()
+      const product = await productWith(ean)
+
+      expect(product.ean).toBe(ean)
+      expect(product.eans).toHaveLength(1)
+      expect(product.eans[0]).toMatchObject({ ean, status: 'active', is_primary: true })
+    })
+
+    it('adds a second EAN to the same product: both are listed and it is still one product', async () => {
+      const [oldEan, newer] = [newEan(), newEan()]
+      const product = await productWith(oldEan)
+      await eans.add(product.id, { ean: newer, source: 'manual', actor: 'ana@agiliz.ai', note: 'embalagem nova' })
+
+      const view = await products.findById(product.id)
+      expect(view.eans.map(link => link.ean).sort()).toEqual([oldEan, newer].sort())
+      expect(view.sku).toBe(product.sku)
+      // Adding a second EAN does not take the principal away from the first unless asked.
+      expect(view.ean).toBe(oldEan)
+    })
+
+    it('retiring the old EAN keeps it in the history, inactive with an end date, and the new one becomes the principal', async () => {
+      const [oldEan, newer] = [newEan(), newEan()]
+      const product = await productWith(oldEan)
+      await eans.add(product.id, { ean: newer, retireCurrent: true, validFrom: '2026-10-10', source: 'manual', actor: 'ana@agiliz.ai' })
+
+      const links = await statusOf(product.id)
+      expect(links[oldEan]).toMatchObject({ status: 'inactive', is_primary: false, valid_to: '2026-10-09' })
+      expect(links[newer]).toMatchObject({ status: 'active', is_primary: true, valid_from: '2026-10-10' })
+      expect((await products.findById(product.id)).ean).toBe(newer)
+    })
+
+    it('an inactive EAN is marked inactive with an end date and is never deleted', async () => {
+      const [first, second] = [newEan(), newEan()]
+      const product = await productWith(first)
+      await eans.add(product.id, { ean: second, source: 'manual', actor: 'ana@agiliz.ai' })
+      const link = (await statusOf(product.id))[first]
+
+      await eans.update(product.id, link.id, { status: 'inactive', validTo: '2026-10-09' })
+
+      const after = await statusOf(product.id)
+      expect(after[first]).toMatchObject({ status: 'inactive', is_primary: false, valid_to: '2026-10-09' })
+      expect(Object.keys(after)).toHaveLength(2)
+    })
+
+    it('resolves both the old and the new EAN to the same SKU, the old one marked as historical', async () => {
+      const [oldEan, newer] = [newEan(), newEan()]
+      const product = await productWith(oldEan)
+      await eans.add(product.id, { ean: newer, retireCurrent: true, source: 'manual', actor: 'ana@agiliz.ai' })
+
+      const result = await eans.resolve([oldEan, newer])
+
+      expect(result.unresolved).toEqual([])
+      expect(result.resolved.map(r => [r.ean, r.match, r.product.sku])).toEqual([
+        [oldEan, 'historical', product.sku],
+        [newer, 'active', product.sku],
+      ])
+    })
+
+    it('an old invoice (old EAN) and a new one (new EAN) feed the same SKU, so the history stays one', async () => {
+      const [oldEan, newer] = [newEan(), newEan()]
+      const product = await productWith(oldEan)
+      await eans.add(product.id, { ean: newer, retireCurrent: true, source: 'manual', actor: 'ana@agiliz.ai' })
+
+      const bySku = async (ean: string) => (await eans.resolve([ean])).resolved[0].product.sku
+      await costs.recordCost(await bySku(oldEan), new Date('2026-08-01'), 570, { source: 'catalogue_sync' })
+      await costs.recordCost(await bySku(newer), new Date('2026-10-10'), 620, { source: 'catalogue_sync' })
+
+      const versions = await costs.listVersions(product.id)
+      expect(versions.map(v => v.cost_cents)).toEqual([570, 620])
+    })
+
+    it('an EAN no product has is "not identified" and no product is created', async () => {
+      const before = await prisma.product.count()
+      const unknown = newEan()
+
+      const result = await eans.resolve([unknown])
+
+      expect(result.resolved).toEqual([])
+      expect(result.unresolved).toEqual([{ ean: unknown, unresolved: 'ean_not_identified' }])
+      expect(await prisma.product.count()).toBe(before)
+    })
+
+    it('an invalid EAN is reported as invalid, not as unknown', async () => {
+      expect((await eans.resolve(['7.89856E+12'])).unresolved).toEqual([{ ean: '7.89856E+12', unresolved: 'ean_invalid' }])
+    })
+
+    it('refuses an EAN that is active on another product, naming it', async () => {
+      const ean = newEan()
+      const owner = await productWith(ean)
+      const other = await productWith()
+
+      await expect(eans.add(other.id, { ean, source: 'manual', actor: 'ana@agiliz.ai' })).rejects.toThrow(new RegExp(owner.sku))
+      expect((await products.findById(other.id)).eans).toEqual([])
+    })
+
+    it('refuses to create a product with an EAN that is linked to another one, active or historical', async () => {
+      const [oldEan, newer] = [newEan(), newEan()]
+      const owner = await productWith(oldEan)
+      await expect(products.create({ sku: unique('SKU'), name: 'Outro', category: 'snack', ean: oldEan })).rejects.toThrow(/pertence/)
+
+      await eans.add(owner.id, { ean: newer, retireCurrent: true, source: 'manual', actor: 'ana@agiliz.ai' })
+      await expect(products.create({ sku: unique('SKU'), name: 'Outro', category: 'snack', ean: oldEan })).rejects.toThrow(/já pertenceu/)
+    })
+
+    it('an EAN that is historical on two products is ambiguous and is not resolved', async () => {
+      const ean = newEan()
+      const [a, b] = [await productWith(ean), await productWith(newEan())]
+      // Reached directly: the API never lets an active EAN move, so a historical clash comes from old data.
+      await prisma.productEan.update({ where: { product_id_ean: { product_id: a.id, ean } }, data: { status: 'inactive', is_primary: false } })
+      await prisma.productEan.create({ data: { product_id: b.id, ean, status: 'inactive', is_primary: false, source: 'other' } })
+
+      const result = await eans.resolve([ean])
+
+      expect(result.resolved).toEqual([])
+      expect(result.unresolved[0]).toMatchObject({ ean, unresolved: 'ean_ambiguous' })
+      expect([...(result.unresolved[0] as { candidates: string[] }).candidates].sort()).toEqual([a.sku, b.sku].sort())
+    })
+
+    it('one principal per product: changing it keeps the others active and linked', async () => {
+      const [first, second] = [newEan(), newEan()]
+      const product = await productWith(first)
+      await eans.add(product.id, { ean: second, source: 'manual', actor: 'ana@agiliz.ai' })
+      const links = await statusOf(product.id)
+
+      await eans.update(product.id, links[second].id, { primary: true })
+
+      const after = await statusOf(product.id)
+      expect(after[second].is_primary).toBe(true)
+      expect(after[first]).toMatchObject({ is_primary: false, status: 'active' })
+    })
+
+    it('an inactive EAN cannot be the principal, and can be reactivated unless it is active elsewhere', async () => {
+      const [first, second] = [newEan(), newEan()]
+      const product = await productWith(first)
+      await eans.add(product.id, { ean: second, retireCurrent: true, source: 'manual', actor: 'ana@agiliz.ai' })
+      const retired = (await statusOf(product.id))[first]
+
+      await expect(eans.update(product.id, retired.id, { primary: true })).rejects.toThrow(/ativo/)
+      await eans.update(product.id, retired.id, { status: 'active' })
+      expect((await statusOf(product.id))[first]).toMatchObject({ status: 'active', valid_to: null })
+    })
+
+    it('the database itself refuses two active links of one EAN, two principals, and an inactive principal', async () => {
+      const ean = newEan()
+      const [a, b] = [await productWith(ean), await productWith()]
+
+      await expect(prisma.productEan.create({ data: { product_id: b.id, ean, status: 'active', is_primary: false, source: 'other' } })).rejects.toThrow()
+      const extra = newEan()
+      await expect(prisma.productEan.create({ data: { product_id: a.id, ean: extra, status: 'active', is_primary: true, source: 'other' } })).rejects.toThrow()
+      await expect(prisma.productEan.create({ data: { product_id: a.id, ean: newEan(), status: 'inactive', is_primary: true, source: 'other' } })).rejects.toThrow()
+    })
+
+    it('a manual EAN needs the user, an invalid EAN is refused, and nothing is written', async () => {
+      const product = await productWith()
+
+      await expect(eans.add(product.id, { ean: newEan(), source: 'manual' })).rejects.toThrow(/user/)
+      await expect(eans.add(product.id, { ean: '123' })).rejects.toThrow(/EAN inválido/)
+      expect((await products.findById(product.id)).eans).toEqual([])
     })
   })
 })

@@ -28,9 +28,6 @@ model Product {
   ///
   /// "Marmitas", "Crepes", "Vinhos" — o segundo nível de `category`.
   subcategory     String?
-  /// Código de barras. Unique porque dois produtos com o mesmo EAN é erro de
-  /// cadastro, e o PDV resolve venda por ele.
-  ean             String? @unique
   /// suppliers-service. Int cru — database-per-service.
   supplier_id     Int?
   /// "400g", "280g" — texto, é como vem da planilha e do rótulo.
@@ -58,6 +55,8 @@ model Product {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
+  /// Os códigos de barras do produto, ao longo do tempo (ver ProductEan). O SKU identifica o produto; o EAN, a embalagem.
+  eans           ProductEan[]
   cost_versions  CostVersion[]
   price_versions PriceVersion[]
   name_overrides ProductNameOverride[]
@@ -183,4 +182,38 @@ model SkuLink {
   @@unique([old_sku, new_sku])
   @@index([new_sku])
   @@map("sku_link")
+}
+
+/// Um código de barras (EAN) de um produto. Um produto pode ter vários ao longo do tempo (embalagem nova, outro
+/// fornecedor): a troca de EAN NÃO é troca de produto, então nada aqui é apagado e o histórico continua do SKU.
+///
+/// Regras no banco (índices parciais na migration, que o Prisma não expressa):
+///  - um EAN ativo pertence a UM produto (único em `ean` onde status = 'active');
+///  - no máximo um EAN principal por produto, e ele é ativo.
+/// Um EAN inativo continua achando o SKU: nota antiga com o EAN antigo alimenta o mesmo produto.
+model ProductEan {
+  id         Int       @id @default(autoincrement())
+  product_id Int
+  ean        String
+  /// active | inactive
+  status     String
+  /// O EAN principal/atual do produto. No máximo um por produto, sempre ativo.
+  is_primary Boolean   @default(false)
+  /// Início da validade, quando se sabe. Nulo = nunca registrado: não se inventa data para o que veio da carga inicial.
+  valid_from DateTime? @db.Date
+  /// Fim da validade, preenchido ao inativar.
+  valid_to   DateTime? @db.Date
+  /// manual | catalogue_sync | invoice_import | legacy_import | other
+  source     String
+  actor      String?
+  note       String?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  /// O mesmo EAN não é vinculado duas vezes ao mesmo produto: reativar reaproveita o vínculo.
+  @@unique([product_id, ean])
+  @@index([ean])
+  @@map("product_ean")
 }

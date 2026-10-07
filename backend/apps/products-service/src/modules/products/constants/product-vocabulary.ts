@@ -36,3 +36,10 @@ export const COST_SOURCE_RANK: Record<VersionSource, number> = {
   legacy_import: 2,
   other: 2,
 }
+
+/** Where an EAN link came from. `legacy_import` is reserved for the migration that moved the old single EAN into links. */
+export const EAN_SOURCES = ['manual', 'catalogue_sync', 'invoice_import', 'legacy_import', 'other'] as const
+export type EanSource = (typeof EAN_SOURCES)[number]
+export const WRITABLE_EAN_SOURCES = EAN_SOURCES.filter(source => source !== 'legacy_import')
+
+export const EAN_STATUS = { ACTIVE: 'active', INACTIVE: 'inactive' } as const

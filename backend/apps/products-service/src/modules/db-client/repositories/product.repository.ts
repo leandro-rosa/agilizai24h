@@ -17,4 +17,12 @@ export class ProductRepository extends PrismaRepository<Product, Product> {
   findByNormalizedName(normalized: string) {
     return this.prismaClient.product.findMany({ where: { normalized_name: normalized } })
   }
+
+  /** The same, with the EAN links a product view needs. */
+  findByNormalizedNameWithEans(normalized: string) {
+    return this.prismaClient.product.findMany({
+      where: { normalized_name: normalized },
+      include: { eans: { orderBy: [{ is_primary: 'desc' as const }, { status: 'asc' as const }, { id: 'asc' as const }] } },
+    })
+  }
 }

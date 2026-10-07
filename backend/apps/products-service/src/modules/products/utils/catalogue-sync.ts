@@ -1,3 +1,4 @@
+import { cleanEan } from './ean'
 /**
  * Plano de sincronização do catálogo a partir da planilha de precificação.
  * Função pura: recebe as linhas da planilha e o estado atual do catálogo e
@@ -29,7 +30,10 @@ export interface SheetRow {
 export interface CatalogueEntry {
   sku: string
   name: string
+  /** O EAN principal. */
   ean: string | null
+  /** TODOS os EANs do produto, ativos e históricos: um EAN que já foi de um SKU não vai para outro. */
+  eans?: string[]
   cost_cents: number | null
   price_cents: number | null
 }
@@ -98,17 +102,12 @@ export function mapCategory(sheetCategory: string | null): ProductCategory {
   return 'snack'
 }
 
-/** EAN válido = só dígitos, 8 a 14. "7.89856E+12" (precisão perdida pelo Excel) não vale. */
-export function cleanEan(raw: string | null): string | null {
-  if (!raw) return null
-  const digits = raw.trim()
-  return /^\d{8,14}$/.test(digits) ? digits : null
-}
+export { cleanEan }
 
 export function planSync(rows: SheetRow[], catalogue: CatalogueEntry[]): SyncPlan {
   const bySku = new Map(catalogue.map(c => [c.sku, c]))
   const eanOwner = new Map<string, string>()
-  for (const c of catalogue) if (c.ean) eanOwner.set(c.ean, c.sku)
+  for (const c of catalogue) for (const ean of c.eans ?? (c.ean ? [c.ean] : [])) eanOwner.set(ean, c.sku)
 
   const plan: SyncPlan = { create: [], costs: [], prices: [], issues: [], unchanged: 0 }
   const seen = new Map<string, SheetRow>()
@@ -153,7 +152,7 @@ export function planSync(rows: SheetRow[], catalogue: CatalogueEntry[]): SyncPla
       let ean = cleanEan(r.ean)
       if (r.ean && !ean) issue('warning', 'ean_invalid', r, `EAN "${r.ean}" inválido (SKU ${sku}); cadastrado sem EAN. Formate a coluna como texto/número inteiro.`)
       if (ean && eanOwner.has(ean)) {
-        issue('warning', 'ean_conflict', r, `EAN ${ean} já pertence ao SKU ${eanOwner.get(ean)}; SKU ${sku} cadastrado sem EAN.`)
+        issue('warning', 'ean_conflict', r, `EAN ${ean} já pertence (ou já pertenceu) ao SKU ${eanOwner.get(ean)}; SKU ${sku} cadastrado sem EAN. Se for o mesmo produto, vincule o EAN a ele.`)
         ean = null
       }
       if (ean) eanOwner.set(ean, sku)
