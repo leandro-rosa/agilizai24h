@@ -6,6 +6,7 @@ import { UNRESOLVED_REASONS, type ProductCategory, type UnresolvedReason } from 
 import type { ProductOrigin, ProductStatus } from '../constants/product-vocabulary'
 import { cleanEan } from '../utils/ean'
 import { nextSku, type NextSku } from '../utils/next-sku'
+import { TaxonomyService } from './taxonomy.service'
 import { resolveOrigin } from '../utils/origin'
 import { normalizeName } from '../utils/normalize-name'
 import { toProductView, type ProductView } from '../utils/product-view'
@@ -27,6 +28,8 @@ export interface CreateProductInput {
   /** Declared supplier, when the product is registered from a purchase. */
   supplierId?: number
   subcategory?: string
+  /** True when a person saved the classification through a form: import and invoice flows then keep it. */
+  classificationConfirmed?: boolean
   saleUnit?: string
   brand?: string
   purchaseUnit?: string
@@ -71,6 +74,7 @@ export class ProductsService {
     private readonly products: ProductRepository,
     private readonly overrides: NameOverrideRepository,
     private readonly prisma: PrismaClientService,
+    private readonly taxonomy: TaxonomyService,
   ) {}
 
   /** The SKU the registration form proposes (the next after the highest six-digit one). Nothing is reserved: a duplicate is refused at create. */
@@ -82,6 +86,8 @@ export class ProductsService {
 
   async create(input: CreateProductInput): Promise<ProductView> {
     const origin = resolveOrigin(input)
+    // The category must exist and be offered; the subcategory must belong to it. The canonical spelling is what is stored.
+    const classification = await this.taxonomy.resolve(input.category, input.subcategory, { offered: true })
     // Checked explicitly: PrismaRepository discards Prisma's error code, so
     // branching on a unique-constraint violation is not available. The database
     // constraint stays as the backstop for the race this leaves.
@@ -109,12 +115,13 @@ export class ProductsService {
         sku: input.sku,
         supplier_id: input.supplierId ?? null,
         name: input.name,
-        category: input.category,
+        category: classification.category,
+        classification_confirmed: input.classificationConfirmed ?? false,
         normalized_name: normalizeName(input.name),
         units_per_package: input.unitsPerPackage ?? null,
         package_type: input.packageType ?? null,
         fractionable: input.fractionable ?? null,
-        ...(input.subcategory ? { subcategory: input.subcategory } : {}),
+        ...(classification.subcategory ? { subcategory: classification.subcategory } : {}),
         ...(input.saleUnit ? { sale_unit: input.saleUnit } : {}),
         ...(input.brand ? { brand: input.brand } : {}),
         ...(input.purchaseUnit ? { purchase_unit: input.purchaseUnit } : {}),
@@ -131,21 +138,33 @@ export class ProductsService {
 
   async update(
     id: number,
-    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number | null; packageType?: string | null; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: ProductStatus; saleUnit?: string; brand?: string | null; purchaseUnit?: string | null },
+    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number | null; packageType?: string | null; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: ProductStatus; saleUnit?: string; brand?: string | null; purchaseUnit?: string | null; classificationConfirmed?: boolean },
   ): Promise<ProductView> {
     const existing = await this.prisma.product.findUnique({ where: { id } })
     if (!existing) throw new NotFoundException(`Product ${id} not found`)
+
+    // Only a CHANGED classification is checked against what is offered: a product keeps an inactive category, or a legacy subcategory the taxonomy does
+    // not know, as long as that part is not changed. A subcategory has to belong to the category it ends up with.
+    const touchesClassification = changes.category !== undefined || changes.subcategory !== undefined
+    const categoryChanged = changes.category !== undefined && changes.category !== existing.category
+    const subcategoryChanged = changes.subcategory !== undefined && (changes.subcategory ?? null) !== existing.subcategory
+    let classification: { category: string; subcategory: string | null } | null = null
+    if (touchesClassification) {
+      const category = changes.category ?? existing.category
+      const wanted = changes.subcategory === undefined ? existing.subcategory : changes.subcategory
+      if (!subcategoryChanged && !categoryChanged) classification = { category, subcategory: existing.subcategory }
+      else classification = await this.taxonomy.resolve(category, wanted, { offered: true })
+    }
 
     const updated = await this.prisma.product.update({
       where: { id },
       data: {
         ...(changes.name !== undefined ? { name: changes.name, normalized_name: normalizeName(changes.name) } : {}),
-        ...(changes.category !== undefined ? { category: changes.category } : {}),
+        ...(classification ? { category: classification.category, subcategory: classification.subcategory, classification_confirmed: changes.classificationConfirmed ?? true } : {}),
         ...(changes.unitsPerPackage !== undefined ? { units_per_package: changes.unitsPerPackage } : {}),
         ...(changes.packageType !== undefined ? { package_type: changes.packageType } : {}),
         ...(changes.fractionable !== undefined ? { fractionable: changes.fractionable } : {}),
         ...(changes.supplierId !== undefined ? { supplier_id: changes.supplierId } : {}),
-        ...(changes.subcategory !== undefined ? { subcategory: changes.subcategory } : {}),
         ...(changes.status !== undefined ? { status: changes.status } : {}),
         ...(changes.saleUnit !== undefined ? { sale_unit: changes.saleUnit } : {}),
         ...(changes.brand !== undefined ? { brand: changes.brand } : {}),

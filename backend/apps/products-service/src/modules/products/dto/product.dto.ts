@@ -14,8 +14,9 @@ export class CreateProductDto {
   @IsNotEmpty()
   name: string
 
-  @ApiProperty({ enum: PRODUCT_CATEGORY_VALUES })
-  @IsIn(PRODUCT_CATEGORY_VALUES)
+  @ApiProperty({ description: 'A chave de uma categoria do cadastro de categorias (validada contra ele).', example: 'beverage' })
+  @IsString()
+  @IsNotEmpty()
   category: ProductCategory
 
   @ApiPropertyOptional({ description: 'Unidades por embalagem de compra (ex.: caixa de 24).' })
@@ -51,6 +52,8 @@ export class CreateProductDto {
 
   @ApiPropertyOptional() @IsOptional() @IsString() @IsNotEmpty() brand?: string
 
+  @ApiPropertyOptional({ description: 'Verdadeiro quando uma pessoa salvou a classificação por um formulário.' }) @IsOptional() @IsBoolean() classificationConfirmed?: boolean
+
   @ApiPropertyOptional({ example: 'CX', description: 'Unidade em que o fornecedor vende.' }) @IsOptional() @IsString() @IsNotEmpty() purchaseUnit?: string
 
   @ApiPropertyOptional({ enum: ['manual', 'invoice', 'excel'], description: '`invoice` registra o produto a partir de uma linha de NF-e e exige invoiceNumber, supplierId, originOn e actor.' })
@@ -74,10 +77,16 @@ export class UpdateProductDto {
   @IsNotEmpty()
   name?: string
 
-  @ApiPropertyOptional({ enum: PRODUCT_CATEGORY_VALUES })
+  @ApiPropertyOptional({ description: 'A chave de uma categoria do cadastro de categorias.' })
   @IsOptional()
-  @IsIn(PRODUCT_CATEGORY_VALUES)
+  @IsString()
+  @IsNotEmpty()
   category?: ProductCategory
+
+  @ApiPropertyOptional({ description: 'Verdadeiro quando uma pessoa salvou a classificação por um formulário (padrão ao editar a categoria).' })
+  @IsOptional()
+  @IsBoolean()
+  classificationConfirmed?: boolean
 
   @ApiPropertyOptional({ description: 'Unidades por embalagem de compra (ex.: caixa de 24).' })
   @IsOptional()

@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
-import { PRODUCT_CATEGORY_VALUES, type ProductCategory } from '../constants/product-vocabulary'
+import type { ProductCategory } from '../constants/product-vocabulary'
 import {
   AddEanDto,
   BulkCostDto,
@@ -27,6 +27,7 @@ import { PriceService } from '../services/price.service'
 import { TimelineService } from '../services/timeline.service'
 import { ProductsService } from '../services/products.service'
 import { SkuLinkService } from '../services/sku-link.service'
+import { TaxonomyService } from '../services/taxonomy.service'
 
 @ApiTags('products')
 @Controller()
@@ -40,7 +41,59 @@ export class ProductsController {
     private readonly skuLinks: SkuLinkService,
     private readonly catalogueSync: CatalogueSyncService,
     private readonly catalogueImport: CatalogueImportService,
+    private readonly taxonomy: TaxonomyService,
   ) {}
+
+  @Get('categories')
+  @ApiOperation({ summary: 'Categories with their subcategories, keywords, status and how many products use each' })
+  categories() {
+    return this.taxonomy.list()
+  }
+
+  @Post('categories')
+  @ApiOperation({ summary: 'Create a category (the key is generated and never changes)' })
+  @ApiResponse({ status: 409, description: 'A category with that name already exists' })
+  createCategory(@Body() body: Record<string, unknown>) {
+    return this.taxonomy.createCategory(body)
+  }
+
+  @Patch('categories/:id')
+  @ApiOperation({ summary: 'Rename, set keywords or inactivate a category. There is no delete: a used category is inactivated.' })
+  updateCategory(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.taxonomy.updateCategory(id, body)
+  }
+
+  @Post('categories/:id/subcategories')
+  @ApiOperation({ summary: 'Create a subcategory under a category' })
+  createSubcategory(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.taxonomy.createSubcategory(id, body)
+  }
+
+  @Patch('subcategories/:id')
+  @ApiOperation({ summary: 'Rename (also on its products), set keywords or inactivate a subcategory. There is no delete.' })
+  updateSubcategory(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>) {
+    return this.taxonomy.updateSubcategory(id, body)
+  }
+
+  @Post('classification/suggest')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Suggest a category and subcategory from a product name', description: 'Deterministic keyword matching over the ACTIVE taxonomy. `clear` has a best match; `ambiguous` returns the alternatives and chooses none; `none` matched nothing. It never creates a category.' })
+  suggestClassification(@Body() body: { name?: string }) {
+    return this.taxonomy.suggest(body?.name ?? '')
+  }
+
+  @Get('classification/review')
+  @ApiOperation({ summary: 'Proposals for products without a subcategory or an unconfirmed classification (applies nothing)' })
+  reviewClassification() {
+    return this.taxonomy.review()
+  }
+
+  @Post('classification/apply')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Apply ONLY the selected proposals, each validated against the taxonomy, and mark them confirmed' })
+  applyClassification(@Body() body: { items?: { sku: string; category: string; subcategory?: string | null }[]; actor?: string }) {
+    return this.taxonomy.apply(body?.items ?? [], body?.actor ?? '')
+  }
 
   @Post('catalogue-import/preview')
   @HttpCode(200)
@@ -98,7 +151,7 @@ export class ProductsController {
 
   @Get('products')
   @ApiOperation({ summary: 'List catalogue products' })
-  @ApiQuery({ name: 'category', required: false, enum: PRODUCT_CATEGORY_VALUES })
+  @ApiQuery({ name: 'category', required: false })
   list(@Query('category') category?: ProductCategory) {
     return this.products.list(category)
   }

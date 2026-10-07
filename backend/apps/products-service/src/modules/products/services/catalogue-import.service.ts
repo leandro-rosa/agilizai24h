@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { classifyImport, summarise, type EanOwners, type ExistingProduct, type ImportOptions, type ImportRow, type ImportRowResult } from '../utils/catalogue-import'
 import { EanService } from './ean.service'
+import { TaxonomyService } from './taxonomy.service'
 import { ProductsService } from './products.service'
 
 const MAX_ROWS = 5000
@@ -27,6 +28,7 @@ export class CatalogueImportService {
     private readonly prisma: PrismaClientService,
     private readonly products: ProductsService,
     private readonly eans: EanService,
+    private readonly taxonomy: TaxonomyService,
   ) {}
 
   async preview(rows: ImportRow[], options: ImportOptions = {}): Promise<ImportPreview> {
@@ -41,14 +43,14 @@ export class CatalogueImportService {
     ])
 
     const existing: ExistingProduct[] = found.map(product => ({
-      id: product.id, sku: product.sku, name: product.name, category: product.category, subcategory: product.subcategory, brand: product.brand, sale_unit: product.sale_unit,
+      id: product.id, sku: product.sku, name: product.name, category: product.category, subcategory: product.subcategory, classification_confirmed: product.classification_confirmed, brand: product.brand, sale_unit: product.sale_unit,
       purchase_unit: product.purchase_unit, package_type: product.package_type, units_per_package: product.units_per_package,
       eans: product.eans.map(link => ({ ean: link.ean, status: link.status, is_primary: link.is_primary })),
     }))
     const owners: EanOwners = new Map()
     for (const link of links) owners.set(link.ean, [...(owners.get(link.ean) ?? []), { sku: link.product.sku, status: link.status }])
 
-    const results = classifyImport(rows, existing, owners, options)
+    const results = classifyImport(rows, existing, owners, options, await this.taxonomy.active())
 
     return { summary: summarise(results), rows: results }
   }
@@ -67,14 +69,15 @@ export class CatalogueImportService {
       try {
         const v = item.values
         if (item.action === 'create') {
-          await this.products.create({ sku: v.sku, name: v.name as string, category: v.category as never, subcategory: v.subcategory ?? undefined, brand: v.brand ?? undefined, saleUnit: v.saleUnit, purchaseUnit: v.purchaseUnit ?? undefined, packageType: v.packageType ?? undefined, unitsPerPackage: v.unitsPerPackage ?? undefined, ean: v.ean, origin: 'excel', actor })
+          await this.products.create({ sku: v.sku, name: v.name as string, category: v.category as string, subcategory: v.subcategory ?? undefined, classificationConfirmed: false, brand: v.brand ?? undefined, saleUnit: v.saleUnit, purchaseUnit: v.purchaseUnit ?? undefined, packageType: v.packageType ?? undefined, unitsPerPackage: v.unitsPerPackage ?? undefined, ean: v.ean, origin: 'excel', actor })
         } else {
           const id = idBySku.get(v.sku) as number
           const clear = (field: string) => (item.clears.includes(field) ? null : undefined)
           await this.products.update(id, {
             ...(v.name !== undefined ? { name: v.name } : {}),
             ...(v.category !== undefined ? { category: v.category } : {}),
-            subcategory: v.subcategory ?? clear('subcategory'),
+            ...(v.category !== undefined || v.subcategory !== undefined || item.clears.includes('subcategory') ? { subcategory: v.subcategory !== undefined ? v.subcategory : (clear('subcategory') as null | undefined) } : {}),
+            ...(v.category !== undefined || v.subcategory !== undefined ? { classificationConfirmed: false } : {}),
             brand: v.brand ?? clear('brand'),
             saleUnit: v.saleUnit,
             purchaseUnit: v.purchaseUnit ?? clear('purchaseUnit'),

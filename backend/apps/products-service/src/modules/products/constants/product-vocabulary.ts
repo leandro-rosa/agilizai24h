@@ -1,6 +1,9 @@
-/** Open vocabulary validated at the DTO layer, not as a Prisma enum. */
+/**
+ * The four category keys the catalogue started with (seeded into the `category` table). Categories are now managed data: a key is any slug the
+ * taxonomy holds, so `ProductCategory` is a string and is validated against the table, never against this list.
+ */
 export const PRODUCT_CATEGORY_VALUES = ['meal', 'snack', 'beverage', 'essential'] as const
-export type ProductCategory = (typeof PRODUCT_CATEGORY_VALUES)[number]
+export type ProductCategory = string
 
 /** Why a requested SKU could not be priced. Carried on every unresolved entry. */
 export const UNRESOLVED_REASONS = {

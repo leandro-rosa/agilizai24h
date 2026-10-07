@@ -55,6 +55,8 @@ model Product {
   brand         String?
   /// A unidade em que o fornecedor vende ("CX", "FD", "UN"). O fator caixa → unidade é `units_per_package`; o custo é sempre por unidade vendida.
   purchase_unit String?
+  /// Verdadeiro quando uma pessoa salvou a categoria por um formulário: importação e nota não reclassificam um produto confirmado.
+  classification_confirmed Boolean @default(false)
 
   /// Como o cadastro nasceu: manual | invoice (a partir de uma linha de NF-e) | legacy_import (carga inicial, origem não registrada).
   origin             String   @default("manual")
@@ -229,4 +231,39 @@ model ProductEan {
   @@unique([product_id, ean])
   @@index([ean])
   @@map("product_ean")
+}
+
+/// Categoria do catálogo. `key` é o identificador estável que `product.category` guarda (meal, snack, beverage, essential e as novas); renomear muda só o nome.
+/// Nunca é excluída: uma categoria em uso é inativada (deixa de ser oferecida e segue valendo para quem já a tem).
+model Category {
+  id         Int      @id @default(autoincrement())
+  key        String   @unique
+  name       String
+  /// Palavras-chave e sinônimos que a classificação pelo nome usa. Texto livre, editável.
+  keywords   String[] @default([])
+  /// active | inactive
+  status     String   @default("active")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  subcategories Subcategory[]
+
+  @@map("category")
+}
+
+/// Subcategoria, sempre de uma categoria. O produto guarda o NOME dela em `product.subcategory`; renomear aqui renomeia nos produtos.
+model Subcategory {
+  id          Int      @id @default(autoincrement())
+  category_id Int
+  name        String
+  keywords    String[] @default([])
+  /// active | inactive
+  status      String   @default("active")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  category Category @relation(fields: [category_id], references: [id])
+
+  @@index([category_id])
+  @@map("subcategory")
 }

@@ -4,6 +4,7 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import { AppModule } from '../src/app.module'
 import { PrismaClientService } from '../src/modules/db-client/prisma-client.service'
 import { CatalogueImportService } from '../src/modules/products/services/catalogue-import.service'
+import { TaxonomyService } from '../src/modules/products/services/taxonomy.service'
 import { CostService } from '../src/modules/products/services/cost.service'
 import { EanService } from '../src/modules/products/services/ean.service'
 import { ProductsService } from '../src/modules/products/services/products.service'
@@ -14,6 +15,7 @@ describe('products integration', () => {
   let costs: CostService
   let eans: EanService
   let importer: CatalogueImportService
+  let taxonomy: TaxonomyService
   let prisma: PrismaClientService
 
   const createdSkus: string[] = []
@@ -35,6 +37,12 @@ describe('products integration', () => {
     costs = app.get(CostService)
     eans = app.get(EanService)
     importer = app.get(CatalogueImportService)
+    taxonomy = app.get(TaxonomyService)
+    // A fresh database has no subcategories (the migration seeds them from existing products), a copy of the dev one does: make both the same.
+    const beverage = (await taxonomy.list()).find(c => c.key === 'beverage')
+    for (const [name, keywords] of [['Energéticos', ['energetico', 'energy', 'monster']], ['Chás', ['cha', 'mate']]] as const) {
+      if (!beverage?.subcategories.some(sub => sub.name === name)) await taxonomy.createSubcategory(beverage?.id as number, { name, keywords: [...keywords] })
+    }
     prisma = app.get(PrismaClientService)
   }, 60000)
 
@@ -574,8 +582,8 @@ describe('products integration', () => {
 
   describe('registration from an invoice line (real SQL)', () => {
     const fromInvoice = (sku: string, over: Record<string, unknown> = {}) => ({
-      sku, name: 'Novo sabor de marmita', category: 'meal' as const, ean: String(7890000000000 + Math.floor(Math.random() * 1e9)),
-      origin: 'invoice' as const, invoiceNumber: '13021', supplierId: 5, purchaseId: 9, originOn: '2026-10-10', actor: 'ana@agiliz.ai', saleUnit: 'un', subcategory: 'Marmitas', ...over,
+      sku, name: 'Novo sabor de marmita', category: 'beverage' as const, ean: String(7890000000000 + Math.floor(Math.random() * 1e9)),
+      origin: 'invoice' as const, invoiceNumber: '13021', supplierId: 5, purchaseId: 9, originOn: '2026-10-10', actor: 'ana@agiliz.ai', saleUnit: 'un', subcategory: 'Energéticos', ...over,
     })
 
     it('creates the product with its origin, the invoice EAN as active principal, and shows it like any other product', async () => {
@@ -638,9 +646,9 @@ describe('products integration', () => {
       const product = await createProduct('Para editar')
       expect(product).toMatchObject({ status: 'active', subcategory: null, sale_unit: 'un' })
 
-      const edited = await products.update(product.id, { subcategory: 'Marmitas', status: 'discontinued', saleUnit: 'porção' })
+      const edited = await products.update(product.id, { subcategory: 'Chás', status: 'discontinued', saleUnit: 'porção' })
 
-      expect(edited).toMatchObject({ status: 'discontinued', subcategory: 'Marmitas', sale_unit: 'porção', name: 'Para editar', sku: product.sku })
+      expect(edited).toMatchObject({ status: 'discontinued', subcategory: 'Chás', sale_unit: 'porção', name: 'Para editar', sku: product.sku })
       expect((await products.findById(product.id)).status).toBe('discontinued')
       expect(edited.origin.type).toBe('manual')
 
@@ -678,11 +686,11 @@ describe('products integration', () => {
       await eans.add(owner.id, { ean: '7893111111111', source: 'other', actor: 'ana@agiliz.ai' })
       const sku = unique('IMP')
       track(sku)
-      await products.create({ sku, name: 'Com marca', category: 'beverage', brand: 'Marca Y', subcategory: 'Águas' })
+      await products.create({ sku, name: 'Com marca', category: 'beverage', brand: 'Marca Y', subcategory: 'Chás' })
 
       const keep = await importer.apply([rowOf({ sku, name: 'Com marca', brand: '', subcategory: '' })], {}, 'ana@agiliz.ai')
       expect(keep.summary.unchanged).toBe(1)
-      expect(await prisma.product.findUniqueOrThrow({ where: { sku } })).toMatchObject({ brand: 'Marca Y', subcategory: 'Águas' })
+      expect(await prisma.product.findUniqueOrThrow({ where: { sku } })).toMatchObject({ brand: 'Marca Y', subcategory: 'Chás' })
 
       const clear = await importer.apply([rowOf({ sku, name: 'Com marca', brand: '', subcategory: '' })], { clearEmpty: true }, 'ana@agiliz.ai')
       expect(clear.summary.update).toBe(1)
@@ -732,6 +740,135 @@ describe('products integration', () => {
 
       const cleared = await products.update(product.id, { brand: null, purchaseUnit: null, unitsPerPackage: null, packageType: null })
       expect(cleared).toMatchObject({ brand: null, purchase_unit: null, units_per_package: null, package_type: null })
+    })
+  })
+
+  describe('taxonomy (real SQL)', () => {
+    const made: number[] = []
+    afterAll(async () => {
+      // Test categories only; the seeded ones are never touched.
+      await prisma.subcategory.deleteMany({ where: { category_id: { in: made } } })
+      await prisma.category.deleteMany({ where: { id: { in: made } } })
+    })
+
+    it('starts from what already exists: the four category keys, active, with their products counted', async () => {
+      const list = await taxonomy.list()
+
+      expect(list.map(c => c.key)).toEqual(expect.arrayContaining(['meal', 'snack', 'beverage', 'essential']))
+      expect(list.filter(c => ['meal', 'snack', 'beverage', 'essential'].includes(c.key)).every(c => c.status === 'active')).toBe(true)
+    })
+
+    it('creates a category with a generated key, refuses a duplicate name ignoring case and accents, and never deletes', async () => {
+      const name = unique('Congelados')
+      const created = await taxonomy.createCategory({ name, keywords: ['sorvete', 'Sorvete', ' picolé '] })
+      made.push(created.id)
+
+      expect(created.key).toMatch(/^congelados-/)
+      expect(created.keywords).toEqual(['sorvete', 'picolé'])
+      await expect(taxonomy.createCategory({ name: name.toUpperCase() })).rejects.toThrow(/Já existe a categoria/)
+      await expect(taxonomy.createCategory({ name: '   ' })).rejects.toThrow(/obrigatório/)
+      // The database refuses the same name in another case too (not only the service).
+      await expect(prisma.category.create({ data: { key: unique('x'), name: name.toLowerCase() } })).rejects.toThrow()
+    })
+
+    it('a subcategory belongs to one category, its name is unique within that category only, and a product can only take its own category\'s subcategories', async () => {
+      const a = await taxonomy.createCategory({ name: unique('CatA') })
+      const b = await taxonomy.createCategory({ name: unique('CatB') })
+      made.push(a.id, b.id)
+
+      await taxonomy.createSubcategory(a.id, { name: 'Gelados' })
+      await expect(taxonomy.createSubcategory(a.id, { name: 'gelados' })).rejects.toThrow(/já tem a subcategoria/)
+      await taxonomy.createSubcategory(b.id, { name: 'Gelados' })
+
+      const sku = unique('TAX')
+      createdSkus.push(sku)
+      const ok = await products.create({ sku, name: 'Sorvete', category: a.key, subcategory: 'gelados' })
+      expect(ok).toMatchObject({ category: a.key, subcategory: 'Gelados' })
+      await expect(products.create({ sku: unique('TAX'), name: 'X', category: 'beverage', subcategory: 'Gelados' })).rejects.toThrow(/não pertence à categoria/)
+      await expect(products.create({ sku: unique('TAX'), name: 'X', category: 'categoria-que-nao-existe' })).rejects.toThrow(/não existe no cadastro de categorias/)
+    })
+
+    it('renaming a subcategory renames it on its products; keywords and status are editable', async () => {
+      const cat = await taxonomy.createCategory({ name: unique('CatR') })
+      made.push(cat.id)
+      const withSub = await taxonomy.createSubcategory(cat.id, { name: 'Antigo' })
+      const sub = withSub.subcategories[0]
+      const sku = unique('TAX')
+      createdSkus.push(sku)
+      await products.create({ sku, name: 'P', category: cat.key, subcategory: 'Antigo' })
+
+      const renamed = await taxonomy.updateSubcategory(sub.id, { name: 'Novo nome', keywords: ['novo'] })
+
+      expect(renamed.subcategories[0]).toMatchObject({ name: 'Novo nome', keywords: ['novo'], products: 1 })
+      expect((await prisma.product.findUniqueOrThrow({ where: { sku } })).subcategory).toBe('Novo nome')
+    })
+
+    it('inactivating a used category keeps its products and history, stops offering it for new products, and a product keeps working', async () => {
+      const cat = await taxonomy.createCategory({ name: unique('CatI') })
+      made.push(cat.id)
+      const sku = unique('TAX')
+      createdSkus.push(sku)
+      const product = await products.create({ sku, name: 'Antes de inativar', category: cat.key })
+
+      const inactive = await taxonomy.updateCategory(cat.id, { status: 'inactive' })
+      expect(inactive).toMatchObject({ status: 'inactive', products: 1 })
+      await expect(products.create({ sku: unique('TAX'), name: 'Depois', category: cat.key })).rejects.toThrow(/inativa/)
+      // The existing product is untouched and still editable without touching its category.
+      expect((await products.update(product.id, { name: 'Renomeado' })).category).toBe(cat.key)
+      expect(await prisma.product.count({ where: { sku } })).toBe(1)
+    })
+
+    it('there is no way to delete: the tables have no delete path in the service', () => {
+      expect((taxonomy as unknown as Record<string, unknown>).deleteCategory).toBeUndefined()
+      expect((taxonomy as unknown as Record<string, unknown>).deleteSubcategory).toBeUndefined()
+    })
+
+    it('a confirmed classification is marked when a person saves it, and an unconfirmed one is not', async () => {
+      const a = unique('TAX')
+      const b = unique('TAX')
+      createdSkus.push(a, b)
+      await products.create({ sku: a, name: 'Salvo pelo formulário', category: 'beverage', classificationConfirmed: true })
+      await products.create({ sku: b, name: 'Vindo de importação', category: 'beverage' })
+
+      expect((await prisma.product.findUniqueOrThrow({ where: { sku: a } })).classification_confirmed).toBe(true)
+      expect((await prisma.product.findUniqueOrThrow({ where: { sku: b } })).classification_confirmed).toBe(false)
+      const edited = await products.findById((await prisma.product.findUniqueOrThrow({ where: { sku: b } })).id)
+      expect((await products.update(edited.id, { subcategory: null })).sku).toBe(b)
+      expect((await prisma.product.findUniqueOrThrow({ where: { sku: b } })).classification_confirmed).toBe(true)
+    })
+  })
+
+  describe('classification (real SQL)', () => {
+    it('suggests from the name over the seeded taxonomy: a clear match, an alternative list when ambiguous, nothing otherwise, and never a new category', async () => {
+      const before = (await taxonomy.list()).length
+      const energy = await taxonomy.suggest('Monster Energy 269 ml')
+      const none = await taxonomy.suggest('Cadeira de praia azul')
+
+      expect(energy.confidence).toBe('clear')
+      expect(energy.best).toMatchObject({ categoryKey: 'beverage', subcategory: 'Energéticos' })
+      expect(none).toEqual({ confidence: 'none', best: null, alternatives: [] })
+      expect((await taxonomy.list()).length).toBe(before)
+    })
+
+    it('the review proposes without applying, and apply changes only the selected items and confirms them', async () => {
+      const sku = unique('REV')
+      const other = unique('REV')
+      createdSkus.push(sku, other)
+      await products.create({ sku, name: 'Monster Energy Mango', category: 'beverage' })
+      await products.create({ sku: other, name: 'Monster Energy Ultra', category: 'beverage' })
+
+      const review = await taxonomy.review()
+      const item = review.find(r => r.sku === sku)
+      expect(item).toMatchObject({ proposed: { category: 'beverage', subcategory: 'Energéticos' }, current: { subcategory: null } })
+      expect((await prisma.product.findUniqueOrThrow({ where: { sku } })).subcategory).toBeNull()
+
+      const applied = await taxonomy.apply([{ sku, category: 'beverage', subcategory: 'Energéticos' }], 'ana@agiliz.ai')
+
+      expect(applied.applied).toBe(1)
+      expect(await prisma.product.findUniqueOrThrow({ where: { sku } })).toMatchObject({ subcategory: 'Energéticos', classification_confirmed: true })
+      expect((await prisma.product.findUniqueOrThrow({ where: { sku: other } })).subcategory).toBeNull()
+      const refused = await taxonomy.apply([{ sku: other, category: 'snack', subcategory: 'Energéticos' }], 'ana@agiliz.ai')
+      expect(refused.results[0]).toMatchObject({ ok: false })
     })
   })
 })
