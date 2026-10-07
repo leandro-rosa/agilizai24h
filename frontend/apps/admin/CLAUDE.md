@@ -870,6 +870,10 @@ O painel (`components/products/product-drawer.tsx`) tem quatro abas, todas leitu
   começou (`GET /products/:id/price-margins`): uma mudança de hoje nunca altera um período antigo.
 - **Histórico**: linha do tempo única de custo e preço, "R$ 5,70 → R$ 6,20", origem, usuário, nota, fornecedor e motivo.
 
+**Baixar planilha** (`lib/products/excel.ts`, botão no topo): Excel dos produtos que estão na lista, com os filtros aplicados. Aba **Produtos** (SKU, nome, categoria, subcategoria, situação, fornecedor, EAN principal,
+outros EANs ativos, EANs inativos, unidade de venda, embalagem, custo e preço de hoje, margem, origem do cadastro) e aba **EANs** (um por linha, com situação, validade, origem e usuário). Dinheiro em reais como
+número, margem como fração formatada em %; sem custo ou sem preço a célula fica vazia, nunca zero (custo R$ 0,00 registrado é custo). Gerado no navegador (o `xlsx` só carrega no clique).
+
 **Novo custo / Novo preço** (`manual-version-dialog.tsx`): valor, data de início e **motivo obrigatório**; o gateway força origem "Manual" e o usuário da sessão, e o painel nem
 manda esses campos. Aviso fixo: custo de data passada só muda o CMV do mês quando ele for reapurado. 
 **Compras** (`product-purchases-tab.tsx`, `GET /purchases?sku=`): as compras do produto, mostrando só os itens dele — data (recebimento), fornecedor, nota (link `?purchase=ID`), unidades, custo

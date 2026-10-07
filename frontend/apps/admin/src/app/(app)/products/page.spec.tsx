@@ -12,6 +12,7 @@ const mockUseGetPricesAsOfQuery = jest.fn();
 const mockUseUpdateProductMutation = jest.fn();
 const mockUseHasPermission = jest.fn();
 const replace = jest.fn();
+const downloadProductsWorkbook = jest.fn((_items: unknown) => undefined);
 let searchParams = new URLSearchParams();
 
 const PRODUCTS: Product[] = [
@@ -92,6 +93,7 @@ jest.doMock("../../../lib/api/products", () => ({
   useGetPricesAsOfQuery: mockUseGetPricesAsOfQuery,
   useUpdateProductMutation: mockUseUpdateProductMutation,
 }));
+jest.doMock("../../../lib/products/excel", () => ({ downloadProductsWorkbook }));
 jest.doMock("next/navigation", () => ({ useRouter: () => ({ replace }), useSearchParams: () => searchParams }));
 jest.doMock("../../../lib/api/suppliers", () => ({ useGetSuppliersQuery: () => ({ data: [{ id: 5, name: "Juntos+" }] }) }));
 jest.doMock("../../../components/products/product-drawer", () => ({
@@ -203,6 +205,20 @@ describe("ProductsPage", () => {
     searchParams = new URLSearchParams("sku=NAO-EXISTE");
     render(<ProductsPage />);
     expect(screen.queryByTestId("drawer")).not.toBeInTheDocument();
+  });
+
+  it("baixa a planilha só com os produtos da lista filtrada, e fica desligada quando a lista está vazia", async () => {
+    render(<ProductsPage />);
+    fireEvent.change(screen.getByLabelText("Buscar produto"), { target: { value: "marmita" } });
+    fireEvent.click(screen.getByRole("button", { name: /Baixar planilha/ }));
+
+    await waitFor(() => expect(downloadProductsWorkbook).toHaveBeenCalledTimes(1));
+    const items = downloadProductsWorkbook.mock.calls[0][0] as { product: { sku: string }; supplierName: string | null }[];
+    expect(items.map((i) => i.product.sku)).toEqual(["110024"]);
+    expect(items[0].supplierName).toBe("Juntos+");
+
+    fireEvent.change(screen.getByLabelText("Buscar produto"), { target: { value: "nada com esse nome" } });
+    expect(screen.getByRole("button", { name: /Baixar planilha/ })).toBeDisabled();
   });
 
   it("sem permissão de escrita não há botão de editar", () => {

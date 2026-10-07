@@ -1,9 +1,10 @@
 "use client";
 
-import { Eye, Pencil } from "lucide-react";
+import { Eye, FileSpreadsheet, Pencil } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { z } from "zod";
 
 import { PageHeader } from "@/components/page-header";
@@ -135,17 +136,32 @@ export default function ProductsPage() {
     [products, search, category, supplier, status],
   );
 
+  async function exportExcel() {
+    try {
+      const { downloadProductsWorkbook } = await import("@/lib/products/excel");
+      downloadProductsWorkbook(filtered.map((product) => ({ product, supplierName: supplierName(product.supplier_id), costCents: costBySku.get(product.sku) ?? null, priceCents: priceBySku.get(product.sku) ?? null })));
+    } catch (error) {
+      console.error("Exportar produtos falhou", error);
+      toast.error("Não foi possível gerar a planilha.");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Produtos"
         description="Cadastro de produtos: identificação, códigos de barras, custos, preços e o histórico de cada um."
         actions={
-          canWrite ? (
-            <Link href="/products/sync" className="text-sm font-medium text-primary hover:underline">
-              Sincronizar com a precificação →
-            </Link>
-          ) : null
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={exportExcel} disabled={isLoading || filtered.length === 0} title="Baixa os produtos que estão na lista, com os filtros aplicados">
+              <FileSpreadsheet /> Baixar planilha
+            </Button>
+            {canWrite && (
+              <Link href="/products/sync" className="text-sm font-medium text-primary hover:underline">
+                Sincronizar com a precificação →
+              </Link>
+            )}
+          </div>
         }
       />
 
