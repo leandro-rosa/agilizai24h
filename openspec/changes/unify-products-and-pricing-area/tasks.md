@@ -8,9 +8,9 @@
 
 ## 2. Draft suggestion (intelligence-service) and gateway
 
-- [ ] 2.1 Draft price suggestion read with the margin at a typed price, listing what is missing
-- [ ] 2.2 Category names from the registry in the pricing report
-- [ ] 2.3 Gateway routes for taxonomy, classification and the draft suggestion
+- [x] 2.1 Draft price suggestion read with the margin at a typed price, listing what is missing
+- [x] 2.2 Category names from the registry in the pricing report
+- [x] 2.3 Gateway routes for taxonomy, classification and the draft suggestion
 
 ## 3. Admin
 

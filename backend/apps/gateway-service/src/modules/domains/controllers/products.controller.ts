@@ -333,3 +333,72 @@ export class CatalogueController {
     return (await this.domains.products({ method: 'get', path: '/catalogue/last-change', correlationId: correlationOf(request) })).data
   }
 }
+
+/** The managed categories and subcategories. Reading is open to whoever reads products; changing needs the product write permission. There is no delete route. */
+@ApiTags('products')
+@Controller()
+export class TaxonomyController {
+  constructor(private readonly domains: DomainClient) {}
+
+  private async call(method: 'get' | 'post' | 'patch', path: string, request: FastifyRequest, payload?: unknown) {
+    return (await this.domains.products({ method, path, payload, correlationId: correlationOf(request) })).data
+  }
+
+  @Get('categories')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Categories with subcategories, keywords, status and the number of products using each' })
+  async categories(@Req() request: FastifyRequest) {
+    return this.call('get', '/categories', request)
+  }
+
+  @Post('categories')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Create a category' })
+  async createCategory(@Body() body: Record<string, unknown>, @Req() request: FastifyRequest) {
+    return this.call('post', '/categories', request, { name: body?.name, keywords: body?.keywords })
+  }
+
+  @Patch('categories/:id')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Rename, set keywords or inactivate a category (never deleted)' })
+  async updateCategory(@Param('id') id: string, @Body() body: Record<string, unknown>, @Req() request: FastifyRequest) {
+    return this.call('patch', `/categories/${encodeURIComponent(id)}`, request, { name: body?.name, keywords: body?.keywords, status: body?.status })
+  }
+
+  @Post('categories/:id/subcategories')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Create a subcategory under a category' })
+  async createSubcategory(@Param('id') id: string, @Body() body: Record<string, unknown>, @Req() request: FastifyRequest) {
+    return this.call('post', `/categories/${encodeURIComponent(id)}/subcategories`, request, { name: body?.name, keywords: body?.keywords })
+  }
+
+  @Patch('subcategories/:id')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Rename, set keywords or inactivate a subcategory (never deleted)' })
+  async updateSubcategory(@Param('id') id: string, @Body() body: Record<string, unknown>, @Req() request: FastifyRequest) {
+    return this.call('patch', `/subcategories/${encodeURIComponent(id)}`, request, { name: body?.name, keywords: body?.keywords, status: body?.status })
+  }
+
+  @Post('classification/suggest')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Suggest a category and subcategory from a product name (applies nothing)' })
+  async suggest(@Body() body: Record<string, unknown>, @Req() request: FastifyRequest) {
+    return this.call('post', '/classification/suggest', request, { name: body?.name })
+  }
+
+  @Get('classification/review')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Proposed classifications for products without a subcategory or with an unconfirmed one (applies nothing)' })
+  async review(@Req() request: FastifyRequest) {
+    return this.call('get', '/classification/review', request)
+  }
+
+  @Post('classification/apply')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Apply only the selected proposals; the user is the session user' })
+  async apply(@Body() body: Record<string, unknown>, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return this.call('post', '/classification/apply', request, { items: body?.items, actor: caller.email })
+  }
+}

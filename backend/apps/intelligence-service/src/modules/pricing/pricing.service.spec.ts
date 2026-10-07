@@ -36,6 +36,7 @@ function build(taxRateBps: number | null, extraProducts: Record<string, unknown>
     }),
   }
   const products = {
+    categories: async () => [{ key: 'beverage', name: 'Bebida', status: 'active' }, { key: 'congelados', name: 'Congelados', status: 'active' }],
     products: async () => [
       { id: 1, sku: 'COCA', name: 'Coca-Cola Lata 350ml', category: 'beverage', subcategory: 'Refrigerantes', ean: '789490001537', supplier_id: 9 },
       { id: 2, sku: 'MARM', name: 'Marmita', category: 'meal' },
@@ -73,6 +74,7 @@ function build(taxRateBps: number | null, extraProducts: Record<string, unknown>
     }),
   }
   const accounting = { pnl: async (period: string) => pnl(period) }
+  const registryCategories = [{ key: 'beverage', name: 'Bebida', status: 'active' }, { key: 'congelados', name: 'Congelados', status: 'active' }]
   const suppliers = { suppliers: async () => [{ id: 9, name: 'Coca-Cola FEMSA' }] }
   const parameters = { current: async () => ({ id: 7, createdAt: '', note: null, values: params }) }
 
@@ -101,8 +103,8 @@ describe('PricingService.report', () => {
     const coca = report.products.find(product => product.sku === 'COCA')!
     const marmita = report.products.find(product => product.sku === 'MARM')!
 
-    expect(coca).toMatchObject({ ean: '789490001537', supplierId: 9, supplierName: 'Coca-Cola FEMSA', category: 'beverage', categoryLabel: 'Bebidas', subcategory: 'Refrigerantes' })
-    expect(marmita).toMatchObject({ ean: null, supplierId: null, supplierName: null, categoryLabel: 'Refeições' })
+    expect(coca).toMatchObject({ ean: '789490001537', supplierId: 9, supplierName: 'Coca-Cola FEMSA', category: 'beverage', categoryLabel: 'Bebida', subcategory: 'Refrigerantes' })
+    expect(marmita).toMatchObject({ ean: null, supplierId: null, supplierName: null, categoryLabel: 'Refeições' }) // 'meal' is not in the registry fixture: the built-in label is the fallback
   })
 
   it('gives no recommendation to a product without a cost and counts it', async () => {
@@ -217,5 +219,72 @@ describe('PricingService — coverage and pending reasons', () => {
     expect(summary.pending.every(group => group.skus.length > 0)).toBe(true)
     // MARM has no cost in the fixture: it is pending for that reason.
     expect(summary.pending.find(group => group.code === 'no_cost')?.skus).toContain('MARM')
+  })
+})
+
+describe('PricingService — draft suggestion for a product that is not registered', () => {
+  it('prices from the category and the unit cost with the same structure as the report: a number, the structure, the target, the data used', async () => {
+    const { suggestion, meta } = await build(707).draftSuggestion({ category: 'beverage', unitCostCents: 500 })
+
+    expect(meta.parameterVersion).toBe(7)
+    expect(suggestion.status).toBe('suggested')
+    expect(suggestion.initial).toBe(true)
+    expect(suggestion.label).toBe('Produto novo — sem histórico de vendas')
+    expect(suggestion.unitCostCents).toBe(500)
+    expect(suggestion.suggestedPriceCents).toBeGreaterThan(500)
+    expect(suggestion.suggestedMargin).toBeGreaterThanOrEqual(suggestion.targetMargin - 0.005)
+    expect(suggestion.structure?.taxRate).toBeCloseTo(0.0707, 6)
+    // The loss comes from the category (there is no product history); and no volume or impact is invented.
+    expect(suggestion.structure?.lossLevel).not.toBe('product')
+    expect(JSON.stringify(suggestion)).not.toMatch(/impact|monthlyUnits/i)
+  })
+
+  it('a higher cost gives a higher suggested price, so changing the cost changes the suggestion', async () => {
+    const service = build(707)
+    const low = await service.draftSuggestion({ category: 'beverage', unitCostCents: 500 })
+    const high = await service.draftSuggestion({ category: 'beverage', unitCostCents: 800 })
+
+    expect(high.suggestion.suggestedPriceCents as number).toBeGreaterThan(low.suggestion.suggestedPriceCents as number)
+  })
+
+  it('names the category from the registry (a category created later is not "Outros")', async () => {
+    const { suggestion } = await build(707).draftSuggestion({ category: 'congelados', unitCostCents: 500 })
+
+    expect(suggestion.dataUsed.find(d => d.code === 'category')?.value).toBe('Congelados')
+  })
+
+  it('a typed price returns the margin at it from the same structure', async () => {
+    const { suggestion } = await build(707).draftSuggestion({ category: 'beverage', unitCostCents: 500, typedPriceCents: 1000 })
+
+    expect(suggestion.typedPrice).toMatchObject({ priceCents: 1000 })
+    expect((suggestion.typedPrice as { margin: number }).margin).toBeGreaterThan(0)
+    expect((suggestion.typedPrice as { margin: number }).margin).toBeLessThan(1)
+    expect((await build(707).draftSuggestion({ category: 'beverage', unitCostCents: 500 })).suggestion.typedPrice).toBeNull()
+  })
+
+  it('lists what is missing instead of a price: no cost, no tax', async () => {
+    const noCost = await build(707).draftSuggestion({ category: 'beverage' })
+    const noTax = await build(null).draftSuggestion({ category: 'beverage', unitCostCents: 500 })
+
+    expect(noCost.suggestion.status).toBe('insufficient_data')
+    expect(noCost.suggestion.suggestedPriceCents).toBeNull()
+    expect(noCost.suggestion.insufficientReasons).toEqual(['Sem custo: informe o custo da nota'])
+    expect(noTax.suggestion.suggestedPriceCents).toBeNull()
+    expect(noTax.suggestion.insufficientReasons).toEqual(['Alíquota de imposto não configurada'])
+    expect(noTax.suggestion.typedPrice).toBeNull()
+  })
+
+  it('a zero or negative cost is a missing cost, never a zero price', async () => {
+    for (const unitCostCents of [0, -5, Number.NaN]) {
+      const { suggestion } = await build(707).draftSuggestion({ category: 'beverage', unitCostCents })
+      expect(suggestion.suggestedPriceCents).toBeNull()
+    }
+  })
+
+  it('does not load the catalogue costs: a draft has no products', async () => {
+    const service = build(707)
+    const report = await service.report({ period: '2026-09', skus: [] })
+
+    expect(report.products).toEqual([])
   })
 })

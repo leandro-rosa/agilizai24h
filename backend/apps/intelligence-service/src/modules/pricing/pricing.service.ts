@@ -136,6 +136,42 @@ export class PricingService {
     return { meta: { engineVersion: ENGINE_VERSION, parameterVersion: c.version.id, asOf: c.asOf, months: c.months }, suggestion }
   }
 
+  /**
+   * A suggestion for a product that is not registered yet, from its category and unit cost: the same cost structure, parameters and rounding as the
+   * report (`solveStructure`), with the loss of the CATEGORY (there is no product history), the payment mix of the network and the operating share. It
+   * lists every missing parameter instead of a number, never shows a sales volume or an impact, and, when a price is typed, returns the margin at it.
+   */
+  async draftSuggestion(
+    input: { category?: string | null; name?: string | null; unitCostCents?: number | null; typedPriceCents?: number | null; costLabel?: string },
+    correlationId?: string,
+  ): Promise<{ meta: Pick<PricingReport['meta'], 'engineVersion' | 'parameterVersion' | 'asOf' | 'months'>; suggestion: NewProductSuggestion }> {
+    const c = await this.collect({ skus: [] }, correlationId)
+    const category = input.category?.trim() || null
+    const unitCost = typeof input.unitCostCents === 'number' && Number.isFinite(input.unitCostCents) && input.unitCostCents > 0 ? Math.round(input.unitCostCents) : null
+    const suggestion = suggestNewProduct({
+      sku: '(rascunho)',
+      name: input.name ?? null,
+      category,
+      categoryName: category ? (c.categoryNames.get(category) ?? null) : null,
+      costCents: unitCost,
+      costAgeDays: 0,
+      costFromPurchase: false,
+      costFlaggedUnreliable: false,
+      monthlyUnits: 0,
+      loss: c.lossFor(category),
+      payment: c.payment,
+      operatingShare: c.operating?.share ?? null,
+      params: c.params,
+      costLabel: input.costLabel ?? 'Custo informado no cadastro',
+      costNotReceived: false,
+      typedPriceCents: input.typedPriceCents ?? null,
+    })
+    // A draft with no category cannot be priced against a category's margin or loss: say so.
+    if (!category && suggestion.status === 'suggested') suggestion.reasons.unshift('Sem categoria: a perda e a margem usadas são as padrão da rede')
+
+    return { meta: { engineVersion: ENGINE_VERSION, parameterVersion: c.version.id, asOf: c.asOf, months: c.months }, suggestion }
+  }
+
   /** Everything the engine needs for the scoped products, before the engine runs. */
   private async collect(query: PricingQuery, correlationId?: string) {
     const version = await this.parameters.current()
@@ -150,25 +186,32 @@ export class PricingService {
     if (query.storeId !== undefined && stores.length === 0) throw new NotFoundException(`Store ${query.storeId} not found`)
 
     const catalogue = (await this.products.products(correlationId)).filter(product => !isSynthetic(product.name))
-    const wanted = query.skus?.length ? new Set(query.skus) : null
+    // `skus: []` means NO product (a draft); only an absent list means the whole catalogue.
+    const wanted = query.skus ? new Set(query.skus) : null
     const scoped = wanted ? catalogue.filter(product => wanted.has(product.sku)) : catalogue
     const skus = scoped.map(product => product.sku)
 
     const supplierNames = new Map((await this.suppliers.suppliers(correlationId)).map(supplier => [supplier.id, supplier.name]))
 
-    const [facts, costsNow, costsLatest, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased] = await Promise.all([
+    const none = (asOfDate: string) => Promise.resolve({ as_of: asOfDate, resolved: [], unresolved: [], complete: true })
+    const noPrices = (asOfDate: string) => Promise.resolve({ resolved: [], unresolved: [], complete: true, asOf: asOfDate })
+    const noSkus = skus.length === 0
+    const [facts, costsNow, costsLatest, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased, categoryRows] = await Promise.all([
       Promise.all(months.map(month => this.loader.month(month, stores, correlationId))),
-      this.products.costsAsOf(skus, asOf, correlationId),
+      noSkus ? none(asOf) : this.products.costsAsOf(skus, asOf, correlationId),
       // The cost in force TODAY, only to tell a cost newer than the period apart from the period's own cost.
-      this.products.costsAsOf(skus, new Date().toISOString().slice(0, 10), correlationId),
-      this.products.costsAsOf(skus, beforeWindow, correlationId),
-      this.products.pricesAsOf(skus, asOf, correlationId),
-      this.products.pricesAsOf(skus, beforeWindow, correlationId),
+      noSkus ? none(asOf) : this.products.costsAsOf(skus, new Date().toISOString().slice(0, 10), correlationId),
+      noSkus ? none(beforeWindow) : this.products.costsAsOf(skus, beforeWindow, correlationId),
+      noSkus ? noPrices(asOf) : this.products.pricesAsOf(skus, asOf, correlationId),
+      noSkus ? noPrices(beforeWindow) : this.products.pricesAsOf(skus, beforeWindow, correlationId),
       this.treasury.feesInForce(asOf, correlationId),
       this.sales.paymentMix(months[0], end, query.storeId, correlationId),
       Promise.all(months.map(month => this.accounting.pnl(month, query.storeId, correlationId))),
       this.boughtSkus(skus, months),
+      // Category names come from the registry (managed data); if it cannot be read the built-in labels still work.
+      this.products.categories(correlationId).catch(() => []),
     ])
+    const categoryNames = new Map(categoryRows.map(row => [row.key, row.name]))
 
     const category = new Map(catalogue.map(product => [product.sku, product.category ?? null]))
     const bySku = new Map<string, SkuFacts>()
@@ -224,6 +267,7 @@ export class PricingService {
         sku,
         name: product.name,
         category: product.category ?? null,
+        categoryName: product.category ? (categoryNames.get(product.category) ?? null) : null,
         subcategory: product.subcategory ?? null,
         ean: product.ean ?? null,
         supplierId: product.supplier_id ?? null,
@@ -263,7 +307,11 @@ export class PricingService {
 
     const revenueBySku = new Map([...bySku].map(([sku, entry]) => [sku, entry.revenueCents]))
 
-    return { version, params, months, asOf, fees, mix, payment, operating, inputs, revenueBySku }
+    // The loss a product WITHOUT history of its own would get: its category's, else the store's or the network's (the same selection the report uses).
+    const lossFor = (categoryKey: string | null) =>
+      chooseLoss({ product: null, category: categoryKey ? byCat.get(categoryKey) : null, store: query.storeId !== undefined ? scope : null, network: query.storeId === undefined ? scope : null }, params.data.lossMinUnits)
+
+    return { version, params, months, asOf, fees, mix, payment, operating, inputs, revenueBySku, lossFor, categoryNames }
   }
 
   /** One product, computed from the same inputs as the report. */

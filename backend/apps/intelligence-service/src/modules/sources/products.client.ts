@@ -20,6 +20,13 @@ export interface ProductDto {
   origin?: { type: string; on: string | null } | null
 }
 
+/** A category as the products registry holds it; `key` is what products carry. */
+export interface CategoryDto {
+  key: string
+  name: string
+  status: string
+}
+
 @Injectable()
 export class ProductsClient {
   constructor(
@@ -29,6 +36,11 @@ export class ProductsClient {
 
   private base(): string {
     return this.config.getOrThrow<string>('PRODUCTS_SERVICE_URL')
+  }
+
+  /** The managed categories (name by key). The pricing report names categories from here, so a new category is never shown as "Outros". */
+  async categories(correlationId?: string): Promise<CategoryDto[]> {
+    return (await httpGet<CategoryDto[]>(this.http, `${this.base()}/categories`, { correlationId })) ?? []
   }
 
   async products(correlationId?: string): Promise<ProductDto[]> {

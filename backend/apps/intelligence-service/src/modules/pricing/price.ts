@@ -6,6 +6,8 @@ export interface PriceInput {
   sku: string
   name?: string | null
   category?: string | null
+  /** The category's name in the registry (managed data); absent = the built-in label. */
+  categoryName?: string | null
   subcategory?: string | null
   ean?: string | null
   /** Declared supplier; none when the catalogue has none. */
@@ -143,7 +145,7 @@ function identity(input: PriceInput) {
     supplierId: input.supplierId ?? null,
     supplierName: input.supplierName ?? null,
     category: input.category ?? null,
-    categoryLabel: categoryLabel(input.category),
+    categoryLabel: categoryLabel(input.category, input.categoryName),
     subcategory: input.subcategory ?? null,
     costOrigin: input.costOrigin ?? null,
     newerCost: input.newerCost ?? null,

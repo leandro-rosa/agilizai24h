@@ -18,6 +18,8 @@ export interface NewProductInput extends Omit<PriceInput, 'currentPriceCents' | 
   /** Where the cost came from, in words ("Nota fiscal 13021", "Cadastro"), and whether that invoice is already received. */
   costLabel: string
   costNotReceived: boolean
+  /** A price the operator typed in a draft: the answer carries the margin the engine's structure gives at it. */
+  typedPriceCents?: number | null
 }
 
 export interface NewProductSuggestion {
@@ -32,6 +34,12 @@ export interface NewProductSuggestion {
   /** The price that reaches the target margin, shaped by the same rounding as the pricing screen. */
   suggestedPriceCents: number | null
   suggestedMargin: number | null
+  /** The cost per sold unit the suggestion was built on (centavos). */
+  unitCostCents: number | null
+  /** The suggestion is an initial one: there is no sales history behind it, whatever the label says. */
+  initial: true
+  /** The margin at the price the operator typed, from the same structure; null when none was typed or the structure is missing. */
+  typedPrice: { priceCents: number; margin: number } | null
   targetMargin: number
   minimumMargin: number
   structure: CostStructure | null
@@ -53,7 +61,7 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
   const { params } = input
   const margins = marginsFor(params, input.category ?? null)
   const label = input.monthlyUnits > 0 ? FEW_SALES_LABEL : NEW_PRODUCT_LABEL
-  const base = { sku: input.sku, name: input.name ?? null, label, targetMargin: margins.target, minimumMargin: margins.minimum, engineVersion: ENGINE_VERSION }
+  const base = { sku: input.sku, name: input.name ?? null, label, initial: true as const, unitCostCents: input.costCents ?? null, typedPrice: null, targetMargin: margins.target, minimumMargin: margins.minimum, engineVersion: ENGINE_VERSION }
 
   const missing: string[] = []
   if (input.costCents === null || input.costCents <= 0) missing.push('Sem custo: informe o custo da nota')
@@ -81,7 +89,7 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
 
   const dataUsed: DataUsed[] = [
     { code: 'cost', label: 'Custo da unidade', value: money(input.costCents as number), origin: input.costLabel },
-    { code: 'category', label: 'Categoria', value: categoryLabel(input.category), origin: 'Cadastro do produto' },
+    { code: 'category', label: 'Categoria', value: categoryLabel(input.category, input.categoryName), origin: 'Cadastro do produto' },
     { code: 'tax', label: 'Imposto', value: pct(solved.structure.taxRate), origin: 'Parâmetro de precificação' },
     { code: 'payment', label: 'Taxas de pagamento', value: `${pct(payment.rate)}${payment.fixedPerUnitCents > 0 ? ` + ${money(Math.round(payment.fixedPerUnitCents))} por unidade` : ''}`, origin: 'Taxas cadastradas ponderadas pelo mix de vendas da rede' },
     { code: 'loss', label: 'Perda', value: pct(loss.rate), origin: `Histórico de ${loss.level === 'category' ? 'a categoria' : loss.level === 'store' ? 'a loja' : 'a rede'} (sem histórico do produto)` },
@@ -97,6 +105,7 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
     minimumPriceCents: shapePrice(solved.rawMinimum, params),
     suggestedPriceCents: suggested,
     suggestedMargin: solved.marginAt(suggested),
+    typedPrice: input.typedPriceCents && input.typedPriceCents > 0 ? { priceCents: input.typedPriceCents, margin: solved.marginAt(input.typedPriceCents) } : null,
     structure: solved.structure,
     dataUsed,
     reasons,

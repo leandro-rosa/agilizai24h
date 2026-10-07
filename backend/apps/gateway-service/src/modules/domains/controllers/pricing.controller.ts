@@ -85,6 +85,14 @@ export class PricingController {
     return this.get('/pricing/decisions/pending', query, request)
   }
 
+  @Post('draft-suggestion')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'A price suggestion for a product that is not registered yet (same engine; lists what is missing; never a volume or an impact)' })
+  async draftSuggestion(@Body() body: Record<string, unknown>, @Req() request: FastifyRequest) {
+    return this.send('post', '/pricing/draft-suggestion', request, { category: body?.category, name: body?.name, unitCostCents: body?.unitCostCents, typedPriceCents: body?.typedPriceCents, costLabel: body?.costLabel })
+  }
+
   @Get('new-product/:sku')
   @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
   @ApiOperation({ summary: 'A price suggestion for a product with no price and no sales history (same engine and parameters); suggests, never writes' })

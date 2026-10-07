@@ -8,7 +8,7 @@ import { PricingApplyService } from './pricing-apply.service'
 import { OverviewController } from './controllers/overview.controller'
 import { FinanceController } from './controllers/finance.controller'
 import { InventoryController } from './controllers/inventory.controller'
-import { CatalogueController, CatalogueImportController, CatalogueSyncController, ProductsController, SkuLinksController } from './controllers/products.controller'
+import { CatalogueController, CatalogueImportController, CatalogueSyncController, ProductsController, SkuLinksController, TaxonomyController } from './controllers/products.controller'
 import { SalesController } from './controllers/sales.controller'
 import { StoresController } from './controllers/stores.controller'
 import { SupplyController } from './controllers/supply.controller'
@@ -31,6 +31,7 @@ import { TreasuryImportsController } from './controllers/treasury-imports.contro
     CatalogueSyncController,
     CatalogueImportController,
     CatalogueController,
+    TaxonomyController,
     SalesController,
     SupplyController,
     InventoryController,

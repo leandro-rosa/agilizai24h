@@ -8,6 +8,7 @@ const LABELS: Record<string, string> = {
 
 export const UNKNOWN_CATEGORY_LABEL = 'Outros'
 
-export function categoryLabel(key: string | null | undefined): string {
-  return (key && LABELS[key]) || UNKNOWN_CATEGORY_LABEL
+/** The registry's name first (categories are managed data), then the old built-in label, then "Outros". */
+export function categoryLabel(key: string | null | undefined, registryName?: string | null): string {
+  return registryName || (key && LABELS[key]) || UNKNOWN_CATEGORY_LABEL
 }

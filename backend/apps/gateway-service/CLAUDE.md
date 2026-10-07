@@ -195,3 +195,5 @@ sessão) registra a escolha primeiro (o intelligence recusa escolha inválida, e
 "salvar sem preço" registra e não grava preço (`PricingApplyService.chooseForNewProduct`).
 
 `POST /catalogue-import/preview|apply` (`products:write`; o `apply` usa o **usuário da sessão**, o corpo só leva `rows` e `clearEmpty`, que é falso a não ser que seja exatamente `true`) e `GET /catalogue/last-change` (`products:read`). `POST /products` (cadastro à mão) agora força origem `manual` e o usuário da sessão (`manualProduct`): o navegador não pode alegar origem de nota ou de importação.
+
+Categorias: `GET /categories` e `POST /classification/suggest`, `GET /classification/review` (`products:read`); `POST /categories`, `PATCH /categories/:id`, `POST /categories/:id/subcategories`, `PATCH /subcategories/:id` e `POST /classification/apply` (`products:write`, usuário da sessão; **sem rota de exclusão**). `POST /pricing/draft-suggestion` (`products:read`) é a sugestão de preço para o formulário de produto novo. `classificationConfirmed` passa nos cadastros (à mão e pela nota) só quando é exatamente `true`.

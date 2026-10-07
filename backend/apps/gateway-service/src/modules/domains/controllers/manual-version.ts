@@ -48,7 +48,7 @@ export function invoiceProduct(body: Record<string, unknown> | undefined, actor:
 
   return {
     sku: input.sku, name: input.name, category: input.category, subcategory: input.subcategory, saleUnit: input.saleUnit,
-    brand: input.brand, purchaseUnit: input.purchaseUnit, packageType: input.packageType, unitsPerPackage: input.unitsPerPackage, fractionable: input.fractionable,
+    brand: input.brand, purchaseUnit: input.purchaseUnit, classificationConfirmed: input.classificationConfirmed === true, packageType: input.packageType, unitsPerPackage: input.unitsPerPackage, fractionable: input.fractionable,
     ean: input.ean, supplierId: input.supplierId,
     origin: 'invoice', invoiceNumber: input.invoiceNumber, purchaseId: input.purchaseId, originOn: input.originOn, actor,
   }
@@ -69,7 +69,7 @@ export function manualProduct(body: Record<string, unknown> | undefined, actor: 
   const input = body ?? {}
 
   return {
-    sku: input.sku, name: input.name, category: input.category, subcategory: input.subcategory, saleUnit: input.saleUnit, brand: input.brand, purchaseUnit: input.purchaseUnit,
+    sku: input.sku, name: input.name, category: input.category, subcategory: input.subcategory, saleUnit: input.saleUnit, brand: input.brand, purchaseUnit: input.purchaseUnit, classificationConfirmed: input.classificationConfirmed === true,
     packageType: input.packageType, unitsPerPackage: input.unitsPerPackage, fractionable: input.fractionable, ean: input.ean, supplierId: input.supplierId,
     origin: 'manual', actor,
   }

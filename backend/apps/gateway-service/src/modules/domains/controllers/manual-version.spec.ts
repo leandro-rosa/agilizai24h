@@ -61,4 +61,11 @@ describe('manual versions from the browser', () => {
     expect(result).toMatchObject({ sku: '1', origin: 'manual', actor: 'ana@agiliz.ai', brand: 'Marca' })
     expect(result).not.toHaveProperty('invoiceNumber')
   })
+
+  it('the classification confirmed flag passes only when it is exactly true, for the manual and the invoice forms', () => {
+    expect(manualProduct({ sku: '1', classificationConfirmed: true }, 'ana@agiliz.ai')).toMatchObject({ classificationConfirmed: true })
+    expect(manualProduct({ sku: '1', classificationConfirmed: 'sim' }, 'ana@agiliz.ai')).toMatchObject({ classificationConfirmed: false })
+    expect(invoiceProduct({ sku: '1', classificationConfirmed: true }, 'ana@agiliz.ai')).toMatchObject({ classificationConfirmed: true })
+    expect(invoiceProduct({ sku: '1' }, 'ana@agiliz.ai')).toMatchObject({ classificationConfirmed: false })
+  })
 })

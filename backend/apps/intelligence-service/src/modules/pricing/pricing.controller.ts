@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, ParseIntPipe, Post, Query } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { NewProductChoiceService } from './new-product-choice.service'
 import { PricingParametersInvalidError } from './pricing.parameters'
@@ -133,6 +133,17 @@ export class PricingController {
     if (cost !== undefined && !(Number.isInteger(cost) && cost > 0)) throw new BadRequestException('costCents must be a positive whole number of centavos')
 
     return this.pricing.newProduct(sku, { costCents: cost, costOrigin, costNotReceived: costNotReceived === 'true', period }, correlationId)
+  }
+
+  @Post('draft-suggestion')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'A price suggestion for a product that is not registered yet (a form being filled)',
+    description:
+      'Same engine and parameters as the report: category loss (no product history), payment mix, tax, operating share, target margin, rounding. `unitCostCents` is the cost per SOLD unit. Optional `typedPriceCents` returns the margin at that price. Missing parameters are listed in `insufficientReasons` and no price is returned; no sales volume or monthly impact is ever produced.',
+  })
+  draftSuggestion(@Body() body: { category?: string; name?: string; unitCostCents?: number; typedPriceCents?: number; costLabel?: string }, @Headers('x-correlation-id') correlationId?: string) {
+    return this.pricing.draftSuggestion(body ?? {}, correlationId)
   }
 
   @Post('new-product/:sku/choice')
