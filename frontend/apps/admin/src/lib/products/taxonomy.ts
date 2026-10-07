@@ -3,11 +3,20 @@ import type { CategoryRow, ClassificationCandidate, ClassificationResult } from 
 /** Names the screens used before categories became managed data. Only a fallback while the list loads or if it cannot be read. */
 const FALLBACK_NAMES: Record<string, string> = { meal: "Refeição", snack: "Lanche", beverage: "Bebida", essential: "Essencial" };
 
+/**
+ * The names the app last read from the managed list, for code that has no hook to ask (the sales insights build their sentences deep inside pure
+ * functions). `TaxonomySync` fills it as soon as the list loads; until then the old names apply.
+ */
+let registry = new Map<string, string>();
+export function registerCategoryNames(rows: CategoryRow[] | undefined): void {
+  registry = new Map((rows ?? []).map((row) => [row.key, row.name]));
+}
+
 /** The category's name from the managed list; the key's old name, then the key itself — a category is never hidden or turned into "Outros". */
 export function categoryName(key: string | null | undefined, rows: CategoryRow[] | undefined): string {
   if (!key) return "Sem categoria";
 
-  return rows?.find((row) => row.key === key)?.name ?? FALLBACK_NAMES[key] ?? key;
+  return rows?.find((row) => row.key === key)?.name ?? registry.get(key) ?? FALLBACK_NAMES[key] ?? key;
 }
 
 /** What a form offers for a NEW choice: active categories only. A product that already has an inactive one keeps showing it by name. */

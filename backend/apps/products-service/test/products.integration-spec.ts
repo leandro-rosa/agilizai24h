@@ -5,6 +5,7 @@ import { AppModule } from '../src/app.module'
 import { PrismaClientService } from '../src/modules/db-client/prisma-client.service'
 import { CatalogueImportService } from '../src/modules/products/services/catalogue-import.service'
 import { TaxonomyService } from '../src/modules/products/services/taxonomy.service'
+import { CatalogueSyncService } from '../src/modules/products/services/catalogue-sync.service'
 import { CostService } from '../src/modules/products/services/cost.service'
 import { EanService } from '../src/modules/products/services/ean.service'
 import { ProductsService } from '../src/modules/products/services/products.service'
@@ -16,6 +17,7 @@ describe('products integration', () => {
   let eans: EanService
   let importer: CatalogueImportService
   let taxonomy: TaxonomyService
+  let sync: CatalogueSyncService
   let prisma: PrismaClientService
 
   const createdSkus: string[] = []
@@ -38,6 +40,7 @@ describe('products integration', () => {
     eans = app.get(EanService)
     importer = app.get(CatalogueImportService)
     taxonomy = app.get(TaxonomyService)
+    sync = app.get(CatalogueSyncService)
     // A fresh database has no subcategories (the migration seeds them from existing products), a copy of the dev one does: make both the same.
     const beverage = (await taxonomy.list()).find(c => c.key === 'beverage')
     for (const [name, keywords] of [['Energéticos', ['energetico', 'energy', 'monster']], ['Chás', ['cha', 'mate']]] as const) {
@@ -869,6 +872,23 @@ describe('products integration', () => {
       expect((await prisma.product.findUniqueOrThrow({ where: { sku: other } })).subcategory).toBeNull()
       const refused = await taxonomy.apply([{ sku: other, category: 'snack', subcategory: 'Energéticos' }], 'ana@agiliz.ai')
       expect(refused.results[0]).toMatchObject({ ok: false })
+    })
+  })
+
+  describe('pricing-sheet sync respects the taxonomy (real SQL)', () => {
+    const row = (sku: string, subcategory: string | null) => ({ row: 2, sku, name: `Planilha ${sku}`, category: 'Bebidas', subcategory, ean: null, supplier: null, cost_cents: 500, cost_error: false, price_cents: 1000, package_type: null })
+
+    it('creates a product whose subcategory exists in its category, in the canonical spelling, and refuses one the taxonomy does not know', async () => {
+      const good = unique('SYN')
+      const bad = unique('SYN')
+      createdSkus.push(good, bad)
+
+      const results = await sync.apply([row(good, 'energeticos'), row(bad, 'Subcategoria que não existe')], { create: [good, bad], costs: [], prices: [] }, '2026-10-01', '2026-10-01')
+
+      expect(results.find(r => r.sku === good)).toMatchObject({ ok: true })
+      expect((await prisma.product.findUniqueOrThrow({ where: { sku: good } })).subcategory).toBe('Energéticos')
+      expect(results.find(r => r.sku === bad)).toMatchObject({ ok: false, error: expect.stringContaining('não pertence à categoria') })
+      expect(await prisma.product.count({ where: { sku: bad } })).toBe(0)
     })
   })
 })

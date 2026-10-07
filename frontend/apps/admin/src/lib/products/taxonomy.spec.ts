@@ -108,3 +108,19 @@ describe("palavras-chave", () => {
     expect(textToKeywords("   ")).toEqual([]);
   });
 });
+
+describe("nomes registrados para o código sem hook (análises de vendas)", () => {
+  it("o nome vem do cadastro assim que ele é registrado, e uma categoria nova nunca aparece como 'Outros'", async () => {
+    const { registerCategoryNames, categoryName: nameOf } = await import("./taxonomy");
+    const { categoryLabel } = await import("../sales-insights");
+
+    expect(categoryLabel("beverage")).toBe("Bebida");
+    registerCategoryNames([{ id: 9, key: "congelados", name: "Congelados", keywords: [], status: "active", products: 0, subcategories: [] }, { id: 1, key: "beverage", name: "Bebidas geladas", keywords: [], status: "active", products: 0, subcategories: [] }]);
+
+    expect(categoryLabel("congelados")).toBe("Congelados");
+    expect(categoryLabel("beverage")).toBe("Bebidas geladas");
+    expect(nameOf("congelados", undefined)).toBe("Congelados");
+    registerCategoryNames(undefined);
+    expect(categoryLabel("beverage")).toBe("Bebida");
+  });
+});

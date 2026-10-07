@@ -1,12 +1,14 @@
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AuthGate } from "@/components/auth-gate";
+import { TaxonomySync } from "@/components/taxonomy-sync";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthGate>
+      <TaxonomySync />
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset className="min-w-0">

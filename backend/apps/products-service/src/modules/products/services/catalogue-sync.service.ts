@@ -3,6 +3,7 @@ import { principalOf } from '../utils/ean'
 import { COST_RANK, NO_RANK, resolveByProduct } from '../utils/resolve-version'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { normalizeName } from '../utils/normalize-name'
+import { TaxonomyService } from './taxonomy.service'
 import { planSync, type CatalogueEntry, type SheetRow, type SyncPlan } from '../utils/catalogue-sync'
 
 export interface SyncSelection {
@@ -22,7 +23,10 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/
 
 @Injectable()
 export class CatalogueSyncService {
-  constructor(private readonly prisma: PrismaClientService) {}
+  constructor(
+    private readonly prisma: PrismaClientService,
+    private readonly taxonomy: TaxonomyService,
+  ) {}
 
   /** Estado atual: cada produto com o custo e o preço vigentes HOJE (últimas versões com início ≤ hoje). */
   private async currentCatalogue(): Promise<CatalogueEntry[]> {
@@ -72,13 +76,16 @@ export class CatalogueSyncService {
     for (const item of plan.create.filter(c => selection.create.includes(c.sku))) {
       try {
         if (await this.prisma.product.findUnique({ where: { sku: item.sku } })) throw new Error('SKU já existe no catálogo')
+        // The sheet does not create categories: its category and subcategory must exist in the managed taxonomy (and the subcategory belong to the
+        // category). Otherwise the row is refused with the reason, and the operator creates the subcategory in Categorias first.
+        const classification = await this.taxonomy.resolve(item.category, item.subcategory, { offered: true })
         const product = await this.prisma.product.create({
           data: {
             sku: item.sku,
             name: item.name,
-            category: item.category,
+            category: classification.category,
             normalized_name: normalizeName(item.name),
-            subcategory: item.subcategory,
+            subcategory: classification.subcategory,
             ...(item.ean ? { eans: { create: { ean: item.ean, status: 'active', is_primary: true, source: 'catalogue_sync' } } } : {}),
             package_type: item.package_type,
           },

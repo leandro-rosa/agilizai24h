@@ -1,3 +1,4 @@
+import { categoryName } from "@/lib/products/taxonomy";
 import type { Product } from "@/lib/api/products";
 import type { SalesTransaction } from "@/lib/api/sales";
 import type { Store } from "@/lib/api/stores";
@@ -422,15 +423,9 @@ export interface CategoryMixRow {
   shareOfRevenue: number;
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  meal: "Refeições",
-  snack: "Snacks",
-  beverage: "Bebidas",
-  essential: "Essenciais",
-};
-
+/** O nome da categoria vem do cadastro de categorias (a lista única); não há mapa próprio de rótulos aqui. */
 export function categoryLabel(category: string): string {
-  return CATEGORY_LABELS[category] ?? category;
+  return categoryName(category, undefined);
 }
 
 export function categoryMix(okTransactions: SalesTransaction[], productBySku: Map<string, Product>): CategoryMixRow[] {
