@@ -15,8 +15,8 @@ describe('pricing parameters', () => {
     expect(DEFAULT_PRICING_PARAMETERS.margin.targetBps).toBe(3500)
   })
 
-  it('maps Sodexo to Pluxee by default', () => {
-    expect(DEFAULT_PRICING_PARAMETERS.payment.brandAliases).toEqual({ sodexo: 'pluxee' })
+  it('maps Sodexo to Pluxee and PagSeguro to PagBank by default', () => {
+    expect(DEFAULT_PRICING_PARAMETERS.payment.brandAliases).toEqual({ sodexo: 'pluxee', pagseguro: 'pagbank' })
   })
 
   it('refuses an unknown parameter', () => {

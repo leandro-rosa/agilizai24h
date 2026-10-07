@@ -62,6 +62,33 @@ describe('Sodexo is Pluxee', () => {
   })
 })
 
+describe('PagSeguro is PagBank, and a second plan is averaged and said so', () => {
+  const aliases = { pagseguro: 'pagbank' }
+  const mix = [row('Débito', 'PagSeguro', 'MAESTRO', 100, 5000)]
+
+  it('prices PagSeguro sales with the PagBank rate when there is one plan', () => {
+    const cost = paymentCost([rate('PagBank', 'debit', 139)], mix, 50, aliases)!
+
+    expect(cost.rate).toBeCloseTo(0.0139, 8)
+    expect(cost.notes).toEqual([])
+  })
+
+  it('keeps the matched plan and says that another registered plan is not used', () => {
+    const cost = paymentCost([rate('PagBank', 'debit', 139), rate('PagBank plano 2', 'debit', 189)], mix, 50, aliases)!
+
+    expect(cost.rate).toBeCloseTo(0.0139, 8)
+    expect(cost.notes.join(' ')).toContain('nenhuma venda usa')
+    expect(cost.notes.join(' ')).toContain('PagBank plano 2 1,89%')
+  })
+
+  it('averages the plans when the sale names an acquirer none of them match', () => {
+    const cost = paymentCost([rate('PlanoA', 'debit', 139), rate('PlanoB', 'debit', 189)], [row('Débito', 'Outra', 'MAESTRO', 100, 5000)], 50, aliases)!
+
+    expect(cost.rate).toBeCloseTo(0.0164, 8)
+    expect(cost.notes.join(' ')).toContain('média simples de 2 planos')
+  })
+})
+
 describe('fixed fee per sale', () => {
   const rates = [rate('PagBank', 'pix', 69), { ...rate('Ticket', 'voucher', 599), fixedCents: 89 }, rate('Alelo', 'voucher', 690)]
 

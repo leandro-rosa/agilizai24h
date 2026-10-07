@@ -8,7 +8,7 @@ export const DEFAULT_PRICING_PARAMETERS: PricingParameters = {
   psychological: { enabled: false, endingCents: 90 },
   guards: { maxIncreaseBps: 1500, opportunityBandBps: 300 },
   data: { lookbackMonths: 3, minUnitsPerMonth: 10, voucherMinReceiptLines: 50, lossMinUnits: 100, costMaxAgeDays: 120, stableCostBps: 500 },
-  payment: { brandAliases: { sodexo: 'pluxee' } },
+  payment: { brandAliases: { sodexo: 'pluxee', pagseguro: 'pagbank' } },
   minConfidence: 'low',
 }
 

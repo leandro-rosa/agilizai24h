@@ -36,9 +36,10 @@ export interface PricingParameters {
   }
   payment: {
     /**
-     * Brand names the sales report uses mapped to the name the fee is registered
+     * Names the sales report uses mapped to the name the fee is registered
      * under, folded (lower case, no accents or spaces). Sodexo is the former
-     * name of Pluxee, and sales still say SODEXO (owner decision 2026-10-06).
+     * name of Pluxee and PagSeguro is PagBank; sales still use the old names
+     * (owner decisions 2026-10-06).
      */
     brandAliases: Record<string, string>
   }

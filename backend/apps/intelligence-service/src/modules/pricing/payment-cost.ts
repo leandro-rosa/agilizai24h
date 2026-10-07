@@ -116,19 +116,31 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
   const voucher = effectiveVoucherFee(rates, mix, minVoucherReceiptLines, aliases)
   const totalLines = mix.reduce((sum, row) => sum + row.receiptLines, 0)
   const fixedOf = new Map(rates.map(rate => [`${fold(rate.acquirer)}|${rate.method}`, rate.fixedCents ?? 0]))
+  // fixedOf is keyed by the registered name; row lookups go through the same alias map as the rates.
   let fixedCentsTotal = 0
   const amount: Record<PaymentMethod, number> = { pix: 0, debit: 0, credit: 0, voucher: 0 }
   const rateOf: Partial<Record<PaymentMethod, number>> = {}
   let unresolved = 0
 
-  const byKey = new Map(rates.map(rate => [`${fold(rate.acquirer)}|${rate.method}`, rate.rateBps]))
+  const aliasOf = new Map(Object.entries(aliases).map(([from, to]) => [fold(from), fold(to)]))
+  const canonical = (name: string | null) => {
+    const key = fold(name)
+    return aliasOf.get(key) ?? key
+  }
+  const byKey = new Map(rates.map(rate => [`${canonical(rate.acquirer)}|${rate.method}`, rate.rateBps]))
 
   const resolvedRate = (method: PaymentMethod, acquirer: string | null): number | null => {
     if (method === 'voucher') return voucher.rateBps
-    const exact = byKey.get(`${fold(acquirer)}|${method}`)
+    const exact = byKey.get(`${canonical(acquirer)}|${method}`)
     if (exact !== undefined) return exact
     const ofMethod = rates.filter(rate => rate.method === method)
     if (ofMethod.length === 0) return null
+    // Sales name an acquirer with no registered rate for this method: with several candidates they cannot be told
+    // apart, so the simple average is used and said so, instead of silently picking one.
+    if (ofMethod.length > 1) {
+      const note = `Taxa de ${method} pela média simples de ${ofMethod.length} planos (a venda não identifica o plano)`
+      if (!notes.includes(note)) notes.push(note)
+    }
     return ofMethod.reduce((sum, rate) => sum + rate.rateBps, 0) / ofMethod.length
   }
 
@@ -151,13 +163,19 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
     amount[method] += row.amountCents
     weightedBps += rate * row.amountCents
     // A fixed fee is charged per sale, so it follows the share of receipt lines, not of revenue.
-    const fixed = method === 'voucher' ? voucher.fixedCents : (fixedOf.get(`${fold(row.acquirer)}|${method}`) ?? 0)
+    const fixed = method === 'voucher' ? voucher.fixedCents : (fixedOf.get(`${canonical(row.acquirer)}|${method}`) ?? 0)
     fixedCentsTotal += fixed * row.receiptLines
     const entry = methodRate.get(method) ?? { weight: 0, bps: 0 }
     methodRate.set(method, { weight: entry.weight + row.amountCents, bps: entry.bps + rate * row.amountCents })
   }
 
   const resolved = total - unresolved
+  const usedKeys = new Set(mix.map(row => `${canonical(row.acquirer)}|${methodOf(row.method)}`))
+  for (const method of ['pix', 'debit', 'credit'] as PaymentMethod[]) {
+    const idle = rates.filter(rate => rate.method === method && !usedKeys.has(`${canonical(rate.acquirer)}|${method}`))
+    const used = rates.some(rate => rate.method === method && usedKeys.has(`${canonical(rate.acquirer)}|${method}`))
+    if (used && idle.length > 0) notes.push(`Taxa de ${method} cadastrada que nenhuma venda usa e não entra no cálculo: ${idle.map(rate => `${rate.acquirer} ${(rate.rateBps / 100).toFixed(2).replace('.', ',')}%`).join(', ')}`)
+  }
   if (resolved <= 0) return null
 
   for (const [method, entry] of methodRate) rateOf[method] = entry.bps / entry.weight

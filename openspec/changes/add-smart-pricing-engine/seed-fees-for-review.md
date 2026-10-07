@@ -83,3 +83,14 @@ Valores em % (o cadastro guarda em basis points: 1,39% = 139).
 | Alelo | voucher | 6,9% | — |
 
 Pendente: vigência de cada uma, e o tratamento das condições 1,89% (débito) e 3,50% (crédito).
+
+## Respostas de 2026-10-06 (segunda rodada)
+
+- **Vigência: o dono não sabe.** Nada foi gravado. Como o motor só usa a taxa vigente no fim da janela analisada, uma data de início antiga (ex.: 2026-01-01) não muda a análise atual; só mudaria meses fechados. Fica como pendência para quando ele souber.
+- **PagBank = PagSeguro.** As vendas dizem PagSeguro; o parâmetro `payment.brandAliases` mapeia `pagseguro → pagbank` por padrão.
+- **1,89% (débito) e 3,50% (crédito) são um segundo plano**, a cadastrar como outro adquirente (ex.: "PagBank plano 2").
+- **Autorização para gravar no banco: não.** Cadastrar pela tela (ou `POST /treasury/fees`) quando ela existir.
+
+### Efeito no motor
+
+As vendas só trazem "PagSeguro", então não distinguem o plano 1 do plano 2. O motor usa o plano que casa com o nome da venda (PagBank) e **avisa no relatório** que há outra taxa cadastrada que nenhuma venda usa. Isso pode subestimar o custo se parte das vendas for do plano 2. Decisão pendente do dono: manter assim, usar a maior (como nos vouchers) ou a média simples.
