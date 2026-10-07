@@ -72,7 +72,9 @@ export function effectiveVoucherFee(rates: FeeRate[], mix: MixRow[], minReceiptL
     const candidates = [canonical(row.cardBrand), canonical(row.acquirer)].filter(Boolean)
     const hit = registered.find(rate => candidates.includes(rate.key))
     if (hit) amountByBrand.set(hit.key, (amountByBrand.get(hit.key) ?? 0) + row.amountCents)
-    else if (row.amountCents > 0) missing.add(row.cardBrand ?? row.acquirer ?? 'sem bandeira')
+    // A sale with no brand at all is not a brand missing a rate: it is priced at the effective voucher fee and, being
+    // unidentifiable, is not reported as a gap (one brandless receipt must not lower the confidence of every product).
+    else if (row.amountCents > 0 && row.cardBrand?.trim()) missing.add(row.cardBrand)
   }
 
   const matched = [...amountByBrand.values()].reduce((sum, amount) => sum + amount, 0)

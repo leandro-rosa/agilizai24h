@@ -40,6 +40,16 @@ describe('effectiveVoucherFee', () => {
     expect(fee.rateBps).toBeCloseTo(300, 6)
   })
 
+  it('does not report a sale with no brand as a brand missing a rate, and still prices it', () => {
+    const fee = effectiveVoucherFee(VOUCHERS, [row('Voucher', 'PagSeguro', 'Alelo', 60, 6000), row('Voucher', 'PagSeguro', null, 1, 7)], 50)
+
+    expect(fee.missingRateBrands).toEqual([])
+    expect(fee.rateBps).toBeCloseTo(300, 6)
+    const cost = paymentCost([rate('PagBank', 'pix', 69), ...VOUCHERS], [row('Voucher', 'PagSeguro', 'Alelo', 60, 6000), row('Voucher', 'PagSeguro', null, 1, 7), row('Pix', 'PagBank', null, 100, 4000)], 50)!
+    expect(cost.complete).toBe(true)
+    expect(cost.notes.join(' ')).not.toContain('sem taxa')
+  })
+
   it('has no rate when no voucher brand is registered', () => {
     expect(effectiveVoucherFee([rate('PagBank', 'pix', 69)], [row('Voucher', 'x', 'Alelo', 60, 6000)], 50)).toMatchObject({ rateBps: null, basis: 'none' })
   })
