@@ -73,19 +73,19 @@ describe('PagSeguro is PagBank, and a second plan is averaged and said so', () =
     expect(cost.notes).toEqual([])
   })
 
-  it('keeps the matched plan and says that another registered plan is not used', () => {
+  it('averages the registered plans when the sales cannot tell them apart, and says so', () => {
     const cost = paymentCost([rate('PagBank', 'debit', 139), rate('PagBank plano 2', 'debit', 189)], mix, 50, aliases)!
-
-    expect(cost.rate).toBeCloseTo(0.0139, 8)
-    expect(cost.notes.join(' ')).toContain('nenhuma venda usa')
-    expect(cost.notes.join(' ')).toContain('PagBank plano 2 1,89%')
-  })
-
-  it('averages the plans when the sale names an acquirer none of them match', () => {
-    const cost = paymentCost([rate('PlanoA', 'debit', 139), rate('PlanoB', 'debit', 189)], [row('Débito', 'Outra', 'MAESTRO', 100, 5000)], 50, aliases)!
 
     expect(cost.rate).toBeCloseTo(0.0164, 8)
     expect(cost.notes.join(' ')).toContain('média simples de 2 planos')
+  })
+
+  it('keeps an exact match when the sales do tell several acquirers apart', () => {
+    const two = [row('Débito', 'PagSeguro', 'MAESTRO', 100, 5000), row('Débito', 'Cielo', 'MAESTRO', 100, 5000)]
+    const cost = paymentCost([rate('PagBank', 'debit', 139), rate('Cielo', 'debit', 189)], two, 50, aliases)!
+
+    expect(cost.rate).toBeCloseTo(0.0164, 8) // each half of the sales at its own acquirer's rate: (139 + 189) / 2
+    expect(cost.notes).toEqual([])
   })
 })
 

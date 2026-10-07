@@ -91,6 +91,6 @@ Pendente: vigência de cada uma, e o tratamento das condições 1,89% (débito) 
 - **1,89% (débito) e 3,50% (crédito) são um segundo plano**, a cadastrar como outro adquirente (ex.: "PagBank plano 2").
 - **Autorização para gravar no banco: não.** Cadastrar pela tela (ou `POST /treasury/fees`) quando ela existir.
 
-### Efeito no motor
+### Efeito no motor (decidido pelo dono: média simples dos planos)
 
-As vendas só trazem "PagSeguro", então não distinguem o plano 1 do plano 2. O motor usa o plano que casa com o nome da venda (PagBank) e **avisa no relatório** que há outra taxa cadastrada que nenhuma venda usa. Isso pode subestimar o custo se parte das vendas for do plano 2. Decisão pendente do dono: manter assim, usar a maior (como nos vouchers) ou a média simples.
+As vendas só trazem "PagSeguro" e não distinguem o plano 1 do plano 2. Quando as vendas de um método vêm de um único adquirente, o motor usa a **média simples** das taxas cadastradas desse método (débito: (1,39% + 1,89%) / 2 = 1,64%; crédito: (2,97% + 3,50%) / 2 = 3,235%) e avisa no relatório. Quando as vendas distinguem vários adquirentes, cada um usa a própria taxa.

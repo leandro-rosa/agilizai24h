@@ -128,15 +128,23 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
     return aliasOf.get(key) ?? key
   }
   const byKey = new Map(rates.map(rate => [`${canonical(rate.acquirer)}|${rate.method}`, rate.rateBps]))
+  // Acquirers the sales actually tell apart, per method. When there is only one (today: PagSeguro), the registered
+  // plans of that method cannot be told apart by the sale, so they are averaged (owner decision 2026-10-06).
+  const acquirersInSales = new Map<PaymentMethod, Set<string>>()
+  for (const row of mix) {
+    const method = methodOf(row.method)
+    if (!method) continue
+    acquirersInSales.set(method, (acquirersInSales.get(method) ?? new Set()).add(canonical(row.acquirer)))
+  }
 
   const resolvedRate = (method: PaymentMethod, acquirer: string | null): number | null => {
     if (method === 'voucher') return voucher.rateBps
-    const exact = byKey.get(`${canonical(acquirer)}|${method}`)
-    if (exact !== undefined) return exact
     const ofMethod = rates.filter(rate => rate.method === method)
     if (ofMethod.length === 0) return null
-    // Sales name an acquirer with no registered rate for this method: with several candidates they cannot be told
-    // apart, so the simple average is used and said so, instead of silently picking one.
+    if ((acquirersInSales.get(method)?.size ?? 0) > 1) {
+      const exact = byKey.get(`${canonical(acquirer)}|${method}`)
+      if (exact !== undefined) return exact
+    }
     if (ofMethod.length > 1) {
       const note = `Taxa de ${method} pela média simples de ${ofMethod.length} planos (a venda não identifica o plano)`
       if (!notes.includes(note)) notes.push(note)
@@ -170,14 +178,6 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
   }
 
   const resolved = total - unresolved
-  const usedKeys = new Set(mix.map(row => `${canonical(row.acquirer)}|${methodOf(row.method)}`))
-  for (const method of ['pix', 'debit', 'credit'] as PaymentMethod[]) {
-    const idle = rates.filter(rate => rate.method === method && !usedKeys.has(`${canonical(rate.acquirer)}|${method}`))
-    const used = rates.some(rate => rate.method === method && usedKeys.has(`${canonical(rate.acquirer)}|${method}`))
-    if (used && idle.length > 0) notes.push(`Taxa de ${method} cadastrada que nenhuma venda usa e não entra no cálculo: ${idle.map(rate => `${rate.acquirer} ${(rate.rateBps / 100).toFixed(2).replace('.', ',')}%`).join(', ')}`)
-  }
-  if (resolved <= 0) return null
-
   for (const [method, entry] of methodRate) rateOf[method] = entry.bps / entry.weight
   if (voucher.missingRateBrands.length > 0) notes.push(`Bandeira sem taxa: ${voucher.missingRateBrands.join(', ')}`)
   if (voucher.basis === 'simple_average') notes.push('VR/VA pela média simples das bandeiras (volume insuficiente para ponderar)')
