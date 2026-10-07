@@ -7,8 +7,19 @@
 - [x] 1.5 Tests: same-date correction, invoice over manual, later manual over earlier invoice, before the first version, bulk contract unchanged, past margin unchanged
 - [x] 1.6 Apply the migration in dev and compare counts before and after
 
+## 1b. EANs per product (amendment 2026-10-07)
+
+- [ ] 1b.1 `product_ean` table (status, validity, source, note, principal), partial uniques (active EAN, one principal), backfill from `product.ean`, drop the unique single-EAN column
+- [ ] 1b.2 Add, retire, reactivate, set principal, edit note (never delete); EAN active on another product is refused naming it
+- [ ] 1b.3 Resolve an EAN: active first, historical when unique, ambiguous and unknown reported, never creating a product
+- [ ] 1b.4 `ProductView` carries `ean` (the principal) and `eans`; product creation and catalogue sync go through the new links
+- [ ] 1b.5 NF import in suppliers matches active and historical EANs (`ean_historical`) and reports "EAN não identificado"
+- [ ] 1b.6 Tests: one EAN, a second, retire the old, old and new EAN in two invoices to the same SKU, unknown EAN, ambiguous, active on two products refused, history unified by SKU
+- [ ] 1b.7 Migration verified on a throwaway copy of the real database
+
 ## 2. Gateway
 
+- [ ] 2.0 Gateway routes for the EAN actions with the session user
 - [ ] 2.1 Expose `prices/bulk`, `:id/prices`, `:sku/prices` (the routes the admin calls)
 - [ ] 2.2 Manual cost and price with the session user and a required reason
 - [ ] 2.3 `GET /products/:id/timeline` and `GET /products/:id/price-margins` in products-service, routed by the gateway
@@ -28,7 +39,7 @@
 ## 5. Admin `/products`
 
 - [ ] 5.1 List with the filters and columns of the registry
-- [ ] 5.2 Drawer: Visão geral, Custos, Preços, Histórico
+- [ ] 5.2 Drawer: Visão geral (with the Identificação section: EANs table and + Adicionar EAN), Custos, Preços, Histórico
 - [ ] 5.3 Dialogs for a new cost and a new price (value, start date, reason)
 
 ## 6. Purchases and margin tabs
