@@ -60,3 +60,17 @@ export function importBody(body: Record<string, unknown> | undefined): Record<st
 
   return { rows: input.rows, clearEmpty: input.clearEmpty === true }
 }
+
+/**
+ * A product created by hand. The origin is always manual and the user is the session user: a browser cannot claim an invoice or an import origin
+ * (that evidence is set by the flows that have it).
+ */
+export function manualProduct(body: Record<string, unknown> | undefined, actor: string): Record<string, unknown> {
+  const input = body ?? {}
+
+  return {
+    sku: input.sku, name: input.name, category: input.category, subcategory: input.subcategory, saleUnit: input.saleUnit, brand: input.brand, purchaseUnit: input.purchaseUnit,
+    packageType: input.packageType, unitsPerPackage: input.unitsPerPackage, fractionable: input.fractionable, ean: input.ean, supplierId: input.supplierId,
+    origin: 'manual', actor,
+  }
+}

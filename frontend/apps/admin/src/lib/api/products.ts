@@ -21,10 +21,13 @@ export interface Product {
   package_type: string | null;
   fractionable: boolean | null;
   sale_unit?: string;
+  brand?: string | null;
+  /** A unidade em que o fornecedor vende ("CX", "FD", "UN"). O fator caixa → unidade é `units_per_package`; o custo é sempre por unidade vendida. */
+  purchase_unit?: string | null;
   /** Todos os EAN que o produto já teve (nunca apagados), com situação e validade. */
   eans?: ProductEan[];
   /** Como nasceu o cadastro; para `invoice`, a evidência (nota, fornecedor, dia, usuário). */
-  origin?: { type: "manual" | "invoice" | "legacy_import"; invoice_number: string | null; supplier_id: number | null; purchase_id: number | null; on: string | null; actor: string | null };
+  origin?: { type: "manual" | "invoice" | "excel" | "legacy_import"; invoice_number: string | null; supplier_id: number | null; purchase_id: number | null; on: string | null; actor: string | null };
 }
 
 export interface ProductEan {
@@ -46,6 +49,8 @@ export interface NewProductFromInvoice {
   category: Product["category"];
   subcategory?: string;
   saleUnit?: string;
+  brand?: string;
+  purchaseUnit?: string;
   packageType?: string;
   unitsPerPackage?: number;
   fractionable?: boolean;
@@ -125,6 +130,41 @@ export interface MarginInterval {
   cost_invoice_number: string | null;
   cost_supplier_id: number | null;
   price_reason: string | null;
+}
+
+/** Uma linha da planilha já mapeada pelo operador. Célula vazia = não informado. */
+export interface ImportRow {
+  row: number;
+  sku?: string | null;
+  name?: string | null;
+  category?: string | null;
+  subcategory?: string | null;
+  brand?: string | null;
+  ean?: string | null;
+  saleUnit?: string | null;
+  purchaseUnit?: string | null;
+  packageType?: string | null;
+  unitsPerPackage?: string | number | null;
+}
+
+export interface ImportRowResult {
+  row: number;
+  sku: string | null;
+  action: "create" | "update" | "unchanged" | "conflict";
+  changes: { field: string; from: string | number | null; to: string | number | null }[];
+  /** Campos que o produto existente perderia porque a célula está vazia e a limpeza foi pedida. */
+  clears: string[];
+  addEan: string | null;
+  problems: string[];
+}
+
+export interface ImportPreview {
+  summary: { create: number; update: number; unchanged: number; conflict: number };
+  rows: ImportRowResult[];
+}
+
+export interface ImportApplied extends ImportPreview {
+  results: { row: number; sku: string | null; action: string; ok: boolean; error?: string }[];
 }
 
 export interface NextSku {
@@ -259,7 +299,10 @@ export const productsApi = createApi({
       query: ({ sku, ...body }) => ({ url: `/products/${encodeURIComponent(sku)}/prices`, method: "POST", body }),
       invalidatesTags: ["Product", "ProductHistory"],
     }),
-    createProduct: builder.mutation<Product, { sku: string; name: string; category: Product["category"]; ean?: string; supplierId?: number }>({
+    createProduct: builder.mutation<
+      Product,
+      { sku: string; name: string; category: Product["category"]; ean?: string; supplierId?: number; subcategory?: string; brand?: string; saleUnit?: string; purchaseUnit?: string; packageType?: string; unitsPerPackage?: number; fractionable?: boolean }
+    >({
       query: (body) => ({ url: "/products", method: "POST", body }),
       invalidatesTags: ["Product"],
     }),
@@ -289,6 +332,17 @@ export const productsApi = createApi({
       query: ({ productId, eanId, ...body }) => ({ url: `/products/${productId}/eans/${eanId}`, method: "PATCH", body }),
       invalidatesTags: ["Product"],
     }),
+    previewCatalogueImport: builder.mutation<ImportPreview, { rows: ImportRow[]; clearEmpty: boolean }>({
+      query: (body) => ({ url: "/catalogue-import/preview", method: "POST", body }),
+    }),
+    applyCatalogueImport: builder.mutation<ImportApplied, { rows: ImportRow[]; clearEmpty: boolean }>({
+      query: (body) => ({ url: "/catalogue-import/apply", method: "POST", body }),
+      invalidatesTags: ["Product", "ProductHistory"],
+    }),
+    getCatalogueLastChange: builder.query<{ product_changed_at: string | null; cost_changed_at: string | null; price_changed_at: string | null; latest: string | null }, void>({
+      query: () => "/catalogue/last-change",
+      providesTags: ["Product", "ProductHistory"],
+    }),
     getNextSku: builder.query<NextSku, void>({
       query: () => "/products/next-sku",
       // Cada abertura do formulário pergunta de novo: outro cadastro pode ter usado o número.
@@ -305,7 +359,7 @@ export const productsApi = createApi({
     }),
     updateProduct: builder.mutation<
       Product,
-      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number; packageType?: string; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: "active" | "discontinued"; saleUnit?: string } }
+      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number | null; packageType?: string | null; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: "active" | "discontinued"; saleUnit?: string; brand?: string | null; purchaseUnit?: string | null } }
     >({
       query: ({ id, changes }) => ({ url: `/products/${id}`, method: "PATCH", body: changes }),
       invalidatesTags: ["Product"],
@@ -326,6 +380,9 @@ export const {
   useUpdateProductMutation,
   useCreateProductMutation,
   useGetNextSkuQuery,
+  usePreviewCatalogueImportMutation,
+  useApplyCatalogueImportMutation,
+  useGetCatalogueLastChangeQuery,
   useCreateProductFromInvoiceMutation,
   useAddProductEanMutation,
   useRecordCostMutation,

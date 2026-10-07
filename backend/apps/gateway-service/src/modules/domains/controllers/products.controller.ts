@@ -6,7 +6,7 @@ import { Caller } from '../../auth/guards/caller.decorator'
 import { RequiresPermission } from '../../auth/guards/session.constants'
 import type { AuthenticatedCaller } from '../../auth/services/session.service'
 import { DomainClient } from '../../upstream/domain.client'
-import { eanChange, importBody, invoiceProduct, manualCost, manualEan, manualPrice } from './manual-version'
+import { eanChange, importBody, invoiceProduct, manualProduct, manualCost, manualEan, manualPrice } from './manual-version'
 import { correlationOf } from './stores.controller'
 
 @ApiTags('products')
@@ -58,12 +58,12 @@ export class ProductsController {
 
   @Post()
   @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
-  @ApiOperation({ summary: 'Create a product' })
-  async create(@Body() body: unknown, @Req() request: FastifyRequest) {
+  @ApiOperation({ summary: 'Create a product by hand (origin manual, user = the session user)' })
+  async create(@Body() body: Record<string, unknown>, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
     const result = await this.domains.products({
       method: 'post',
       path: '/products',
-      payload: body,
+      payload: manualProduct(body, caller.email),
       correlationId: correlationOf(request),
     })
 

@@ -19,6 +19,7 @@ const dayText = (day: string | null) => (day ? `${day.slice(8, 10)}/${day.slice(
 export function originText(origin: Product["origin"]): string {
   if (!origin) return "Origem não informada";
   if (origin.type === "invoice") return `Cadastro originado de NF-e ${origin.invoice_number ?? ""} em ${dayText(origin.on)}${origin.actor ? ` por ${origin.actor}` : ""}`.replace("  ", " ");
+  if (origin.type === "excel") return origin.actor ? `Importado de planilha por ${origin.actor}` : "Importado de planilha";
   if (origin.type === "legacy_import") return "Carga inicial — origem não registrada";
 
   return origin.actor ? `Cadastro manual por ${origin.actor}` : "Cadastro manual";

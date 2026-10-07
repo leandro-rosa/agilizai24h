@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
-import { eanChange, importBody, invoiceProduct, manualCost, manualEan, manualPrice } from './manual-version'
+import { eanChange, importBody, invoiceProduct, manualProduct, manualCost, manualEan, manualPrice } from './manual-version'
 
 describe('manual versions from the browser', () => {
   it('forces the source to manual and the actor to the session user, whatever the client sent', () => {
@@ -53,5 +53,12 @@ describe('manual versions from the browser', () => {
 
   it('the brand and the purchase unit pass from the invoice registration form', () => {
     expect(invoiceProduct({ sku: '1', brand: 'Monster', purchaseUnit: 'FD' }, 'ana@agiliz.ai')).toMatchObject({ brand: 'Monster', purchaseUnit: 'FD' })
+  })
+
+  it('a product created by hand is always manual with the session user; it cannot claim an invoice or an import origin', () => {
+    const result = manualProduct({ sku: '1', name: 'X', category: 'snack', origin: 'invoice', invoiceNumber: '9', actor: 'forjado@x', brand: 'Marca' }, 'ana@agiliz.ai')
+
+    expect(result).toMatchObject({ sku: '1', origin: 'manual', actor: 'ana@agiliz.ai', brand: 'Marca' })
+    expect(result).not.toHaveProperty('invoiceNumber')
   })
 })

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCreateProductFromInvoiceMutation, useGetNextSkuQuery, type Product } from "@/lib/api/products";
+import { useCreateProductFromInvoiceMutation, useCreateProductMutation, useGetNextSkuQuery, type Product } from "@/lib/api/products";
 import { formatCents, formatDate } from "@/lib/purchases/money";
 import { NewProductPriceStep } from "./new-product-price-step";
 
@@ -24,6 +24,8 @@ export interface InvoiceLineForRegistration {
   /** Custo de UMA unidade, já convertido da embalagem. */
   unitCostCents: number;
   unitsPerPack: number;
+  /** A unidade que a nota usa ("CX", "FD", "UN"). */
+  purchaseUnit?: string | null;
 }
 
 export interface InvoiceForRegistration {
@@ -51,21 +53,26 @@ export function RegisterFromInvoiceDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  line: InvoiceLineForRegistration;
-  invoice: InvoiceForRegistration;
+  /** Sem `line` e `invoice` é o cadastro manual: o MESMO formulário e o mesmo serviço, só sem a evidência da nota. */
+  line?: InvoiceLineForRegistration;
+  invoice?: InvoiceForRegistration;
   onCreated: (product: Product) => void;
 }) {
   const next = useGetNextSkuQuery();
-  const [create, { isLoading }] = useCreateProductFromInvoiceMutation();
+  const [createFromInvoice, { isLoading: savingInvoice }] = useCreateProductFromInvoiceMutation();
+  const [createManual, { isLoading: savingManual }] = useCreateProductMutation();
+  const isLoading = savingInvoice || savingManual;
   const [sku, setSku] = useState<string | null>(null);
-  const [name, setName] = useState(line.description);
+  const [name, setName] = useState(line?.description ?? "");
+  const [brand, setBrand] = useState("");
+  const [purchaseUnit, setPurchaseUnit] = useState(line?.purchaseUnit ?? "");
   const [category, setCategory] = useState<Product["category"] | "">("");
   const [subcategory, setSubcategory] = useState("");
   const [saleUnit, setSaleUnit] = useState("un");
   const [packageType, setPackageType] = useState("");
-  const [unitsPerPackage, setUnitsPerPackage] = useState(line.unitsPerPack >= 2 ? String(line.unitsPerPack) : "");
+  const [unitsPerPackage, setUnitsPerPackage] = useState(line && line.unitsPerPack >= 2 ? String(line.unitsPerPack) : "");
   const [fractionable, setFractionable] = useState(false);
-  const [ean, setEan] = useState(line.ean ?? "");
+  const [ean, setEan] = useState(line?.ean ?? "");
   const [problem, setProblem] = useState<{ message: string; code?: string; sku?: string } | null>(null);
   const [created, setCreated] = useState<Product | null>(null);
 
@@ -80,23 +87,25 @@ export function RegisterFromInvoiceDialog({
     if (perPackage !== undefined && (!Number.isInteger(perPackage) || perPackage < 1)) return setProblem({ message: "Unidades por embalagem: use um número inteiro." });
 
     try {
-      const product = await create({
+      const common = {
         sku: skuValue.trim(),
         name: name.trim(),
         category,
         subcategory: subcategory.trim() || undefined,
+        brand: brand.trim() || undefined,
         saleUnit: saleUnit.trim() || undefined,
+        purchaseUnit: purchaseUnit.trim() || undefined,
         packageType: packageType.trim() || undefined,
         unitsPerPackage: perPackage,
         fractionable: perPackage ? fractionable : undefined,
         ean: ean.trim() || undefined,
-        supplierId: invoice.supplierId,
-        invoiceNumber: invoice.number,
-        originOn: invoice.issuedOn,
-      }).unwrap();
-      setCreated(product);
+      };
+      const product = invoice ? await createFromInvoice({ ...common, supplierId: invoice.supplierId, invoiceNumber: invoice.number, originOn: invoice.issuedOn }).unwrap() : await createManual(common).unwrap();
       onCreated(product);
       toast.success(`Produto ${product.name} cadastrado.`);
+      // Pela nota há custo e o preço sugerido vem em seguida; à mão ainda não há custo (ele nasce da primeira compra), então não há o que sugerir.
+      if (invoice) setCreated(product);
+      else onOpenChange(false);
     } catch (failure) {
       const data = (failure as ApiError)?.data;
       setProblem({ message: data?.message ?? "Não foi possível cadastrar o produto.", code: data?.code, sku: data?.sku });
@@ -107,15 +116,17 @@ export function RegisterFromInvoiceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{created ? "Preço do produto novo" : "Cadastrar produto a partir da nota"}</DialogTitle>
+          <DialogTitle>{created ? "Preço do produto novo" : invoice ? "Cadastrar produto a partir da nota" : "Novo produto"}</DialogTitle>
           <DialogDescription>
             {created
               ? `${created.name} (SKU ${created.sku}) já está no cadastro. Escolha o preço.`
-              : "O produto passa a existir no cadastro, com o código de barras da nota. Só falta o que a nota não traz."}
+              : invoice
+                ? "O produto passa a existir no cadastro, com o código de barras da nota. Só falta o que a nota não traz."
+                : "O produto entra no cadastro único, usado por Compras, Estoque, Vendas, Abastecimento e Precificação. O custo vem da primeira compra recebida."}
           </DialogDescription>
         </DialogHeader>
 
-        {created ? (
+        {created && invoice && line ? (
           <NewProductPriceStep
             sku={created.sku}
             name={created.name}
@@ -126,15 +137,17 @@ export function RegisterFromInvoiceDialog({
           />
         ) : (
           <>
-            <div className="rounded-md border p-3 text-xs text-muted-foreground">
-              <p>
-                Cadastro originado de NF-e <strong>{invoice.number}</strong> · {formatDate(invoice.issuedOn)} · fornecedor {invoice.supplierName}
-              </p>
-              <p>
-                Custo da nota: <strong>{formatCents(line.unitCostCents)}</strong> por unidade
-                {invoice.received ? " — vale como custo do produto a partir do recebimento." : " — vale como custo do produto quando a compra for recebida."}
-              </p>
-            </div>
+            {invoice && line && (
+              <div className="rounded-md border p-3 text-xs text-muted-foreground">
+                <p>
+                  Cadastro originado de NF-e <strong>{invoice.number}</strong> · {formatDate(invoice.issuedOn)} · fornecedor {invoice.supplierName}
+                </p>
+                <p>
+                  Custo da nota: <strong>{formatCents(line.unitCostCents)}</strong> por unidade
+                  {invoice.received ? " — vale como custo do produto a partir do recebimento." : " — vale como custo do produto quando a compra for recebida."}
+                </p>
+              </div>
+            )}
 
             <div className="grid gap-3">
               <label className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -168,6 +181,14 @@ export function RegisterFromInvoiceDialog({
                   <Input value={subcategory} onChange={(e) => setSubcategory(e.target.value)} aria-label="Subcategoria do produto novo" />
                 </label>
                 <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                  Marca (opcional)
+                  <Input value={brand} onChange={(e) => setBrand(e.target.value)} aria-label="Marca do produto novo" />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                  Unidade de compra (como o fornecedor vende)
+                  <Input value={purchaseUnit} onChange={(e) => setPurchaseUnit(e.target.value)} aria-label="Unidade de compra do produto novo" placeholder="CX, FD, UN…" />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-muted-foreground">
                   Unidade de venda
                   <Input value={saleUnit} onChange={(e) => setSaleUnit(e.target.value)} aria-label="Unidade de venda do produto novo" />
                 </label>
@@ -180,7 +201,7 @@ export function RegisterFromInvoiceDialog({
                   <Input value={packageType} onChange={(e) => setPackageType(e.target.value)} aria-label="Tipo de embalagem do produto novo" placeholder="caixa, fardo…" />
                 </label>
                 <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                  Unidades por embalagem
+                  Fator: unidades por caixa/fardo
                   <Input value={unitsPerPackage} onChange={(e) => setUnitsPerPackage(e.target.value)} aria-label="Unidades por embalagem do produto novo" inputMode="numeric" />
                 </label>
               </div>

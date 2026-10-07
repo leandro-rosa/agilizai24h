@@ -106,11 +106,16 @@ function OverviewTab({ product, supplierName, canWrite, onEdit }: { product: Pro
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">Identificação</h3>
-          {canWrite && (
-            <Button size="sm" variant="outline" onClick={onEdit}>
-              Editar
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" asChild>
+              <Link href={`/purchases/pricing?sku=${encodeURIComponent(product.sku)}`}>Abrir na Precificação</Link>
             </Button>
-          )}
+            {canWrite && (
+              <Button size="sm" variant="outline" onClick={onEdit}>
+                Editar
+              </Button>
+            )}
+          </div>
         </div>
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Field label="Código interno (SKU)">
@@ -118,12 +123,12 @@ function OverviewTab({ product, supplierName, canWrite, onEdit }: { product: Pro
           </Field>
           <Field label="Categoria">{CATEGORY_LABEL[product.category]}</Field>
           <Field label="Subcategoria">{product.subcategory ?? "—"}</Field>
+          <Field label="Marca">{product.brand ?? "—"}</Field>
           <Field label="Unidade de venda">{product.sale_unit ?? "un"}</Field>
+          <Field label="Unidade de compra">{product.purchase_unit ?? "—"}</Field>
+          <Field label="Fator caixa/fardo → unidade">{product.units_per_package ? `${product.units_per_package} un. por ${product.package_type ?? "embalagem"}${product.fractionable ? " (fracionável)" : ""}` : "—"}</Field>
           <Field label="Situação">{STATUS_LABEL[product.status ?? "active"] ?? product.status}</Field>
           <Field label="Fornecedor">{supplierName(product.supplier_id) ?? "Sem fornecedor vinculado"}</Field>
-          <Field label="Embalagem de compra">
-            {product.units_per_package ? `${product.package_type ?? "embalagem"} com ${product.units_per_package} un.${product.fractionable ? " (fracionável)" : ""}` : "—"}
-          </Field>
         </dl>
         <p className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground" data-testid="origin">
           {originText(product.origin)}

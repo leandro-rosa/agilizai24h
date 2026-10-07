@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentType } from "react";
 
 const createFromInvoice = jest.fn((_arg: unknown) => ({ unwrap: async () => ({ id: 77, sku: "110024", name: "Novo sabor de marmita", category: "meal" }) }));
+const createManual = jest.fn((_arg: unknown) => ({ unwrap: async () => ({ id: 78, sku: "110025", name: "Produto à mão", category: "snack" }) }));
 const choose = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
 let nextSku: { suggested: string | null } = { suggested: "110024" };
 let suggestion: Record<string, unknown> = {
@@ -15,6 +16,7 @@ let suggestion: Record<string, unknown> = {
 jest.doMock("../../lib/api/products", () => ({
   useGetNextSkuQuery: () => ({ data: nextSku, isSuccess: true }),
   useCreateProductFromInvoiceMutation: () => [createFromInvoice, { isLoading: false }],
+  useCreateProductMutation: () => [createManual, { isLoading: false }],
 }));
 jest.doMock("../../lib/api/pricing", () => ({
   useGetNewProductSuggestionQuery: () => ({ data: { meta: { parameterVersion: 3, asOf: "2026-09-30" }, suggestion }, isLoading: false, isError: false }),
@@ -178,5 +180,56 @@ describe("RegisterFromInvoiceDialog — sem dados para sugerir", () => {
     expect(screen.getByText(/Sem vendas na rede para calcular o custo de pagamento/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Usar preço sugerido" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Salvar sem preço" })).toBeInTheDocument();
+  });
+});
+
+describe("RegisterFromInvoiceDialog — cadastro à mão (o mesmo formulário, sem a nota)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    polyfillRadix();
+    nextSku = { suggested: "110024" };
+  });
+
+  const openManual = () => render(<RegisterFromInvoiceDialog open onOpenChange={onOpenChange} onCreated={onCreated} />);
+
+  it("não mostra a evidência da nota nem pergunta custo; o título é Novo produto e traz marca, unidade de compra e o fator", () => {
+    openManual();
+
+    expect(screen.getByText("Novo produto")).toBeInTheDocument();
+    expect(screen.queryByText(/Cadastro originado de NF-e/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Marca do produto novo")).toBeInTheDocument();
+    expect(screen.getByLabelText("Unidade de compra do produto novo")).toBeInTheDocument();
+    expect(screen.getByText("Fator: unidades por caixa/fardo")).toBeInTheDocument();
+    expect(screen.getByLabelText("SKU do produto novo")).toHaveValue("110024");
+  });
+
+  it("cria pelo mesmo serviço de cadastro (sem origem nem fornecedor da nota), fecha e não abre o passo de preço", async () => {
+    openManual();
+    fireEvent.change(screen.getByLabelText("Nome do produto novo"), { target: { value: "Produto à mão" } });
+    pickCategory("Lanche");
+    fireEvent.change(screen.getByLabelText("Marca do produto novo"), { target: { value: "Marca" } });
+    fireEvent.change(screen.getByLabelText("Unidade de compra do produto novo"), { target: { value: "CX" } });
+    fireEvent.change(screen.getByLabelText("Unidades por embalagem do produto novo"), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cadastrar produto" }));
+
+    await waitFor(() => expect(createManual).toHaveBeenCalledTimes(1));
+    expect(createManual.mock.calls[0][0]).toMatchObject({ sku: "110024", name: "Produto à mão", category: "snack", brand: "Marca", purchaseUnit: "CX", unitsPerPackage: 12 });
+    expect(createManual.mock.calls[0][0]).not.toHaveProperty("invoiceNumber");
+    expect(createFromInvoice).not.toHaveBeenCalled();
+    expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ sku: "110025" }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.queryByText("Produto novo — sem histórico de vendas")).not.toBeInTheDocument();
+  });
+
+  it("um EAN que é de outro produto é recusado também no cadastro à mão, nomeando o dono", async () => {
+    createManual.mockReturnValueOnce({ unwrap: async () => Promise.reject({ data: { message: "O EAN 789 pertence ao produto 110001", code: "ean_linked", sku: "110001" } }) } as never);
+    openManual();
+    fireEvent.change(screen.getByLabelText("Nome do produto novo"), { target: { value: "X" } });
+    pickCategory("Bebida");
+    fireEvent.change(screen.getByLabelText("Código de barras do produto novo"), { target: { value: "7891000000001" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cadastrar produto" }));
+
+    expect(await screen.findByText("Este EAN já está vinculado ao produto 110001.")).toBeInTheDocument();
+    expect(onCreated).not.toHaveBeenCalled();
   });
 });

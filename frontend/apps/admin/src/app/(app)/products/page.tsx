@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, FileSpreadsheet, Pencil } from "lucide-react";
+import { ChevronDown, Eye, FileSpreadsheet, Pencil, Plus, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -8,21 +8,24 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { PageHeader } from "@/components/page-header";
+import { CatalogueImportDialog } from "@/components/products/catalogue-import-dialog";
+import { NewProductDialog } from "@/components/products/new-product-dialog";
 import { DRAWER_TABS, ProductDrawer, type DrawerTab } from "@/components/products/product-drawer";
 import { ResourceFormDialog, type FieldSpec } from "@/components/resource-form-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useGetCostsAsOfQuery, useGetPricesAsOfQuery, useGetProductsQuery, useUpdateProductMutation, type Product } from "@/lib/api/products";
+import { useGetCostsAsOfQuery, useGetProductsQuery, useUpdateProductMutation, type Product } from "@/lib/api/products";
 import { useGetSuppliersQuery } from "@/lib/api/suppliers";
 import { useHasPermission } from "@/lib/auth/use-permission";
-import { money } from "@/lib/format";
 import { CATEGORY_LABEL, STATUS_LABEL } from "@/lib/products/labels";
 
+const dayText = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 function todayIso() {
@@ -37,7 +40,9 @@ const PACKAGE_TYPES = ["caixa", "fardo", "pacote", "unidade"];
 const editSchema = z.object({
   name: z.string().min(1, "Informe o nome"),
   subcategory: z.string().optional(),
+  brand: z.string().optional(),
   saleUnit: z.string().optional(),
+  purchaseUnit: z.string().optional(),
   status: z.string().optional(),
   unitsPerPackage: z.string().optional(),
   packageType: z.string().optional(),
@@ -49,9 +54,11 @@ type EditForm = z.infer<typeof editSchema>;
 const EDIT_FIELDS: FieldSpec<EditForm>[] = [
   { name: "name", label: "Nome", kind: "text" },
   { name: "subcategory", label: "Subcategoria", kind: "text" },
+  { name: "brand", label: "Marca", kind: "text" },
   { name: "saleUnit", label: "Unidade de venda", kind: "text", placeholder: "un" },
+  { name: "purchaseUnit", label: "Unidade de compra (como o fornecedor vende)", kind: "text", placeholder: "CX" },
   { name: "status", label: "Situação", kind: "select", options: Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label })), hint: "Descontinuar não apaga o histórico." },
-  { name: "unitsPerPackage", label: "Unidades por embalagem", kind: "number", placeholder: "24" },
+  { name: "unitsPerPackage", label: "Fator: unidades por caixa/fardo", kind: "number", placeholder: "24", hint: "O custo é sempre guardado por unidade vendida: custo da caixa ÷ este fator." },
   { name: "packageType", label: "Tipo de embalagem", kind: "select", options: PACKAGE_TYPES.map((type) => ({ value: type, label: type })) },
   { name: "fractionable", label: "Fracionável", kind: "checkbox", hint: "Pode ser vendido em unidades soltas, fora da embalagem original." },
 ];
@@ -60,7 +67,9 @@ function toEditForm(product: Product): EditForm {
   return {
     name: product.name,
     subcategory: product.subcategory ?? "",
+    brand: product.brand ?? "",
     saleUnit: product.sale_unit ?? "un",
+    purchaseUnit: product.purchase_unit ?? "",
     status: product.status ?? "active",
     unitsPerPackage: product.units_per_package !== null ? String(product.units_per_package) : "",
     packageType: product.package_type ?? "",
@@ -83,16 +92,12 @@ function matchesSearch(product: Product, term: string): boolean {
 
 export default function ProductsPage() {
   const { data: products, isLoading } = useGetProductsQuery();
-  const suppliers = useGetSuppliersQuery().data;
   const skus = useMemo(() => (products ?? []).map((product) => product.sku), [products]);
   const { data: costs } = useGetCostsAsOfQuery({ skus, asOf: todayIso() }, { skip: skus.length === 0 });
 
-  // Preço na MESMA data do custo. Pedir "preço de hoje" contra "custo do
-  // último abastecimento" produziria uma margem que nunca existiu.
-  const { data: prices } = useGetPricesAsOfQuery({ skus, asOf: todayIso() }, { skip: skus.length === 0 });
-
-  const priceBySku = useMemo(() => new Map((prices?.resolved ?? []).map((entry) => [entry.sku, entry.price_cents])), [prices]);
-  const costBySku = useMemo(() => new Map((costs?.resolved ?? []).map((entry) => [entry.sku, entry.cost_cents])), [costs]);
+  // Último custo unitário e o dia em que passou a valer (o vigente hoje). Preço e margem não estão aqui: a análise é da Precificação.
+  const costBySku = useMemo(() => new Map((costs?.resolved ?? []).map((entry) => [entry.sku, { cents: entry.cost_cents, from: entry.effective_from }])), [costs]);
+  const suppliers = useGetSuppliersQuery().data;
   const supplierById = useMemo(() => new Map((suppliers ?? []).map((supplier) => [supplier.id, supplier.name])), [suppliers]);
   const supplierName = (id: number | null | undefined) => (id ? (supplierById.get(id) ?? `Fornecedor ${id}`) : null);
 
@@ -102,8 +107,9 @@ export default function ProductsPage() {
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
-  const [supplier, setSupplier] = useState("all");
   const [status, setStatus] = useState("all");
+  const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   // O produto aberto vem da URL (`?sku=…&tab=…`): é o link de "Ver produto" das notas e das mensagens de EAN.
   const router = useRouter();
@@ -118,28 +124,21 @@ export default function ProductsPage() {
   }
   const closeProduct = () => router.replace("/products", { scroll: false });
 
-  const supplierOptions = useMemo(() => {
-    const ids = new Set((products ?? []).map((product) => product.supplier_id).filter((id): id is number => typeof id === "number"));
-
-    return [...ids].map((id) => ({ id, name: supplierById.get(id) ?? `Fornecedor ${id}` })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
-  }, [products, supplierById]);
-
   const filtered = useMemo(
     () =>
       (products ?? []).filter((product) => {
         const matchCategory = category === "all" || product.category === category;
-        const matchSupplier = supplier === "all" || (supplier === "none" ? !product.supplier_id : String(product.supplier_id) === supplier);
         const matchStatus = status === "all" || (product.status ?? "active") === status;
 
-        return matchesSearch(product, search) && matchCategory && matchSupplier && matchStatus;
+        return matchesSearch(product, search) && matchCategory && matchStatus;
       }),
-    [products, search, category, supplier, status],
+    [products, search, category, status],
   );
 
   async function exportExcel() {
     try {
       const { downloadProductsWorkbook } = await import("@/lib/products/excel");
-      downloadProductsWorkbook(filtered.map((product) => ({ product, supplierName: supplierName(product.supplier_id), costCents: costBySku.get(product.sku) ?? null, priceCents: priceBySku.get(product.sku) ?? null })));
+      downloadProductsWorkbook(filtered.map((product) => ({ product, costCents: costBySku.get(product.sku)?.cents ?? null, costDate: costBySku.get(product.sku)?.from ?? null })));
     } catch (error) {
       console.error("Exportar produtos falhou", error);
       toast.error("Não foi possível gerar a planilha.");
@@ -150,17 +149,32 @@ export default function ProductsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Produtos"
-        description="Cadastro de produtos: identificação, códigos de barras, custos, preços e o histórico de cada um."
+        description="Cadastro único de produtos: identificação, códigos de barras, unidades e custos. Compras, Estoque, Vendas, Abastecimento e Precificação usam este mesmo cadastro."
         actions={
-          <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" onClick={exportExcel} disabled={isLoading || filtered.length === 0} title="Baixa os produtos que estão na lista, com os filtros aplicados">
-              <FileSpreadsheet /> Baixar planilha
-            </Button>
+          <div className="flex flex-wrap items-center gap-2">
             {canWrite && (
-              <Link href="/products/sync" className="text-sm font-medium text-primary hover:underline">
-                Sincronizar com a precificação →
-              </Link>
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <Plus /> Novo produto
+              </Button>
             )}
+            {canWrite && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Upload /> Importar Excel <ChevronDown />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => setImporting(true)}>Catálogo de produtos (com modelo e mapeamento)</DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/products/sync">Planilha de precificação (custos e preços)</Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <Button variant="outline" size="sm" onClick={exportExcel} disabled={isLoading || filtered.length === 0} title="Baixa os produtos que estão na lista, com os filtros aplicados">
+              <FileSpreadsheet /> Exportar catálogo
+            </Button>
           </div>
         }
       />
@@ -176,20 +190,6 @@ export default function ProductsPage() {
             {Object.entries(CATEGORY_LABEL).map(([value, label]) => (
               <SelectItem key={value} value={value}>
                 {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={supplier} onValueChange={setSupplier}>
-          <SelectTrigger className="lg:w-52" aria-label="Fornecedor">
-            <SelectValue placeholder="Fornecedor" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos os fornecedores</SelectItem>
-            <SelectItem value="none">Sem fornecedor</SelectItem>
-            {supplierOptions.map((option) => (
-              <SelectItem key={option.id} value={String(option.id)}>
-                {option.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -215,12 +215,10 @@ export default function ProductsPage() {
             <TableRow>
               <TableHead>SKU</TableHead>
               <TableHead>Nome</TableHead>
-              <TableHead>EAN</TableHead>
               <TableHead>Categoria</TableHead>
-              <TableHead>Fornecedor</TableHead>
-              <TableHead className="tabular text-right">Custo (hoje)</TableHead>
-              <TableHead className="tabular text-right">Preço (hoje)</TableHead>
-              <TableHead className="tabular text-right">Margem</TableHead>
+              <TableHead>EAN</TableHead>
+              <TableHead>Unidade de venda</TableHead>
+              <TableHead className="tabular text-right">Último custo unitário</TableHead>
               <TableHead>Situação</TableHead>
               <TableHead className="w-24" />
             </TableRow>
@@ -229,7 +227,7 @@ export default function ProductsPage() {
             {isLoading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 10 }).map((__, j) => (
+                  {Array.from({ length: 8 }).map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
@@ -238,17 +236,13 @@ export default function ProductsPage() {
               ))
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-muted-foreground">
                   Nenhum produto encontrado.
                 </TableCell>
               </TableRow>
             ) : (
               filtered.map((product) => {
                 const cost = costBySku.get(product.sku);
-                const price = priceBySku.get(product.sku);
-                // Margem só existe com os DOIS lados na mesma data. Faltando
-                // um, é "—" e nunca 0% — que se leria como margem nula real.
-                const margin = cost !== undefined && price !== undefined && price > 0 ? (price - cost) / price : null;
                 const extraEans = Math.max(0, (product.eans ?? []).filter((ean) => ean.status === "active").length - 1);
 
                 return (
@@ -256,28 +250,35 @@ export default function ProductsPage() {
                     <TableCell className="font-mono text-xs text-muted-foreground">{product.sku}</TableCell>
                     <TableCell className="font-medium">
                       {product.name}
-                      {product.subcategory && <span className="block text-xs text-muted-foreground">{product.subcategory}</span>}
+                      {product.brand && <span className="block text-xs text-muted-foreground">{product.brand}</span>}
                       {product.origin?.type === "invoice" && <StatusBadge tone="attention">Cadastrado por NF-e</StatusBadge>}
-                    </TableCell>
-                    <TableCell className="tabular text-xs text-muted-foreground">
-                      {product.ean ?? "—"}
-                      {extraEans > 0 && <span className="ml-1 text-foreground">+{extraEans}</span>}
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">{CATEGORY_LABEL[product.category]}</Badge>
+                      {product.subcategory && <span className="block text-xs text-muted-foreground">{product.subcategory}</span>}
                     </TableCell>
-                    <TableCell className="text-xs">{supplierName(product.supplier_id) ?? <span className="text-muted-foreground">—</span>}</TableCell>
+                    <TableCell className="tabular text-xs text-muted-foreground">
+                      {product.ean ?? "—"}
+                      {extraEans > 0 && <span className="ml-1 text-foreground" title="Códigos de barras adicionais ativos">+{extraEans}</span>}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {product.sale_unit ?? "un"}
+                      {product.units_per_package ? <span className="block text-muted-foreground">{product.units_per_package} un. por {product.package_type ?? "embalagem"}</span> : null}
+                    </TableCell>
                     <TableCell className="tabular text-right">
                       {/* Never shown as R$ 0,00: a SKU with no cost recorded is not the same as a SKU that costs nothing. */}
-                      {cost === undefined ? <span className="text-muted-foreground">Sem custo</span> : currency.format(cost / 100)}
-                    </TableCell>
-                    <TableCell className="tabular text-right">{price === undefined ? <span className="text-muted-foreground">Sem preço</span> : money(price)}</TableCell>
-                    <TableCell className="tabular text-right">
-                      {margin === null ? <span className="text-muted-foreground">—</span> : <span className={margin < 0 ? "text-destructive" : ""}>{(margin * 100).toFixed(1)}%</span>}
+                      {cost === undefined ? (
+                        <span className="text-muted-foreground">Sem custo</span>
+                      ) : (
+                        <>
+                          {currency.format(cost.cents / 100)}
+                          <span className="block text-xs text-muted-foreground">desde {dayText(cost.from)}</span>
+                        </>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs">{STATUS_LABEL[product.status ?? "active"] ?? product.status}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" title="Ver produto" aria-label={`Ver ${product.name}`} onClick={() => openProduct(product)}>
+                      <Button variant="ghost" size="icon" title="Abrir cadastro" aria-label={`Abrir ${product.name}`} onClick={() => openProduct(product)}>
                         <Eye />
                       </Button>
                       {canWrite && (
@@ -293,6 +294,9 @@ export default function ProductsPage() {
           </TableBody>
         </Table>
       </div>
+
+      {creating && <NewProductDialog open onOpenChange={setCreating} onCreated={(product) => openProduct(product)} />}
+      {importing && <CatalogueImportDialog open onOpenChange={setImporting} />}
 
       {open && <ProductDrawer product={open} supplierName={supplierName} tab={tab} onTabChange={(next) => openProduct(open, next)} onClose={closeProduct} canWrite={canWrite} onEdit={() => setEditing(open)} />}
 
@@ -311,10 +315,12 @@ export default function ProductsPage() {
               changes: {
                 name: values.name.trim(),
                 subcategory: values.subcategory?.trim() ? values.subcategory.trim() : null,
+                brand: values.brand?.trim() ? values.brand.trim() : null,
                 saleUnit: values.saleUnit?.trim() || undefined,
+                purchaseUnit: values.purchaseUnit?.trim() ? values.purchaseUnit.trim() : null,
                 status: values.status === "discontinued" ? "discontinued" : "active",
-                unitsPerPackage: values.unitsPerPackage ? Number(values.unitsPerPackage) : undefined,
-                packageType: values.packageType || undefined,
+                unitsPerPackage: values.unitsPerPackage ? Number(values.unitsPerPackage) : null,
+                packageType: values.packageType || null,
                 fractionable: values.fractionable,
               },
             }).unwrap()

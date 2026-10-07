@@ -92,7 +92,7 @@ export function PendingLinesDialog({ purchase, open, onOpenChange }: { purchase:
         <RegisterFromInvoiceDialog
           open
           onOpenChange={(next) => !next && setRegistering(null)}
-          line={{ description: registering.description, ean: registering.ean, unitCostCents: registering.unit_cost_cents, unitsPerPack: registering.units_per_pack ?? 1 }}
+          line={{ description: registering.description, ean: registering.ean, unitCostCents: registering.unit_cost_cents, unitsPerPack: registering.units_per_pack ?? 1, purchaseUnit: registering.purchase_unit }}
           invoice={{ number: purchase.invoice_number, issuedOn: purchase.invoice_issued_on ?? purchase.ordered_on, supplierId: purchase.supplier_id, supplierName: purchase.supplier_name ?? `Fornecedor ${purchase.supplier_id}`, received: purchase.status === "received" }}
           onCreated={(product) => void attachProduct(registering, product.sku, false)}
         />

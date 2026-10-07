@@ -12,10 +12,10 @@
 
 ## 3. Products screen
 
-- [ ] 3.1 Slim table, actions, filters; price and margin out of the table
-- [ ] 3.2 New product (the same registration form), edit with brand and units, link to pricing
-- [ ] 3.3 Import Excel wizard (template, mapping, preview, apply) and the pricing-spreadsheet import under it; remove the sync button
-- [ ] 3.4 Export catalogue (cost with date, no price or margin)
+- [x] 3.1 Slim table, actions, filters; price and margin out of the table
+- [x] 3.2 New product (the same registration form), edit with brand and units, link to pricing
+- [x] 3.3 Import Excel wizard (template, mapping, preview, apply) and the pricing-spreadsheet import under it; remove the sync button
+- [x] 3.4 Export catalogue (cost with date, no price or margin)
 
 ## 4. Pricing screen
 

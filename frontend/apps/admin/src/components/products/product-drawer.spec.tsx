@@ -37,7 +37,7 @@ jest.doMock("../../lib/api/products", () => ({
 const { ProductDrawer }: { ProductDrawer: ComponentType<Record<string, unknown>> } = require("./product-drawer");
 
 const product = {
-  id: 2, sku: "110024", name: "Novo sabor de marmita", category: "meal", subcategory: "Marmitas", supplier_id: 5, status: "active", sale_unit: "un", units_per_package: 12, package_type: "caixa", fractionable: false,
+  id: 2, sku: "110024", name: "Novo sabor de marmita", category: "meal", subcategory: "Marmitas", supplier_id: 5, status: "active", sale_unit: "un", brand: "Crystal", purchase_unit: "CX", units_per_package: 12, package_type: "caixa", fractionable: false,
   ean: "7891000100103",
   eans: [
     { id: 1, ean: "7891000100103", status: "active", is_primary: true, valid_from: "2026-10-10", valid_to: null, source: "invoice_import", actor: "ana@agiliz.ai", note: null },
@@ -65,7 +65,9 @@ describe("ProductDrawer — visão geral", () => {
 
     expect(screen.getByText("Juntos+")).toBeInTheDocument();
     expect(screen.getByText("Marmitas")).toBeInTheDocument();
-    expect(screen.getByText("caixa com 12 un.")).toBeInTheDocument();
+    expect(screen.getByText("12 un. por caixa")).toBeInTheDocument();
+    expect(screen.getByText("Crystal")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Abrir na Precificação" })).toHaveAttribute("href", "/purchases/pricing?sku=110024");
     expect(screen.getByTestId("origin")).toHaveTextContent("Cadastro originado de NF-e 13021 em 10/10/2026 por ana@agiliz.ai");
   });
 

@@ -415,7 +415,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
           <RegisterFromInvoiceDialog
             open
             onOpenChange={(next) => !next && setNewProductLine(null)}
-            line={{ description: line.description, ean: line.ean, unitCostCents: conversionOf(line)?.unitCostCents ?? line.unit_cost_cents, unitsPerPack: packOf(line) }}
+            line={{ description: line.description, ean: line.ean, unitCostCents: conversionOf(line)?.unitCostCents ?? line.unit_cost_cents, unitsPerPack: packOf(line), purchaseUnit: line.unit }}
             invoice={{ number: preview.number, issuedOn: preview.issued_on, supplierId: preview.supplier.id, supplierName: preview.supplier.name, received: alreadyReceived }}
             onCreated={(product) => {
               setCreated((current) => [...current, product]);
