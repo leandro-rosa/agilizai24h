@@ -60,7 +60,7 @@ export function ProductsTable({
               <TableHead className="text-right">Custo utilizado</TableHead>
               <TableHead className="text-right">Preço vigente</TableHead>
               <TableHead className="text-right" title={MARGIN_DEFINITION}>
-                Margem atual
+                Margem de contribuição
               </TableHead>
               {showTarget && <TableHead className="text-right">Meta</TableHead>}
               <TableHead className="text-right">Preço sugerido</TableHead>

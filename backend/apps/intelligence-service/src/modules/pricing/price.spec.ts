@@ -1,4 +1,5 @@
-import { computePrice, shapePrice, type PriceInput } from './price'
+import { computePrice, shapePrice, solveStructure, type OperatingContext, type PriceInput } from './price'
+import { marginsFor } from './pricing.parameters'
 import { DEFAULT_PRICING_PARAMETERS, mergePricingParameters } from './pricing.parameters'
 import { ANALYSIS_ONLY_STATEMENT, type PaymentCost } from './pricing.types'
 
@@ -261,3 +262,196 @@ describe('computePrice — the real origin of the cost', () => {
 
 const rank = (confidence: string) => ['insufficient_data', 'low', 'medium', 'high'].indexOf(confidence)
 
+
+describe('solveStructure — percentages in the denominator, money in the numerator', () => {
+  const margins = { target: 0.35, minimum: 0.3, fromCategory: false }
+  const solve = (extra: Partial<{ operatingShare: number; perTransactionPerUnitCents: number; taxRateBps: number; payment: PaymentCost }> = {}) =>
+    solveStructure({ costCents: 309, taxRateBps: 707, payment: payment(), loss: { rate: 0.02, level: 'product' }, operatingShare: 0.04, ...extra }, margins)
+
+  it('adds the per-transaction cost to the numerator without the loss: price = (cost/(1-loss) + per-transaction) / (1 - % - margin)', () => {
+    const without = solve()
+    const withTransaction = solve({ perTransactionPerUnitCents: 20 })
+
+    // Hand-computed: numerator 309/0.98 + 20 = 335.3061; denominator 1 - 0.0707 - 0.02 - 0.04 - 0.35 = 0.5193.
+    expect(without.rawTarget).toBeCloseTo(315.3061 / 0.5193, 3)
+    expect(withTransaction.rawTarget).toBeCloseTo(335.3061 / 0.5193, 3)
+    // The 20 cents are NOT multiplied by 1/(1-loss) (a lost unit is never sold, so it never pays a transaction cost).
+    expect(withTransaction.unitCost - without.unitCost).toBeCloseTo(20, 10)
+    expect(withTransaction.structure.perTransactionCents).toBe(20)
+    // …and they are money, not a share of the price: the percentages did not move.
+    expect(withTransaction.variableShare).toBeCloseTo(without.variableShare, 12)
+  })
+
+  it('moves the contribution margin: a per-transaction cost lowers it by cost/price in points', () => {
+    const withTransaction = solve({ perTransactionPerUnitCents: 20 })
+    const without = solve()
+
+    expect(without.marginAt(600) - withTransaction.marginAt(600)).toBeCloseTo(20 / 600, 10)
+  })
+
+  it('the percentage-of-sales share comes off the price, so it changes the denominator, not the numerator', () => {
+    const low = solve({ operatingShare: 0.02 })
+    const high = solve({ operatingShare: 0.1 })
+
+    expect(low.unitCost).toBeCloseTo(high.unitCost, 12)
+    expect(high.rawTarget as number).toBeGreaterThan(low.rawTarget as number)
+  })
+
+  it('says the target is not reachable when the percentages and the margin reach 100%, zero or beyond', () => {
+    // 7.07% + payment 2% + operating 0.5593 + target 35% = 100% exactly would be a zero denominator; use clear cases on both sides.
+    const zero = solve({ operatingShare: 1 - 0.0707 - 0.02 - 0.35, taxRateBps: 707 })
+    const negative = solve({ operatingShare: 0.6 })
+
+    for (const solved of [zero, negative]) {
+      expect(solved.rawTarget).toBeNull()
+      expect(solved.unreachable).toMatch(/A meta de 35,0% não é alcançável pela fórmula.*somam .* do preço e, com a meta, passam de 100%/)
+    }
+    expect(solve().unreachable).toBeNull()
+  })
+
+  it('never returns a price or a division by zero when the denominator is not positive', () => {
+    const result = computePrice(base({ operatingShare: 0.6 }))
+
+    expect(result.status).toBe('review')
+    expect(result.targetPriceCents).toBeNull()
+    expect(result.recommendedPriceCents).toBeNull()
+    expect(result.minimumPriceCents).toBeNull()
+    expect(result.insufficientReasons.join(' ')).toContain('não é alcançável pela fórmula')
+    // The contribution at the current price is still reported: it is a fact about today's price.
+    expect(result.unitContributionCents).not.toBeNull()
+  })
+})
+
+describe('computePrice — the three numbers and the validation', () => {
+  const context = (over: Partial<OperatingContext> = {}): OperatingContext => ({
+    perVisitShare: 0.01,
+    fixedShare: 0.04,
+    complete: true,
+    unclassifiedCents: 0,
+    unclassifiedShare: 0,
+    unclassified: [],
+    months: ['2026-09'],
+    perTransactionAssumption: null,
+    scope: 'rede',
+    legacyShare: 0.07, // 2% percentage + 1% deslocamento + 4% fixed
+    shifts: [
+      { class: 'per_visit', label: 'Deslocamento por visita saiu do preço (viabilidade da rota ou loja)', share: 0.01 },
+      { class: 'fixed', label: 'Custos fixos saíram do preço (resultado operacional e ponto de equilíbrio)', share: 0.04 },
+    ],
+    perTransactionLegacyShare: 0,
+    ...over,
+  })
+
+  it('reports the contribution margin, the contribution per unit and the result after allocation, which is not the margin the target applies to', () => {
+    const result = computePrice(base({ operating: context() }))
+    const margin = 590 * (1 - 0.0707 - 0.02 - 0.04) - 309 / 0.98
+
+    expect(result.unitContributionCents).toBeCloseTo(margin, 8)
+    expect(result.currentMargin).toBeCloseTo(margin / 590, 8)
+    expect(result.estimatedResultAfterAllocation?.centsPerUnit).toBeCloseTo(margin - 590 * 0.05, 8)
+    expect(result.estimatedResultAfterAllocation?.margin).toBeCloseTo(margin / 590 - 0.05, 8)
+    expect(result.estimatedResultAfterAllocation?.criterion).toContain('não o lucro líquido')
+  })
+
+  it('is validated only with a complete classification', () => {
+    expect(computePrice(base({ operating: context() })).validated).toBe(true)
+    expect(computePrice(base()).validated).toBe(false) // classification unknown
+    const incomplete = computePrice(base({ operating: context({ complete: false, unclassifiedCents: 90_000, unclassifiedShare: 0.03, unclassified: [{ code: '4.2.07', label: 'Marketing', amountCents: 90_000 }] }) }))
+
+    expect(incomplete.validated).toBe(false)
+    expect(incomplete.validationNotes.join(' ')).toContain('Cálculo incompleto: R$ 900,00')
+    expect(incomplete.validationNotes.join(' ')).toContain('4.2.07 Marketing')
+    expect(incomplete.recommendedPriceCents).not.toBeNull()
+  })
+
+  it('a per-transaction cost lowers the contribution and raises the target price', () => {
+    const plain = computePrice(base({ operating: context() }))
+    const withTransaction = computePrice(base({ operating: context(), perTransactionPerUnitCents: 20 }))
+
+    expect((withTransaction.unitContributionCents as number) - (plain.unitContributionCents as number)).toBeCloseTo(-20, 8)
+    expect(withTransaction.targetPriceCents as number).toBeGreaterThan(plain.targetPriceCents as number)
+  })
+})
+
+describe('marginsFor still reads the target as the contribution target', () => {
+  it('keeps 35% and 30% as the references', () => {
+    expect(marginsFor(PARAMS, null)).toEqual({ target: 0.35, minimum: 0.3, fromCategory: false })
+  })
+})
+
+describe('computePrice — reconciliation with the previous model', () => {
+  const ctx = (over: Partial<OperatingContext> = {}): OperatingContext => ({
+    perVisitShare: 0.01, fixedShare: 0.04, complete: true, unclassifiedCents: 0, unclassifiedShare: 0, unclassified: [], months: ['2026-09'], perTransactionAssumption: null, scope: 'rede',
+    legacyShare: 0.07,
+    shifts: [
+      { class: 'per_visit', label: 'Deslocamento por visita saiu do preço (viabilidade da rota ou loja)', share: 0.01 },
+      { class: 'fixed', label: 'Custos fixos saíram do preço (resultado operacional e ponto de equilíbrio)', share: 0.04 },
+    ],
+    perTransactionLegacyShare: 0,
+    ...over,
+  })
+
+  it('the old margin is the old formula (every expense in the share) and each difference is a line that adds up', () => {
+    const result = computePrice(base({ operatingShare: 0.02, operating: ctx() }))
+    const old = (590 * (1 - 0.0707 - 0.02 - 0.07) - 309 / 0.98) / 590
+    const reconciliation = result.reconciliation!
+
+    expect(reconciliation.oldMargin).toBeCloseTo(old, 10)
+    expect(reconciliation.newMargin).toBeCloseTo(result.currentMargin as number, 10)
+    expect(reconciliation.lines.map(line => [line.label.slice(0, 11), line.points])).toEqual([['Deslocament', 0.01], ['Custos fixo', 0.04]])
+    expect(reconciliation.unexplainedPoints).toBeCloseTo(0, 10)
+    expect(reconciliation.newMargin - reconciliation.oldMargin).toBeCloseTo(0.05, 10)
+  })
+
+  it('a per-transaction cost shows as the change of base: share of revenue before, money per unit now', () => {
+    // 1% of revenue was in the old share; now it is 6 cents per unit at a price of 590 (= 1.017%).
+    const result = computePrice(base({ operatingShare: 0.02, perTransactionPerUnitCents: 6, operating: ctx({ legacyShare: 0.08, perTransactionLegacyShare: 0.01 }) }))
+    const reconciliation = result.reconciliation!
+    const change = reconciliation.lines.find(line => line.label.startsWith('Custo por transação'))!
+
+    expect(change.points).toBeCloseTo(0.01 - 6 / 590, 10)
+    expect(reconciliation.unexplainedPoints).toBeCloseTo(0, 10)
+  })
+
+  it('shows what was removed for other activities, double counting and unclassified accounts, and "unexplained" stays zero', () => {
+    const result = computePrice(
+      base({
+        operatingShare: 0.02,
+        operating: ctx({
+          legacyShare: 0.1,
+          shifts: [
+            { class: 'other_revenue_cost', label: 'Despesas de outras atividades (coffee break, frutas) removidas do preço', share: 0.015 },
+            { class: 'already_component', label: 'Dupla contagem corrigida (já é imposto, taxa, perda ou compra)', share: 0.005 },
+            { class: 'unclassified', label: 'Despesas sem classificação ficaram fora do preço (cálculo incompleto)', share: 0.01 },
+            { class: 'fixed', label: 'Custos fixos saíram do preço', share: 0.05 },
+          ],
+        }),
+      }),
+    )
+
+    expect(result.reconciliation?.lines).toHaveLength(4)
+    expect(result.reconciliation?.unexplainedPoints).toBeCloseTo(0.08 - 0.08, 10)
+  })
+
+  it('reproduces the Monster of September by hand: 16,0% before, and the new contribution margin with each reason', () => {
+    // Monster: price 1190, cost 570, loss 4,05%, tax 7,07%, payment 3,07% + 6,8¢ fixed, old share 23,35%.
+    const result = computePrice(
+      base({
+        costCents: 570,
+        currentPriceCents: 1190,
+        loss: { rate: 0.0405, level: 'product' },
+        payment: payment({ rate: 0.0307, fixedPerUnitCents: 6.8 }),
+        operatingShare: 0.0145,
+        operating: ctx({
+          legacyShare: 0.2335,
+          shifts: [{ class: 'fixed', label: 'Custos fixos saíram do preço (resultado operacional e ponto de equilíbrio)', share: 0.219 }],
+        }),
+      }),
+    )
+    const reconciliation = result.reconciliation!
+
+    expect(reconciliation.oldMargin).toBeCloseTo(0.16, 2) // the figure the owner saw
+    expect(reconciliation.newMargin).toBeCloseTo(0.16 + 0.219, 2)
+    expect(reconciliation.unexplainedPoints).toBeCloseTo(0, 10)
+  })
+})

@@ -21,7 +21,9 @@ import {
 } from "@/lib/api/pricing";
 import { useGetFeesInForceQuery } from "@/lib/api/treasury";
 import { date, money } from "@/lib/format";
-import { buildPatch, toForm, type RulesForm } from "@/lib/pricing/rules-form";
+import type { PricingReportMeta } from "@/lib/api/pricing";
+import { classifiableAccounts, incompleteSummary } from "@/lib/pricing/operating";
+import { buildPatch, OPERATING_CLASS_LABEL, SELECTABLE_CLASSES, toForm, type RulesForm } from "@/lib/pricing/rules-form";
 
 const METHOD_LABEL: Record<string, string> = { pix: "PIX", debit: "Débito", credit: "Crédito", voucher: "VR/VA" };
 const CONFIDENCE_OPTIONS = [
@@ -46,6 +48,63 @@ function Field({ id, label, hint, children }: { id: string; label: string; hint?
       {children}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
+  );
+}
+
+const NO_CLASS = "none";
+
+/**
+ * Como cada despesa da DRE se comporta frente ao preço de UM produto. Só as que acompanham a venda (percentual ou por transação) entram no preço;
+ * deslocamento, custos fixos e custos de outras atividades (coffee break, frutas) ficam de fora e vão para a viabilidade da operação. Conta sem classe
+ * fica de fora do preço e o cálculo sai marcado como incompleto — nunca é atribuída em silêncio.
+ */
+function OperatingClasses({ operating, behavior, onChange, readOnly }: { operating: PricingReportMeta["operating"]; behavior: Record<string, string>; onChange: (behavior: Record<string, string>) => void; readOnly: boolean }) {
+  const accounts = classifiableAccounts(operating);
+  const summary = incompleteSummary(operating);
+  if (accounts.length === 0) return null;
+
+  return (
+    <section aria-labelledby="rule-operating" className="flex flex-col gap-2 rounded-lg border p-3">
+      <h3 id="rule-operating" className="text-sm font-semibold">Despesas da DRE e como se comportam</h3>
+      <p className="text-xs text-muted-foreground">
+        Só o que acompanha a venda entra no preço (a margem de contribuição). Deslocamento, custos fixos e custos de outras atividades vão para a viabilidade da operação.
+      </p>
+      {summary && (
+        <p role="alert" className="rounded-md border border-warning/30 bg-warning/12 p-2 text-xs text-warning">
+          {summary}
+        </p>
+      )}
+      <ul className="flex flex-col gap-2">
+        {accounts.map((account) => {
+          const value = behavior[account.code] ?? (account.locked ? "already_component" : "");
+
+          return (
+            <li key={account.code} className="grid grid-cols-[1fr_minmax(0,16rem)] items-center gap-2 text-sm">
+              <span>
+                {account.code} {account.label} <span className="tabular text-xs text-muted-foreground">{money(account.amountCents)}</span>
+              </span>
+              {account.locked ? (
+                <span className="text-xs text-muted-foreground">{OPERATING_CLASS_LABEL.already_component}</span>
+              ) : (
+                <Select value={value === "" ? NO_CLASS : value} onValueChange={(next) => onChange({ ...behavior, [account.code]: next === NO_CLASS ? "" : next })} disabled={readOnly}>
+                  <SelectTrigger aria-label={`Classe de ${account.code} ${account.label}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_CLASS}>Sem classificação</SelectItem>
+                    {SELECTABLE_CLASSES.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {OPERATING_CLASS_LABEL[name]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -92,15 +151,28 @@ function FeesInForce() {
  * do relatório. Taxas e perdas continuam vindo dos módulos que as têm. O corpo só existe com o modal aberto, então fechar e
  * reabrir sempre começa limpo, na versão em vigor.
  */
-export function RulesDialog({ open, onOpenChange, categories, canEdit }: { open: boolean; onOpenChange: (open: boolean) => void; categories: { key: string; label: string }[]; canEdit: boolean }) {
+export function RulesDialog({
+  open,
+  onOpenChange,
+  categories,
+  canEdit,
+  operating = null,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  categories: { key: string; label: string }[];
+  canEdit: boolean;
+  /** As despesas que o relatório em tela leu, para o dono dizer como cada uma se comporta. */
+  operating?: PricingReportMeta["operating"];
+}) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {open && <RulesBody onClose={() => onOpenChange(false)} categories={categories} canEdit={canEdit} />}
+      {open && <RulesBody onClose={() => onOpenChange(false)} categories={categories} canEdit={canEdit} operating={operating} />}
     </Dialog>
   );
 }
 
-function RulesBody({ onClose, categories, canEdit }: { onClose: () => void; categories: { key: string; label: string }[]; canEdit: boolean }) {
+function RulesBody({ onClose, categories, canEdit, operating }: { onClose: () => void; categories: { key: string; label: string }[]; canEdit: boolean; operating: PricingReportMeta["operating"] }) {
   const { data: current } = useGetPricingParametersQuery();
   const { data: versions } = useGetPricingParameterVersionsQuery();
   const [viewing, setViewing] = useState<number | null>(null);
@@ -139,7 +211,7 @@ function RulesBody({ onClose, categories, canEdit }: { onClose: () => void; cate
       </div>
 
       {shown && current ? (
-        <RulesForm key={shown.id} version={shown} current={current} categories={categories} readOnly={!canEdit || looksAtOlder} onClose={onClose} />
+        <RulesForm key={shown.id} version={shown} current={current} categories={categories} operating={operating} readOnly={!canEdit || looksAtOlder} onClose={onClose} />
       ) : (
         <p role="status" className="text-sm text-muted-foreground">
           Carregando regras…
@@ -153,6 +225,7 @@ function RulesForm({
   version,
   current,
   categories,
+  operating,
   readOnly,
   onClose,
 }: {
@@ -160,6 +233,7 @@ function RulesForm({
   /** A versão em vigor: o patch é sempre calculado contra ela, que é de onde a nova versão nasce. */
   current: PricingParameterVersion;
   categories: { key: string; label: string }[];
+  operating: PricingReportMeta["operating"];
   readOnly: boolean;
   onClose: () => void;
 }) {
@@ -249,6 +323,8 @@ function RulesForm({
             })}
           </div>
         </section>
+
+        <OperatingClasses operating={operating} behavior={form.behavior} onChange={(behavior) => set({ behavior })} readOnly={readOnly} />
 
         <Field id="rule-aliases" label="Apelidos de bandeira e adquirente" hint="Um por linha, nome=nome. A venda diz SODEXO, a taxa está cadastrada como Pluxee.">
           <Textarea id="rule-aliases" rows={3} value={form.aliases} onChange={(e) => set({ aliases: e.target.value })} disabled={readOnly} />

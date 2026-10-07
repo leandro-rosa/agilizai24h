@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Matches, Min, ArrayNotEmpty, IsArray, ValidateNested } from 'class-validator'
-import { PRODUCT_CATEGORY_VALUES, PRODUCT_STATUSES, WRITABLE_EAN_SOURCES, WRITABLE_VERSION_SOURCES, type ProductCategory, type ProductStatus } from '../constants/product-vocabulary'
+import { PRODUCT_STATUSES, WRITABLE_EAN_SOURCES, WRITABLE_VERSION_SOURCES, type ProductCategory, type ProductStatus } from '../constants/product-vocabulary'
 
 export class CreateProductDto {
   @ApiProperty({ example: 'REF-GUA-350' })
@@ -177,6 +177,16 @@ export class BulkCostDto {
   })
   @IsISO8601()
   as_of: string
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['invoice'],
+    description: 'Only versions from these sources are considered (e.g. `invoice` = a received purchase). Same resolution rule, applied to that subset; absent = every source.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  sources?: string[]
 }
 
 export class RecordPriceDto {

@@ -6,7 +6,8 @@ import { count } from "@/lib/format";
 import { percent, points, signedMoney } from "@/lib/pricing/labels";
 
 /** O que a "margem atual" é, dito uma vez e igual na tabela, nos cartões e no detalhe. */
-export const MARGIN_DEFINITION = "Margem econômica: o que sobra do preço depois do custo, das perdas, dos impostos, das taxas de pagamento e do rateio operacional.";
+export const MARGIN_DEFINITION =
+  "Margem de contribuição: o que sobra do preço depois do custo, das perdas, dos impostos, das taxas de pagamento e das despesas que acompanham a venda. A meta vale para ela. Custos fixos e deslocamento aparecem à parte, na viabilidade da operação; o resultado após rateio é uma estimativa complementar, não o lucro líquido.";
 
 /** A premissa do impacto estimado: é uma estimativa, não uma promessa de que as vendas se mantêm. */
 export const IMPACT_PREMISE = "Estimativa que supõe o mesmo volume de vendas de hoje. Um preço maior pode vender menos: não é lucro garantido.";

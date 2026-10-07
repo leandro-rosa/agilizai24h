@@ -38,6 +38,9 @@ export interface NewProductSuggestion {
   unitCostCents: number | null
   /** The suggestion is an initial one: there is no sales history behind it, whatever the label says. */
   initial: true
+  /** False when expenses relevant to the price have no treatment yet (or the classification is unknown): the suggestion is shown, never as validated. */
+  validated: boolean
+  validationNotes: string[]
   /** The margin at the price the operator typed, from the same structure; null when none was typed or the structure is missing. */
   typedPrice: { priceCents: number; margin: number } | null
   targetMargin: number
@@ -61,7 +64,7 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
   const { params } = input
   const margins = marginsFor(params, input.category ?? null)
   const label = input.monthlyUnits > 0 ? FEW_SALES_LABEL : NEW_PRODUCT_LABEL
-  const base = { sku: input.sku, name: input.name ?? null, label, initial: true as const, unitCostCents: input.costCents ?? null, typedPrice: null, targetMargin: margins.target, minimumMargin: margins.minimum, engineVersion: ENGINE_VERSION }
+  const base = { sku: input.sku, name: input.name ?? null, label, initial: true as const, unitCostCents: input.costCents ?? null, typedPrice: null, validated: false, validationNotes: [] as string[], targetMargin: margins.target, minimumMargin: margins.minimum, engineVersion: ENGINE_VERSION }
 
   const missing: string[] = []
   if (input.costCents === null || input.costCents <= 0) missing.push('Sem custo: informe o custo da nota')
@@ -75,15 +78,21 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
 
   const payment = input.payment as NonNullable<typeof input.payment>
   const loss = input.loss as NonNullable<typeof input.loss>
-  const solved = solveStructure({ costCents: input.costCents as number, taxRateBps: params.taxRateBps as number, payment, loss, operatingShare: input.operatingShare as number }, margins)
+  const solved = solveStructure({ costCents: input.costCents as number, taxRateBps: params.taxRateBps as number, payment, loss, operatingShare: input.operatingShare as number, perTransactionPerUnitCents: input.perTransactionPerUnitCents ?? 0 }, margins)
   if (solved.rawTarget === null || solved.rawMinimum === null) {
-    return { ...base, status: 'insufficient_data', confidence: 'low', minimumPriceCents: null, suggestedPriceCents: null, suggestedMargin: null, structure: solved.structure, dataUsed: [], reasons: [], insufficientReasons: ['A estrutura de custos consome toda a margem: nenhum preço atinge a meta'] }
+    return { ...base, status: 'insufficient_data', confidence: 'low', minimumPriceCents: null, suggestedPriceCents: null, suggestedMargin: null, structure: solved.structure, dataUsed: [], reasons: [], insufficientReasons: [solved.unreachable ?? 'A meta não é alcançável pela fórmula'] }
   }
+
+  const operating = input.operating ?? null
+  const validationNotes: string[] = []
+  if (!operating) validationNotes.push('Classificação das despesas indisponível: a sugestão não foi validada')
+  else if (!operating.complete) validationNotes.push(`Cálculo incompleto: ${money(operating.unclassifiedCents)} em despesas sem classificação (${pct(operating.unclassifiedShare)} da receita de vendas das lojas, ${operating.scope}): ${operating.unclassified.map(account => `${account.code} ${account.label}`).join('; ')}`)
+  if (operating?.perTransactionAssumption) validationNotes.push(operating.perTransactionAssumption)
 
   const suggested = shapePrice(solved.rawTarget, params)
   const reasons = [
     input.monthlyUnits > 0 ? 'Poucas vendas: a sugestão se apoia só na estrutura de custos' : 'Sem vendas: a sugestão se apoia só na estrutura de custos, não em demanda observada',
-    `Preço que atinge a margem alvo de ${pct(margins.target)} depois de imposto, taxas de pagamento, perda e rateio`,
+    `Preço que atinge a margem de contribuição alvo de ${pct(margins.target)} depois de imposto, taxas de pagamento, perda e despesas que acompanham a venda`,
   ]
   if (input.costNotReceived) reasons.push('O custo vem de uma nota ainda não recebida; ele só passa a valer no recebimento')
 
@@ -93,7 +102,12 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
     { code: 'tax', label: 'Imposto', value: pct(solved.structure.taxRate), origin: 'Parâmetro de precificação' },
     { code: 'payment', label: 'Taxas de pagamento', value: `${pct(payment.rate)}${payment.fixedPerUnitCents > 0 ? ` + ${money(Math.round(payment.fixedPerUnitCents))} por unidade` : ''}`, origin: 'Taxas cadastradas ponderadas pelo mix de vendas da rede' },
     { code: 'loss', label: 'Perda', value: pct(loss.rate), origin: `Histórico de ${loss.level === 'category' ? 'a categoria' : loss.level === 'store' ? 'a loja' : 'a rede'} (sem histórico do produto)` },
-    { code: 'operating', label: 'Rateio operacional', value: pct(input.operatingShare as number), origin: 'DRE (apenas para análise de preço)' },
+    {
+      code: 'operating',
+      label: 'Despesas que acompanham a venda',
+      value: `${pct(input.operatingShare as number)}${(input.perTransactionPerUnitCents ?? 0) > 0 ? ` + ${money(Math.round(input.perTransactionPerUnitCents as number))} por unidade (custo por transação)` : ''}`,
+      origin: 'DRE, só contas classificadas como percentual da venda ou por transação (custo fixo e deslocamento ficam fora do preço)',
+    },
     { code: 'margin', label: 'Margem alvo / mínima', value: `${pct(margins.target)} / ${pct(margins.minimum)}`, origin: margins.fromCategory ? 'Parâmetro da categoria' : 'Parâmetro de precificação' },
     { code: 'rounding', label: 'Arredondamento', value: params.psychological.enabled ? `degrau de ${money(params.rounding.stepCents)}, final ,${String(params.psychological.endingCents).padStart(2, '0')}` : `degrau de ${money(params.rounding.stepCents)}`, origin: 'Parâmetro de precificação' },
   ]
@@ -107,6 +121,8 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
     suggestedMargin: solved.marginAt(suggested),
     typedPrice: input.typedPriceCents && input.typedPriceCents > 0 ? { priceCents: input.typedPriceCents, margin: solved.marginAt(input.typedPriceCents) } : null,
     structure: solved.structure,
+    validated: operating !== null && operating.complete,
+    validationNotes,
     dataUsed,
     reasons,
     insufficientReasons: [],

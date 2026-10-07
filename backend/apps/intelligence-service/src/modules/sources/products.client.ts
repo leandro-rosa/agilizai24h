@@ -47,12 +47,15 @@ export class ProductsClient {
     return (await httpGet<ProductDto[]>(this.http, `${this.base()}/products`, { correlationId })) ?? []
   }
 
-  /** Costs as of a date, partitioned into resolved and unresolved — never a map that invites reading a missing cost as zero. */
-  async costsAsOf(skus: string[], asOf: string, correlationId?: string): Promise<BulkCostResult> {
+  /**
+   * Costs as of a date, partitioned into resolved and unresolved — never a map that invites reading a missing cost as zero. `sources` narrows the versions
+   * considered (`['invoice']` = the last RECEIVED purchase, with or without an invoice number); an older products-service ignores it.
+   */
+  async costsAsOf(skus: string[], asOf: string, correlationId?: string, sources?: string[]): Promise<BulkCostResult> {
     const result = await this.http.send<BulkCostResult>({
       http_method: 'post',
       url: `${this.base()}/costs/bulk`,
-      payload: { skus, as_of: asOf },
+      payload: sources && sources.length > 0 ? { skus, as_of: asOf, sources } : { skus, as_of: asOf },
       headers: correlationId ? { 'x-correlation-id': correlationId } : undefined,
       timeout: 30000,
     })

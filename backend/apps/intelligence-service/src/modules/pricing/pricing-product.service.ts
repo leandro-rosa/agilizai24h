@@ -83,10 +83,12 @@ export class PricingProductService {
   }
 
   /** Simulates a typed price over the cost structure of the latest stored report. Writes nothing. */
-  async simulate(sku: string, input: { priceCents: unknown; period?: string; storeId?: number | null }): Promise<(Simulation | NotSimulable) & { reportRunId: string }> {
+  async simulate(sku: string, input: { priceCents: unknown; replacementCostCents?: unknown; period?: string; storeId?: number | null }): Promise<(Simulation | NotSimulable) & { reportRunId: string }> {
     const priceCents = assertPrice(input.priceCents)
     const { product, run, targetMargin } = await this.fromStoredReport(sku, { period: input.period, storeId: input.storeId })
-    const result = simulate({ structure: product.structure, currentPriceCents: product.currentPriceCents, monthlyUnits: product.monthlyUnits, targetMargin, priceCents })
+    // An optional replacement quote the user chose to simulate with: a whole positive number of centavos or nothing, never assumed.
+    const replacement = input.replacementCostCents === undefined || input.replacementCostCents === null ? null : assertPrice(input.replacementCostCents)
+    const result = simulate({ structure: product.structure, currentPriceCents: product.currentPriceCents, monthlyUnits: product.monthlyUnits, targetMargin, priceCents, replacementCostCents: replacement })
 
     return { ...result, reportRunId: run }
   }
@@ -136,7 +138,7 @@ export class PricingProductService {
     if (!structure || lossRate === null || price === null || price <= 0) return null
 
     const variableShare = structure.taxRate + structure.paymentRate + structure.operatingShare
-    const unitCost = structure.productCostCents / (1 - lossRate) + structure.paymentFixedCents
+    const unitCost = structure.productCostCents / (1 - lossRate) + structure.paymentFixedCents + (structure.perTransactionCents ?? 0)
 
     return (price * (1 - variableShare) - unitCost) / price
   }

@@ -220,6 +220,22 @@ describe('the past does not change when a later cost is recorded', () => {
     expect(august.resolved[0]).toMatchObject({ cost_cents: 570, source: 'catalogue_sync', invoice_number: null })
     expect(october.resolved[0]).toMatchObject({ cost_cents: 620, source: 'invoice', invoice_number: '13021' })
   })
+
+  it('resolves among the requested sources only: a newer manual cost never stands in for the last received purchase', async () => {
+    const { cost } = build()
+    await cost.recordCost('MONS', day('2026-08-01'), 570, { source: 'catalogue_sync' })
+    await cost.recordCost('MONS', day('2026-09-05'), 600, invoice())
+    await cost.recordCost('MONS', day('2026-10-20'), 650, manual())
+
+    const inForce = await cost.bulkCostAsOf(['MONS'], day('2026-10-31'))
+    const purchases = await cost.bulkCostAsOf(['MONS'], day('2026-10-31'), ['invoice'])
+    const beforeAnyPurchase = await cost.bulkCostAsOf(['MONS'], day('2026-08-31'), ['invoice'])
+
+    expect(inForce.resolved[0]).toMatchObject({ cost_cents: 650, source: 'manual' })
+    expect(purchases.resolved[0]).toMatchObject({ cost_cents: 600, source: 'invoice', effective_from: '2026-09-05' })
+    expect(beforeAnyPurchase.resolved).toEqual([])
+    expect(beforeAnyPurchase.unresolved).toEqual([{ sku: 'MONS', reason: 'no_cost_for_date' }])
+  })
 })
 
 describe('listing the history of a cost', () => {

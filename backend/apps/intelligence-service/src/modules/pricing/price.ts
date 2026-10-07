@@ -1,4 +1,5 @@
 import { categoryLabel } from './categories'
+import { PER_TRANSACTION_SHIFT_LABEL, type LegacyShift } from './operating-costs'
 import { marginsFor } from './pricing.parameters'
 import { ANALYSIS_ONLY_STATEMENT, ENGINE_VERSION, type Confidence, type LossLevel, type PaymentCost, type PricingParameters, type PricingStatus } from './pricing.types'
 
@@ -26,10 +27,14 @@ export interface PriceInput {
    */
   costOrigin?: { source: string; effectiveFrom: string; invoiceNumber: string | null } | null
   costFlaggedUnreliable: boolean
-  /** A cost recorded AFTER the end of the analysed period (the period is history; this is not part of it). */
-  newerCost?: { costCents: number; effectiveFrom: string; source: string } | null
+  /** A cost recorded AFTER the end of the analysed period (the period is history; this is not part of it). `basis` says what kind of cost it is. */
+  newerCost?: { costCents: number; effectiveFrom: string; source: string; basis?: CostBasis } | null
+  /** The cost of the last RECEIVED purchase (with or without an invoice) up to today, by the day it was received; null when there is none. A cost basis of its own. */
+  lastPurchaseCost?: { costCents: number; effectiveFrom: string; invoiceNumber: string | null } | null
   /** The cost before the latest change, for the variation and the stability of the cost. */
   previousCostCents: number | null
+  /** The cadastral or manual cost in force today, when it is not a received purchase (a basis of its own, never labelled a purchase). */
+  registryCost?: { costCents: number; effectiveFrom: string; source: string } | null
   currentPriceCents: number | null
   /** Average units sold per month over the window. */
   monthlyUnits: number
@@ -39,9 +44,46 @@ export interface PriceInput {
   volumeDroppedAfterPriceChange: boolean
   loss: { rate: number; level: LossLevel } | null
   payment: PaymentCost | null
-  /** Operating allocation as a fraction of revenue, from accounting. `null` = unavailable. */
+  /** Expenses that follow the sales value (percentage of sales), as a fraction of revenue, from accounting. `null` = unavailable. */
   operatingShare: number | null
+  /** Per-transaction expenses distributed per sold unit, in centavos (added to the numerator, never multiplied by the loss). Zero when no account is of that class. */
+  perTransactionPerUnitCents?: number
+  /** How the operating costs were classified, for the viability figures and the validation flag. Absent = the classification is unknown and nothing is validated. */
+  operating?: OperatingContext | null
   params: PricingParameters
+}
+
+/** What kind of number a cost is: never read a cadastral or manual cost as a confirmed purchase. */
+export type CostBasis = 'received_purchase' | 'registry_or_manual'
+
+export const costBasisOf = (source: string | null | undefined): CostBasis => (source === 'invoice' ? 'received_purchase' : 'registry_or_manual')
+
+/** The classification of the operating costs the price rests on, carried to the result. */
+export interface OperatingContext {
+  /** Per-visit and fixed costs over store revenue: NOT in the price, used only for the "result after allocation" figure. */
+  perVisitShare: number
+  fixedShare: number
+  complete: boolean
+  unclassifiedCents: number
+  unclassifiedShare: number
+  unclassified: { code: string; label: string; amountCents: number }[]
+  months: string[]
+  /** Words for the hypothesis behind the per-transaction cost, when there is one. */
+  perTransactionAssumption: string | null
+  scope: string
+  /** What the OLD method charged (every variable and fixed expense but loss, over store revenue) and where each class moved it: for the reconciliation. */
+  legacyShare: number
+  shifts: LegacyShift[]
+  perTransactionLegacyShare: number
+}
+
+/** The old economic margin, the new contribution margin, and every difference between them in its own line; whatever is left is "não explicado". */
+export interface Reconciliation {
+  oldMargin: number
+  newMargin: number
+  lines: { label: string; points: number }[]
+  /** `new − old − Σ lines`: zero when the comparison explains everything. */
+  unexplainedPoints: number
 }
 
 export interface CostStructure {
@@ -56,9 +98,34 @@ export interface CostStructure {
   paymentFixedCents: number
   voucherShare: number
   voucherBasis: string
+  /** Expenses that follow sales value, as a fraction of the price (the CONTRIBUTION margin removes them like tax and fees). */
   operatingShare: number
+  /** Per-transaction expenses per sold unit, in centavos; absent on a report stored before `pricing-4` (read it as zero). */
+  perTransactionCents?: number
   /** What the prices below are solved against. */
   statement: string
+}
+
+export interface CostBases {
+  historical: { costCents: number; effectiveFrom: string; source: string | null; basis: CostBasis } | null
+  lastPurchase: { costCents: number; effectiveFrom: string; invoiceNumber: string | null } | null
+  registry: { costCents: number; effectiveFrom: string; source: string } | null
+}
+
+export interface AtCost {
+  basis: CostBasis
+  costCents: number
+  effectiveFrom: string
+  targetPriceCents: number | null
+  marginAtCurrentPrice: number | null
+}
+
+export interface ResultAfterAllocation {
+  /** Centavos per unit at the current price. */
+  centsPerUnit: number
+  margin: number
+  /** The criterion, visible: which costs were spread and over what. */
+  criterion: string
 }
 
 export interface Reason {
@@ -77,7 +144,14 @@ export interface PriceResult {
   categoryLabel: string
   subcategory: string | null
   /** A cost the registry holds from after the period's end: shown beside the period's cost, never as the period's cost. */
-  newerCost: { costCents: number; effectiveFrom: string; source: string } | null
+  newerCost: { costCents: number; effectiveFrom: string; source: string; basis: CostBasis } | null
+  /**
+   * The cost bases, kept apart: the historical cost the diagnosis uses (in force on the last day of the period), the last received purchase (with or
+   * without an invoice) and the cadastral or manual cost in force today. A manual version is never labelled a confirmed purchase.
+   */
+  costBases: CostBases
+  /** The diagnosis redone at the last received purchase cost ("current suggestion"), when that cost differs from the period's. */
+  atLastPurchaseCost: AtCost | null
   /** The origin of the cost in force, as the products registry states it; null when it is not known. */
   costOrigin: { source: string; effectiveFrom: string; invoiceNumber: string | null } | null
   /** Registered from an invoice inside the analysed window ("Produto novo"); `noSalesHistory` when it has not sold in it. Null for every other product. */
@@ -89,7 +163,17 @@ export interface PriceResult {
   targetPriceCents: number | null
   recommendedPriceCents: number | null
   currentPriceCents: number | null
+  /** The CONTRIBUTION margin at the current price: after cost with loss, tax, payment fees, per-sale and percentage-of-sales expenses. The target applies to it. */
   currentMargin: number | null
+  /** What each sale contributes toward the fixed structure, in centavos per unit, at the current price. */
+  unitContributionCents: number | null
+  /** The contribution minus the per-visit and fixed costs spread over store revenue: a complementary figure, never "net profit", with its criterion in the text. */
+  estimatedResultAfterAllocation: ResultAfterAllocation | null
+  /** False when expenses relevant to the price have no treatment yet: the number is shown, but never as validated. */
+  validated: boolean
+  validationNotes: string[]
+  /** Why the margin differs from the one the previous model (pricing-3) showed, line by line. Null without a classification. */
+  reconciliation: Reconciliation | null
   currentMarkup: number | null
   targetMargin: number
   minimumMargin: number
@@ -148,7 +232,12 @@ function identity(input: PriceInput) {
     categoryLabel: categoryLabel(input.category, input.categoryName),
     subcategory: input.subcategory ?? null,
     costOrigin: input.costOrigin ?? null,
-    newerCost: input.newerCost ?? null,
+    newerCost: input.newerCost ? { ...input.newerCost, basis: input.newerCost.basis ?? costBasisOf(input.newerCost.source) } : null,
+    costBases: {
+      historical: input.costCents !== null && input.costOrigin ? { costCents: input.costCents, effectiveFrom: input.costOrigin.effectiveFrom, source: input.costOrigin.source, basis: costBasisOf(input.costOrigin.source) } : null,
+      lastPurchase: input.lastPurchaseCost ?? null,
+      registry: input.registryCost ?? null,
+    },
     newProduct: input.newProductOn ? { registeredOn: input.newProductOn, noSalesHistory: input.monthlyUnits <= 0 } : null,
   }
 }
@@ -163,6 +252,12 @@ function insufficient(input: PriceInput, reasons: string[], margins: ReturnType<
     recommendedPriceCents: null,
     currentPriceCents: input.currentPriceCents,
     currentMargin: null,
+    unitContributionCents: null,
+    estimatedResultAfterAllocation: null,
+    validated: false,
+    validationNotes: ['Dados insuficientes: sem recomendação'],
+    reconciliation: null,
+    atLastPurchaseCost: null,
     currentMarkup: input.costCents && input.currentPriceCents ? input.currentPriceCents / input.costCents : null,
     targetMargin: margins.target,
     minimumMargin: margins.minimum,
@@ -184,21 +279,28 @@ function insufficient(input: PriceInput, reasons: string[], margins: ReturnType<
 }
 
 const pct = (value: number) => `${(value * 100).toFixed(1).replace('.', ',')}%`
+const money = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace('.', ',')}`
 
 /**
  * The cost structure and the prices that solve it, for ONE set of inputs. Shared by the recommendation of a product that sells and by the
- * suggestion for a new one, so there is a single formula: price × (1 − tax − payment fee − operating share) − unit cost = margin × price.
+ * suggestion for a new one, so there is a single formula:
+ *
+ *   price = (cost ÷ (1 − loss) + fixed payment fee + per-transaction cost per unit) ÷ (1 − tax − payment % − percentage-of-sales expenses − margin)
+ *
+ * The percentages come off the price (the denominator); the per-sale and per-transaction amounts are money per sold unit added to the numerator, and only
+ * the cost of the goods is multiplied by the loss (a lost unit is never sold, so it never pays a sale fee). When the percentages and the margin add up to
+ * 100% or more the target cannot be reached by this formula, and `unreachable` says so instead of returning a price.
  */
 export function solveStructure(
-  input: { costCents: number; taxRateBps: number; payment: PaymentCost; loss: { rate: number; level: LossLevel }; operatingShare: number },
+  input: { costCents: number; taxRateBps: number; payment: PaymentCost; loss: { rate: number; level: LossLevel }; operatingShare: number; perTransactionPerUnitCents?: number },
   margins: ReturnType<typeof marginsFor>,
 ) {
   const cost = input.costCents
   const taxRate = input.taxRateBps / 10_000
   const lossAdjusted = cost / (1 - input.loss.rate)
-  // A fee charged per sale is a cost of the sold unit (lost units are never sold, so loss does not multiply it).
   const fixedPerUnit = input.payment.fixedPerUnitCents
-  const unitCost = lossAdjusted + fixedPerUnit
+  const perTransaction = input.perTransactionPerUnitCents ?? 0
+  const unitCost = lossAdjusted + fixedPerUnit + perTransaction
   const variableShare = taxRate + input.payment.rate + input.operatingShare
 
   const structure: CostStructure = {
@@ -212,9 +314,11 @@ export function solveStructure(
     voucherShare: input.payment.voucherShare,
     voucherBasis: input.payment.voucherBasis,
     operatingShare: input.operatingShare,
+    perTransactionCents: perTransaction,
     statement: ANALYSIS_ONLY_STATEMENT,
   }
   const unitProfit = (price: number) => price * (1 - variableShare) - unitCost
+  const rawTarget = priceForMargin(unitCost, variableShare, margins.target)
 
   return {
     cost,
@@ -224,7 +328,12 @@ export function solveStructure(
     unitProfit,
     marginAt: (price: number) => unitProfit(price) / price,
     rawMinimum: priceForMargin(unitCost, variableShare, margins.minimum),
-    rawTarget: priceForMargin(unitCost, variableShare, margins.target),
+    rawTarget,
+    /** Why no price exists, in words; null when the target is reachable. */
+    unreachable:
+      rawTarget === null
+        ? `A meta de ${pct(margins.target)} não é alcançável pela fórmula: imposto, taxas e despesas proporcionais à venda somam ${pct(variableShare)} do preço e, com a meta, passam de 100%`
+        : null,
   }
 }
 
@@ -247,20 +356,28 @@ export function computePrice(input: PriceInput): PriceResult {
 
   const current = input.currentPriceCents as number
   const solved = solveStructure(
-    { costCents: input.costCents as number, taxRateBps: params.taxRateBps as number, payment: input.payment as PaymentCost, loss: input.loss as { rate: number; level: LossLevel }, operatingShare: input.operatingShare as number },
+    {
+      costCents: input.costCents as number,
+      taxRateBps: params.taxRateBps as number,
+      payment: input.payment as PaymentCost,
+      loss: input.loss as { rate: number; level: LossLevel },
+      operatingShare: input.operatingShare as number,
+      perTransactionPerUnitCents: input.perTransactionPerUnitCents ?? 0,
+    },
     margins,
   )
-  const { cost, structure, variableShare, unitProfit, marginAt, rawMinimum, rawTarget } = solved
+  const { cost, structure, variableShare, unitProfit, marginAt, rawMinimum, rawTarget, unreachable } = solved
   const payment = input.payment as PaymentCost
   const loss = input.loss as { rate: number; level: LossLevel }
   const fixedPerUnit = payment.fixedPerUnitCents
+  const perTransaction = input.perTransactionPerUnitCents ?? 0
 
   const reasons: Reason[] = []
   const currentMargin = marginAt(current)
 
   if (rawMinimum === null || rawTarget === null) {
-    const result = insufficient(input, ['A estrutura de custos consome toda a margem: nenhum preço atinge a meta'], margins)
-    return { ...result, status: 'review', confidence: 'low', structure, currentMargin, reasons: [] }
+    const result = insufficient(input, [unreachable ?? 'A meta não é alcançável pela fórmula'], margins)
+    return { ...result, status: 'review', confidence: 'low', structure, currentMargin, unitContributionCents: unitProfit(current), reasons: [] }
   }
 
   const minimumPrice = shapePrice(rawMinimum, params)
@@ -331,10 +448,63 @@ export function computePrice(input: PriceInput): PriceResult {
   // What the margin would be at the current price with the previous cost, so a cost rise is shown as a loss of margin.
   const previousCost = input.previousCostCents
   const marginAtPreviousCost =
-    previousCost && previousCost > 0 ? (current * (1 - variableShare) - (previousCost / (1 - loss.rate) + fixedPerUnit)) / current : null
+    previousCost && previousCost > 0 ? (current * (1 - variableShare) - (previousCost / (1 - loss.rate) + fixedPerUnit + perTransaction)) / current : null
+
+  const operating = input.operating ?? null
+  const validationNotes: string[] = []
+  if (!operating) validationNotes.push('Classificação das despesas indisponível: o cálculo não foi validado')
+  else if (!operating.complete) {
+    validationNotes.push(
+      `Cálculo incompleto: ${money(operating.unclassifiedCents)} em despesas sem classificação (${pct(operating.unclassifiedShare)} da receita de vendas das lojas, ${operating.scope}, ${operating.months.join(', ')}): ${operating.unclassified.map(account => `${account.code} ${account.label}`).join('; ')}`,
+    )
+  }
+  if (operating?.perTransactionAssumption) validationNotes.push(operating.perTransactionAssumption)
+  const allocationShare = operating ? operating.perVisitShare + operating.fixedShare : null
+  const resultAfterAllocation: ResultAfterAllocation | null =
+    operating && allocationShare !== null
+      ? {
+          centsPerUnit: unitProfit(current) - current * allocationShare,
+          margin: marginAt(current) - allocationShare,
+          criterion: `Contribuição menos deslocamento por visita e custos fixos (${pct(allocationShare)} da receita de vendas das lojas, ${operating.scope}, ${operating.months.join(', ')}) aplicados ao preço; é uma estimativa que depende deste critério, não o lucro líquido`,
+        }
+      : null
+
+  // The old economic margin at the same price, and each reason the new one differs: nothing is hidden in "other".
+  let reconciliation: Reconciliation | null = null
+  if (operating) {
+    const oldMargin = marginAt(current) - (operating.legacyShare - (input.operatingShare as number)) + perTransaction / current
+    const lines = operating.shifts.map(shift => ({ label: shift.label, points: shift.share }))
+    const perTransactionPoints = operating.perTransactionLegacyShare - perTransaction / current
+    if (Math.abs(perTransactionPoints) > 1e-12) lines.push({ label: PER_TRANSACTION_SHIFT_LABEL, points: perTransactionPoints })
+    const newMargin = marginAt(current)
+    reconciliation = { oldMargin, newMargin, lines, unexplainedPoints: newMargin - oldMargin - lines.reduce((sum, line) => sum + line.points, 0) }
+  }
+
+  // The same diagnosis at the cost of the last received purchase, when it is not the cost the period used.
+  const lastPurchase = input.lastPurchaseCost ?? null
+  let atLastPurchaseCost: AtCost | null = null
+  if (lastPurchase && lastPurchase.costCents > 0 && (lastPurchase.costCents !== cost || lastPurchase.effectiveFrom !== input.costOrigin?.effectiveFrom)) {
+    const redone = solveStructure(
+      { costCents: lastPurchase.costCents, taxRateBps: params.taxRateBps as number, payment, loss, operatingShare: input.operatingShare as number, perTransactionPerUnitCents: perTransaction },
+      margins,
+    )
+    atLastPurchaseCost = {
+      basis: 'received_purchase',
+      costCents: lastPurchase.costCents,
+      effectiveFrom: lastPurchase.effectiveFrom,
+      targetPriceCents: redone.rawTarget === null ? null : shapePrice(redone.rawTarget, params),
+      marginAtCurrentPrice: redone.marginAt(current),
+    }
+  }
 
   return {
     ...identity(input),
+    atLastPurchaseCost,
+    unitContributionCents: unitProfit(current),
+    estimatedResultAfterAllocation: resultAfterAllocation,
+    validated: operating !== null && operating.complete,
+    validationNotes,
+    reconciliation,
     status,
     confidence,
     minimumPriceCents: minimumPrice,

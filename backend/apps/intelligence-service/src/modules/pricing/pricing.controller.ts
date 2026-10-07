@@ -95,13 +95,13 @@ export class PricingController {
   @Post('products/:sku/simulate')
   @ApiOperation({
     summary: 'Simulate a typed price over the stored cost structure',
-    description: 'Estimate only; writes nothing. 409 when the scope has no stored report; `simulable: false` for a product without a structure.',
+    description: 'Estimate only; writes nothing. 409 when the scope has no stored report; `simulable: false` for a product without a structure. Optional `replacementCostCents` simulates with a replacement quote the user typed (a cost basis of its own, never a purchase).',
   })
-  async simulate(@Param('sku') sku: string, @Body() body: { priceCents?: unknown; period?: string; storeId?: number | null }) {
+  async simulate(@Param('sku') sku: string, @Body() body: { priceCents?: unknown; replacementCostCents?: unknown; period?: string; storeId?: number | null }) {
     if (body?.period !== undefined) query(body.period)
 
     try {
-      return await this.productService.simulate(sku, { priceCents: body?.priceCents, period: body?.period, storeId: body?.storeId })
+      return await this.productService.simulate(sku, { priceCents: body?.priceCents, replacementCostCents: body?.replacementCostCents, period: body?.period, storeId: body?.storeId })
     } catch (error) {
       if (error instanceof InvalidPriceError) throw new BadRequestException(error.message)
       throw error

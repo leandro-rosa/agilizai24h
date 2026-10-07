@@ -25,6 +25,7 @@ import { costBreakdown } from "@/lib/pricing/breakdown";
 import { CONFIDENCE_LABEL, CONFIDENCE_TONE, costOriginText, parsePriceToCents, percent, points, signedMoney, STATUS_LABEL, STATUS_TONE } from "@/lib/pricing/labels";
 
 import { ApplyPriceDialog, errorMessage } from "./apply-price-dialog";
+import { CostBasesSection, ReconciliationSection } from "./cost-bases";
 import { IMPACT_PREMISE, MARGIN_DEFINITION } from "./summary-cards";
 
 export interface DrawerScope {
@@ -57,7 +58,7 @@ function CalculationDetails({ product, run, scope }: { product: PricingProduct; 
             {structure ? money(structure.productCostCents) : "Sem custo utilizável"} · custo vigente no último dia de {formatPeriod(scope.period)} (a mesma regra do CMV do financeiro){origin ? ` · origem: ${origin}` : ""}
             {product.newerCost && (
               <span className="block text-warning">
-                O cadastro tem um custo mais novo ({money(product.newerCost.costCents)}, desde {date(product.newerCost.effectiveFrom)}). Este período é histórico: o custo novo não entra nele. Para ver o efeito, calcule o período atual.
+                O cadastro tem um custo mais novo ({money(product.newerCost.costCents)}, desde {date(product.newerCost.effectiveFrom)}, {product.newerCost.basis === "registry_or_manual" ? "cadastral ou manual, sem compra recebida" : "de compra recebida"}). Este período é histórico: o custo novo não entra nele; a sugestão atual, abaixo, mostra o efeito.
               </span>
             )}
           </dd>
@@ -67,7 +68,8 @@ function CalculationDetails({ product, run, scope }: { product: PricingProduct; 
             <dt className="text-xs text-muted-foreground">Impostos, taxas e demais despesas consideradas</dt>
             <dd>
               Imposto {pct2(structure.taxRate)} · taxas de pagamento {pct2(structure.paymentRate)}
-              {structure.paymentFixedCents > 0 ? ` + ${money(Math.round(structure.paymentFixedCents))} por unidade` : ""} · perda {percent(structure.lossRate)} ({LOSS_LEVEL_TEXT[structure.lossLevel] ?? structure.lossLevel}) · rateio operacional {pct2(structure.operatingShare)}
+              {structure.paymentFixedCents > 0 ? ` + ${money(Math.round(structure.paymentFixedCents))} por unidade` : ""} · perda {percent(structure.lossRate)} ({LOSS_LEVEL_TEXT[structure.lossLevel] ?? structure.lossLevel}) · despesas proporcionais à venda {pct2(structure.operatingShare)}
+              {(structure.perTransactionCents ?? 0) > 0 ? ` · custo por transação ${money(Math.round(structure.perTransactionCents as number))} por unidade` : ""}
             </dd>
           </div>
         )}
@@ -86,6 +88,9 @@ function CalculationDetails({ product, run, scope }: { product: PricingProduct; 
           <dd>{IMPACT_PREMISE}</dd>
         </div>
       </dl>
+      <CostBasesSection product={product} />
+      <ReconciliationSection product={product} />
+      {product.estimatedResultAfterAllocation && <p className="text-xs text-muted-foreground">Resultado após rateio: {product.estimatedResultAfterAllocation.criterion}.</p>}
       <details className="text-xs text-muted-foreground">
         <summary className="cursor-pointer">Detalhes técnicos (auditoria)</summary>
         <p className="pt-1">
@@ -110,14 +115,28 @@ function Overview({ product, run, scope, onApply, onSimulate, canWrite }: { prod
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge tone={STATUS_TONE[product.status]}>{STATUS_LABEL[product.status]}</StatusBadge>
         <StatusBadge tone={CONFIDENCE_TONE[product.confidence]}>Confiança {CONFIDENCE_LABEL[product.confidence].toLowerCase()}</StatusBadge>
+        {product.validated === false && product.status !== "insufficient_data" && <StatusBadge tone="attention">Não validado: despesas sem classificação</StatusBadge>}
       </div>
+      {(product.validationNotes ?? []).length > 0 && product.status !== "insufficient_data" && (
+        <ul className="flex list-disc flex-col gap-1 rounded-lg border border-warning/30 bg-warning/12 p-3 pl-7 text-xs text-warning">
+          {(product.validationNotes ?? []).map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      )}
 
       <section aria-labelledby="situation" className="flex flex-col gap-2">
         <h3 id="situation" className="text-sm font-semibold">Situação atual</h3>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Fact label="Custo médio" value={money(product.structure?.productCostCents ?? null)} hint={costOriginText(product.costOrigin) ?? undefined} />
           <Fact label="Preço atual" value={money(product.currentPriceCents)} />
-          <Fact label="Margem atual" value={percent(product.currentMargin)} hint={`Meta ${percent(product.targetMargin, 0)}`} />
+          <Fact label="Margem de contribuição" value={percent(product.currentMargin)} hint={`Meta ${percent(product.targetMargin, 0)}`} />
+          <Fact label="Contribuição por unidade" value={product.unitContributionCents === null || product.unitContributionCents === undefined ? "—" : money(Math.round(product.unitContributionCents))} hint="o que cada venda deixa para cobrir a operação" />
+          <Fact
+            label="Resultado após rateio (estimativa)"
+            value={percent(product.estimatedResultAfterAllocation?.margin)}
+            hint={product.estimatedResultAfterAllocation ? "depende do critério de rateio; não é lucro líquido" : undefined}
+          />
           <Fact label="Markup atual" value={product.currentMarkup === null ? "—" : product.currentMarkup.toFixed(2).replace(".", ",")} />
           <Fact label="Vendas (mês)" value={`${count(Math.round(product.monthlyUnits))} un.`} />
           <Fact label="Faturamento (mês)" value={money(product.monthlyRevenueCents === null ? null : Math.round(product.monthlyRevenueCents))} />
@@ -191,7 +210,7 @@ function Overview({ product, run, scope, onApply, onSimulate, canWrite }: { prod
                   </TableRow>
                 ))}
                 <TableRow className="font-semibold">
-                  <TableCell>Custo econômico estimado</TableCell>
+                  <TableCell>Custos que o preço cobre (a diferença para o preço é a contribuição)</TableCell>
                   <TableCell className="tabular text-right">{money(Math.round(breakdown.economicCostCents))}</TableCell>
                   <TableCell className="tabular text-right">{percent(breakdown.economicCostShare)}</TableCell>
                 </TableRow>
@@ -251,10 +270,11 @@ function SimulationResult({ result }: { result: Simulation }) {
 
   return (
     <div className="flex flex-col gap-2">
+      {result.replacementCostCents !== undefined && <p className="text-xs text-warning">Simulado com a cotação de reposição de {money(result.replacementCostCents)} no lugar do custo do relatório.</p>}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <Fact label="Margem estimada" value={percent(result.margin)} hint={`Atual ${percent(result.currentMargin)}`} />
+        <Fact label="Margem de contribuição estimada" value={percent(result.margin)} hint={`Atual ${percent(result.currentMargin)}`} />
         <Fact label="Markup" value={result.markup.toFixed(2).replace(".", ",")} />
-        <Fact label="Lucro unitário" value={money(Math.round(result.unitProfitCents))} />
+        <Fact label="Contribuição por unidade" value={money(Math.round(result.unitProfitCents))} />
         <Fact label="Impacto (mês)" value={signedMoney(Math.round(result.monthlyImpactCents))} hint="Impacto potencial estimado" />
         <Fact label="Diferença para a meta" value={points(result.differenceToTarget)} hint={`Meta ${percent(result.targetMargin, 0)}`} />
       </div>
@@ -264,24 +284,26 @@ function SimulationResult({ result }: { result: Simulation }) {
 
 function Simulator({ product, scope, canWrite, onApply }: { product: PricingProduct; scope: DrawerScope; canWrite: boolean; onApply: (cents: number) => void }) {
   const [text, setText] = useState("");
+  const [quoteText, setQuoteText] = useState("");
+  const quote = parsePriceToCents(quoteText);
   // A resposta guarda o preço que a gerou: uma resposta de outro preço digitado nunca aparece como a deste.
-  const [outcome, setOutcome] = useState<{ cents: number; result: Simulation | null; failure: string | null } | null>(null);
+  const [outcome, setOutcome] = useState<{ cents: number; quote: number | null; result: Simulation | null; failure: string | null } | null>(null);
   const [simulate, { isLoading }] = useSimulatePriceMutation();
   const cents = parsePriceToCents(text);
-  const shown = outcome !== null && outcome.cents === cents ? outcome : null;
+  const shown = outcome !== null && outcome.cents === cents && outcome.quote === quote ? outcome : null;
 
   useEffect(() => {
     if (cents === null) return;
     const timer = setTimeout(async () => {
       try {
-        setOutcome({ cents, result: await simulate({ sku: product.sku, priceCents: cents, period: scope.period, storeId: scope.storeId }).unwrap(), failure: null });
+        setOutcome({ cents, quote, result: await simulate({ sku: product.sku, priceCents: cents, replacementCostCents: quote, period: scope.period, storeId: scope.storeId }).unwrap(), failure: null });
       } catch (error) {
-        setOutcome({ cents, result: null, failure: errorMessage(error) });
+        setOutcome({ cents, quote, result: null, failure: errorMessage(error) });
       }
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [cents, product.sku, scope.period, scope.storeId, simulate]);
+  }, [cents, quote, product.sku, scope.period, scope.storeId, simulate]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -292,6 +314,12 @@ function Simulator({ product, scope, canWrite, onApply }: { product: PricingProd
         <Label htmlFor="simulate-price">Preço a simular (R$)</Label>
         <Input id="simulate-price" inputMode="decimal" value={text} onChange={(event) => setText(event.target.value)} placeholder="6,50" />
         {text !== "" && cents === null && <p className="text-xs text-destructive">Informe um preço válido, maior que zero.</p>}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="simulate-quote">Cotação de reposição (R$, opcional)</Label>
+        <Input id="simulate-quote" inputMode="decimal" value={quoteText} onChange={(event) => setQuoteText(event.target.value)} placeholder="Deixe vazio para usar o custo do relatório" />
+        <p className="text-xs text-muted-foreground">Só para simular: troca o custo da mercadoria por este valor. Uma cotação não é uma compra e nunca é gravada como custo.</p>
+        {quoteText !== "" && quote === null && <p className="text-xs text-destructive">Informe uma cotação válida, maior que zero.</p>}
       </div>
       {shown?.failure && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/12 p-3 text-sm text-destructive">{shown.failure}</p>}
       {cents !== null && shown === null && isLoading && <p role="status" className="text-sm text-muted-foreground">Calculando…</p>}

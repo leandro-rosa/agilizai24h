@@ -120,7 +120,11 @@ export class CostService {
     return result.resolved[0]
   }
 
-  async bulkCostAsOf(skus: string[], asOf: Date): Promise<BulkCostResult> {
+  /**
+   * `sources` narrows the versions considered (e.g. `['invoice']` = costs backed by a received purchase); the rule inside that subset is the
+   * same. A product with no version of those sources is `no_cost_for_date`, never a fall back to another source.
+   */
+  async bulkCostAsOf(skus: string[], asOf: Date, sources?: string[]): Promise<BulkCostResult> {
     const requested = [...new Set(skus)]
     const products = await this.products.findBySkus(requested)
     const bySku = new Map(products.map(product => [product.sku, product]))
@@ -128,7 +132,8 @@ export class CostService {
     const resolved: ResolvedCost[] = []
     const unresolved: UnresolvedCost[] = []
 
-    const versions = products.length ? await this.costs.findUpTo(products.map(product => product.id), asOf) : []
+    const all = products.length ? await this.costs.findUpTo(products.map(product => product.id), asOf) : []
+    const versions = sources && sources.length > 0 ? all.filter(version => sources.includes(version.source)) : all
     const byProduct = resolveByProduct(versions, asOf, COST_RANK)
 
     for (const sku of requested) {

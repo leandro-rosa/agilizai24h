@@ -1008,6 +1008,11 @@ cobrar?" na ordem produto → problema → preço recomendado → motivo → imp
 - **Avisos de configuração** (`setup-banner.tsx`): taxa sem cadastro, alíquota sem valor e demais lacunas do relatório ficam à vista, com o
   caminho para corrigir; nenhum produto vira "saudável" porque faltou um insumo.
 
+### Margem de contribuição (`correct-pricing-contribution-margin`, motor `pricing-4`)
+
+A "margem" da tela passou a ser a **margem de contribuição** (preço − custo com perda − imposto − taxas − despesas que acompanham a venda), a que a meta de 35% orienta; `MARGIN_DEFINITION` diz isso na tela, na tabela e no detalhe. O detalhe mostra os **três números** (margem de contribuição, contribuição por unidade em R$ e o resultado após rateio como estimativa com o critério visível, nunca "lucro líquido"), as **três bases de custo** (`cost-bases.tsx`: histórico do diagnóstico, última compra recebida com ou sem nota, custo cadastral/manual que não é compra confirmada, e a "sugestão atual" ao custo da última compra) e a **comparação com o cálculo anterior** (`ReconciliationSection`).
+Despesa da DRE sem classe gera o **alerta fixo** `ValidationAlert` (valor, meses, escopo; nunca recolhido) e o selo "Não validado" nos produtos; um relatório guardado pelo motor anterior diz que a margem dele é a econômica e pede para recalcular. **Regras de negócio** ganhou a classe de cada despesa (`OperatingClasses`, `lib/pricing/operating.ts`, `rules-form.ts`): percentual da venda e por transação entram no preço; por visita, fixa e custo de outra atividade ficam fora; as contas travadas (imposto, taxa, perda, compras) não se escolhem. O simulador aceita uma **cotação de reposição** opcional (só para simular). Excel e PDF trazem a margem de contribuição, a contribuição por unidade, o resultado após rateio e se está validado. Não visto no navegador logado (sem credencial); specs com API mockada.
+
 ### Precificação enxuta (`optimize-products-and-pricing-screens`)
 
 A tela é só **análise, simulação e aprovação**, lendo o cadastro central: não repete formulário de cadastro nem importação (no detalhe, **Editar cadastro** leva ao produto em `/products`; `?sku=` abre o detalhe de um produto direto).

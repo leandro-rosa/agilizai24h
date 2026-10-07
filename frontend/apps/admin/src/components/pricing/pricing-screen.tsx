@@ -25,7 +25,7 @@ import { PendingProducts } from "./pending-products";
 import { ProductsTable } from "./products-table";
 import { RulesDialog } from "./rules-dialog";
 import { ScopeBar } from "./scope-bar";
-import { setupNotes, SetupBanner } from "./setup-banner";
+import { setupNotes, SetupBanner, ValidationAlert } from "./setup-banner";
 import { CategoriesSection, CostChangesSection, OpportunitiesSection } from "./support-sections";
 import { SummaryCards } from "./summary-cards";
 
@@ -193,6 +193,7 @@ export function PricingScreen({ embedded = false }: { embedded?: boolean }) {
                     </p>
                   )}
 
+                  <ValidationAlert latest={latest ?? null} onOpenRules={() => setRulesOpen(true)} />
                   <SetupBanner notes={notes} onOpenRules={() => setRulesOpen(true)} />
                   <SummaryCards summary={report.summary} />
                   <PendingProducts groups={report.summary.pending ?? []} products={products} onOpen={setSelected} />
@@ -227,7 +228,7 @@ export function PricingScreen({ embedded = false }: { embedded?: boolean }) {
         }}
       />
 
-      <RulesDialog open={rulesOpen} onOpenChange={setRulesOpen} categories={options.categories} canEdit={canWrite} />
+      <RulesDialog open={rulesOpen} onOpenChange={setRulesOpen} categories={options.categories} canEdit={canWrite} operating={report?.meta.operating ?? null} />
     </div>
   );
 }

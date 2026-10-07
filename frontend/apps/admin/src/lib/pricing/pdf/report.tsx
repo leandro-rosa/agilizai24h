@@ -133,7 +133,7 @@ export function PricingReport({ model, meta }: { model: ExportModel; meta: Prici
         <Header model={model} meta={meta} />
 
         <Text style={s.h2}>Produtos abaixo da meta</Text>
-        <Cols header widths={[30, 14, 14, 14, 14, 14]} cells={["Produto", "Margem atual", "Preço atual", "Recomendado", "Impacto (mês)", "Confiança"]} />
+        <Cols header widths={[30, 14, 14, 14, 14, 14]} cells={["Produto", "Margem de contribuição", "Preço atual", "Recomendado", "Impacto (mês)", "Confiança"]} />
         {model.belowTarget.slice(0, 15).map((product) => (
           <Cols key={product.sku} widths={[30, 14, 14, 14, 14, 14]} cells={[product.name ?? product.sku, pct(product.currentMargin), brl(product.currentPriceCents), brl(product.recommendedPriceCents), signedBrl(product.impactCentsPerMonth), CONFIDENCE_LABEL[product.confidence]]} />
         ))}

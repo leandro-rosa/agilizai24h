@@ -15,6 +15,8 @@ export interface Simulation {
   differenceToTarget: number
   targetMargin: number
   impactLabel: 'Impacto potencial estimado'
+  /** Set when the simulation used a replacement quote the user typed instead of the report's cost: a third cost basis, never a purchase. */
+  replacementCostCents?: number
 }
 
 export interface NotSimulable {
@@ -35,13 +37,15 @@ export function assertPrice(value: unknown): number {
  * The same arithmetic as the engine over the stored cost structure, so a simulated price and a recommended price are
  * comparable. Reads nothing and writes nothing.
  */
-export function simulate(input: { structure: CostStructure | null; currentPriceCents: number | null; monthlyUnits: number; targetMargin: number; priceCents: number }): Simulation | NotSimulable {
+export function simulate(input: { structure: CostStructure | null; currentPriceCents: number | null; monthlyUnits: number; targetMargin: number; priceCents: number; replacementCostCents?: number | null }): Simulation | NotSimulable {
   const { structure, currentPriceCents } = input
   if (!structure) return { simulable: false, reason: 'O produto não tem estrutura de custos calculada (dados insuficientes).' }
   if (currentPriceCents === null || currentPriceCents <= 0) return { simulable: false, reason: 'O produto não tem preço atual.' }
 
   const variableShare = structure.taxRate + structure.paymentRate + structure.operatingShare
-  const unitCost = structure.lossAdjustedCostCents + structure.paymentFixedCents
+  // A replacement quote the user typed replaces the cost of the goods only, and is carried by the same loss; the per-sale and per-transaction money stays.
+  const goods = input.replacementCostCents && input.replacementCostCents > 0 ? input.replacementCostCents / (1 - structure.lossRate) : structure.lossAdjustedCostCents
+  const unitCost = goods + structure.paymentFixedCents + (structure.perTransactionCents ?? 0)
   const unitProfit = (price: number) => price * (1 - variableShare) - unitCost
   const margin = unitProfit(input.priceCents) / input.priceCents
 
@@ -49,7 +53,7 @@ export function simulate(input: { structure: CostStructure | null; currentPriceC
     simulable: true,
     priceCents: input.priceCents,
     margin,
-    markup: input.priceCents / structure.productCostCents,
+    markup: input.priceCents / (input.replacementCostCents && input.replacementCostCents > 0 ? input.replacementCostCents : structure.productCostCents),
     unitProfitCents: unitProfit(input.priceCents),
     currentPriceCents,
     currentMargin: unitProfit(currentPriceCents) / currentPriceCents,
@@ -57,5 +61,6 @@ export function simulate(input: { structure: CostStructure | null; currentPriceC
     differenceToTarget: margin - input.targetMargin,
     targetMargin: input.targetMargin,
     impactLabel: 'Impacto potencial estimado',
+    ...(input.replacementCostCents && input.replacementCostCents > 0 ? { replacementCostCents: input.replacementCostCents } : {}),
   }
 }

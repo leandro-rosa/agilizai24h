@@ -1,13 +1,23 @@
 /**
- * Recorded on every result and stored run so a number can be reproduced. pricing-3 adds coverage, pending reasons and the newer-cost flag to the report (the formulas are unchanged). pricing-2: the confidence rubric reads the real origin of the cost
+ * Recorded on every result and stored run so a number can be reproduced. pricing-4: the margin the target applies to is the CONTRIBUTION margin (price minus
+ * cost with loss, tax, payment fees, per-sale costs and the percentage-of-sales expenses); every DRE account is classified by how it behaves, per-visit,
+ * fixed and other-activity costs leave the price, and the results say whether the classification is complete. pricing-3 adds coverage, pending reasons and the newer-cost flag to the report (the formulas are unchanged). pricing-2: the confidence rubric reads the real origin of the cost
  * (invoice-backed or not), and results carry `costOrigin` and `newProduct`; the price solved from a cost structure is unchanged.
  */
-export const ENGINE_VERSION = 'pricing-3'
+export const ENGINE_VERSION = 'pricing-4'
 
 export const PAYMENT_METHODS = ['pix', 'debit', 'credit', 'voucher'] as const
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number]
 
 export const ANALYSIS_ONLY_STATEMENT = 'Rateio operacional utilizado exclusivamente para análise de preço. Não representa novo lançamento financeiro.'
+
+/**
+ * How a DRE account behaves against the price of ONE product. Only `percent_of_sales` and `per_transaction` are part of the price (the contribution margin);
+ * `per_visit`, `fixed` and `other_revenue_cost` belong to the viability of the operation; `already_component` is carried directly (tax, payment fees, loss,
+ * purchases) and must never come in again through the allocation.
+ */
+export const OPERATING_CLASSES = ['percent_of_sales', 'per_transaction', 'per_visit', 'fixed', 'other_revenue_cost', 'already_component'] as const
+export type OperatingClass = (typeof OPERATING_CLASSES)[number]
 
 /** Rates are basis points (139 = 1.39%), margins and shares are fractions (0.35 = 35%). */
 export interface PricingParameters {
@@ -37,6 +47,12 @@ export interface PricingParameters {
     lossMinUnits: number
     costMaxAgeDays: number
     stableCostBps: number
+  }
+  operating: {
+    /** DRE account code → class. An account of the price-relevant sections that is not here is UNCLASSIFIED: listed, outside the price, and the result is marked not validated. */
+    accountBehavior: Record<string, OperatingClass>
+    /** Unclassified expenses above this share of store revenue (basis points) make the calculation incomplete and every recommendation not validated. */
+    unclassifiedRelevantBps: number
   }
   payment: {
     /**

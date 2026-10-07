@@ -1,4 +1,16 @@
-import type { PricingParameters } from "@/lib/api/pricing";
+import type { OperatingClass, PricingParameters } from "@/lib/api/pricing";
+
+export const OPERATING_CLASS_LABEL: Record<OperatingClass, string> = {
+  percent_of_sales: "Percentual da venda (entra no preço)",
+  per_transaction: "Por transação (entra no preço, por unidade)",
+  per_visit: "Por visita (rota ou loja, fora do preço)",
+  fixed: "Fixa (resultado operacional, fora do preço)",
+  other_revenue_cost: "Custo de outra atividade (coffee break, frutas; fora do preço)",
+  already_component: "Já é imposto, taxa, perda ou compra (não entra de novo)",
+};
+
+/** As classes que o dono pode escolher para uma conta; a de componente já embutido só existe para as contas travadas. */
+export const SELECTABLE_CLASSES: OperatingClass[] = ["percent_of_sales", "per_transaction", "per_visit", "fixed", "other_revenue_cost"];
 
 /** O que o dono digita: percentuais e reais em texto. O backend guarda basis points e centavos. */
 export interface RulesForm {
@@ -14,6 +26,8 @@ export interface RulesForm {
   taxRatePct: string;
   /** Uma linha por apelido: `nome_na_venda=nome_cadastrado`. */
   aliases: string;
+  /** Conta da DRE (código) → classe. Conta ausente = sem classificação. */
+  behavior: Record<string, string>;
 }
 
 const num = (text: string): number | null => {
@@ -36,6 +50,7 @@ export function toForm(params: PricingParameters): RulesForm {
     minConfidence: params.minConfidence,
     taxRatePct: params.taxRateBps === null ? "" : pct(params.taxRateBps),
     aliases: Object.entries(params.payment.brandAliases).map(([from, to]) => `${from}=${to}`).join("\n"),
+    behavior: { ...(params.operating?.accountBehavior ?? {}) },
   };
 }
 
@@ -126,5 +141,11 @@ export function buildPatch(form: RulesForm, current: PricingParameters): BuildRe
   if (aliases === null) invalid.push("Apelidos de bandeira (use nome=nome, um por linha)");
   else if (JSON.stringify(aliases) !== JSON.stringify(current.payment.brandAliases)) group("payment", { brandAliases: aliases });
 
+  // A classificação vai inteira (o backend troca o mapa todo) e só quando mudou; escolher "sem classe" tira a conta do mapa.
+  const behavior = Object.fromEntries(Object.entries(form.behavior).filter(([, value]) => value !== ""));
+  if (JSON.stringify(sortKeys(behavior)) !== JSON.stringify(sortKeys(current.operating?.accountBehavior ?? {}))) group("operating", { accountBehavior: behavior });
+
   return { patch, invalid };
 }
+
+const sortKeys = (record: Record<string, string>) => Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));

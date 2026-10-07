@@ -63,3 +63,34 @@ describe('suggestNewProduct', () => {
     expect(result.insufficientReasons).toHaveLength(1)
   })
 })
+
+describe('suggestNewProduct — classification and the unreachable target', () => {
+  const context = { perVisitShare: 0.01, fixedShare: 0.04, complete: true, unclassifiedCents: 0, unclassifiedShare: 0, unclassified: [], months: ['2026-09'], perTransactionAssumption: null, scope: 'rede', legacyShare: 0.07, shifts: [], perTransactionLegacyShare: 0 }
+
+  it('is validated only with a complete classification, and says what is missing otherwise', () => {
+    expect(suggestNewProduct(input({ operating: context })).validated).toBe(true)
+    expect(suggestNewProduct(input()).validated).toBe(false)
+
+    const incomplete = suggestNewProduct(input({ operating: { ...context, complete: false, unclassifiedCents: 90_000, unclassifiedShare: 0.03, unclassified: [{ code: '4.2.07', label: 'Marketing', amountCents: 90_000 }] } }))
+    expect(incomplete.validated).toBe(false)
+    expect(incomplete.validationNotes.join(' ')).toContain('Cálculo incompleto: R$ 900,00')
+    expect(incomplete.suggestedPriceCents).toBe(610) // still shown, never as validated
+  })
+
+  it('a per-transaction cost per unit raises the suggestion and is listed in the data used, with its hypothesis in the notes', () => {
+    const plain = suggestNewProduct(input({ operating: context }))
+    const withTransaction = suggestNewProduct(input({ operating: { ...context, perTransactionAssumption: 'Cada linha de venda conta como um ticket' }, perTransactionPerUnitCents: 20 }))
+
+    expect(withTransaction.suggestedPriceCents as number).toBeGreaterThan(plain.suggestedPriceCents as number)
+    expect(withTransaction.dataUsed.find(d => d.code === 'operating')?.value).toContain('R$ 0,20 por unidade')
+    expect(withTransaction.validationNotes).toContain('Cada linha de venda conta como um ticket')
+  })
+
+  it('gives no price, and says the target is not reachable by the formula, when the percentages leave no room for the margin', () => {
+    const result = suggestNewProduct(input({ operatingShare: 0.6, operating: context }))
+
+    expect(result.status).toBe('insufficient_data')
+    expect(result.suggestedPriceCents).toBeNull()
+    expect(result.insufficientReasons[0]).toMatch(/não é alcançável pela fórmula/)
+  })
+})

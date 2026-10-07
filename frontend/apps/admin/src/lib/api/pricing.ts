@@ -22,9 +22,42 @@ export interface CostStructure {
   paymentFixedCents: number;
   voucherShare: number;
   voucherBasis: "sales_weighted" | "simple_average" | "none";
+  /** Despesas que acompanham o valor da venda (percentual da venda), como fração do preço. Custo fixo e deslocamento não entram aqui. */
   operatingShare: number;
+  /** Custo por transação por unidade vendida, em centavos (valor, não percentual). Ausente em relatório guardado antes do `pricing-4`. */
+  perTransactionCents?: number;
   /** "Rateio operacional utilizado exclusivamente para análise de preço…" */
   statement: string;
+}
+
+export type CostBasis = "received_purchase" | "registry_or_manual";
+
+export interface CostBases {
+  historical: { costCents: number; effectiveFrom: string; source: string | null; basis: CostBasis } | null;
+  lastPurchase: { costCents: number; effectiveFrom: string; invoiceNumber: string | null } | null;
+  registry: { costCents: number; effectiveFrom: string; source: string } | null;
+}
+
+export type OperatingClass = "percent_of_sales" | "per_transaction" | "per_visit" | "fixed" | "other_revenue_cost" | "already_component";
+
+export interface OperatingAccount {
+  code: string;
+  label: string;
+  amountCents: number;
+}
+
+export interface OperatingReport {
+  scope: string;
+  months: string[];
+  revenueCents: number;
+  complete: boolean;
+  unclassified: OperatingAccount[];
+  unclassifiedCents: number;
+  unclassifiedShare: number;
+  classes: Record<OperatingClass, { costCents: number; share: number; accounts: OperatingAccount[] }>;
+  percentOfSalesShare: number;
+  perTransaction: { perUnitCents: number; assumption: string } | null;
+  legacy: { share: number; costCents: number; accounts: OperatingAccount[] };
 }
 
 export interface Reason {
@@ -36,7 +69,20 @@ export interface PricingProduct {
   sku: string;
   name: string | null;
   /** Um custo registrado DEPOIS do fim do período analisado: aparece ao lado, nunca como o custo do período. */
-  newerCost?: { costCents: number; effectiveFrom: string; source: string } | null;
+  newerCost?: { costCents: number; effectiveFrom: string; source: string; basis?: CostBasis } | null;
+  /** As bases de custo, separadas: o custo histórico do diagnóstico, a última compra recebida (com ou sem NF) e o custo cadastral ou manual em vigor hoje. */
+  costBases?: CostBases;
+  /** O diagnóstico refeito ao custo da última compra recebida ("sugestão atual"), quando esse custo difere do do período. */
+  atLastPurchaseCost?: { basis: CostBasis; costCents: number; effectiveFrom: string; targetPriceCents: number | null; marginAtCurrentPrice: number | null } | null;
+  /** Contribuição por unidade, em centavos, ao preço atual. */
+  unitContributionCents?: number | null;
+  /** Contribuição menos deslocamento e custos fixos rateados: complementar, com o critério à vista; nunca "lucro líquido". */
+  estimatedResultAfterAllocation?: { centsPerUnit: number; margin: number; criterion: string } | null;
+  /** Falso quando há despesa relevante sem classificação: o número aparece, mas nunca como validado. */
+  validated?: boolean;
+  validationNotes?: string[];
+  /** Por que a margem difere da que o modelo anterior (pricing-3) mostrava, linha a linha. */
+  reconciliation?: { oldMargin: number; newMargin: number; lines: { label: string; points: number }[]; unexplainedPoints: number } | null;
   /** De onde vem o custo em vigor, como o cadastro de produtos diz: a origem, o dia em que passou a valer e, se foi uma nota, o número. */
   costOrigin?: { source: string; effectiveFrom: string; invoiceNumber: string | null } | null;
   /** Cadastrado a partir de uma nota dentro da janela analisada ("Produto novo"); `noSalesHistory` quando ainda não vendeu nela. */
@@ -126,7 +172,10 @@ export interface PricingReportMeta {
     components: { method: PaymentMethod; share: number; rateBps: number }[];
   } | null;
   paymentMixMonthsWithoutTransactions: string[];
-  operating: { share: number; months: string[]; accounts: { code: string; label: string; amountCents: number }[] } | null;
+  /** Relatórios guardados antes do `pricing-4` trazem só `{ share, months, accounts }`. */
+  operating: OperatingReport | { share: number; months: string[]; accounts: OperatingAccount[] } | null;
+  /** Falso quando há despesa relevante sem classe: nada do relatório está validado. */
+  validated?: boolean;
   notes: string[];
 }
 
@@ -213,6 +262,8 @@ export type Simulation =
       differenceToTarget: number;
       targetMargin: number;
       impactLabel: "Impacto potencial estimado";
+      /** Presente quando a simulação usou uma cotação de reposição digitada no lugar do custo do relatório. */
+      replacementCostCents?: number;
       reportRunId: string;
     }
   | { simulable: false; reason: string; reportRunId: string };
@@ -256,6 +307,8 @@ export interface PricingParameters {
     costMaxAgeDays: number;
     stableCostBps: number;
   };
+  /** Como cada conta da DRE se comporta frente ao preço de UM produto; conta sem classe fica fora do preço e o cálculo sai incompleto. */
+  operating: { accountBehavior: Record<string, OperatingClass>; unclassifiedRelevantBps: number };
   payment: { brandAliases: Record<string, string> };
   minConfidence: "low" | "medium" | "high";
 }
@@ -334,11 +387,11 @@ export const pricingApi = createApi({
     getProductStores: builder.query<ProductStores, { sku: string; period: string }>({
       query: ({ sku, period }) => `/pricing/products/${encodeURIComponent(sku)}/stores?period=${period}`,
     }),
-    simulatePrice: builder.mutation<Simulation, ScopeArgs & { sku: string; priceCents: number }>({
-      query: ({ sku, priceCents, period, storeId }) => ({
+    simulatePrice: builder.mutation<Simulation, ScopeArgs & { sku: string; priceCents: number; /** Cotação de reposição digitada: só para simular, nunca tomada como compra. */ replacementCostCents?: number | null }>({
+      query: ({ sku, priceCents, replacementCostCents, period, storeId }) => ({
         url: `/pricing/products/${encodeURIComponent(sku)}/simulate`,
         method: "POST",
-        body: { priceCents, period, storeId },
+        body: { priceCents, ...(replacementCostCents ? { replacementCostCents } : {}), period, storeId },
       }),
     }),
     getPricingDecisions: builder.query<DecisionView[], { sku?: string; limit?: number } | void>({

@@ -11,9 +11,10 @@ import { SuppliersClient } from '../sources/suppliers.client'
 import { SupplyClient } from '../sources/supply.client'
 import { TreasuryClient } from '../sources/treasury.client'
 import { chooseLoss, type LossObservation } from './loss'
-import { operatingShare, type OperatingShare } from './operating-share'
+import { legacyShifts, operatingCosts, type OperatingCosts } from './operating-costs'
+import { perUnitTransactionCost } from './transaction-cost'
 import { paymentCost, type FeeRate, type MixRow } from './payment-cost'
-import { computePrice, type PriceInput, type PriceResult } from './price'
+import { computePrice, costBasisOf, type OperatingContext, type PriceInput, type PriceResult } from './price'
 import { PricingParametersService } from './pricing-parameters.service'
 import { suggestNewProduct, type NewProductSuggestion } from './new-product'
 import { ENGINE_VERSION, type PaymentCost } from './pricing.types'
@@ -37,12 +38,31 @@ export interface PricingReport {
     /** Explains how the shared components were built, so no number is read as more certain than it is. */
     payment: Pick<PaymentCost, 'voucherShare' | 'voucherBasis' | 'unresolvedShare' | 'complete' | 'notes' | 'components'> & { rate: number } | null
     paymentMixMonthsWithoutTransactions: string[]
-    operating: Pick<OperatingShare, 'share' | 'months' | 'accounts'> | null
+    /** How every DRE expense was treated (the classes), what is still unclassified, and whether the classification is complete. */
+    operating: OperatingReport | null
+    /** False when relevant expenses have no class yet: nothing in this report is validated. */
+    validated: boolean
     notes: string[]
   }
   summary: PricingSummary
   categories: CategorySummary[]
   products: PriceResult[]
+}
+
+/** The operating costs as the report states them: per class, with the shares and the accounts, plus the old method's total to reconcile with. */
+export interface OperatingReport {
+  scope: string
+  months: string[]
+  revenueCents: number
+  complete: boolean
+  unclassified: OperatingCosts['unclassified']
+  unclassifiedCents: number
+  unclassifiedShare: number
+  classes: OperatingCosts['classes']
+  /** The share of revenue that enters the price as a percentage, and the per-transaction cost per sold unit (centavos) with its hypothesis. */
+  percentOfSalesShare: number
+  perTransaction: { perUnitCents: number; assumption: string } | null
+  legacy: OperatingCosts['legacy']
 }
 
 const DAY_MS = 86_400_000
@@ -93,7 +113,9 @@ export class PricingService {
     if (fees.rates.length === 0) notes.push('Nenhuma taxa de pagamento cadastrada.')
     if (fees.methods_without_rate.length > 0 && fees.rates.length > 0) notes.push(`Métodos sem taxa cadastrada: ${fees.methods_without_rate.join(', ')}.`)
     if (mix.periods_without_transactions.length > 0) notes.push(`Meses sem detalhe de vendas por meio de pagamento: ${mix.periods_without_transactions.join(', ')}.`)
-    if (!operating) notes.push('Sem DRE com receita de lojas no período: rateio operacional indisponível.')
+    if (!operating) notes.push('Sem DRE com receita de lojas no período: despesas operacionais indisponíveis.')
+    else if (!operating.complete) notes.push(`Cálculo incompleto: ${operating.unclassified.length} despesa(s) sem classificação somam ${(operating.unclassifiedCents / 100).toFixed(2).replace('.', ',')} (${(operating.unclassifiedShare * 100).toFixed(2).replace('.', ',')}% da receita de vendas das lojas). Nenhuma recomendação está validada até serem classificadas em Regras de negócio.`)
+    if (c.operatingReport?.perTransaction) notes.push(c.operatingReport.perTransaction.assumption)
 
     return {
       meta: {
@@ -104,7 +126,8 @@ export class PricingService {
         storeId: query.storeId ?? null,
         payment: payment ? { rate: payment.rate, voucherShare: payment.voucherShare, voucherBasis: payment.voucherBasis, unresolvedShare: payment.unresolvedShare, complete: payment.complete, notes: payment.notes, components: payment.components } : null,
         paymentMixMonthsWithoutTransactions: mix.periods_without_transactions,
-        operating: operating ? { share: operating.share, months: operating.months, accounts: operating.accounts } : null,
+        operating: c.operatingReport,
+        validated: operating !== null && operating.complete,
         notes,
       },
       summary: summarise(results, params.margin.targetBps / 10_000, revenueBySku),
@@ -160,7 +183,9 @@ export class PricingService {
       monthlyUnits: 0,
       loss: c.lossFor(category),
       payment: c.payment,
-      operatingShare: c.operating?.share ?? null,
+      operatingShare: c.operatingCosts?.classes.percent_of_sales.share ?? null,
+      perTransactionPerUnitCents: c.perTransactionPerUnitCents,
+      operating: c.operating,
       params: c.params,
       costLabel: input.costLabel ?? 'Custo informado no cadastro',
       costNotReceived: false,
@@ -196,11 +221,14 @@ export class PricingService {
     const none = (asOfDate: string) => Promise.resolve({ as_of: asOfDate, resolved: [], unresolved: [], complete: true })
     const noPrices = (asOfDate: string) => Promise.resolve({ resolved: [], unresolved: [], complete: true, asOf: asOfDate })
     const noSkus = skus.length === 0
-    const [facts, costsNow, costsLatest, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased, categoryRows] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10)
+    const [facts, costsNow, costsLatest, costsPurchases, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased, categoryRows] = await Promise.all([
       Promise.all(months.map(month => this.loader.month(month, stores, correlationId))),
       noSkus ? none(asOf) : this.products.costsAsOf(skus, asOf, correlationId),
       // The cost in force TODAY, only to tell a cost newer than the period apart from the period's own cost.
-      noSkus ? none(asOf) : this.products.costsAsOf(skus, new Date().toISOString().slice(0, 10), correlationId),
+      noSkus ? none(asOf) : this.products.costsAsOf(skus, today, correlationId),
+      // The last RECEIVED purchase (with or without an invoice number), by the day it was received; a manual or cadastral version never stands in for it.
+      noSkus ? none(asOf) : this.products.costsAsOf(skus, today, correlationId, ['invoice']),
       noSkus ? none(beforeWindow) : this.products.costsAsOf(skus, beforeWindow, correlationId),
       noSkus ? noPrices(asOf) : this.products.pricesAsOf(skus, asOf, correlationId),
       noSkus ? noPrices(beforeWindow) : this.products.pricesAsOf(skus, beforeWindow, correlationId),
@@ -246,10 +274,50 @@ export class PricingService {
     const rates: FeeRate[] = fees.rates.map(rate => ({ acquirer: rate.acquirer, method: rate.payment_method, rateBps: rate.rate_bps, fixedCents: rate.fixed_cents ?? 0 }))
     const mixRows: MixRow[] = mix.rows.map(row => ({ method: row.method, acquirer: row.acquirer, cardBrand: row.card_brand, receiptLines: row.receipt_lines, amountCents: row.amount_paid_cents }))
     const payment = paymentCost(rates, mixRows, params.data.voucherMinReceiptLines, params.payment.brandAliases)
-    const operating = operatingShare(pnls)
+    const operating = operatingCosts(pnls, params.operating.accountBehavior, params.operating.unclassifiedRelevantBps)
+    const scopeLabel = query.storeId === undefined ? 'rede' : `loja ${query.storeId}`
+
+    // Per-transaction expenses reach a product through the units it sells (ticket → units), not as a share of revenue.
+    const units = [...bySku.values()].reduce((sum, entry) => sum + entry.sold, 0)
+    const tickets = mixRows.reduce((sum, row) => sum + row.receiptLines, 0)
+    const perTransactionTotal = operating?.classes.per_transaction.costCents ?? 0
+    const perTransaction = operating ? perUnitTransactionCost(perTransactionTotal, tickets, units > 0 ? tickets / units : 0, scopeLabel) : null
+    const shifted = operating ? legacyShifts(operating) : null
+    const operatingContext: OperatingContext | null = operating
+      ? {
+          legacyShare: operating.legacy.share,
+          shifts: shifted?.shifts ?? [],
+          perTransactionLegacyShare: shifted?.perTransactionLegacyShare ?? 0,
+          perVisitShare: operating.classes.per_visit.share,
+          fixedShare: operating.classes.fixed.share,
+          complete: operating.complete && perTransaction !== null,
+          unclassifiedCents: operating.unclassifiedCents,
+          unclassifiedShare: operating.unclassifiedShare,
+          unclassified: operating.unclassified,
+          months: operating.months,
+          perTransactionAssumption: perTransactionTotal > 0 ? (perTransaction?.assumption ?? 'Sem tickets ou unidades no período: o custo por transação não pôde ser distribuído') : null,
+          scope: scopeLabel,
+        }
+      : null
+    const operatingReport: OperatingReport | null = operating
+      ? {
+          scope: scopeLabel,
+          months: operating.months,
+          revenueCents: operating.revenueCents,
+          complete: operatingContext?.complete ?? false,
+          unclassified: operating.unclassified,
+          unclassifiedCents: operating.unclassifiedCents,
+          unclassifiedShare: operating.unclassifiedShare,
+          classes: operating.classes,
+          percentOfSalesShare: operating.classes.percent_of_sales.share,
+          perTransaction: perTransactionTotal > 0 && perTransaction ? perTransaction : null,
+          legacy: operating.legacy,
+        }
+      : null
 
     const costNow = new Map(costsNow.resolved.map(cost => [cost.sku, cost]))
     const costLatest = new Map(costsLatest.resolved.map(cost => [cost.sku, cost]))
+    const costPurchase = new Map(costsPurchases.resolved.map(cost => [cost.sku, cost]))
     const costBefore = new Map(costsBefore.resolved.map(cost => [cost.sku, cost.cost_cents]))
     const priceNow = new Map(pricesNow.resolved.map(price => [price.sku, price.price_cents]))
     const priceBefore = new Map(pricesBefore.resolved.map(price => [price.sku, price.price_cents]))
@@ -277,9 +345,19 @@ export class PricingService {
         costCents: cost?.cost_cents ?? null,
         costAgeDays: cost ? daysBetween(cost.effective_from, asOf) : null,
         costFromPurchase: purchased.has(sku),
-        newerCost: ((): { costCents: number; effectiveFrom: string; source: string } | null => {
+        newerCost: ((): { costCents: number; effectiveFrom: string; source: string; basis: ReturnType<typeof costBasisOf> } | null => {
           const latest = costLatest.get(sku)
-          return latest && latest.effective_from > asOf && latest.cost_cents !== cost?.cost_cents ? { costCents: latest.cost_cents, effectiveFrom: latest.effective_from, source: latest.source ?? 'other' } : null
+          return latest && latest.effective_from > asOf && latest.cost_cents !== cost?.cost_cents
+            ? { costCents: latest.cost_cents, effectiveFrom: latest.effective_from, source: latest.source ?? 'other', basis: costBasisOf(latest.source) }
+            : null
+        })(),
+        lastPurchaseCost: ((): { costCents: number; effectiveFrom: string; invoiceNumber: string | null } | null => {
+          const purchase = costPurchase.get(sku)
+          return purchase ? { costCents: purchase.cost_cents, effectiveFrom: purchase.effective_from, invoiceNumber: purchase.invoice_number ?? null } : null
+        })(),
+        registryCost: ((): { costCents: number; effectiveFrom: string; source: string } | null => {
+          const latest = costLatest.get(sku)
+          return latest && costBasisOf(latest.source) === 'registry_or_manual' ? { costCents: latest.cost_cents, effectiveFrom: latest.effective_from, source: latest.source ?? 'other' } : null
         })(),
         costOrigin: cost?.source ? { source: cost.source, effectiveFrom: cost.effective_from, invoiceNumber: cost.invoice_number ?? null } : null,
         costFlaggedUnreliable: false,
@@ -298,7 +376,9 @@ export class PricingService {
           params.data.lossMinUnits,
         ),
         payment,
-        operatingShare: operating?.share ?? null,
+        operatingShare: operating?.classes.percent_of_sales.share ?? null,
+        perTransactionPerUnitCents: perTransaction?.perUnitCents ?? 0,
+        operating: operatingContext,
         params,
       }
 
@@ -311,7 +391,7 @@ export class PricingService {
     const lossFor = (categoryKey: string | null) =>
       chooseLoss({ product: null, category: categoryKey ? byCat.get(categoryKey) : null, store: query.storeId !== undefined ? scope : null, network: query.storeId === undefined ? scope : null }, params.data.lossMinUnits)
 
-    return { version, params, months, asOf, fees, mix, payment, operating, inputs, revenueBySku, lossFor, categoryNames }
+    return { version, params, months, asOf, fees, mix, payment, operating: operatingContext, operatingCosts: operating, operatingReport, perTransactionPerUnitCents: perTransaction?.perUnitCents ?? 0, inputs, revenueBySku, lossFor, categoryNames }
   }
 
   /** One product, computed from the same inputs as the report. */

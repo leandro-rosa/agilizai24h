@@ -140,7 +140,7 @@ describe("Detalhe do produto — como o número foi calculado", () => {
     expect(section).toHaveTextContent("origem: Nota fiscal 13021 · desde 15/08/2026");
     expect(section).toHaveTextContent("Imposto 7,07% · taxas de pagamento 2,00%");
     expect(section).toHaveTextContent("perda 2,0% (do produto)");
-    expect(section).toHaveTextContent("Margem econômica: o que sobra do preço");
+    expect(section).toHaveTextContent("Margem de contribuição: o que sobra do preço");
     expect(section).toHaveTextContent("35% (meta padrão) · margem mínima 30%");
     expect(section).toHaveTextContent("supõe o mesmo volume de vendas");
   });
@@ -157,7 +157,7 @@ describe("Detalhe do produto — como o número foi calculado", () => {
     open(product({ newerCost: { costCents: 350, effectiveFrom: "2026-10-10", source: "invoice" } }));
 
     const section = screen.getByRole("heading", { name: "Como este número foi calculado" }).closest("section") as HTMLElement;
-    expect(section).toHaveTextContent("O cadastro tem um custo mais novo (R$ 3,50, desde 10/10/2026). Este período é histórico: o custo novo não entra nele.");
+    expect(section).toHaveTextContent("O cadastro tem um custo mais novo (R$ 3,50, desde 10/10/2026, de compra recebida). Este período é histórico: o custo novo não entra nele");
   });
 
   it("uma meta de categoria é dita como tal", () => {
@@ -167,19 +167,137 @@ describe("Detalhe do produto — como o número foi calculado", () => {
   });
 });
 
+describe("Detalhe do produto — os três números, as três bases de custo e a validação", () => {
+  const open = (p: PricingProduct, meta: Record<string, unknown> = {}) => {
+    searchParams = new URLSearchParams(`sku=${p.sku}`);
+    const base = report([p]);
+    latest = { ...latest, report: { ...base, meta: { ...base.meta, ...meta } } };
+    render(<PricingScreen />);
+  };
+  const contribution = {
+    unitContributionCents: 210.9,
+    estimatedResultAfterAllocation: { centsPerUnit: 181.4, margin: 0.307, criterion: "Contribuição menos deslocamento por visita e custos fixos (5,0% da receita de vendas das lojas, rede, 2026-09) aplicados ao preço; é uma estimativa que depende deste critério, não o lucro líquido" },
+    validated: true,
+    validationNotes: [],
+    costBases: {
+      historical: { costCents: 309, effectiveFrom: "2026-08-15", source: "invoice", basis: "received_purchase" },
+      lastPurchase: { costCents: 350, effectiveFrom: "2026-10-02", invoiceNumber: "13990" },
+      registry: { costCents: 400, effectiveFrom: "2026-10-04", source: "manual" },
+    },
+    atLastPurchaseCost: { basis: "received_purchase", costCents: 350, effectiveFrom: "2026-10-02", targetPriceCents: 690, marginAtCurrentPrice: 0.26 },
+    reconciliation: { oldMargin: 0.32, newMargin: 0.37, lines: [{ label: "Custos fixos saíram do preço (resultado operacional e ponto de equilíbrio)", points: 0.04 }, { label: "Deslocamento por visita saiu do preço (viabilidade da rota ou loja)", points: 0.01 }], unexplainedPoints: 0 },
+  } satisfies Partial<PricingProduct>;
+
+  it("mostra a margem de contribuição, a contribuição por unidade e o resultado após rateio com o critério, sem chamá-lo de lucro", () => {
+    open(product(contribution as Partial<PricingProduct>));
+
+    expect(screen.getByText("Margem de contribuição", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("Contribuição por unidade", { selector: "p" }).parentElement).toHaveTextContent("R$ 2,11");
+    const result = screen.getByText("Resultado após rateio (estimativa)", { selector: "p" }).parentElement as HTMLElement;
+    expect(result).toHaveTextContent("30,7%");
+    expect(result).toHaveTextContent("não é lucro líquido");
+    expect(screen.getByText(/Resultado após rateio: Contribuição menos deslocamento por visita e custos fixos/)).toHaveTextContent("rede, 2026-09");
+  });
+
+  it("separa o custo histórico, a última compra recebida e o custo manual, e nunca chama o manual de compra confirmada", () => {
+    open(product(contribution as Partial<PricingProduct>));
+
+    const section = screen.getByRole("heading", { name: "Qual custo é este?" }).closest("section") as HTMLElement;
+    expect(section).toHaveTextContent("R$ 3,09 desde 15/08/2026 · compra recebida e confirmada");
+    expect(section).toHaveTextContent("R$ 3,50, recebida em 02/10/2026 · nota 13990");
+    expect(section).toHaveTextContent("R$ 4,00 desde 04/10/2026 · origem: digitado à mão");
+    expect(section).toHaveTextContent("Não é uma compra confirmada");
+    expect(section).toHaveTextContent("Sugestão atual, ao custo da última compra recebida");
+    expect(section).toHaveTextContent("preço-meta R$ 6,90");
+    expect(section).toHaveTextContent("não garante o custo exato de cada venda do mês");
+  });
+
+  it("uma compra sem nota aparece como compra recebida sem nota, e sem compra o texto diz que não há", () => {
+    open(product({ ...(contribution as Partial<PricingProduct>), costBases: { historical: null, lastPurchase: { costCents: 350, effectiveFrom: "2026-10-02", invoiceNumber: null }, registry: null }, atLastPurchaseCost: null }));
+    expect(screen.getByRole("heading", { name: "Qual custo é este?" }).closest("section")).toHaveTextContent("recebida em 02/10/2026 · sem nota");
+  });
+
+  it("o custo histórico manual é dito sem compra recebida", () => {
+    open(product({ ...(contribution as Partial<PricingProduct>), costBases: { historical: { costCents: 309, effectiveFrom: "2026-08-15", source: "manual", basis: "registry_or_manual" }, lastPurchase: null, registry: null }, atLastPurchaseCost: null }));
+
+    const section = screen.getByRole("heading", { name: "Qual custo é este?" }).closest("section") as HTMLElement;
+    expect(section).toHaveTextContent("custo cadastral ou manual, sem compra recebida");
+    expect(section).toHaveTextContent("Nenhuma compra recebida registrada");
+  });
+
+  it("não validado: o número aparece, com o selo e as notas de valor, período e escopo", () => {
+    open(product({ ...(contribution as Partial<PricingProduct>), validated: false, validationNotes: ["Cálculo incompleto: R$ 900,00 em despesas sem classificação (0,30% da receita de vendas das lojas, rede, 2026-07, 2026-08, 2026-09): 4.2.07 Marketing"] }));
+
+    expect(screen.getByText("Não validado: despesas sem classificação")).toBeInTheDocument();
+    expect(screen.getByText(/Cálculo incompleto: R\$ 900,00/)).toBeInTheDocument();
+    expect(screen.getByText("R$ 6,50", { selector: "p" })).toBeInTheDocument(); // the recommendation is still there
+  });
+
+  it("validado não mostra selo nem notas de incompletude", () => {
+    open(product(contribution as Partial<PricingProduct>));
+
+    expect(screen.queryByText("Não validado: despesas sem classificação")).not.toBeInTheDocument();
+  });
+
+  it("a comparação com o cálculo anterior lista cada diferença e o que não fecha", () => {
+    open(product(contribution as Partial<PricingProduct>));
+
+    const comparison = screen.getByText(/Comparação com o cálculo anterior/).closest("details") as HTMLElement;
+    expect(comparison).toHaveTextContent("margem econômica 32,0% → contribuição 37,0%");
+    expect(comparison).toHaveTextContent("Custos fixos saíram do preço");
+    expect(comparison).toHaveTextContent("+4,0 p.p.");
+    expect(comparison).toHaveTextContent("Deslocamento por visita saiu do preço");
+    expect(comparison).toHaveTextContent("Não explicado");
+  });
+});
+
+describe("Aviso de cálculo incompleto na tela", () => {
+  const withOperating = (operating: Record<string, unknown> | null) => {
+    const base = report([product(), marmita()]);
+    latest = { ...latest, report: { ...base, meta: { ...base.meta, operating } } };
+  };
+
+  it("é fixo, mostra valor, período e escopo e leva às regras", () => {
+    withOperating({ scope: "rede", months: ["2026-07", "2026-08", "2026-09"], revenueCents: 29_729_312, complete: false, unclassified: [{ code: "4.2.07", label: "Marketing", amountCents: 90_000 }], unclassifiedCents: 90_000, unclassifiedShare: 0.003, classes: {}, percentOfSalesShare: 0.01, perTransaction: null, legacy: { share: 0.2, costCents: 1, accounts: [] } });
+    render(<PricingScreen />);
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Cálculo incompleto: R$ 900,00 em despesas sem classificação");
+    expect(alert).toHaveTextContent("escopo: rede");
+    expect(alert).toHaveTextContent("2026-07, 2026-08, 2026-09");
+    expect(alert).toHaveTextContent("Nenhuma recomendação está validada");
+    expect(screen.getByRole("button", { name: "Classificar despesas" })).toBeInTheDocument();
+  });
+
+  it("sem despesa pendente não há aviso", () => {
+    withOperating({ scope: "rede", months: ["2026-09"], revenueCents: 1, complete: true, unclassified: [], unclassifiedCents: 0, unclassifiedShare: 0, classes: {}, percentOfSalesShare: 0.01, perTransaction: null, legacy: { share: 0.2, costCents: 1, accounts: [] } });
+    render(<PricingScreen />);
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("um relatório do motor anterior diz que a margem dele é a econômica e pede para recalcular", () => {
+    withOperating({ share: 0.2335, months: ["2026-09"], accounts: [] });
+    render(<PricingScreen />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("calculado pelo motor anterior");
+    expect(screen.getByRole("alert")).toHaveTextContent("margem de contribuição, que é a que a meta de 35% orienta");
+  });
+});
+
 describe("ProductsTable — colunas enxutas", () => {
   const props = (rows: PricingProduct[], extra: Record<string, unknown> = {}) => ({ rows, total: rows.length, page: 1, pages: 1, pageSize: 10, onPageChange: jest.fn(), onPageSizeChange: jest.fn(), onOpen: jest.fn(), ...extra });
 
   it("tem produto, custo utilizado, preço vigente, margem, preço sugerido, impacto, situação e Analisar", () => {
     render(<ProductsTable {...props([product()])} />);
 
-    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Produto", "Custo utilizado", "Preço vigente", "Margem atual", "Preço sugerido", "Impacto mensal estimado", "Situação", ""]);
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Produto", "Custo utilizado", "Preço vigente", "Margem de contribuição", "Preço sugerido", "Impacto mensal estimado", "Situação", ""]);
   });
 
   it("o cabeçalho da margem diz o que ela é e o do impacto diz a premissa", () => {
     render(<ProductsTable {...props([product()])} />);
 
-    expect(screen.getByRole("columnheader", { name: "Margem atual" })).toHaveAttribute("title", expect.stringContaining("Margem econômica"));
+    expect(screen.getByRole("columnheader", { name: "Margem de contribuição" })).toHaveAttribute("title", expect.stringContaining("Margem de contribuição"));
     expect(screen.getByRole("columnheader", { name: "Impacto mensal estimado" })).toHaveAttribute("title", expect.stringContaining("mesmo volume de vendas"));
   });
 

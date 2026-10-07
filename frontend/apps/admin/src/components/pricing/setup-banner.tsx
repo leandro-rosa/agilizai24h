@@ -2,6 +2,10 @@ import Link from "next/link";
 import { TriangleAlert } from "lucide-react";
 
 import type { LatestPricingReport } from "@/lib/api/pricing";
+import { incompleteSummary, isClassified } from "@/lib/pricing/operating";
+
+const OLD_ENGINE_TEXT =
+  "Este relatório foi calculado pelo motor anterior: a margem dele é a econômica, com custos fixos e deslocamento dentro do preço. Recalcule para ver a margem de contribuição, que é a que a meta de 35% orienta.";
 
 export interface SetupNote {
   text: string;
@@ -19,6 +23,7 @@ export function setupNotes(latest: LatestPricingReport): SetupNote[] {
   if (!report) return notes;
 
   for (const text of report.meta.notes) {
+    if (text.startsWith("Cálculo incompleto")) continue; // vai no alerta fixo (ValidationAlert), com os valores, e não num resumo recolhido
     if (text.includes("alíquota")) notes.push({ text, action: { label: "Abrir regras de negócio" } });
     else if (text.toLowerCase().includes("taxa")) notes.push({ text, action: { label: "Cadastrar taxas", href: "/treasury/fees" } });
     else notes.push({ text });
@@ -56,5 +61,28 @@ export function SetupBanner({ notes, onOpenRules }: { notes: SetupNote[]; onOpen
         ))}
       </ul>
     </details>
+  );
+}
+
+/**
+ * Despesa relevante sem tratamento: o aviso é fixo (nunca recolhido) e traz o valor, o período e o escopo, porque enquanto ele existir nenhuma
+ * recomendação da tela está validada. Leva às regras, onde cada conta recebe a sua classe.
+ */
+export function ValidationAlert({ latest, onOpenRules }: { latest: LatestPricingReport | null; onOpenRules: () => void }) {
+  const operating = latest?.report?.meta.operating ?? null;
+  // A report stored by the previous engine has no classification: its margin is the old economic one, with fixed costs inside the price.
+  const text = latest?.report ? (operating !== null && !isClassified(operating) ? OLD_ENGINE_TEXT : incompleteSummary(operating)) : null;
+  if (!text) return null;
+
+  return (
+    <div role="alert" className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-warning/40 bg-warning/12 p-3 text-sm text-warning">
+      <p className="flex min-w-0 flex-1 items-start gap-2">
+        <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
+        <span>{text}</span>
+      </p>
+      <button type="button" className="shrink-0 font-medium underline underline-offset-2" onClick={onOpenRules}>
+        Classificar despesas
+      </button>
+    </div>
   );
 }

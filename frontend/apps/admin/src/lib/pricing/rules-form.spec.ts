@@ -11,6 +11,7 @@ const params: PricingParameters = {
   psychological: { enabled: false, endingCents: 90 },
   guards: { maxIncreaseBps: 1500, opportunityBandBps: 300 },
   data: { lookbackMonths: 3, minUnitsPerMonth: 10, voucherMinReceiptLines: 50, lossMinUnits: 100, costMaxAgeDays: 120, stableCostBps: 500 },
+  operating: { accountBehavior: { "4.2.01": "percent_of_sales", "4.2.03": "per_visit", "4.3.01": "fixed" }, unclassifiedRelevantBps: 50 },
   payment: { brandAliases: { sodexo: "pluxee", pagseguro: "pagbank" } },
   minConfidence: "low",
 };
@@ -69,5 +70,23 @@ describe("buildPatch", () => {
     expect(buildPatch({ ...toForm(params), aliases: "sodexo" }, params).invalid.join(" ")).toContain("Apelidos");
     expect(parseAliases("a=b\n\nc=d")).toEqual({ a: "b", c: "d" });
     expect(parseAliases("a=b=c")).toBeNull();
+  });
+});
+
+describe("classificação das despesas da DRE", () => {
+  it("sem mudança não manda a classificação", () => {
+    expect(buildPatch(toForm(params), params).patch).toEqual({});
+  });
+
+  it("classificar uma conta manda o mapa inteiro, que o backend troca de uma vez", () => {
+    const form = { ...toForm(params), behavior: { ...toForm(params).behavior, "4.2.07": "fixed" } };
+
+    expect(buildPatch(form, params).patch).toEqual({ operating: { accountBehavior: { "4.2.01": "percent_of_sales", "4.2.03": "per_visit", "4.3.01": "fixed", "4.2.07": "fixed" } } });
+  });
+
+  it("escolher 'sem classificação' tira a conta do mapa em vez de gravar um texto vazio", () => {
+    const form = { ...toForm(params), behavior: { ...toForm(params).behavior, "4.3.01": "" } };
+
+    expect(buildPatch(form, params).patch).toEqual({ operating: { accountBehavior: { "4.2.01": "percent_of_sales", "4.2.03": "per_visit" } } });
   });
 });

@@ -32,7 +32,7 @@ export function buildWorkbook(model: ExportModel): XLSX.WorkBook {
   XLSX.utils.book_append_sheet(
     workbook,
     sheet(
-      ["Código", "Produto", "Categoria", "Fornecedor", "Custo médio (R$)", "Preço atual (R$)", "Margem atual", "Meta", "Preço mínimo (R$)", "Preço-meta (R$)", "Preço recomendado (R$)", "Impacto potencial estimado (R$/mês)", "Situação", "Confiança"],
+      ["Código", "Produto", "Categoria", "Fornecedor", "Custo médio (R$)", "Preço atual (R$)", "Margem de contribuição", "Contribuição por unidade (R$)", "Resultado estimado após rateio (margem; não é lucro líquido)", "Meta", "Preço mínimo (R$)", "Preço-meta (R$)", "Preço recomendado (R$)", "Impacto potencial estimado (R$/mês)", "Situação", "Confiança", "Validado"],
       model.products.map((product): Cell[] => [
         product.sku,
         product.name,
@@ -41,6 +41,8 @@ export function buildWorkbook(model: ExportModel): XLSX.WorkBook {
         reais(product.structure?.productCostCents ?? null),
         reais(product.currentPriceCents),
         product.currentMargin,
+        reais(product.unitContributionCents ?? null),
+        product.estimatedResultAfterAllocation?.margin ?? null,
         product.targetMargin,
         reais(product.minimumPriceCents),
         reais(product.targetPriceCents),
@@ -48,8 +50,9 @@ export function buildWorkbook(model: ExportModel): XLSX.WorkBook {
         reais(product.impactCentsPerMonth),
         STATUS_LABEL[product.status],
         CONFIDENCE_LABEL[product.confidence],
+        product.validated === undefined ? null : product.validated ? "Sim" : "Não: despesas sem classificação",
       ]),
-      { 4: MONEY, 5: MONEY, 6: PCT, 7: PCT, 8: MONEY, 9: MONEY, 10: MONEY, 11: MONEY },
+      { 4: MONEY, 5: MONEY, 6: PCT, 7: MONEY, 8: PCT, 9: PCT, 10: MONEY, 11: MONEY, 12: MONEY, 13: MONEY },
     ),
     "Produtos",
   );

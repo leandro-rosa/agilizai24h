@@ -1,4 +1,23 @@
-import type { PricingParameters } from './pricing.types'
+import { isLockedComponent } from './operating-costs'
+import { OPERATING_CLASSES, type OperatingClass, type PricingParameters } from './pricing.types'
+
+/**
+ * A PROPOSAL of the class of each real account of the chart, for the owner to confirm in the rules (not a fact). Left out on purpose, so they show as
+ * unclassified until someone decides: Degustações (4.2.06) and Marketing (4.2.07), which can be fixed or follow sales.
+ */
+export const DEFAULT_ACCOUNT_BEHAVIOR: Record<string, OperatingClass> = {
+  '4.1.01': 'already_component', // purchases for the stores: the product cost
+  '4.1.02': 'other_revenue_cost', // coffee break purchases: never in the price of a product
+  '4.1.03': 'other_revenue_cost', // fruit purchases: never in the price of a product
+  '4.2.01': 'percent_of_sales', // Repasse de vendas (a percentage of the store's own sales)
+  '4.2.02': 'already_component', // losses: the loss component
+  '4.2.03': 'per_visit', // Deslocamento (carries Gasolina, Pedágio, Alimentação)
+  '4.3.01': 'fixed', // Mensalidade touchpay
+  '4.3.02': 'fixed', // Contador
+  '4.3.03': 'fixed', // Pró-labore
+  '4.3.04': 'fixed', // Luz
+  '4.3.05': 'fixed', // ERP Conta Azul
+}
 
 /** The owner's references. The 35% target is a starting value, never a constant: a new version replaces it. */
 export const DEFAULT_PRICING_PARAMETERS: PricingParameters = {
@@ -8,6 +27,7 @@ export const DEFAULT_PRICING_PARAMETERS: PricingParameters = {
   psychological: { enabled: false, endingCents: 90 },
   guards: { maxIncreaseBps: 1500, opportunityBandBps: 300 },
   data: { lookbackMonths: 3, minUnitsPerMonth: 10, voucherMinReceiptLines: 50, lossMinUnits: 100, costMaxAgeDays: 120, stableCostBps: 500 },
+  operating: { accountBehavior: DEFAULT_ACCOUNT_BEHAVIOR, unclassifiedRelevantBps: 50 },
   payment: { brandAliases: { sodexo: 'pluxee', pagseguro: 'pagbank' } },
   minConfidence: 'low',
 }
@@ -71,6 +91,13 @@ export function validatePricingParameters(p: PricingParameters): string[] {
     check(isInt(p.data[key]) && p.data[key] >= 0, `data.${key} must be a whole number, zero or more`)
   }
   bps(p.data.stableCostBps, 'data.stableCostBps')
+  bps(p.operating.unclassifiedRelevantBps, 'operating.unclassifiedRelevantBps')
+  for (const [code, behavior] of Object.entries(p.operating.accountBehavior)) {
+    check(/^\d+(\.\d+)*$/.test(code), `operating.accountBehavior: "${code}" is not an account code`)
+    check((OPERATING_CLASSES as readonly string[]).includes(behavior), `operating.accountBehavior.${code} must be one of ${OPERATING_CLASSES.join(', ')}`)
+    // Tax, card fees, loss and purchases are already components of the price: mapping them elsewhere would count them twice.
+    check(!isLockedComponent(code) || behavior === 'already_component', `operating.accountBehavior.${code} is already a component of the price and can only be already_component`)
+  }
   for (const [from, to] of Object.entries(p.payment.brandAliases)) {
     check(typeof to === 'string' && to.length > 0 && from.length > 0, `payment.brandAliases.${from} must map to a non-empty brand`)
   }

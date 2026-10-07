@@ -59,7 +59,10 @@ export function costBreakdown(product: PricingProduct): Breakdown | null {
       shareOfPrice: 0,
       detail: `${pct(structure.voucherShare)} das vendas · ${VOUCHER_BASIS[structure.voucherBasis] ?? structure.voucherBasis} (já incluso nas taxas de pagamento)`,
     },
-    { key: "operating", label: "Rateio operacional", cents: price * structure.operatingShare, shareOfPrice: structure.operatingShare, detail: pct(structure.operatingShare) },
+    { key: "operating", label: "Despesas proporcionais à venda", cents: price * structure.operatingShare, shareOfPrice: structure.operatingShare, detail: `${pct(structure.operatingShare)} (repasse e similares; deslocamento e custos fixos ficam fora do preço)` },
+    ...((structure.perTransactionCents ?? 0) > 0
+      ? [{ key: "transaction", label: "Custo por transação", cents: structure.perTransactionCents as number, shareOfPrice: (structure.perTransactionCents as number) / price, detail: "valor por unidade vendida, distribuído pelo ticket" }]
+      : []),
   ];
 
   const economicCostCents = rows.filter((row) => row.key !== "voucher").reduce((sum, row) => sum + row.cents, 0);

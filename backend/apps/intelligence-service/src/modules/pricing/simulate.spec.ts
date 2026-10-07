@@ -71,3 +71,36 @@ describe('assertPrice', () => {
     expect(() => assertPrice(value)).toThrow(InvalidPriceError)
   })
 })
+
+describe('simulate — per-transaction cost and a replacement quote', () => {
+  it('matches the engine when the structure carries a per-transaction cost', () => {
+    const result = computePrice(base({ perTransactionPerUnitCents: 20 }))
+    const sim = simulate({ structure: result.structure, currentPriceCents: 590, monthlyUnits: 325, targetMargin: 0.35, priceCents: result.recommendedPriceCents as number })
+
+    expect(sim.simulable && sim.margin).toBeCloseTo(result.recommendedMargin as number, 10)
+  })
+
+  it('a report stored before pricing-4 has no per-transaction cost and reads it as zero', () => {
+    const result = computePrice(base())
+    const legacy = { ...(result.structure as NonNullable<typeof result.structure>) }
+    delete (legacy as { perTransactionCents?: number }).perTransactionCents
+    const sim = simulate({ structure: legacy, currentPriceCents: 590, monthlyUnits: 325, targetMargin: 0.35, priceCents: 610 })
+    const now = simulate({ structure: result.structure, currentPriceCents: 590, monthlyUnits: 325, targetMargin: 0.35, priceCents: 610 })
+
+    expect(sim.simulable && sim.margin).toBeCloseTo((now.simulable && now.margin) as number, 12)
+  })
+
+  it('a replacement quote replaces the cost of the goods only, carried by the same loss, and is echoed so it is never mistaken for a purchase', () => {
+    const result = computePrice(base({ perTransactionPerUnitCents: 20 }))
+    const at = (replacementCostCents?: number) => simulate({ structure: result.structure, currentPriceCents: 590, monthlyUnits: 325, targetMargin: 0.35, priceCents: 700, replacementCostCents })
+    const quote = at(350)
+    const report = at()
+
+    // Hand-computed at R$ 7,00: 700 × (1 − 0.0707 − 0.02 − 0.04) − (350/0.98 + 10 + 20)
+    expect(quote.simulable && quote.unitProfitCents).toBeCloseTo(700 * 0.8693 - (350 / 0.98 + 30), 6)
+    expect(quote.simulable && quote.replacementCostCents).toBe(350)
+    expect(quote.simulable && quote.markup).toBeCloseTo(700 / 350, 10)
+    expect(report.simulable && 'replacementCostCents' in report).toBe(false)
+    expect((quote.simulable && quote.margin) as number).toBeLessThan((report.simulable && report.margin) as number)
+  })
+})

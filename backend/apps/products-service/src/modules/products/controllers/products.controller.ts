@@ -306,7 +306,7 @@ export class ProductsController {
       'Returns a partitioned result — `resolved` and `unresolved` with a reason each, plus `complete`. Deliberately not a map: a map invites treating a missing cost as zero, which understates COGS and loss.',
   })
   bulkCost(@Body() dto: BulkCostDto) {
-    return this.costs.bulkCostAsOf(dto.skus, new Date(dto.as_of))
+    return this.costs.bulkCostAsOf(dto.skus, new Date(dto.as_of), dto.sources)
   }
 
   @Post('names/resolve')

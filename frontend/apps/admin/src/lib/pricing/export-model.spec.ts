@@ -69,7 +69,7 @@ describe("planilha", () => {
 
     expect(coca["Preço atual (R$)"]).toBe(5.9);
     expect(coca["Preço recomendado (R$)"]).toBe(6.1);
-    expect(coca["Margem atual"]).toBe(0.321);
+    expect(coca["Margem de contribuição"]).toBe(0.321);
     expect(coca["Impacto potencial estimado (R$/mês)"]).toBe(420);
     expect(typeof coca["Custo médio (R$)"]).toBe("number");
   });

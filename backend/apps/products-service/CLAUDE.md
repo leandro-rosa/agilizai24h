@@ -16,7 +16,7 @@ planilha de preços), `gateway-service` (leituras do painel).
 | `POST /products/:sku/costs` | Registra custo com data de vigência |
 | `GET /products/:id/costs` | Histórico de custo |
 | `GET /costs?sku=&as_of=` | Custo de um SKU **numa data** |
-| `POST /costs/bulk` | Custos de um conjunto de SKUs numa data — resultado particionado |
+| `POST /costs/bulk` | Custos de um conjunto de SKUs numa data — resultado particionado; `sources` (opcional, ex.: `['invoice']`) restringe às versões dessas origens (a última compra recebida) com a mesma regra, nunca caindo para outra origem |
 | `POST /names/resolve` | Resolve nomes do PDV para produtos |
 | `GET/POST/DELETE /names/overrides` | Tabela curada de overrides |
 | `GET /health`, `GET /docs` | Health e OpenAPI |

@@ -51,7 +51,7 @@ describe("SummaryCards", () => {
 
     const coverage = screen.getByTestId("coverage");
     expect(coverage).toHaveTextContent("A análise cobre 22 de 255 produtos; 233 ficaram sem dados suficientes e não entram nas médias.");
-    expect(coverage).toHaveTextContent("Margem econômica: o que sobra do preço depois do custo, das perdas, dos impostos, das taxas de pagamento e do rateio operacional.");
+    expect(coverage).toHaveTextContent("Margem de contribuição: o que sobra do preço depois do custo, das perdas, dos impostos, das taxas de pagamento e das despesas que acompanham a venda.");
     expect(coverage).toHaveTextContent("supõe o mesmo volume de vendas");
   });
 
