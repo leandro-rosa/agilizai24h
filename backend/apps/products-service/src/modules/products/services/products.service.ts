@@ -28,6 +28,8 @@ export interface CreateProductInput {
   supplierId?: number
   subcategory?: string
   saleUnit?: string
+  brand?: string
+  purchaseUnit?: string
   /** `invoice` = registered from an NF-e line (needs invoiceNumber, supplierId, originOn and actor). */
   origin?: ProductOrigin
   invoiceNumber?: string
@@ -114,6 +116,8 @@ export class ProductsService {
         fractionable: input.fractionable ?? null,
         ...(input.subcategory ? { subcategory: input.subcategory } : {}),
         ...(input.saleUnit ? { sale_unit: input.saleUnit } : {}),
+        ...(input.brand ? { brand: input.brand } : {}),
+        ...(input.purchaseUnit ? { purchase_unit: input.purchaseUnit } : {}),
         ...origin,
         ...(ean
           ? { eans: { create: { ean, status: 'active', is_primary: true, source: origin.origin === 'invoice' ? 'invoice_import' : 'other', actor: origin.origin_actor, valid_from: origin.origin_on } } }
@@ -127,7 +131,7 @@ export class ProductsService {
 
   async update(
     id: number,
-    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number; packageType?: string; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: ProductStatus; saleUnit?: string },
+    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number | null; packageType?: string | null; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: ProductStatus; saleUnit?: string; brand?: string | null; purchaseUnit?: string | null },
   ): Promise<ProductView> {
     const existing = await this.prisma.product.findUnique({ where: { id } })
     if (!existing) throw new NotFoundException(`Product ${id} not found`)
@@ -144,11 +148,30 @@ export class ProductsService {
         ...(changes.subcategory !== undefined ? { subcategory: changes.subcategory } : {}),
         ...(changes.status !== undefined ? { status: changes.status } : {}),
         ...(changes.saleUnit !== undefined ? { sale_unit: changes.saleUnit } : {}),
+        ...(changes.brand !== undefined ? { brand: changes.brand } : {}),
+        ...(changes.purchaseUnit !== undefined ? { purchase_unit: changes.purchaseUnit } : {}),
       },
       include: WITH_EANS,
     })
 
     return toProductView(updated)
+  }
+
+  /**
+   * The latest time a product, a cost or a price was recorded. Pricing compares it with the time of its stored report to say "there is something new
+   * since this was calculated"; it never recomputes anything itself.
+   */
+  async lastChange(): Promise<{ product_changed_at: string | null; cost_changed_at: string | null; price_changed_at: string | null; latest: string | null }> {
+    const [product, cost, price] = await Promise.all([
+      this.prisma.product.aggregate({ _max: { updated_at: true } }),
+      this.prisma.costVersion.aggregate({ _max: { created_at: true } }),
+      this.prisma.priceVersion.aggregate({ _max: { created_at: true } }),
+    ])
+    const at = [product._max.updated_at, cost._max.created_at, price._max.created_at]
+    const iso = (date: Date | null) => (date ? date.toISOString() : null)
+    const latest = at.filter((date): date is Date => date !== null).sort((a, b) => b.getTime() - a.getTime())[0] ?? null
+
+    return { product_changed_at: iso(at[0]), cost_changed_at: iso(at[1]), price_changed_at: iso(at[2]), latest: iso(latest) }
   }
 
   async findById(id: number): Promise<ProductView> {

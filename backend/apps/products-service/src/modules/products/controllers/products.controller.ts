@@ -5,6 +5,7 @@ import {
   AddEanDto,
   BulkCostDto,
   BulkPriceDto,
+  CatalogueImportDto,
   CreateOverrideDto,
   CreateProductDto,
   DecideSkuLinkDto,
@@ -18,6 +19,7 @@ import {
   UpdateEanDto,
   UpdateProductDto,
 } from '../dto/product.dto'
+import { CatalogueImportService } from '../services/catalogue-import.service'
 import { CatalogueSyncService } from '../services/catalogue-sync.service'
 import { CostService } from '../services/cost.service'
 import { EanService } from '../services/ean.service'
@@ -37,7 +39,29 @@ export class ProductsController {
     private readonly prices: PriceService,
     private readonly skuLinks: SkuLinkService,
     private readonly catalogueSync: CatalogueSyncService,
+    private readonly catalogueImport: CatalogueImportService,
   ) {}
+
+  @Post('catalogue-import/preview')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Preview an Excel import of the catalogue (writes nothing)', description: 'Every row is new, an update, unchanged or a conflict with the reason. An empty cell never clears a value unless `clearEmpty`.' })
+  importPreview(@Body() dto: CatalogueImportDto) {
+    return this.catalogueImport.preview(dto.rows as never, { clearEmpty: dto.clearEmpty })
+  }
+
+  @Post('catalogue-import/apply')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Apply an Excel import: creates and updates, never deletes', description: 'Recomputes the preview on the current registry and runs each row through the same services as the manual form. Idempotent.' })
+  importApply(@Body() dto: CatalogueImportDto) {
+    return this.catalogueImport.apply(dto.rows as never, { clearEmpty: dto.clearEmpty }, dto.actor ?? '')
+  }
+
+  /** Declared before `products/:id` routes (a different prefix, so no clash). */
+  @Get('catalogue/last-change')
+  @ApiOperation({ summary: 'When a product, a cost or a price was last recorded', description: 'Pricing compares it with its stored report to say there is something new since the calculation.' })
+  lastChange() {
+    return this.products.lastChange()
+  }
 
   @Post('catalogue-sync/preview')
   @HttpCode(200)

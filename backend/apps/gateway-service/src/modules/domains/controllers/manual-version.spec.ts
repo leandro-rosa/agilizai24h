@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
-import { eanChange, invoiceProduct, manualCost, manualEan, manualPrice } from './manual-version'
+import { eanChange, importBody, invoiceProduct, manualCost, manualEan, manualPrice } from './manual-version'
 
 describe('manual versions from the browser', () => {
   it('forces the source to manual and the actor to the session user, whatever the client sent', () => {
@@ -44,5 +44,14 @@ describe('manual versions from the browser', () => {
 
     expect(result).toMatchObject({ sku: '110024', origin: 'invoice', actor: 'ana@agiliz.ai', invoiceNumber: '13021', ean: '7891000100103' })
     expect(result).not.toHaveProperty('legacy')
+  })
+
+  it('an import keeps only the rows and the clearing flag, which is off unless exactly true; the user comes from the session', () => {
+    expect(importBody({ rows: [{ sku: 'A' }], clearEmpty: 'yes', actor: 'forjado@x' })).toEqual({ rows: [{ sku: 'A' }], clearEmpty: false })
+    expect(importBody({ rows: [], clearEmpty: true })).toEqual({ rows: [], clearEmpty: true })
+  })
+
+  it('the brand and the purchase unit pass from the invoice registration form', () => {
+    expect(invoiceProduct({ sku: '1', brand: 'Monster', purchaseUnit: 'FD' }, 'ana@agiliz.ai')).toMatchObject({ brand: 'Monster', purchaseUnit: 'FD' })
   })
 })

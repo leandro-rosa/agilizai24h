@@ -45,7 +45,7 @@ export const WRITABLE_EAN_SOURCES = EAN_SOURCES.filter(source => source !== 'leg
 export const EAN_STATUS = { ACTIVE: 'active', INACTIVE: 'inactive' } as const
 
 /** How a product was registered. `legacy_import` = the initial load, whose origin was never recorded. */
-export const PRODUCT_ORIGINS = ['manual', 'invoice', 'legacy_import'] as const
+export const PRODUCT_ORIGINS = ['manual', 'invoice', 'excel', 'legacy_import'] as const
 export type ProductOrigin = (typeof PRODUCT_ORIGINS)[number]
 
 /** A product sells (`active`) or no longer does (`discontinued`). Never deleted: its history stays. */

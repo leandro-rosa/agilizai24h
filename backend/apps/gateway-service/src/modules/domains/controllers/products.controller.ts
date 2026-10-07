@@ -6,7 +6,7 @@ import { Caller } from '../../auth/guards/caller.decorator'
 import { RequiresPermission } from '../../auth/guards/session.constants'
 import type { AuthenticatedCaller } from '../../auth/services/session.service'
 import { DomainClient } from '../../upstream/domain.client'
-import { eanChange, invoiceProduct, manualCost, manualEan, manualPrice } from './manual-version'
+import { eanChange, importBody, invoiceProduct, manualCost, manualEan, manualPrice } from './manual-version'
 import { correlationOf } from './stores.controller'
 
 @ApiTags('products')
@@ -294,5 +294,42 @@ export class CatalogueSyncController {
     const result = await this.domains.products({ method: 'post', path: '/catalogue-sync/apply', payload: body, correlationId: correlationOf(request) })
 
     return result.data
+  }
+}
+
+/** Excel import of the catalogue. The preview writes nothing; the user who applies is the session user, never one typed in the body. */
+@ApiTags('products')
+@Controller('catalogue-import')
+export class CatalogueImportController {
+  constructor(private readonly domains: DomainClient) {}
+
+  @Post('preview')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Preview an Excel import of the catalogue: new, updates, unchanged and conflicts (writes nothing)' })
+  async preview(@Body() body: Record<string, unknown>, @Req() request: FastifyRequest) {
+    return (await this.domains.products({ method: 'post', path: '/catalogue-import/preview', payload: importBody(body), correlationId: correlationOf(request) })).data
+  }
+
+  @Post('apply')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Apply an Excel import: creates and updates, never deletes' })
+  async apply(@Body() body: Record<string, unknown>, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.products({ method: 'post', path: '/catalogue-import/apply', payload: { ...importBody(body), actor: caller.email }, correlationId: correlationOf(request) })).data
+  }
+}
+
+/** When a product, a cost or a price was last recorded: Pricing uses it to say its stored report may be out of date. */
+@ApiTags('products')
+@Controller('catalogue')
+export class CatalogueController {
+  constructor(private readonly domains: DomainClient) {}
+
+  @Get('last-change')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'The latest time a product, a cost or a price was recorded' })
+  async lastChange(@Req() request: FastifyRequest) {
+    return (await this.domains.products({ method: 'get', path: '/catalogue/last-change', correlationId: correlationOf(request) })).data
   }
 }

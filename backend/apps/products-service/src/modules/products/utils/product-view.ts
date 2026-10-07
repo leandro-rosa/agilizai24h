@@ -31,6 +31,9 @@ export interface ProductView {
   /** Populated by the ingestion pipeline, not by create()/update() here — read-only from this API. */
   shelf_life_days: number | null
   sale_unit: string
+  brand: string | null
+  /** The unit the supplier sells in ("CX", "FD", "UN"); the box-to-unit factor is `units_per_package`. */
+  purchase_unit: string | null
   subcategory: string | null
   /** active | discontinued */
   status: string
@@ -80,6 +83,8 @@ export function toProductView(product: {
   supplier_id: number | null
   shelf_life_days: number | null
   sale_unit: string
+  brand: string | null
+  purchase_unit: string | null
   subcategory: string | null
   status: string
   origin: string
@@ -103,6 +108,8 @@ export function toProductView(product: {
     eans: product.eans.map(toEanView),
     supplier_id: product.supplier_id,
     sale_unit: product.sale_unit,
+    brand: product.brand,
+    purchase_unit: product.purchase_unit,
     subcategory: product.subcategory,
     status: product.status,
     origin: { type: product.origin, invoice_number: product.origin_invoice_number, supplier_id: product.origin_supplier_id, purchase_id: product.origin_purchase_id, on: day(product.origin_on), actor: product.origin_actor },

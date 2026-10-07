@@ -13,8 +13,9 @@ export interface OriginInput {
 }
 
 /** What `product` stores for an origin. An invoice origin needs its evidence: without it the registry could not say where the product came from. */
-export function resolveOrigin(input: OriginInput): { origin: 'manual' | 'invoice'; origin_invoice_number: string | null; origin_supplier_id: number | null; origin_purchase_id: number | null; origin_on: Date | null; origin_actor: string | null } {
+export function resolveOrigin(input: OriginInput): { origin: 'manual' | 'invoice' | 'excel'; origin_invoice_number: string | null; origin_supplier_id: number | null; origin_purchase_id: number | null; origin_on: Date | null; origin_actor: string | null } {
   if (input.origin === 'legacy_import') throw new BadRequestException('legacy_import is only the initial load; it cannot be chosen')
+  if (input.origin === 'excel') return { origin: 'excel', origin_invoice_number: null, origin_supplier_id: null, origin_purchase_id: null, origin_on: null, origin_actor: input.actor ?? null }
   if (input.origin !== 'invoice') return { origin: 'manual', origin_invoice_number: null, origin_supplier_id: null, origin_purchase_id: null, origin_on: null, origin_actor: input.actor ?? null }
 
   const missing = [!input.invoiceNumber?.trim() && 'invoiceNumber', !input.supplierId && 'supplierId', !input.originOn && 'originOn', !input.actor?.trim() && 'actor'].filter(Boolean)

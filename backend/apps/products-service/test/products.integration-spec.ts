@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config'
 import { Test, type TestingModule } from '@nestjs/testing'
 import { AppModule } from '../src/app.module'
 import { PrismaClientService } from '../src/modules/db-client/prisma-client.service'
+import { CatalogueImportService } from '../src/modules/products/services/catalogue-import.service'
 import { CostService } from '../src/modules/products/services/cost.service'
 import { EanService } from '../src/modules/products/services/ean.service'
 import { ProductsService } from '../src/modules/products/services/products.service'
@@ -12,6 +13,7 @@ describe('products integration', () => {
   let products: ProductsService
   let costs: CostService
   let eans: EanService
+  let importer: CatalogueImportService
   let prisma: PrismaClientService
 
   const createdSkus: string[] = []
@@ -32,6 +34,7 @@ describe('products integration', () => {
     products = app.get(ProductsService)
     costs = app.get(CostService)
     eans = app.get(EanService)
+    importer = app.get(CatalogueImportService)
     prisma = app.get(PrismaClientService)
   }, 60000)
 
@@ -642,6 +645,93 @@ describe('products integration', () => {
       expect(edited.origin.type).toBe('manual')
 
       expect((await products.update(product.id, { subcategory: null })).subcategory).toBeNull()
+    })
+  })
+
+  describe('Excel import (real SQL)', () => {
+    const rowOf = (over: Record<string, unknown>) => ({ row: 2, category: 'Bebida', ...over })
+    const track = (...skus: string[]) => createdSkus.push(...skus)
+
+    it('previews without writing, applies creating with the excel origin, and a second run finds everything unchanged', async () => {
+      const sku = unique('IMP')
+      const ean = String(7893000000000 + Math.floor(Math.random() * 1e8))
+      track(sku)
+      const rows = [rowOf({ sku, name: 'Importado', brand: 'Marca X', purchaseUnit: 'CX', unitsPerPackage: 12, packageType: 'caixa', ean })]
+
+      const preview = await importer.preview(rows)
+      expect(preview.summary).toEqual({ create: 1, update: 0, unchanged: 0, conflict: 0 })
+      expect(await prisma.product.count({ where: { sku } })).toBe(0)
+
+      const applied = await importer.apply(rows, {}, 'ana@agiliz.ai')
+      expect(applied.results).toEqual([{ row: 2, sku, action: 'create', ok: true }])
+      const created = await prisma.product.findUniqueOrThrow({ where: { sku }, include: { eans: true } })
+      expect(created).toMatchObject({ name: 'Importado', brand: 'Marca X', purchase_unit: 'CX', units_per_package: 12, package_type: 'caixa', origin: 'excel', origin_actor: 'ana@agiliz.ai' })
+      expect(created.eans).toHaveLength(1)
+
+      const again = await importer.apply(rows, {}, 'ana@agiliz.ai')
+      expect(again.summary).toEqual({ create: 0, update: 0, unchanged: 1, conflict: 0 })
+      expect(await prisma.product.count({ where: { sku } })).toBe(1)
+    })
+
+    it('an empty cell keeps the value; only the clearing option clears it; an EAN of another product is a conflict and nothing moves', async () => {
+      const owner = await createProduct('Dono')
+      await eans.add(owner.id, { ean: '7893111111111', source: 'other', actor: 'ana@agiliz.ai' })
+      const sku = unique('IMP')
+      track(sku)
+      await products.create({ sku, name: 'Com marca', category: 'beverage', brand: 'Marca Y', subcategory: 'Águas' })
+
+      const keep = await importer.apply([rowOf({ sku, name: 'Com marca', brand: '', subcategory: '' })], {}, 'ana@agiliz.ai')
+      expect(keep.summary.unchanged).toBe(1)
+      expect(await prisma.product.findUniqueOrThrow({ where: { sku } })).toMatchObject({ brand: 'Marca Y', subcategory: 'Águas' })
+
+      const clear = await importer.apply([rowOf({ sku, name: 'Com marca', brand: '', subcategory: '' })], { clearEmpty: true }, 'ana@agiliz.ai')
+      expect(clear.summary.update).toBe(1)
+      expect(await prisma.product.findUniqueOrThrow({ where: { sku } })).toMatchObject({ brand: null, subcategory: null })
+
+      const conflict = await importer.apply([rowOf({ sku, ean: '7893111111111' })], {}, 'ana@agiliz.ai')
+      expect(conflict.summary.conflict).toBe(1)
+      expect(conflict.results[0]).toMatchObject({ ok: false })
+      expect(await prisma.productEan.count({ where: { ean: '7893111111111' } })).toBe(1)
+    })
+
+    it('adds a new EAN to an existing product as an additional code, and the search by that EAN finds the same product', async () => {
+      const sku = unique('IMP')
+      track(sku)
+      const product = await products.create({ sku, name: 'Dois códigos', category: 'beverage', ean: '7893222222222' })
+
+      await importer.apply([rowOf({ sku, ean: '7893222222333' })], {}, 'ana@agiliz.ai')
+
+      const links = await prisma.productEan.findMany({ where: { product_id: product.id }, orderBy: { id: 'asc' } })
+      expect(links.map(l => [l.ean, l.is_primary, l.status])).toEqual([['7893222222222', true, 'active'], ['7893222222333', false, 'active']])
+    })
+
+    it('never deletes: a product that is not in the file stays', async () => {
+      const other = await createProduct('Fora da planilha')
+      await importer.apply([rowOf({ sku: unique('IMP'), name: 'Outro' })], {}, 'ana@agiliz.ai').catch(() => undefined)
+
+      expect(await prisma.product.count({ where: { id: other.id } })).toBe(1)
+    })
+  })
+
+  describe('last change and the new fields (real SQL)', () => {
+    it('reports the latest time a cost or a product was recorded', async () => {
+      const before = await products.lastChange()
+      const product = await createProduct('Muda')
+      await costs.recordCost(product.sku, new Date('2026-10-01'), 500, { source: 'catalogue_sync' })
+      const after = await products.lastChange()
+
+      expect(after.latest && before.latest ? after.latest >= before.latest : true).toBe(true)
+      expect(after.cost_changed_at).not.toBeNull()
+      expect(after.product_changed_at).not.toBeNull()
+    })
+
+    it('edits brand and purchase unit, and clears them with null', async () => {
+      const product = await createProduct('Marca')
+      const edited = await products.update(product.id, { brand: 'Monster', purchaseUnit: 'FD', unitsPerPackage: 6, packageType: 'fardo' })
+      expect(edited).toMatchObject({ brand: 'Monster', purchase_unit: 'FD', units_per_package: 6, package_type: 'fardo' })
+
+      const cleared = await products.update(product.id, { brand: null, purchaseUnit: null, unitsPerPackage: null, packageType: null })
+      expect(cleared).toMatchObject({ brand: null, purchase_unit: null, units_per_package: null, package_type: null })
     })
   })
 })

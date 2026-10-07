@@ -51,6 +51,10 @@ model Product {
 
   /// Unidade em que o produto é vendido ("un", "kg", "porção"). O código interno do produto é o próprio SKU.
   sale_unit String @default("un")
+  /// Marca ("Coca-Cola", "Monster"). Texto livre, opcional.
+  brand         String?
+  /// A unidade em que o fornecedor vende ("CX", "FD", "UN"). O fator caixa → unidade é `units_per_package`; o custo é sempre por unidade vendida.
+  purchase_unit String?
 
   /// Como o cadastro nasceu: manual | invoice (a partir de uma linha de NF-e) | legacy_import (carga inicial, origem não registrada).
   origin             String   @default("manual")

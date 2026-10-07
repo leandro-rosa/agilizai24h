@@ -4,10 +4,10 @@
 
 ## 2. Backend
 
-- [ ] 2.1 products-service: `brand` and `purchase_unit` on the product (migration, view, create, update); origin `excel`
-- [ ] 2.2 products-service: `GET /catalogue/last-change` (latest cost or product change) for the pricing freshness
-- [ ] 2.3 products-service: import preview (new / updates / conflicts) and apply, with the empty-cell rule
-- [ ] 2.4 gateway: import routes with the session user
+- [x] 2.1 products-service: `brand` and `purchase_unit` on the product (migration, view, create, update); origin `excel`
+- [x] 2.2 products-service: `GET /catalogue/last-change` (latest cost or product change) for the pricing freshness
+- [x] 2.3 products-service: import preview (new / updates / conflicts) and apply, with the empty-cell rule
+- [x] 2.4 gateway: import routes with the session user
 - [ ] 2.5 intelligence-service: coverage, pending reasons and "newer cost than the period" in the report
 
 ## 3. Products screen

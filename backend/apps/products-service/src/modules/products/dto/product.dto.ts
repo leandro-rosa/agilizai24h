@@ -49,10 +49,14 @@ export class CreateProductDto {
 
   @ApiPropertyOptional({ example: 'un', description: 'Unidade de venda.' }) @IsOptional() @IsString() @IsNotEmpty() saleUnit?: string
 
-  @ApiPropertyOptional({ enum: ['manual', 'invoice'], description: '`invoice` registra o produto a partir de uma linha de NF-e e exige invoiceNumber, supplierId, originOn e actor.' })
+  @ApiPropertyOptional() @IsOptional() @IsString() @IsNotEmpty() brand?: string
+
+  @ApiPropertyOptional({ example: 'CX', description: 'Unidade em que o fornecedor vende.' }) @IsOptional() @IsString() @IsNotEmpty() purchaseUnit?: string
+
+  @ApiPropertyOptional({ enum: ['manual', 'invoice', 'excel'], description: '`invoice` registra o produto a partir de uma linha de NF-e e exige invoiceNumber, supplierId, originOn e actor.' })
   @IsOptional()
-  @IsIn(['manual', 'invoice'])
-  origin?: 'manual' | 'invoice'
+  @IsIn(['manual', 'invoice', 'excel'])
+  origin?: 'manual' | 'invoice' | 'excel'
 
   @ApiPropertyOptional() @IsOptional() @IsString() invoiceNumber?: string
 
@@ -105,6 +109,10 @@ export class UpdateProductDto {
   status?: ProductStatus
 
   @ApiPropertyOptional({ example: 'un' }) @IsOptional() @IsString() @IsNotEmpty() saleUnit?: string
+
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() brand?: string | null
+
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() purchaseUnit?: string | null
 }
 
 export class RecordCostDto {
@@ -354,4 +362,22 @@ export class ResolveEansDto {
   @ArrayNotEmpty()
   @IsString({ each: true })
   eans: string[]
+}
+
+/** The mapped rows of an Excel import. Each row is plain data; the service validates every field and reports a problem per row instead of rejecting the file. */
+export class CatalogueImportDto {
+  @ApiProperty({ type: [Object], description: 'Linhas já mapeadas pelo operador: sku, name, category, subcategory, brand, ean, saleUnit, purchaseUnit, packageType, unitsPerPackage e `row` (a linha da planilha).' })
+  @IsArray()
+  @ArrayNotEmpty()
+  rows: Record<string, unknown>[]
+
+  @ApiPropertyOptional({ description: 'Quando ligado, uma célula vazia limpa o campo do produto existente. Desligado (padrão), célula vazia nunca apaga nada.' })
+  @IsOptional()
+  @IsBoolean()
+  clearEmpty?: boolean
+
+  @ApiPropertyOptional({ description: 'Quem importa. O gateway define pela sessão.' })
+  @IsOptional()
+  @IsString()
+  actor?: string
 }

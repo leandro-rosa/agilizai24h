@@ -48,8 +48,15 @@ export function invoiceProduct(body: Record<string, unknown> | undefined, actor:
 
   return {
     sku: input.sku, name: input.name, category: input.category, subcategory: input.subcategory, saleUnit: input.saleUnit,
-    packageType: input.packageType, unitsPerPackage: input.unitsPerPackage, fractionable: input.fractionable,
+    brand: input.brand, purchaseUnit: input.purchaseUnit, packageType: input.packageType, unitsPerPackage: input.unitsPerPackage, fractionable: input.fractionable,
     ean: input.ean, supplierId: input.supplierId,
     origin: 'invoice', invoiceNumber: input.invoiceNumber, purchaseId: input.purchaseId, originOn: input.originOn, actor,
   }
+}
+
+/** The mapped rows and the clearing option of an import; the user is NOT taken from the body (the apply route sets it from the session). */
+export function importBody(body: Record<string, unknown> | undefined): Record<string, unknown> {
+  const input = body ?? {}
+
+  return { rows: input.rows, clearEmpty: input.clearEmpty === true }
 }
