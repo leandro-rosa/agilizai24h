@@ -114,7 +114,8 @@ function fakePrisma() {
 
 /** The outbox is exercised in cost-sync.service.spec.ts; here receiving must not depend on it. */
 const noCostSync = { markItems: async () => undefined, drain: async () => ({ sent: 0, failed: 0 }), retry: async () => ({ sent: 0, failed: 0 }) }
-const catalogue = { products: async () => [{ id: 1, sku: 'Q1', name: 'Quinoa wrap' }, { id: 2, sku: 'Q2', name: 'Quinoa bar' }, { id: 3, sku: 'Q3', name: 'Quinoa cookie' }] }
+const catalogueRows = [{ id: 1, sku: 'Q1', name: 'Quinoa wrap' }, { id: 2, sku: 'Q2', name: 'Quinoa bar' }, { id: 3, sku: 'Q3', name: 'Quinoa cookie' }]
+const catalogue = { products: async () => catalogueRows, existingSkus: async () => new Set(catalogueRows.map(p => p.sku)) }
 const item = (over: Record<string, unknown> = {}) => ({ sku: 'Q1', quantity: 100, unit_cost_cents: 500, condition: 'on_sale' as const, ...over })
 
 describe('PurchasesService', () => {

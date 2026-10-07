@@ -57,6 +57,20 @@ export class ProductsClient {
     return products
   }
 
+  /**
+   * The SKUs among `wanted` that exist. The one-minute cache is fine for matching an invoice, but not for validating a purchase right after a product
+   * was registered from that same invoice: when any wanted SKU is missing from the cached catalogue it is read ONCE more, bypassing the cache, before
+   * the SKU is called unknown. A product registered seconds ago is therefore never refused.
+   */
+  async existingSkus(wanted: string[], correlationId?: string): Promise<Set<string>> {
+    const known = new Set((await this.products(correlationId)).map(p => p.sku))
+    if (wanted.every(sku => known.has(sku))) return known
+
+    this.cache = null
+
+    return new Set((await this.products(correlationId)).map(p => p.sku))
+  }
+
   /** Finds the SKU of each EAN, active or historical. Read-only: an unknown EAN never creates a product. */
   async resolveEans(eans: string[], correlationId?: string): Promise<EanResolution> {
     if (eans.length === 0) return { resolved: [], unresolved: [] }

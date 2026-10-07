@@ -250,6 +250,11 @@ export function PurchaseFormDialog({
             <input type="checkbox" checked={noInvoice} onChange={(e) => setNoInvoice(e.target.checked)} />
             Fornecedor sem nota fiscal
           </label>
+          {received && order?.items.some((item) => item.cost_sync?.state === "synced") && (
+            <p className="text-xs text-warning">
+              O custo que esta compra já criou no produto continua valendo se você remover um item ou mudar o custo ou a data de recebimento: mudar o custo ou a data cria uma nova versão, e remover não apaga a antiga. Para corrigir, registre um novo custo na tela do produto.
+            </p>
+          )}
           {stage === "received" && (
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               Recebido em

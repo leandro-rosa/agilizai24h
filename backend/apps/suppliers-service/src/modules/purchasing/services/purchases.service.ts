@@ -324,7 +324,7 @@ export class PurchasesService {
     if (!supplier) throw new NotFoundException(`Supplier ${dto.supplier_id} not found`)
 
     // An unknown product is refused, not stored with a placeholder.
-    const known = new Set((await this.products.products(correlationId)).map(p => p.sku))
+    const known = await this.products.existingSkus(dto.items.map(i => i.sku), correlationId)
     const unknown = [...new Set(dto.items.map(i => i.sku).filter(sku => !known.has(sku)))]
     if (unknown.length > 0) throw new BadRequestException(`Unknown products: ${unknown.join(', ')}`)
 
@@ -519,7 +519,7 @@ export class PurchasesService {
     if (line.status !== 'pending') throw new ConflictException(`Line ${lineId} was already resolved (product ${line.sku})`)
 
     const sku = dto.sku.trim()
-    const known = new Set((await this.products.products(correlationId)).map(p => p.sku))
+    const known = await this.products.existingSkus([sku], correlationId)
     if (!known.has(sku)) throw new BadRequestException(`Unknown product: ${sku}`)
     const received = order.status === 'received'
     if (received && (await this.anySettled(order))) throw new ConflictException('This purchase was already counted in a confirmed settlement: its items can no longer change')
@@ -650,7 +650,7 @@ export class PurchasesService {
    * A line already marked as paid cannot be changed or removed (the money was recorded against it); an unknown product is refused.
    */
   private async planItemEdit(order: { items: { id: number; sku: string; quantity: number; unit_cost_cents: number; condition: string; payment_status: string; received_quantity: number | null; description: string | null }[] }, edited: EditItemDto[], received: boolean, correlationId?: string) {
-    const known = new Set((await this.products.products(correlationId)).map(p => p.sku))
+    const known = await this.products.existingSkus(edited.map(i => i.sku), correlationId)
     const unknown = [...new Set(edited.map(i => i.sku).filter(sku => !known.has(sku)))]
     if (unknown.length > 0) throw new BadRequestException(`Unknown products: ${unknown.join(', ')}`)
 

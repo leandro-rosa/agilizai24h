@@ -15,6 +15,8 @@ export function DeleteOrderDialog({ order, open, onOpenChange }: { order: Purcha
   const dispatch = useAppDispatch();
   const [remove, { isLoading }] = useDeletePurchaseMutation();
   const paid = order.items.filter((item) => item.payment_status === "paid").length;
+  // O custo que esta compra já criou no produto é histórico e não se apaga junto com ela.
+  const costsCreated = order.items.filter((item) => item.cost_sync?.state === "synced").length;
 
   async function confirm() {
     try {
@@ -35,6 +37,7 @@ export function DeleteOrderDialog({ order, open, onOpenChange }: { order: Purcha
           <DialogDescription>
             {order.supplier_name ?? `Fornecedor ${order.supplier_id}`} · {STAGE_LABEL[order.status]} · {formatDate(order.ordered_on)} · {formatCents(orderTotalCents(order))}. Os itens, o histórico e o registro de e-mails vão junto. Não dá para desfazer.
             {order.status === "received" && " Como já foi recebido, ele deixa de contar como comprado na análise."}
+            {costsCreated > 0 && ` O custo que ${costsCreated === 1 ? "este item criou" : `estes ${costsCreated} itens criaram`} no cadastro do produto continua valendo (o histórico não se apaga); se estiver errado, registre um novo custo na tela do produto.`}
             {paid > 0 && ` ${paid === 1 ? "Há 1 item" : `Há ${paid} itens`} marcado${paid === 1 ? "" : "s"} como pago${paid === 1 ? "" : "s"}.`}
           </DialogDescription>
         </DialogHeader>

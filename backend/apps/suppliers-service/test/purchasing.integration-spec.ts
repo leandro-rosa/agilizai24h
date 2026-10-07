@@ -46,7 +46,7 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [ConfigModule.forRoot({ isGlobal: true }), AppModule] })
       .overrideProvider(ProductsClient)
-      .useValue({ products: async () => [{ id: 1, sku: 'SINT-1', name: '[SINTÉTICO] produto' }], resolveEans: async () => ({ resolved: [], unresolved: [] }), recordInvoiceCost })
+      .useValue({ products: async () => [{ id: 1, sku: 'SINT-1', name: '[SINTÉTICO] produto' }], existingSkus: async () => new Set(['SINT-1']), resolveEans: async () => ({ resolved: [], unresolved: [] }), recordInvoiceCost })
       .overrideProvider(AccountingClient)
       .useValue({ monthStatus: async (period: string) => (period === '2026-09' ? 'closed' : 'open') })
       .overrideProvider(SalesClient)

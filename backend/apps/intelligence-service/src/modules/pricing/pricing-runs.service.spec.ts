@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common'
 import { PricingRunsService, STALE_AFTER_MS } from './pricing-runs.service'
 import { PricingRunWorker } from './pricing-run.worker'
+import { ENGINE_VERSION } from './pricing.types'
 import type { PricingReport } from './pricing.service'
 
 interface Row {
@@ -16,7 +17,7 @@ interface Row {
   finished_at: Date | null
 }
 
-const REPORT = (version: number) => ({ meta: { parameterVersion: version, engineVersion: 'pricing-1' }, products: [{ sku: 'A' }] }) as unknown as PricingReport
+const REPORT = (version: number) => ({ meta: { parameterVersion: version, engineVersion: ENGINE_VERSION }, products: [{ sku: 'A' }] }) as unknown as PricingReport
 
 function fake(parameterVersion = 1) {
   const rows: Row[] = []
@@ -76,7 +77,7 @@ describe('PricingRunsService', () => {
 
     expect(latest.state).toBe('ready')
     expect(latest.report?.products).toHaveLength(1)
-    expect(latest.run).toMatchObject({ engineVersion: 'pricing-1', parameterVersion: 1, status: 'completed' })
+    expect(latest.run).toMatchObject({ engineVersion: ENGINE_VERSION, parameterVersion: 1, status: 'completed' })
     expect(sent.length).toBe(sentBefore)
   })
 
