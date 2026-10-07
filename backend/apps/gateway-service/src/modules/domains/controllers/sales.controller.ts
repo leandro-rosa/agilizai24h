@@ -11,6 +11,24 @@ import { correlationOf } from './stores.controller'
 export class SalesController {
   constructor(private readonly domains: DomainClient) {}
 
+  /** Declared before `:storeId` so "network" is not read as a store id. */
+  @Get('network/payment-mix')
+  @RequiresPermission(PERMISSIONS.SALES_READ)
+  @ApiOperation({ summary: 'Revenue by payment method, acquirer and card brand over a window of months' })
+  @ApiQuery({ name: 'from', required: true, example: '2026-07' })
+  @ApiQuery({ name: 'to', required: true, example: '2026-09' })
+  @ApiQuery({ name: 'storeId', required: false })
+  async paymentMix(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    const search = new URLSearchParams(query).toString()
+    const result = await this.domains.sales({
+      method: 'get',
+      path: `/sales/network/payment-mix?${search}`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
   @Get(':storeId')
   @RequiresPermission(PERMISSIONS.SALES_READ)
   @ApiOperation({ summary: 'Sales rows for a store and period — one row per SKU' })

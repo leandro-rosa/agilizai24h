@@ -13,6 +13,7 @@ import { AnalysisModule } from './modules/analysis/analysis.module'
 import { BaselineModule } from './modules/baseline/baseline.module'
 import { FlagsModule } from './modules/flags/flags.module'
 import { ParametersModule } from './modules/parameters/parameters.module'
+import { PricingModule } from './modules/pricing/pricing.module'
 import { RefreshModule } from './modules/refresh/refresh.module'
 import { REFRESH_QUEUES } from './modules/refresh/refresh.constants'
 import { PeriodUpdatedRefreshWorker, RefreshAdvanceWorker, RefreshCheckWorker } from './modules/refresh/refresh.workers'
@@ -31,6 +32,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     SourcesModule,
     ParametersModule,
     AnalysisModule,
+    PricingModule,
     ScheduleModule,
     BaselineModule,
     FlagsModule,

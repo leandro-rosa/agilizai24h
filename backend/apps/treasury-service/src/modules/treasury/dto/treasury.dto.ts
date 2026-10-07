@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger'
-import { Type } from 'class-transformer'
+import { Transform, Type } from 'class-transformer'
 import {
   ArrayNotEmpty,
   IsArray,
@@ -333,6 +333,7 @@ export class UpdateMappingDto extends PartialType(CreateMappingDto) {}
 
 export class CreateFeeDto {
   @ApiProperty({ example: 'PagSeguro' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(80)
@@ -351,6 +352,13 @@ export class CreateFeeDto {
   @ApiProperty({ example: '2026-01-01' })
   @IsDateString()
   effective_from: string
+}
+
+export class FeesInForceDto {
+  @ApiPropertyOptional({ example: '2026-06-15', description: 'Defaults to today.' })
+  @IsOptional()
+  @IsDateString()
+  on?: string
 }
 
 export class NeutralizeDto {

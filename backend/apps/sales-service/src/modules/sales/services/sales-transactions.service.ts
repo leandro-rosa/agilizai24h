@@ -140,6 +140,66 @@ export class SalesTransactionsService {
       stores_missing: storesMissing,
     }
   }
+
+  /**
+   * Revenue of `OK` receipts by payment method, acquirer and card brand over a window of months, for one store or the
+   * network — the weight of each payment cost in a price. Only stores ingested from the per-transaction format
+   * contribute; months with no receipts are listed, because the mix there is unknown, not 0%.
+   */
+  async paymentMix(from: string, to: string, storeId?: number): Promise<PaymentMix> {
+    const months = monthsOfWindow(`${from}-01`, `${to}-01`)
+    const scope = storeId === undefined ? {} : { store_id: storeId }
+
+    const grouped = await this.prisma.salesTransaction.groupBy({
+      by: ['method', 'acquirer', 'card_brand'],
+      where: { ...scope, result: 'OK', period: { in: months } },
+      _sum: { amount_paid_cents: true },
+      _count: { _all: true },
+    })
+
+    const present = await this.prisma.salesTransaction.findMany({
+      where: { ...scope, period: { in: months } },
+      distinct: ['period'],
+      select: { period: true },
+    })
+    const withData = new Set(present.map(row => row.period))
+
+    const rows = grouped.map(row => ({
+      method: row.method,
+      acquirer: row.acquirer,
+      card_brand: row.card_brand,
+      receipt_lines: row._count._all,
+      amount_paid_cents: row._sum.amount_paid_cents ?? 0,
+    }))
+
+    return {
+      from,
+      to,
+      store_id: storeId ?? null,
+      rows,
+      total_amount_paid_cents: rows.reduce((sum, row) => sum + row.amount_paid_cents, 0),
+      periods_without_transactions: months.filter(month => !withData.has(month)),
+    }
+  }
+}
+
+export interface PaymentMixRow {
+  method: string | null
+  acquirer: string | null
+  card_brand: string | null
+  receipt_lines: number
+  amount_paid_cents: number
+}
+
+export interface PaymentMix {
+  from: string
+  to: string
+  store_id: number | null
+  rows: PaymentMixRow[]
+  total_amount_paid_cents: number
+  /** Months of the window with no receipts for the scope: unknown, not zero. */
+  periods_without_transactions: string[]
+
 }
 
 function toView(record: SalesTransactionView): SalesTransactionView {

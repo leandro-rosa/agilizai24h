@@ -8,6 +8,9 @@ export interface ProductDto {
   id: number
   sku: string
   name: string
+  /** 'meal' | 'snack' | 'beverage' | 'essential' (the first level). */
+  category?: string | null
+  subcategory?: string | null
   package_type?: string | null
   units_per_package?: number | null
   /** Declared supplier (suppliers-service id); null/absent when none is registered. */
@@ -41,4 +44,23 @@ export class ProductsClient {
 
     return result.response.data as BulkCostResult
   }
+
+  /** Sale prices as of a date, partitioned like the costs — a missing price is never read as zero. */
+  async pricesAsOf(skus: string[], asOf: string, correlationId?: string): Promise<BulkPriceDto> {
+    const result = await this.http.send<BulkPriceDto>({
+      http_method: 'post',
+      url: `${this.base()}/prices/bulk`,
+      payload: { skus, as_of: asOf },
+      headers: correlationId ? { 'x-correlation-id': correlationId } : undefined,
+      timeout: 30000,
+    })
+
+    return result.response.data as BulkPriceDto
+  }
+}
+
+export interface BulkPriceDto {
+  resolved: { sku: string; product_id: number; price_cents: number; effective_from: string }[]
+  unresolved: { sku: string; reason: string }[]
+  complete: boolean
 }

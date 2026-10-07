@@ -14,6 +14,7 @@ estoque) e o painel através do `gateway-service`.
 |---|---|
 | `GET /sales/:storeId?period=YYYY-MM` | Linhas por SKU |
 | `GET /sales/:storeId/totals?period=YYYY-MM` | Totais agregados no banco |
+| `GET /sales/network/payment-mix?from=YYYY-MM&to=YYYY-MM&storeId=` | Receita de recibos `OK` por método, adquirente e bandeira (peso de cada custo de pagamento no preço). Mês sem recibo vem em `periods_without_transactions` — mix desconhecido, não 0% |
 | `GET /sales/:storeId/transactions?period=YYYY-MM` | Detalhe por transação (`add-sales-transaction-detail`) — 404 se não houver |
 | fila `ingestion.sales-rows` | Lote de um período inteiro (agregado por SKU), de `@app/ingestion-contracts` |
 | fila `ingestion.sales-transactions` | Lote de transações não somadas, mesmo contrato — só existe pra vendas no formato de rede |

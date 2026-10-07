@@ -21,6 +21,7 @@ import type {
   UpsertSettlementDto,
 } from '../dto/treasury.dto'
 import { computeCashFlow, type CashFlowSummary } from '../utils/cash-flow'
+import { ratesInForce, type RatesInForce } from '../utils/fee-rates'
 
 export interface NatureTotal {
   nature: string
@@ -674,10 +675,24 @@ export class TreasuryService {
     })
   }
 
-  createFee(dto: CreateFeeDto) {
-    return this.prisma.acquirerFee.create({
-      data: { ...dto, effective_from: new Date(dto.effective_from) },
+  async createFee(dto: CreateFeeDto) {
+    const effectiveFrom = new Date(dto.effective_from)
+    const existing = await this.prisma.acquirerFee.findFirst({
+      where: { acquirer: dto.acquirer, payment_method: dto.payment_method, effective_from: effectiveFrom },
     })
+
+    if (existing) {
+      throw new ConflictException(
+        `Já existe taxa de ${dto.acquirer}/${dto.payment_method} com vigência em ${dto.effective_from} — cadastre uma nova vigência`,
+      )
+    }
+
+    return this.prisma.acquirerFee.create({ data: { ...dto, effective_from: effectiveFrom } })
+  }
+
+  /** Every registered rate in force on `on`; methods with none are listed, never returned as 0%. */
+  async feesInForce(on: string): Promise<RatesInForce> {
+    return ratesInForce(await this.prisma.acquirerFee.findMany(), on)
   }
 
   /** A taxa vigente naquela data — nunca "a taxa atual" sem data. */

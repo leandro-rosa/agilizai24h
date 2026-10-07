@@ -7,6 +7,7 @@ import {
   CreateFeeDto,
   CreateMappingDto,
   CreateTransactionDto,
+  FeesInForceDto,
   ListTransactionsDto,
   NeutralizeDto,
   UpdateAccountDto,
@@ -83,6 +84,15 @@ export class TreasuryController {
   @ApiOperation({ summary: 'List acquirer fees, newest effective date first' })
   listFees() {
     return this.treasury.listFees()
+  }
+
+  @Get('fees/in-force')
+  @ApiOperation({
+    summary: 'Rates in force on a date, per acquirer and method',
+    description: 'A method with no registered rate is listed in methods_without_rate, never returned as 0%.',
+  })
+  feesInForce(@Query() query: FeesInForceDto) {
+    return this.treasury.feesInForce(query.on ?? new Date().toISOString().slice(0, 10))
   }
 
   @Post('fees')

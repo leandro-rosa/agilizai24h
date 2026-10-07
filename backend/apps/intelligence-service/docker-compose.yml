@@ -52,6 +52,8 @@ services:
       PRODUCTS_SERVICE_URL: http://agiliz-products-dev:3000
       STORES_SERVICE_URL: http://agiliz-stores-dev:3000
       SUPPLIERS_SERVICE_URL: http://agiliz-suppliers-dev:3000
+      TREASURY_SERVICE_URL: http://agiliz-treasury-dev:3000
+      ACCOUNTING_SERVICE_URL: http://agiliz-accounting-dev:3000
     # No published host port: domain services stay internal to agiliz_network,
     # reachable only through gateway-service.
     expose:
@@ -89,6 +91,8 @@ services:
       PRODUCTS_SERVICE_URL: http://agiliz-products-prod:3000
       STORES_SERVICE_URL: http://agiliz-stores-prod:3000
       SUPPLIERS_SERVICE_URL: http://agiliz-suppliers-prod:3000
+      TREASURY_SERVICE_URL: http://agiliz-treasury-prod:3000
+      ACCOUNTING_SERVICE_URL: http://agiliz-accounting-prod:3000
     expose:
       - "3000"
     networks:

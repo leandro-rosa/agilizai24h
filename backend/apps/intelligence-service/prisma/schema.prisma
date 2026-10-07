@@ -25,6 +25,19 @@ model ParameterVersion {
   @@map("parameter_version")
 }
 
+/// Versioned pricing policy (margin, tax, rounding, guards) — append-only like
+/// ParameterVersion, but its own table so a pricing change never bumps the
+/// version the mix engine records on its results.
+model PricingParameterVersion {
+  id         Int      @id @default(autoincrement())
+  created_at DateTime @default(now())
+  note       String?
+  /// The full, validated pricing document — never a partial patch.
+  values     Json
+
+  @@map("pricing_parameter_version")
+}
+
 /// The baseline quantity ("qtd itens por loja") of a SKU — ONE value per SKU,
 /// applied to every store (owner decision 2026-09-30), with an append-only
 /// history: a re-import adds a row, it never overwrites. The current baseline

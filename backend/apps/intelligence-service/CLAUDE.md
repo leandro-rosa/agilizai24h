@@ -23,6 +23,30 @@ modelo de dados, parâmetros, o **motor** e as **runs** (fila + persistência +
 leitura), o **backtest** (fila + persistência + relatório legível) e a **atualização mensal**
 (histórico preservado, frescor declarado). Sem rota no gateway e sem tela.
 
+## Precificação (`src/modules/pricing/`) — rotas internas, só leitura
+
+Motor de preço **isolado** do motor de mix (parâmetros, tabela e rotas próprios;
+nada do `engine/` o importa). `add-smart-pricing-engine`. Recomenda e **nunca**
+altera preço nem escreve em outro serviço (`no-writes.spec.ts` cobre os clientes).
+
+| Rota | Uso |
+|---|---|
+| `GET /pricing/report?period=YYYY-MM&storeId=` | Catálogo: preços mínimo/meta/recomendado, status, confiança, impacto, resumo e margem por categoria. Janela de `lookbackMonths` até `period` (padrão: último mês fechado); sem `storeId` = rede |
+| `GET /pricing/products/:sku` | Um produto, dos mesmos insumos |
+| `GET /pricing/parameters/{current,versions,versions/:id}`, `POST /pricing/parameters` | Parâmetros versionados (append-only), validados por inteiro |
+
+No gateway: `/pricing/*` (leitura com `products:read`, `POST /pricing/parameters` com `products:write`).
+
+- **Preço é resolvido pela estrutura de custo, não por markup**: `P = custo_ajustado / (1 − imposto − taxa de pagamento − rateio operacional − margem)`, com `custo_ajustado = custo / (1 − perda)`. Margem = lucro econômico / preço. Mínimo usa a margem mínima, meta a margem-alvo; recomendado parte da meta, passa por arredondamento/preço psicológico e por teto de aumento (`guards.maxIncreaseBps`).
+- **Insumos vêm de quem é dono** (nenhum é digitado de novo): custo e preço datados (products), volume/perda por SKU (`FactsLoader`, o mesmo da análise), taxas vigentes (`treasury /fees/in-force`), mix de pagamento (`sales /network/payment-mix`), rateio (`accounting /pnl`). Perda: produto → categoria → loja/rede, com o nível usado devolvido; sem histórico algum = `insufficient_data` (desconhecido não é 0%).
+- **VR/VA = média entre as bandeiras** cadastradas como `voucher`: ponderada pela venda real por bandeira quando há `voucherMinReceiptLines`, senão média simples (rotulada, confiança menor). Bandeira com venda e sem taxa é reportada, nunca vira 0%. A participação de voucher vem das vendas.
+- **Rateio operacional** (`operating-share.ts`): despesas variáveis e fixas do DRE **exceto** o que já é outro componente (perdas 4.2.02, impostos/taxas das deduções, compras, juros), sobre a receita 3.1.01 (vendas de lojas), lendo só contas-raiz (a mãe já soma as filhas — Deslocamento carrega Gasolina e Pedágio). É análise de preço, nunca lançamento: a frase "Rateio operacional utilizado exclusivamente para análise de preço. Não representa novo lançamento financeiro." vai no resultado.
+- **Sem recomendação** (`insufficient_data`) quando falta custo, o custo está marcado como não confiável ou é antigo **e** sem compra na janela, falta alíquota, taxa/mix, perda ou rateio. Alíquota fica `null` até o dono confirmar — não existe 7,07% no código.
+- **Confiança** é uma régua pequena (custo, volume, estabilidade do custo, completude do pagamento, origem da perda): `high|medium|low|insufficient_data`; abaixo de `minConfidence` o preço não é mostrado.
+- **Impacto** é R$/mês com volume constante, sempre rotulado "Impacto potencial estimado".
+
+Gaps conhecidos: o relatório do catálogo é calculado na requisição (cache de 60 s do `FactsLoader`), não por fila como o motor de mix; sem tela, sem aplicar preço, sem Excel/PDF (fases seguintes); `costFlaggedUnreliable` ainda não tem fonte (sempre `false`); `volumeDroppedAfterPriceChange` é uma aproximação (preço subiu na janela e o último mês vendeu < 80% do primeiro).
+
 ## Runs (`/runs`) — rotas internas
 
 - `POST /runs {rangeFrom, rangeTo, asOf?}` só **registra** a run (versão do motor + versão

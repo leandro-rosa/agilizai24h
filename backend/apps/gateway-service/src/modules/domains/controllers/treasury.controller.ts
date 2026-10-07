@@ -142,6 +142,20 @@ export class TreasuryController {
     return result.data
   }
 
+  @Get('fees/in-force')
+  @RequiresPermission(PERMISSIONS.TREASURY_READ)
+  @ApiOperation({ summary: 'Acquirer rates in force on a date' })
+  async getFeesInForce(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    const search = new URLSearchParams(query).toString()
+    const result = await this.domains.treasury({
+      method: 'get',
+      path: `/treasury/fees/in-force${search ? `?${search}` : ''}`,
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
   @Post('fees')
   @RequiresPermission(PERMISSIONS.TREASURY_WRITE)
   @ApiOperation({ summary: 'Register an acquirer fee' })

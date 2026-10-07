@@ -27,6 +27,23 @@ export class SalesController {
     return this.transactions.soldBySku(from, to, (skus ?? '').split(',').map(s => s.trim()).filter(Boolean))
   }
 
+  @Get('network/payment-mix')
+  @ApiOperation({
+    summary: 'Revenue by payment method, acquirer and card brand over a window of months',
+    description:
+      'From `OK` receipts only. Without `storeId` it is the whole network. `periods_without_transactions` lists months whose mix is unknown, not zero.',
+  })
+  @ApiQuery({ name: 'from', required: true, example: '2026-07' })
+  @ApiQuery({ name: 'to', required: true, example: '2026-09' })
+  @ApiQuery({ name: 'storeId', required: false })
+  paymentMix(@Query('from') from: string, @Query('to') to: string, @Query('storeId') storeId?: string) {
+    const month = /^\d{4}-(0[1-9]|1[0-2])$/
+    if (!month.test(from ?? '') || !month.test(to ?? '') || from > to) throw new BadRequestException('from and to must be months, YYYY-MM, with from <= to')
+    if (storeId !== undefined && !/^\d+$/.test(storeId)) throw new BadRequestException('storeId must be a positive integer')
+
+    return this.transactions.paymentMix(from, to, storeId === undefined ? undefined : Number(storeId))
+  }
+
   @Get(':storeId')
   @ApiOperation({
     summary: 'Sales rows for a store and period',

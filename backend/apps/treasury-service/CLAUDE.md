@@ -161,7 +161,8 @@ Origem na planilha: abas `extrato bancário`, `cartão de crédito`, `DE-PARA`,
 | `PATCH /treasury/transactions/bulk` | `{ ids, nature?, category? }` — seleção múltipla da tela de Lançamentos; `nature` só grava nas linhas selecionadas com `kind: expense`, ignora as demais sem erro (não é `updateMany`: precisa do `kind` por linha, então é `$transaction` de updates individuais) |
 | `GET/POST /treasury/mappings`, `PATCH`/`DELETE /:id` | O DE-PARA — agora com `kind`/`match_type` |
 | `POST /treasury/mappings/apply/:period` | → `{ examined, classified }` |
-| `GET/POST /treasury/fees` | Taxa por adquirente/método, com vigência |
+| `GET/POST /treasury/fees` | Taxa por adquirente/método, com vigência. `POST` valida (0–100%, método conhecido, adquirente não vazio) e responde 409 se a mesma (adquirente, método, vigência) já existe |
+| `GET /treasury/fees/in-force?on=YYYY-MM-DD` | A taxa vigente na data por (adquirente, método); métodos sem taxa vêm em `methods_without_rate` — nunca 0%. Bandeiras de VR/VA (Pluxee, Ticket, VR Benefícios, Alelo) são adquirentes do método `voucher` |
 | `GET/POST /treasury/settlements` | Recebido por meio de pagamento |
 | `GET /treasury/imports` | Lista imports por `status`/`period` |
 | `GET /treasury/imports/:id` | Detalhe, com `transactions` e `rejections` |

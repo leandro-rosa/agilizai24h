@@ -18,6 +18,17 @@ export interface SalesTransactionDto {
   occurred_at: string | null
 }
 
+/** Revenue of `OK` receipts by payment method, acquirer and card brand. */
+export interface PaymentMixDto {
+  from: string
+  to: string
+  store_id: number | null
+  rows: { method: string | null; acquirer: string | null; card_brand: string | null; receipt_lines: number; amount_paid_cents: number }[]
+  total_amount_paid_cents: number
+  /** Months with no receipts for the scope: the mix there is unknown, not zero. */
+  periods_without_transactions: string[]
+}
+
 @Injectable()
 export class SalesClient {
   constructor(
@@ -41,5 +52,17 @@ export class SalesClient {
       `${this.config.getOrThrow<string>('SALES_SERVICE_URL')}/sales/${storeId}/transactions?period=${encodeURIComponent(period)}`,
       { correlationId, notFoundIsNull: true, timeout: 60000 },
     )
+  }
+
+  /** The payment mix over a window of months, for one store or the network. */
+  async paymentMix(from: string, to: string, storeId?: number, correlationId?: string): Promise<PaymentMixDto> {
+    const store = storeId === undefined ? '' : `&storeId=${storeId}`
+    const body = await httpGet<PaymentMixDto>(
+      this.http,
+      `${this.config.getOrThrow<string>('SALES_SERVICE_URL')}/sales/network/payment-mix?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${store}`,
+      { correlationId, timeout: 60000 },
+    )
+
+    return body as PaymentMixDto
   }
 }

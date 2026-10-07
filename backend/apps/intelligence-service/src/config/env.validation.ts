@@ -45,6 +45,15 @@ class EnvironmentVariables {
   @IsNotEmpty()
   SUPPLIERS_SERVICE_URL: string
 
+  /** Pricing (read-only): the acquirer fees in force and the P&L the operating allocation is read from. */
+  @IsString()
+  @IsNotEmpty()
+  TREASURY_SERVICE_URL: string
+
+  @IsString()
+  @IsNotEmpty()
+  ACCOUNTING_SERVICE_URL: string
+
   @IsOptional()
   @IsInt()
   @Min(1)
