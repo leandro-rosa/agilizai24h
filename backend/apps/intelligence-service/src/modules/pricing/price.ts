@@ -11,6 +11,8 @@ export interface PriceInput {
   /** Declared supplier; none when the catalogue has none. */
   supplierId?: number | null
   supplierName?: string | null
+  /** The day a product registered from an invoice was registered, when that day falls inside the analysed window: it is a NEW product to this report. */
+  newProductOn?: string | null
   /** Acquisition cost per unit. `null` = no cost registered. */
   costCents: number | null
   /** Age of that cost in days, and whether it came from a real purchase. */
@@ -65,6 +67,8 @@ export interface PriceResult {
   category: string | null
   categoryLabel: string
   subcategory: string | null
+  /** Registered from an invoice inside the analysed window ("Produto novo"); `noSalesHistory` when it has not sold in it. Null for every other product. */
+  newProduct: { registeredOn: string; noSalesHistory: boolean } | null
   status: PricingStatus
   confidence: Confidence
   /** `null` when insufficient data or below the minimum confidence. */
@@ -130,6 +134,7 @@ function identity(input: PriceInput) {
     category: input.category ?? null,
     categoryLabel: categoryLabel(input.category),
     subcategory: input.subcategory ?? null,
+    newProduct: input.newProductOn ? { registeredOn: input.newProductOn, noSalesHistory: input.monthlyUnits <= 0 } : null,
   }
 }
 

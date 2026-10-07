@@ -92,7 +92,14 @@ export class ProductsService {
       // The EAN may belong to another product today or only historically; either way a new SKU must not take it:
       // a barcode already tied to a product is a link to add to THAT product, not a reason for a second one.
       const linked = await this.prisma.productEan.findFirst({ where: { ean }, include: { product: { select: { sku: true } } }, orderBy: { status: 'asc' } })
-      if (linked) throw new ConflictException(`O EAN ${ean} ${linked.status === 'active' ? 'pertence' : 'já pertenceu'} ao produto ${linked.product.sku}; vincule-o a ele em vez de criar outro produto`)
+      if (linked) {
+        throw new ConflictException({
+          message: `O EAN ${ean} ${linked.status === 'active' ? 'pertence' : 'já pertenceu'} ao produto ${linked.product.sku}; vincule-o a ele em vez de criar outro produto`,
+          code: 'ean_linked',
+          sku: linked.product.sku,
+          ean_status: linked.status,
+        })
+      }
     }
 
     const created = await this.prisma.product.create({

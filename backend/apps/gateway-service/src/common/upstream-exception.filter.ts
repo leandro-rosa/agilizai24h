@@ -18,12 +18,18 @@ export class UpstreamExceptionFilter implements ExceptionFilter {
     const reply = host.switchToHttp().getResponse<FastifyReply>()
 
     if (exception instanceof UpstreamStatusError) {
-      const body = exception.body as { message?: unknown } | undefined
+      const body = exception.body as { message?: unknown; code?: unknown; sku?: unknown; ean_status?: unknown } | undefined
+      // A machine-readable reason a screen can act on (e.g. `ean_linked` + the product that owns the barcode); only these
+      // few primitive fields pass, never the upstream body as it came.
+      const detail = Object.fromEntries(
+        (['code', 'sku', 'ean_status'] as const).flatMap(key => (typeof body?.[key] === 'string' ? [[key, body[key]]] : [])),
+      )
 
       void reply.status(exception.status).send({
         statusCode: exception.status,
         message: body?.message ?? `Upstream ${exception.service} responded ${exception.status}`,
         upstream: exception.service,
+        ...detail,
       })
       return
     }

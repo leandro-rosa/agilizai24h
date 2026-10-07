@@ -4,16 +4,57 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { DeleteOrderDialog } from "@/components/purchases/delete-order-dialog";
+import { PendingLinesDialog } from "@/components/purchases/pending-lines-dialog";
 import { PurchaseFormDialog } from "@/components/purchases/purchase-form-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useUpdatePurchaseItemMutation, type Condition, type Purchase } from "@/lib/api/purchases";
+import { useRetryCostSyncMutation, useUpdatePurchaseItemMutation, type CostSync, type Condition, type Purchase } from "@/lib/api/purchases";
 import { supplierAnalysisApi } from "@/lib/api/supplier-analysis";
 import { useAppDispatch } from "@/lib/hooks";
 import { STAGE_LABEL, orderAlerts } from "@/lib/purchases/stages";
 import { CONDITION_LABEL, CONDITION_SHORT, formatCents, formatDate } from "@/lib/purchases/money";
+
+const ALERT_TEXT = {
+  large_variation: "Variação grande",
+  closed_month: "Mês já fechado: o CMV dele não é recalculado sozinho",
+  closed_month_unknown: "Não foi possível saber se o mês está fechado",
+} as const;
+
+/** O custo desta linha a caminho do produto: criado, igual ao que já valia, brinde (nunca cria custo), esperando ou com falha. */
+function CostSyncCell({ sync, retrying, onRetry }: { sync: CostSync | undefined; retrying: boolean; onRetry: () => void }) {
+  if (!sync || sync.state === null) return <span className="text-xs text-muted-foreground">Quando a compra for recebida</span>;
+  if (sync.state === "skipped_bonus") return <span className="text-xs text-muted-foreground">Bonificação: não cria custo</span>;
+  if (sync.state === "pending") return <StatusBadge tone="attention">Enviando…</StatusBadge>;
+  if (sync.state === "failed")
+    return (
+      <span className="flex flex-col items-start gap-1">
+        <StatusBadge tone="critical">Falhou</StatusBadge>
+        <span className="max-w-48 text-xs text-muted-foreground">{sync.error}</span>
+        <Button size="sm" variant="outline" disabled={retrying} onClick={onRetry}>
+          Reenviar
+        </Button>
+      </span>
+    );
+
+  return (
+    <span className="flex flex-col gap-0.5">
+      <StatusBadge tone="positive">{sync.state === "unchanged" ? "Igual ao custo vigente" : "Custo criado"}</StatusBadge>
+      {sync.previous_cost_cents !== null && sync.state === "synced" && (
+        <span className="text-xs text-muted-foreground">
+          antes {formatCents(sync.previous_cost_cents)}
+          {sync.variation_bps !== null ? ` (${sync.variation_bps > 0 ? "+" : ""}${(sync.variation_bps / 100).toFixed(1).replace(".", ",")}%)` : ""}
+        </span>
+      )}
+      {sync.alerts.map((alert) => (
+        <StatusBadge key={alert} tone="attention">
+          {ALERT_TEXT[alert]}
+        </StatusBadge>
+      ))}
+    </span>
+  );
+}
 
 const CONDITION_TONE = { paid: "neutral", bonus: "positive", on_sale: "attention" } as const;
 
@@ -27,6 +68,8 @@ export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
   const [open, setOpen] = useState<number | null>(null);
   const [editing, setEditing] = useState<Purchase | null>(null);
   const [deleting, setDeleting] = useState<Purchase | null>(null);
+  const [pendingOf, setPendingOf] = useState<number | null>(null);
+  const [retry, { isLoading: retrying }] = useRetryCostSyncMutation();
 
   async function change(itemId: number, changes: Parameters<typeof update>[0]["changes"], done: string) {
     try {
@@ -65,6 +108,11 @@ export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
                 {purchase.supplier_name ?? `Fornecedor ${purchase.supplier_id}`}
                 <div className="flex flex-wrap gap-1 pt-0.5 font-normal">
                   <StatusBadge tone={purchase.status === "received" ? "positive" : "neutral"}>{STAGE_LABEL[purchase.status]}</StatusBadge>
+                  {(purchase.awaiting_product_registration ?? 0) > 0 && (
+                    <button type="button" onClick={() => setPendingOf(purchase.id)} aria-label={`Resolver linhas pendentes do pedido ${purchase.id}`}>
+                      <StatusBadge tone="attention">Aguardando cadastro de produto ({purchase.awaiting_product_registration})</StatusBadge>
+                    </button>
+                  )}
                   {orderAlerts(purchase).map((alert) => (
                     <StatusBadge key={alert} tone="critical">
                       {alert}
@@ -105,6 +153,7 @@ export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
                         <TableHead className="text-right">Total</TableHead>
                         <TableHead>Condição</TableHead>
                         <TableHead>Pagamento</TableHead>
+                        <TableHead>Custo no produto</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -150,6 +199,9 @@ export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
                               <StatusBadge tone={CONDITION_TONE[item.condition]}>{item.condition === "bonus" ? "Não deve nada" : "Pago no acerto semanal"}</StatusBadge>
                             )}
                           </TableCell>
+                          <TableCell>
+                            <CostSyncCell sync={item.cost_sync} retrying={retrying} onRetry={() => retry(purchase.id).unwrap().then(() => toast.success("Custo reenviado ao produto.")).catch(() => toast.error("Não foi possível reenviar o custo."))} />
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -162,6 +214,7 @@ export function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
         })}
       </TableBody>
     </Table>
+      {pendingOf !== null && purchases.find((p) => p.id === pendingOf) && <PendingLinesDialog purchase={purchases.find((p) => p.id === pendingOf) as Purchase} open onOpenChange={(next) => !next && setPendingOf(null)} />}
       {editing && <PurchaseFormDialog order={editing} open onOpenChange={(open) => !open && setEditing(null)} />}
       {deleting && <DeleteOrderDialog order={deleting} open onOpenChange={(open) => !open && setDeleting(null)} />}
     </>

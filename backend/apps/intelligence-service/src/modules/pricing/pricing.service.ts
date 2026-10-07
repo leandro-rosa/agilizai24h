@@ -225,6 +225,8 @@ export class PricingService {
         ean: product.ean ?? null,
         supplierId: product.supplier_id ?? null,
         supplierName: product.supplier_id ? (supplierNames.get(product.supplier_id) ?? null) : null,
+        // Registered from an invoice inside the window: a new product, whatever its sales so far.
+        newProductOn: product.origin?.type === 'invoice' && product.origin.on && product.origin.on >= `${months[0]}-01` ? product.origin.on : null,
         costCents: cost?.cost_cents ?? null,
         costAgeDays: cost ? daysBetween(cost.effective_from, asOf) : null,
         costFromPurchase: purchased.has(sku),

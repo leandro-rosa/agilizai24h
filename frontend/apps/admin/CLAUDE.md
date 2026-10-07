@@ -1090,3 +1090,23 @@ Pedidos: **Editar** (reusa `purchase-form-dialog.tsx` com `order`; etapa fixa, f
 "Receber" um pedido pago na entrega oferece "Já paguei na entrega", que registra o pagamento junto. Em "A pagar", o vencimento de hoje aparece como "Vence hoje" e o card é "Hoje e próximos 7 dias".
 
 "A pagar": o calendário do topo escolhe um intervalo de dias (atalhos "Hoje" e "Ontem", "Mês" volta ao mês); ao escolher dias a tabela já vem em "Pago" para mostrar os pagamentos feitos naquele(s) dia(s), e os cards passam a dizer "no período".
+
+
+## Produto novo a partir da nota (`add-product-cost-price-versioning`, 1c)
+
+Na importação da NF-e (`invoice-import-dialog.tsx`) uma linha que não casou ganha três caminhos, e **nenhum cria coisa sozinho**: **Cadastrar produto novo**
+(`register-from-invoice-dialog.tsx`), **vincular o EAN da linha a um produto que já existe** (quando o nome parece com um do cadastro a tela avisa "Este produto
+pode já existir no cadastro") e **Deixar para depois** (a linha vai inteira para `pending_lines` da compra, que fica "Aguardando cadastro de produto"; nada é criado nem
+perdido). Linha de EAN ambíguo não oferece cadastrar nem vincular. O formulário de cadastro vem preenchido com o que a nota traz (nome, EAN, fornecedor, nota, data, custo
+por unidade) e pede só o que falta; o **SKU é uma sugestão** (`GET /products/next-sku`: o próximo depois do maior de 6 dígitos, dito na tela) que a pessoa confirma ou troca;
+**custo não é perguntado** (o da nota vira o primeiro custo do produto no recebimento, pelo outbox do suppliers-service). Origem e usuário são do servidor
+(`POST /products/from-invoice` força `origin = invoice` e o usuário da sessão). EAN que já é de outro produto não cria nada e a tela diz "Este EAN já está vinculado ao
+produto X" com **Ver produto** / **Corrigir vínculo** (o gateway repassa `code`/`sku` do 409). Depois de cadastrar vem o passo de preço
+(`new-product-price-step.tsx`): o preço sugerido é do **mesmo motor** da Precificação Inteligente (rótulo "Produto novo — sem histórico de vendas", confiança sempre baixa, dados
+usados à vista); a pessoa **usa o sugerido, informa outro (com motivo) ou salva sem preço**, e a escolha fica registrada (`POST /pricing/new-product/:sku/choice`). Nenhum preço é
+aplicado sem essa escolha; fechar o diálogo sem escolher deixa o produto sem preço e sem registro de escolha.
+Em `/purchases` (`purchases-table.tsx`) a compra mostra a etiqueta "Aguardando cadastro de produto (N)" que abre `pending-lines-dialog.tsx` (escolher produto, vincular EAN e usar,
+ou cadastrar; em compra já recebida o custo da nota vai ao produto na hora), e cada item mostra **o custo no produto** (`CostSync`): "Custo criado" com o valor anterior e a
+variação, "Igual ao custo vigente", "Bonificação: não cria custo", "Quando a compra for recebida", e uma falha visível com **Reenviar**; avisos de variação grande e de **mês já fechado**
+(o CMV dele não é recalculado sozinho). Em `/purchases/pricing` o produto cadastrado por nota dentro da janela aparece como **Produto novo** (e "Sem histórico de vendas" se ainda
+não vendeu). Não visto no navegador logado (sem credencial); specs com API mockada.

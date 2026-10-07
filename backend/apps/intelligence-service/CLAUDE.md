@@ -326,3 +326,5 @@ imposto, taxas, perda da **categoria** — sem histórico do produto —, rateio
 sugestão é **recalculada no servidor** na hora (não vale o número que o navegador disser), "usar a sugestão" é recusado se o preço difere dela, preço digitado
 exige motivo, "sem preço" não aceita preço; um `CHECK` do banco garante preço escolhido salvo em `left_without_price`. É auditoria: não grava preço (o gateway
 grava, pelo caminho de `decisions/apply`, com a decisão chaveada `new-product:<chave da escolha>`). `GET /pricing/new-product/:sku/choices` lista.
+Cada produto do relatório traz `newProduct { registeredOn, noSalesHistory } | null`: produto cadastrado por uma nota (`origin.type = invoice` no products-service) cujo dia cai **dentro da
+janela analisada** (a tela mostra "Produto novo" e, se ainda não vendeu, "Sem histórico de vendas"). Produto cadastrado antes da janela ou à mão: null.

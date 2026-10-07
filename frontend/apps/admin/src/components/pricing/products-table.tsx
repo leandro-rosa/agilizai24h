@@ -72,6 +72,12 @@ export function ProductsTable({
                   <TableCell>
                     <div className="font-medium">{product.name ?? product.sku}</div>
                     <div className="tabular text-xs text-muted-foreground">{product.ean ?? product.sku}</div>
+                    {product.newProduct && (
+                      <div className="mt-0.5 flex flex-wrap gap-1">
+                        <StatusBadge tone="attention">Produto novo</StatusBadge>
+                        {product.newProduct.noSalesHistory && <StatusBadge tone="neutral">Sem histórico de vendas</StatusBadge>}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>{product.categoryLabel}</TableCell>
                   <TableCell className="tabular text-right">{money(product.structure?.productCostCents ?? null)}</TableCell>

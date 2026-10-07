@@ -10,13 +10,13 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCreatePurchaseMutation, usePreviewInvoiceMutation, type Condition, type InvoicePreview } from "@/lib/api/purchases";
-import { useGetProductsQuery, type Product } from "@/lib/api/products";
+import { useAddProductEanMutation, useGetProductsQuery, type Product } from "@/lib/api/products";
 import { useHasPermission } from "@/lib/auth/use-permission";
 import { useAddAliasMutation, useGetSuppliersQuery, useUpdateSupplierMutation } from "@/lib/api/suppliers";
 import { supplierAnalysisApi } from "@/lib/api/supplier-analysis";
 import { useAppDispatch } from "@/lib/hooks";
 import { CONDITION_LABEL, formatCents, formatDate, packConversion } from "@/lib/purchases/money";
-import { NewProductDialog } from "./new-product-dialog";
+import { RegisterFromInvoiceDialog } from "./register-from-invoice-dialog";
 import { EMPTY_TERMS, OrderTermsFields, termsPayload, termsProblem, type OrderTerms } from "./order-terms-fields";
 import { useUpdateProductMutation } from "@/lib/api/products";
 
@@ -51,6 +51,11 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
   }, [productsQuery.data, created]);
   const canCreateProduct = useHasPermission("products:write");
   const [newProductLine, setNewProductLine] = useState<number | null>(null);
+  // "Deixar para depois": a linha segue na compra, inteira, sem produto e sem SKU criados.
+  const [later, setLater] = useState<Record<number, boolean>>({});
+  // EAN que a pessoa vinculou a um produto que já existia, por linha (a linha passa a casar por ele).
+  const [eanLinked, setEanLinked] = useState<Record<number, boolean>>({});
+  const [addEan, { isLoading: linkingEan }] = useAddProductEanMutation();
   const [alreadyReceived, setAlreadyReceived] = useState(false);
   const [receivedOn, setReceivedOn] = useState(() => new Date().toISOString().slice(0, 10));
   const [terms, setTerms] = useState<OrderTerms>(EMPTY_TERMS);
@@ -66,6 +71,8 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
       setPreview(await read(next).unwrap());
       setConditions({});
       setChosen({});
+      setLater({});
+      setEanLinked({});
       setPacks({});
       setAlreadyReceived(false);
       setTerms(EMPTY_TERMS);
@@ -113,8 +120,24 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
   const withProduct = preview ? preview.items.filter((item) => skuFor(item)) : [];
   const invalid = withProduct.filter((item) => conversionOf(item) === null);
   const resolved = withProduct.filter((item) => conversionOf(item) !== null);
-  const left = preview ? preview.items.length - withProduct.length : 0;
-  const blocked = !preview || !preview.supplier || preview.duplicate_of !== null || resolved.length === 0 || invalid.length > 0 || termsProblem(terms) !== null;
+  const waiting = preview ? preview.items.filter((item) => !skuFor(item) && later[item.line]) : [];
+  const waitingInvalid = waiting.filter((item) => conversionOf(item) === null);
+  const left = preview ? preview.items.length - withProduct.length - waiting.length : 0;
+  const blocked =
+    !preview || !preview.supplier || preview.duplicate_of !== null || (resolved.length === 0 && waiting.length === 0) || invalid.length > 0 || waitingInvalid.length > 0 || termsProblem(terms) !== null;
+
+  /** O EAN da nota passa a ser mais um código de barras do produto escolhido (nunca cria produto). */
+  async function linkEan(item: InvoicePreview["items"][number]) {
+    const product = products.find((p) => labelOf(p) === chosenLabel(item));
+    if (!product || !item.ean) return;
+    try {
+      await addEan({ productId: product.id, ean: item.ean, note: `Vinculado pela nota ${preview?.number ?? ""}` }).unwrap();
+      setEanLinked((current) => ({ ...current, [item.line]: true }));
+      toast.success(`EAN ${item.ean} vinculado a ${product.name}. O histórico dele continua o mesmo.`);
+    } catch (failure) {
+      toast.error((failure as { data?: { message?: string } })?.data?.message ?? "Não foi possível vincular o EAN.");
+    }
+  }
 
   async function confirm() {
     if (!preview?.supplier) return;
@@ -136,6 +159,13 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
           // O original da nota (embalagens, preço da embalagem, unidades por embalagem) vai junto: o custo unitário fica auditável.
           return { sku: skuFor(item) as string, supplier_code: item.sku ? undefined : item.code, description: item.description, quantity: converted.units, unit_cost_cents: converted.unitCostCents, condition: conditions[item.line] ?? "paid", pack_quantity: item.quantity, pack_unit_price_cents: item.unit_cost_cents, units_per_pack: packOf(item), purchase_unit: item.unit ?? undefined };
         }),
+        // Linhas deixadas para depois: guardadas inteiras na compra ("Aguardando cadastro de produto").
+        pending_lines: waiting.length
+          ? waiting.map((item) => {
+              const converted = conversionOf(item) as { units: number; unitCostCents: number };
+              return { description: item.description, ean: item.ean ?? undefined, supplier_code: item.code, quantity: converted.units, unit_cost_cents: converted.unitCostCents, condition: conditions[item.line] ?? "paid", pack_quantity: item.quantity, pack_unit_price_cents: item.unit_cost_cents, units_per_pack: packOf(item), purchase_unit: item.unit ?? undefined };
+            })
+          : undefined,
       }).unwrap();
       // A embalagem digitada vira dado do produto (só onde ainda não havia): a próxima nota já vem sugerida.
       if (remember)
@@ -149,7 +179,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
       dispatch(supplierAnalysisApi.util.invalidateTags(["Analysis"]));
       const linked = resolved.filter((item) => !item.sku).length;
       toast.success(
-        `Nota ${preview.number} registrada com ${resolved.length} ${resolved.length === 1 ? "item" : "itens"}.` +
+        `Nota ${preview.number} registrada com ${resolved.length} ${resolved.length === 1 ? "item" : "itens"}` + (waiting.length > 0 ? ` e ${waiting.length} ${waiting.length === 1 ? "linha aguardando" : "linhas aguardando"} cadastro de produto` : "") + "." +
           (linked > 0 ? ` ${linked} ${linked === 1 ? "associação guardada" : "associações guardadas"}: na próxima nota deste fornecedor ${linked === 1 ? "o item vem" : "os itens vêm"} preenchido${linked === 1 ? "" : "s"}.` : ""),
       );
       setOpen(false);
@@ -226,6 +256,9 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                     const sku = skuFor(item);
                     const fixable = item.unresolved_reason !== null;
                     const canRegister = item.unresolved_reason === "no_match" || item.unresolved_reason === "ean_not_identified";
+                    const isLater = !sku && later[item.line] === true;
+                    const likelyExisting = !item.sku && canRegister && item.suggestions.length > 0;
+                    const chosenProduct = products.find((p) => labelOf(p) === chosenLabel(item));
                     const converted = conversionOf(item);
                     return (
                       <TableRow key={item.line}>
@@ -254,10 +287,30 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                                   ; fica de fora se não escolher.
                                 </p>
                               )}
-                              {canRegister && !sku && canCreateProduct && (
+                              {likelyExisting && !isLater && <p className="text-xs text-warning">Este produto pode já existir no cadastro (mais parecido: {item.suggestions[0].name}). Confira o produto escolhido acima para não duplicar.</p>}
+                              {item.unresolved_reason === "ean_not_identified" && item.ean && chosenProduct && !eanLinked[item.line] && canCreateProduct && (
+                                <Button variant="link" size="sm" className="h-auto px-0" disabled={linkingEan} onClick={() => linkEan(item)}>
+                                  Vincular EAN {item.ean} a {chosenProduct.name}
+                                </Button>
+                              )}
+                              {eanLinked[item.line] && <p className="text-xs text-success">EAN {item.ean} vinculado ao produto escolhido.</p>}
+                              {canRegister && !sku && canCreateProduct && !isLater && (
                                 <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setNewProductLine(item.line)}>
                                   Cadastrar produto novo
                                 </Button>
+                              )}
+                              {fixable && !sku && !isLater && (
+                                <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setLater((current) => ({ ...current, [item.line]: true }))}>
+                                  Deixar para depois
+                                </Button>
+                              )}
+                              {isLater && (
+                                <p className="text-xs text-warning">
+                                  Aguardando cadastro de produto: a linha fica na compra, sem criar produto.{" "}
+                                  <button type="button" className="underline" onClick={() => setLater((current) => ({ ...current, [item.line]: false }))}>
+                                    Desfazer
+                                  </button>
+                                </p>
                               )}
                             </>
                           )}
@@ -266,7 +319,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                           {item.quantity} × {formatCents(item.unit_cost_cents)}
                         </TableCell>
                         <TableCell>
-                          {sku ? (
+                          {sku || isLater ? (
                             <div className="flex flex-col gap-0.5">
                               <Input
                                 className="w-20"
@@ -284,7 +337,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                           )}
                         </TableCell>
                         <TableCell className="tabular text-right">
-                          {sku ? (
+                          {sku || isLater ? (
                             converted ? (
                               <>
                                 {converted.units} un.
@@ -298,7 +351,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                           )}
                         </TableCell>
                         <TableCell>
-                          {sku ? (
+                          {sku || isLater ? (
                             <Select value={conditions[item.line] ?? "paid"} onValueChange={(c) => setConditions((current) => ({ ...current, [item.line]: c as Condition }))}>
                               <SelectTrigger aria-label={`Condição do item ${item.line}`} className="w-36">
                                 <SelectValue />
@@ -339,6 +392,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
               <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
               Lembrar a embalagem no cadastro dos produtos que ainda não têm
             </label>
+            {waiting.length > 0 && <p className="text-sm text-warning">{waiting.length} {waiting.length === 1 ? "linha fica" : "linhas ficam"} na compra como “Aguardando cadastro de produto”: nenhum produto é criado e nada se perde; depois você escolhe o produto, vincula o EAN ou cadastra.</p>}
             {invalid.length > 0 && <p className="text-sm text-destructive">{invalid.length} {invalid.length === 1 ? "linha tem" : "linhas têm"} embalagem inválida (use um número inteiro de unidades).</p>}
             {left > 0 && <p className="text-sm text-warning">{left} {left === 1 ? "linha fica" : "linhas ficam"} de fora por não terem produto escolhido.</p>}
           </div>
@@ -349,28 +403,27 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
             Cancelar
           </Button>
           <Button onClick={confirm} disabled={blocked || saving}>
-            {saving ? "Registrando..." : `Registrar ${resolved.length} ${resolved.length === 1 ? "item" : "itens"}`}
+            {saving ? "Registrando..." : `Registrar ${resolved.length} ${resolved.length === 1 ? "item" : "itens"}${waiting.length > 0 ? ` (+${waiting.length} aguardando cadastro)` : ""}`}
           </Button>
         </DialogFooter>
       </DialogContent>
     
-      {preview && newProductLine !== null && (
-        <NewProductDialog
-          open
-          onOpenChange={(next) => !next && setNewProductLine(null)}
-          initial={{ sku: preview.items.find((i) => i.line === newProductLine)?.code, name: preview.items.find((i) => i.line === newProductLine)?.description }}
-          unitCostCents={(() => {
-            const line = preview.items.find((i) => i.line === newProductLine);
-            return line ? (conversionOf(line)?.unitCostCents ?? line.unit_cost_cents) : null;
-          })()}
-          supplierId={preview.supplier?.id}
-          onCreated={(product) => {
-            setCreated((current) => [...current, product]);
-            setChosen((current) => ({ ...current, [newProductLine]: labelOf(product) }));
-            setNewProductLine(null);
-          }}
-        />
-      )}
+      {preview && preview.supplier && newProductLine !== null && (() => {
+        const line = preview.items.find((i) => i.line === newProductLine);
+        if (!line) return null;
+        return (
+          <RegisterFromInvoiceDialog
+            open
+            onOpenChange={(next) => !next && setNewProductLine(null)}
+            line={{ description: line.description, ean: line.ean, unitCostCents: conversionOf(line)?.unitCostCents ?? line.unit_cost_cents, unitsPerPack: packOf(line) }}
+            invoice={{ number: preview.number, issuedOn: preview.issued_on, supplierId: preview.supplier.id, supplierName: preview.supplier.name, received: alreadyReceived }}
+            onCreated={(product) => {
+              setCreated((current) => [...current, product]);
+              setChosen((current) => ({ ...current, [newProductLine]: labelOf(product) }));
+            }}
+          />
+        );
+      })()}
     </Dialog>
   );
 }

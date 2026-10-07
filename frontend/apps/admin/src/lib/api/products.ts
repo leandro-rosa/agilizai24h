@@ -20,6 +20,46 @@ export interface Product {
   units_per_package: number | null;
   package_type: string | null;
   fractionable: boolean | null;
+  sale_unit?: string;
+  /** Todos os EAN que o produto já teve (nunca apagados), com situação e validade. */
+  eans?: ProductEan[];
+  /** Como nasceu o cadastro; para `invoice`, a evidência (nota, fornecedor, dia, usuário). */
+  origin?: { type: "manual" | "invoice" | "legacy_import"; invoice_number: string | null; supplier_id: number | null; purchase_id: number | null; on: string | null; actor: string | null };
+}
+
+export interface ProductEan {
+  id: number;
+  ean: string;
+  status: "active" | "inactive";
+  is_primary: boolean;
+  valid_from: string | null;
+  valid_to: string | null;
+  source: string;
+  actor: string | null;
+  note: string | null;
+}
+
+/** O que a tela manda ao cadastrar um produto a partir de uma linha de NF-e. Origem e usuário são do servidor, nunca daqui. */
+export interface NewProductFromInvoice {
+  sku: string;
+  name: string;
+  category: Product["category"];
+  subcategory?: string;
+  saleUnit?: string;
+  packageType?: string;
+  unitsPerPackage?: number;
+  fractionable?: boolean;
+  ean?: string;
+  supplierId: number;
+  invoiceNumber: string;
+  originOn: string;
+}
+
+export interface NextSku {
+  /** O número depois do maior SKU de seis dígitos; uma SUGESTÃO (nada é reservado). Nulo quando não há de onde contar. */
+  suggested: string | null;
+  highest: string | null;
+  suggestion: true;
 }
 
 export interface ResolvedCost {
@@ -155,6 +195,20 @@ export const productsApi = createApi({
       query: ({ sku, ...body }) => ({ url: `/products/${encodeURIComponent(sku)}/costs`, method: "POST", body }),
       invalidatesTags: ["Product"],
     }),
+    getNextSku: builder.query<NextSku, void>({
+      query: () => "/products/next-sku",
+      // Cada abertura do formulário pergunta de novo: outro cadastro pode ter usado o número.
+      keepUnusedDataFor: 0,
+    }),
+    createProductFromInvoice: builder.mutation<Product, NewProductFromInvoice>({
+      query: (body) => ({ url: "/products/from-invoice", method: "POST", body }),
+      invalidatesTags: ["Product"],
+    }),
+    /** Vincula um código de barras a um produto que já existe (nunca cria produto). */
+    addProductEan: builder.mutation<ProductEan[], { productId: number; ean: string; note?: string }>({
+      query: ({ productId, ...body }) => ({ url: `/products/${productId}/eans`, method: "POST", body }),
+      invalidatesTags: ["Product"],
+    }),
     updateProduct: builder.mutation<
       Product,
       { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number; packageType?: string; fractionable?: boolean; supplierId?: number | null } }
@@ -177,5 +231,8 @@ export const {
   useRecordPriceMutation,
   useUpdateProductMutation,
   useCreateProductMutation,
+  useGetNextSkuQuery,
+  useCreateProductFromInvoiceMutation,
+  useAddProductEanMutation,
   useRecordCostMutation,
 } = productsApi;

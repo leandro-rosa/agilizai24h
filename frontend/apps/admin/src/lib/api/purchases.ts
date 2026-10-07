@@ -24,6 +24,53 @@ export interface PurchaseItem {
   paid_on: string | null;
   payment_note: string | null;
   total_cents: number;
+  /** O custo da nota a caminho do produto; `state` nulo até a compra ser recebida. Brinde nunca envia custo (`skipped_bonus`). */
+  cost_sync?: CostSync;
+}
+
+export interface CostSync {
+  state: "pending" | "synced" | "unchanged" | "skipped_bonus" | "failed" | null;
+  attempts: number;
+  synced_at: string | null;
+  error: string | null;
+  version_id: number | null;
+  previous_cost_cents: number | null;
+  variation_bps: number | null;
+  alerts: ("large_variation" | "closed_month" | "closed_month_unknown")[];
+}
+
+/** Linha da nota cujo produto ainda não está cadastrado: guardada inteira, nada criado, nada perdido. */
+export interface PendingLine {
+  id: number;
+  description: string;
+  ean: string | null;
+  supplier_code: string | null;
+  quantity: number;
+  unit_cost_cents: number;
+  condition: Condition;
+  pack_quantity: number | null;
+  pack_unit_price_cents: number | null;
+  units_per_pack: number | null;
+  purchase_unit: string | null;
+  status: "pending" | "resolved";
+  sku: string | null;
+  item_id: number | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  total_cents: number;
+}
+
+export interface NewPendingLine {
+  description: string;
+  ean?: string;
+  supplier_code?: string;
+  quantity: number;
+  unit_cost_cents: number;
+  condition: Condition;
+  pack_quantity?: number;
+  pack_unit_price_cents?: number;
+  units_per_pack?: number;
+  purchase_unit?: string;
 }
 
 export interface Purchase {
@@ -35,6 +82,8 @@ export interface Purchase {
   status: Stage;
   invoice_number: string | null;
   invoice_key: string | null;
+  /** Data de emissão da NF (dhEmi); nula quando não foi registrada. */
+  invoice_issued_on?: string | null;
   without_invoice: boolean;
   notes: string | null;
   created_by: string | null;
@@ -56,6 +105,9 @@ export interface Purchase {
   /** Há item pago pendente e o vencimento passou. */
   overdue: boolean;
   items: PurchaseItem[];
+  /** Linhas à espera de cadastro de produto ("Aguardando cadastro de produto") e quantas ainda faltam. */
+  pending_lines?: PendingLine[];
+  awaiting_product_registration?: number;
   /** Gasto: itens pagos ao custo. Consignado só é devido conforme vende; bonificação não custa nada. */
   paid_cents: number;
   on_sale_cents: number;
@@ -99,6 +151,8 @@ export interface NewPurchase {
   payment_due_on?: string;
   payment_method?: PaymentMethod;
   items: NewPurchaseItem[];
+  /** "Deixar para depois": linhas sem produto ficam na compra, inteiras. */
+  pending_lines?: NewPendingLine[];
 }
 
 /** Uma linha do pedido editado: com `id` altera o item; sem, é linha nova; o que não vier é removido. */
@@ -342,6 +396,14 @@ export const purchasesApi = createApi({
       query: ({ itemId, changes }) => ({ url: `/purchases/items/${itemId}`, method: "PATCH", body: changes }),
       invalidatesTags: ["Purchase", "Settlement"],
     }),
+    resolvePendingLine: builder.mutation<Purchase, { id: number; lineId: number; sku: string }>({
+      query: ({ id, lineId, sku }) => ({ url: `/purchases/${id}/pending-lines/${lineId}/resolve`, method: "POST", body: { sku } }),
+      invalidatesTags: ["Purchase"],
+    }),
+    retryCostSync: builder.mutation<Purchase, number>({
+      query: (id) => ({ url: `/purchases/${id}/cost-sync`, method: "POST" }),
+      invalidatesTags: ["Purchase"],
+    }),
     getPurchase: builder.query<Purchase, number>({
       query: (id) => `/purchases/${id}`,
       providesTags: ["Purchase"],
@@ -445,6 +507,8 @@ export const {
   useUndoPaymentMutation,
   useGetPurchasesQuery,
   useCreatePurchaseMutation,
+  useResolvePendingLineMutation,
+  useRetryCostSyncMutation,
   useUpdatePurchaseItemMutation,
   usePreviewInvoiceMutation,
   useGetSettlementsQuery,

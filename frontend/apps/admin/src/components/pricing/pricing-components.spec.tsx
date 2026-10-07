@@ -73,6 +73,15 @@ describe("ProductsTable", () => {
     expect(screen.getByText("Sem custo cadastrado")).toBeInTheDocument();
     expect(screen.getByText("Dados insuficientes")).toBeInTheDocument();
   });
+
+  it("um produto cadastrado por uma nota aparece como Produto novo, e sem histórico de vendas quando ainda não vendeu", () => {
+    const novo = product({ sku: "110024", name: "Novo sabor", status: "insufficient_data", recommendedPriceCents: null, currentPriceCents: null, structure: null, insufficientReasons: ["Sem preço atual"], newProduct: { registeredOn: "2026-09-12", noSalesHistory: true } });
+    const vendeu = product({ sku: "110025", name: "Outro novo", newProduct: { registeredOn: "2026-09-12", noSalesHistory: false } });
+    render(<ProductsTable {...props([novo, vendeu, product()])} />);
+
+    expect(screen.getAllByText("Produto novo")).toHaveLength(2);
+    expect(screen.getAllByText("Sem histórico de vendas")).toHaveLength(1);
+  });
 });
 
 describe("FiltersBar", () => {

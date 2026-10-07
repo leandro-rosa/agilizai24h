@@ -4,6 +4,7 @@ import type { ComponentType } from "react";
 
 const createPurchase = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
 const updateProduct = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
+const addEan = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
 
 const item = (over: Record<string, unknown> = {}) => ({
   line: 1, code: "118463", description: "Monster Energy LT 473ml 6P F. LISO CP", quantity: 25, unit_cost_cents: 4349, total_cents: 108725, unit: "UN",
@@ -18,7 +19,11 @@ jest.doMock("../../lib/api/purchases", () => ({ usePreviewInvoiceMutation: () =>
 jest.doMock("../../lib/api/products", () => ({
   useGetProductsQuery: () => ({ data: [{ id: 9, sku: "M1", name: "Energético Monster", units_per_package: null }] }),
   useUpdateProductMutation: () => [updateProduct],
+  useAddProductEanMutation: () => [addEan, { isLoading: false }],
+  useGetNextSkuQuery: () => ({ data: { suggested: "110024" }, isSuccess: true }),
+  useCreateProductFromInvoiceMutation: () => [jest.fn(), { isLoading: false }],
 }));
+jest.doMock("../../lib/api/pricing", () => ({ useGetNewProductSuggestionQuery: () => ({ isLoading: true }), useChooseNewProductPriceMutation: () => [jest.fn(), { isLoading: false }] }));
 jest.doMock("../../lib/api/suppliers", () => ({
   useGetSuppliersQuery: () => ({ data: [{ id: 130, name: "Juntos+", tax_id: null, legal_name: null }] }),
   useAddAliasMutation: () => [jest.fn(), { isLoading: false }],
@@ -181,5 +186,74 @@ describe("InvoiceImportDialog — vários EANs por produto", () => {
 
     expect(screen.getByText(/já foi de mais de um produto \(Q1, B2\); escolha qual/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cadastrar produto novo" })).not.toBeInTheDocument();
+  });
+});
+
+describe("InvoiceImportDialog — produto que ainda não existe", () => {
+  const unknown = (over: Record<string, unknown> = {}) => item({ line: 1, sku: null, product_name: null, matched_by: null, unresolved_reason: "ean_not_identified", ean: "7891000100103", description: "Novo sabor de marmita", code: "FORN-77", quantity: 20, unit_cost_cents: 850, pack_size_suggested: null, pack_source: null, suggestions: [], ...over });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    preview = { ...preview, supplier: { id: 130, name: "Juntos+" }, duplicate_of: null, items: [unknown()] };
+  });
+
+  it("oferece cadastrar, e também deixar para depois, sem escolher produto nenhum", async () => {
+    await openWithFile();
+
+    expect(screen.getByRole("button", { name: "Cadastrar produto novo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deixar para depois" })).toBeInTheDocument();
+  });
+
+  it("deixar para depois guarda a linha inteira na compra, sem produto: nada é criado e nada se perde", async () => {
+    await openWithFile();
+    fireEvent.click(screen.getByRole("button", { name: "Deixar para depois" }));
+
+    expect(screen.getByText(/Aguardando cadastro de produto: a linha fica na compra/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Registrar 0 itens (+1 aguardando cadastro)" }));
+
+    await waitFor(() => expect(createPurchase).toHaveBeenCalledTimes(1));
+    const sent = createPurchase.mock.calls[0][0] as { items: unknown[]; pending_lines: Record<string, unknown>[] };
+    expect(sent.items).toEqual([]);
+    expect(sent.pending_lines).toEqual([expect.objectContaining({ description: "Novo sabor de marmita", ean: "7891000100103", supplier_code: "FORN-77", quantity: 20, unit_cost_cents: 850, condition: "paid", pack_quantity: 20, pack_unit_price_cents: 850, units_per_pack: 1 })]);
+  });
+
+  it("dá para desfazer o 'deixar para depois' e a linha volta a ficar de fora", async () => {
+    await openWithFile();
+    fireEvent.click(screen.getByRole("button", { name: "Deixar para depois" }));
+    fireEvent.click(screen.getByRole("button", { name: "Desfazer" }));
+
+    expect(screen.getByRole("button", { name: "Registrar 0 itens" })).toBeDisabled();
+  });
+
+  it("uma nota só com linhas pendentes e outra resolvida manda os dois lados", async () => {
+    preview = { ...preview, items: [item(), unknown({ line: 2 })] };
+    await openWithFile();
+    fireEvent.click(screen.getByRole("button", { name: "Deixar para depois" }));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar 1 item (+1 aguardando cadastro)" }));
+
+    await waitFor(() => expect(createPurchase).toHaveBeenCalledTimes(1));
+    const sent = createPurchase.mock.calls[0][0] as { items: unknown[]; pending_lines: unknown[] };
+    expect(sent.items).toHaveLength(1);
+    expect(sent.pending_lines).toHaveLength(1);
+  });
+
+  it("produto que pode já existir: avisa, e vincular o EAN a ele não cria produto", async () => {
+    preview = { ...preview, items: [unknown({ suggestions: [{ sku: "M1", name: "Energético Monster", score: 0.8, measure_differs: false }] })] };
+    await openWithFile();
+
+    expect(screen.getByText(/Este produto pode já existir no cadastro \(mais parecido: Energético Monster\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Vincular EAN 7891000100103 a Energético Monster" }));
+
+    await waitFor(() => expect(addEan).toHaveBeenCalledTimes(1));
+    expect(addEan.mock.calls[0][0]).toMatchObject({ productId: 9, ean: "7891000100103" });
+    expect(await screen.findByText(/EAN 7891000100103 vinculado ao produto escolhido/)).toBeInTheDocument();
+  });
+
+  it("EAN ambíguo não oferece cadastrar nem vincular", async () => {
+    preview = { ...preview, items: [unknown({ unresolved_reason: "ean_ambiguous", ean_candidates: ["Q1", "B2"] })] };
+    await openWithFile();
+
+    expect(screen.queryByRole("button", { name: "Cadastrar produto novo" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Vincular EAN/ })).not.toBeInTheDocument();
   });
 });

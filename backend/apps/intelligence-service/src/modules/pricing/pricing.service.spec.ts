@@ -14,7 +14,7 @@ const pnl = (period: string): PnlDto => ({
   ],
 })
 
-function build(taxRateBps: number | null) {
+function build(taxRateBps: number | null, extraProducts: Record<string, unknown>[] = []) {
   const params = mergePricingParameters(DEFAULT_PRICING_PARAMETERS, { taxRateBps } as never)
   const supply = {
     period: async () => ({ store_id: 1, period: 'x', restocks: [{ sku: 'COCA', quantity_restocked: 100 }], removals: [{ sku: 'COCA', reason: 'expired', counts_as_loss: true, quantity_removed: 2 }], adjustments: [] }),
@@ -39,6 +39,7 @@ function build(taxRateBps: number | null) {
     products: async () => [
       { id: 1, sku: 'COCA', name: 'Coca-Cola Lata 350ml', category: 'beverage', subcategory: 'Refrigerantes', ean: '789490001537', supplier_id: 9 },
       { id: 2, sku: 'MARM', name: 'Marmita', category: 'meal' },
+      ...extraProducts,
     ],
     costsAsOf: async (_skus: string[], asOf: string) => ({
       as_of: asOf,
@@ -132,5 +133,45 @@ describe('PricingService.report', () => {
 
     expect(report.summary.impactLabel).toBe('Impacto potencial estimado')
     expect(report.summary.potentialImpactCentsPerMonth).toBeGreaterThan(0)
+  })
+})
+
+describe('PricingService — a product registered from an invoice', () => {
+  const extra = [
+    { id: 3, sku: 'NOVO', name: 'Novo sabor', category: 'meal', origin: { type: 'invoice', on: '2026-09-12' } },
+    { id: 4, sku: 'ANTIGO', name: 'Registrado antes da janela', category: 'meal', origin: { type: 'invoice', on: '2026-05-01' } },
+    { id: 5, sku: 'MANUAL', name: 'Manual', category: 'meal', origin: { type: 'manual', on: null } },
+  ]
+
+  it('is marked as a new product only when the invoice registration falls inside the analysed window, and says it has no sales history', async () => {
+    const report = await build(707, extra).report({ period: '2026-09' })
+    const by = (sku: string) => report.products.find(product => product.sku === sku)!
+
+    expect(by('NOVO').newProduct).toEqual({ registeredOn: '2026-09-12', noSalesHistory: true })
+    expect(by('ANTIGO').newProduct).toBeNull()
+    expect(by('MANUAL').newProduct).toBeNull()
+    expect(by('COCA').newProduct).toBeNull()
+  })
+
+  it('a product with no price and no sales gets a suggestion from the same engine, built on the invoice cost the request gives', async () => {
+    const { suggestion, meta } = await build(707, extra).newProduct('NOVO', { period: '2026-09', costCents: 850, costOrigin: 'Nota fiscal 13021', costNotReceived: true })
+
+    expect(meta.parameterVersion).toBe(7)
+    expect(suggestion.label).toBe('Produto novo — sem histórico de vendas')
+    expect(suggestion.status).toBe('suggested')
+    expect(suggestion.confidence).toBe('low')
+    expect(suggestion.suggestedPriceCents).toBeGreaterThan(850)
+    expect(suggestion.dataUsed.find(d => d.code === 'cost')).toMatchObject({ value: 'R$ 8,50', origin: 'Nota fiscal 13021' })
+    expect(suggestion.reasons.join(' ')).toContain('ainda não recebida')
+    // Its loss comes from the category (the product has no history of its own).
+    expect(suggestion.structure?.lossLevel).not.toBe('product')
+  })
+
+  it('refuses to suggest without a cost, and reports the unknown product', async () => {
+    const none = await build(707, extra).newProduct('NOVO', { period: '2026-09' })
+    expect(none.suggestion.status).toBe('insufficient_data')
+    expect(none.suggestion.suggestedPriceCents).toBeNull()
+
+    await expect(build(707, extra).newProduct('NADA', { period: '2026-09', costCents: 100 })).rejects.toThrow('not found')
   })
 })

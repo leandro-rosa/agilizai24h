@@ -35,6 +35,8 @@ export interface Reason {
 export interface PricingProduct {
   sku: string;
   name: string | null;
+  /** Cadastrado a partir de uma nota dentro da janela analisada ("Produto novo"); `noSalesHistory` quando ainda não vendeu nela. */
+  newProduct?: { registeredOn: string; noSalesHistory: boolean } | null;
   ean: string | null;
   supplierId: number | null;
   supplierName: string | null;
@@ -272,6 +274,27 @@ function scopeQuery({ period, storeId }: ScopeArgs): string {
   return params.toString();
 }
 
+/** A sugestão de preço de um produto sem preço e sem vendas. Vem pronta do servidor; a tela só mostra. */
+export interface NewProductSuggestion {
+  sku: string;
+  name: string | null;
+  /** "Produto novo — sem histórico de vendas". */
+  label: string;
+  status: "suggested" | "insufficient_data";
+  /** Nunca acima de `low`: sem venda não há como confirmar o preço. */
+  confidence: "low" | "insufficient_data";
+  minimumPriceCents: number | null;
+  suggestedPriceCents: number | null;
+  suggestedMargin: number | null;
+  targetMargin: number;
+  minimumMargin: number;
+  dataUsed: { code: string; label: string; value: string; origin: string }[];
+  reasons: string[];
+  insufficientReasons: string[];
+}
+
+export type NewProductChoiceKind = "suggested_accepted" | "changed_by_hand" | "left_without_price";
+
 export const pricingApi = createApi({
   reducerPath: "pricingApi",
   baseQuery: gatewayBaseQuery,
@@ -316,6 +339,25 @@ export const pricingApi = createApi({
       query: (body) => ({ url: "/pricing/decisions/apply", method: "POST", body }),
       invalidatesTags: ["Decisions"],
     }),
+    getNewProductSuggestion: builder.query<{ meta: { parameterVersion: number; asOf: string }; suggestion: NewProductSuggestion }, { sku: string; costCents?: number; costOrigin?: string; costNotReceived?: boolean }>({
+      query: ({ sku, costCents, costOrigin, costNotReceived }) => {
+        const params = new URLSearchParams();
+        if (costCents) params.set("costCents", String(costCents));
+        if (costOrigin) params.set("costOrigin", costOrigin);
+        if (costNotReceived) params.set("costNotReceived", "true");
+        const search = params.toString();
+
+        return `/pricing/new-product/${encodeURIComponent(sku)}${search ? `?${search}` : ""}`;
+      },
+      keepUnusedDataFor: 0,
+    }),
+    chooseNewProductPrice: builder.mutation<
+      unknown,
+      { sku: string; idempotencyKey: string; choice: NewProductChoiceKind; chosenPriceCents?: number; reason?: string; costCents?: number; costOrigin?: string; costNotReceived?: boolean }
+    >({
+      query: ({ sku, ...body }) => ({ url: `/pricing/new-product/${encodeURIComponent(sku)}/choice`, method: "POST", body }),
+      invalidatesTags: ["Decisions", "Report"],
+    }),
     getPricingParameters: builder.query<PricingParameterVersion, void>({
       query: () => "/pricing/parameters/current",
       providesTags: ["Parameters"],
@@ -342,6 +384,8 @@ export const {
   useSimulatePriceMutation,
   useGetPricingDecisionsQuery,
   useApplyPriceMutation,
+  useGetNewProductSuggestionQuery,
+  useChooseNewProductPriceMutation,
   useGetPricingParametersQuery,
   useGetPricingParameterVersionsQuery,
   useGetPricingParameterVersionQuery,

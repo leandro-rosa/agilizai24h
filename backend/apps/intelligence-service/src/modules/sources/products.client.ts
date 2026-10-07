@@ -16,6 +16,8 @@ export interface ProductDto {
   units_per_package?: number | null
   /** Declared supplier (suppliers-service id); null/absent when none is registered. */
   supplier_id?: number | null
+  /** How the product was registered; `invoice` carries the day of the invoice (`on`). Absent on an older products-service. */
+  origin?: { type: string; on: string | null } | null
 }
 
 @Injectable()
