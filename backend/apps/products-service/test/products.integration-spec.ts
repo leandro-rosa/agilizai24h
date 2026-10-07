@@ -568,4 +568,65 @@ describe('products integration', () => {
       expect((await costs.costAsOf(product.sku, new Date('2026-10-31'))).cost_cents).toBe(620)
     })
   })
+
+  describe('registration from an invoice line (real SQL)', () => {
+    const fromInvoice = (sku: string, over: Record<string, unknown> = {}) => ({
+      sku, name: 'Novo sabor de marmita', category: 'meal' as const, ean: String(7890000000000 + Math.floor(Math.random() * 1e9)),
+      origin: 'invoice' as const, invoiceNumber: '13021', supplierId: 5, purchaseId: 9, originOn: '2026-10-10', actor: 'ana@agiliz.ai', saleUnit: 'un', subcategory: 'Marmitas', ...over,
+    })
+
+    it('creates the product with its origin, the invoice EAN as active principal, and shows it like any other product', async () => {
+      const sku = unique('NF')
+      createdSkus.push(sku)
+      const created = await products.create(fromInvoice(sku, { ean: '7891000100103' }))
+
+      expect(created.origin).toEqual({ type: 'invoice', invoice_number: '13021', supplier_id: 5, purchase_id: 9, on: '2026-10-10', actor: 'ana@agiliz.ai' })
+      expect(created).toMatchObject({ ean: '7891000100103', supplier_id: 5, sale_unit: 'un' })
+      expect(created.eans).toHaveLength(1)
+      expect(created.eans[0]).toMatchObject({ status: 'active', is_primary: true, source: 'invoice_import', actor: 'ana@agiliz.ai', valid_from: '2026-10-10' })
+
+      const listed = (await products.list()).find(p => p.sku === sku)
+      expect(listed?.origin.type).toBe('invoice')
+    })
+
+    it('refuses a duplicate SKU and creates nothing', async () => {
+      const sku = unique('NF')
+      createdSkus.push(sku)
+      await products.create(fromInvoice(sku))
+
+      await expect(products.create(fromInvoice(sku))).rejects.toThrow(/already exists/)
+      expect(await prisma.product.count({ where: { sku } })).toBe(1)
+    })
+
+    it('refuses an EAN that already belongs to another product, naming it, and creates no product', async () => {
+      const owner = await createProduct('Dono do EAN')
+      await eans.add(owner.id, { ean: '7891000200207', source: 'manual', actor: 'ana@agiliz.ai' })
+      const sku = unique('NF')
+
+      await expect(products.create(fromInvoice(sku, { ean: '7891000200207' }))).rejects.toThrow(new RegExp(owner.sku))
+      expect(await prisma.product.count({ where: { sku } })).toBe(0)
+    })
+
+    it('an invoice origin without its evidence is refused, and the database refuses it too', async () => {
+      const sku = unique('NF')
+      await expect(products.create(fromInvoice(sku, { invoiceNumber: undefined }))).rejects.toThrow(/invoiceNumber/)
+      await expect(prisma.product.create({ data: { sku, name: 'x', normalized_name: 'x', category: 'meal', origin: 'invoice' } })).rejects.toThrow()
+    })
+
+    it('the products loaded before keep an origin that says so', async () => {
+      const manual = await createProduct('Manual')
+      expect(manual.origin.type).toBe('manual')
+    })
+
+    it('suggests the next number after the highest six-digit SKU, as a suggestion', async () => {
+      createdSkus.push('918001', '918007')
+      await products.create({ sku: '918001', name: 'a', category: 'meal' })
+      await products.create({ sku: '918007', name: 'b', category: 'meal' })
+
+      const suggestion = await products.nextSku()
+      expect(suggestion.suggestion).toBe(true)
+      expect(Number(suggestion.suggested)).toBe(Number(suggestion.highest) + 1)
+      expect(Number(suggestion.highest)).toBeGreaterThanOrEqual(918007)
+    })
+  })
 })

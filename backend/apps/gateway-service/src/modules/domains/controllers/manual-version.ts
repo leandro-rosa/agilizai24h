@@ -38,3 +38,18 @@ export function eanChange(body: Record<string, unknown> | undefined): Record<str
 
   return { status: input.status, valid_to: input.valid_to, primary: input.primary, note: input.note }
 }
+
+/**
+ * A product registered from an invoice line. The origin and the user are forced (the browser cannot choose them); only the fields the
+ * form owns pass. The invoice number, supplier and date are what the operator is looking at on the invoice being imported.
+ */
+export function invoiceProduct(body: Record<string, unknown> | undefined, actor: string): Record<string, unknown> {
+  const input = body ?? {}
+
+  return {
+    sku: input.sku, name: input.name, category: input.category, subcategory: input.subcategory, saleUnit: input.saleUnit,
+    packageType: input.packageType, unitsPerPackage: input.unitsPerPackage, fractionable: input.fractionable,
+    ean: input.ean, supplierId: input.supplierId,
+    origin: 'invoice', invoiceNumber: input.invoiceNumber, purchaseId: input.purchaseId, originOn: input.originOn, actor,
+  }
+}

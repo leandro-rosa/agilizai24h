@@ -52,6 +52,15 @@ model Product {
   /// Unidade em que o produto é vendido ("un", "kg", "porção"). O código interno do produto é o próprio SKU.
   sale_unit String @default("un")
 
+  /// Como o cadastro nasceu: manual | invoice (a partir de uma linha de NF-e) | legacy_import (carga inicial, origem não registrada).
+  origin             String   @default("manual")
+  /// Só para origin = invoice: a nota, o fornecedor, a compra, o dia e quem cadastrou (usuário da sessão).
+  origin_invoice_number String?
+  origin_supplier_id    Int?
+  origin_purchase_id    Int?
+  origin_on             DateTime? @db.Date
+  origin_actor          String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 

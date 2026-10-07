@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
-import { eanChange, manualCost, manualEan, manualPrice } from './manual-version'
+import { eanChange, invoiceProduct, manualCost, manualEan, manualPrice } from './manual-version'
 
 describe('manual versions from the browser', () => {
   it('forces the source to manual and the actor to the session user, whatever the client sent', () => {
@@ -37,5 +37,12 @@ describe('manual versions from the browser', () => {
 
   it('changing an EAN passes only status, end of validity, principal and note', () => {
     expect(eanChange({ status: 'inactive', valid_to: '2026-10-09', primary: false, note: 'x', ean: '999', product_id: 3, delete: true })).toEqual({ status: 'inactive', valid_to: '2026-10-09', primary: false, note: 'x' })
+  })
+
+  it('a product from an invoice line always has the invoice origin and the session user, and keeps only the form fields', () => {
+    const result = invoiceProduct({ sku: '110024', name: 'Marmita', category: 'meal', ean: '7891000100103', supplierId: 5, invoiceNumber: '13021', originOn: '2026-10-10', origin: 'manual', actor: 'forjado@x', legacy: true }, 'ana@agiliz.ai')
+
+    expect(result).toMatchObject({ sku: '110024', origin: 'invoice', actor: 'ana@agiliz.ai', invoiceNumber: '13021', ean: '7891000100103' })
+    expect(result).not.toHaveProperty('legacy')
   })
 })

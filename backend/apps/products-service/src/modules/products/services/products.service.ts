@@ -3,7 +3,10 @@ import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { NameOverrideRepository } from '../../db-client/repositories/name-override.repository'
 import { ProductRepository } from '../../db-client/repositories/product.repository'
 import { UNRESOLVED_REASONS, type ProductCategory, type UnresolvedReason } from '../constants/product-vocabulary'
+import type { ProductOrigin } from '../constants/product-vocabulary'
 import { cleanEan } from '../utils/ean'
+import { nextSku, type NextSku } from '../utils/next-sku'
+import { resolveOrigin } from '../utils/origin'
 import { normalizeName } from '../utils/normalize-name'
 import { toProductView, type ProductView } from '../utils/product-view'
 
@@ -23,6 +26,14 @@ export interface CreateProductInput {
   ean?: string
   /** Declared supplier, when the product is registered from a purchase. */
   supplierId?: number
+  subcategory?: string
+  saleUnit?: string
+  /** `invoice` = registered from an NF-e line (needs invoiceNumber, supplierId, originOn and actor). */
+  origin?: ProductOrigin
+  invoiceNumber?: string
+  purchaseId?: number
+  originOn?: string
+  actor?: string
 }
 
 export interface NameMatch {
@@ -60,7 +71,15 @@ export class ProductsService {
     private readonly prisma: PrismaClientService,
   ) {}
 
+  /** The SKU the registration form proposes (the next after the highest six-digit one). Nothing is reserved: a duplicate is refused at create. */
+  async nextSku(): Promise<NextSku> {
+    const rows = await this.prisma.$queryRaw<{ sku: string }[]>`SELECT sku FROM product WHERE sku ~ '^[0-9]{6}$' ORDER BY sku DESC LIMIT 1`
+
+    return nextSku(rows.map(r => r.sku))
+  }
+
   async create(input: CreateProductInput): Promise<ProductView> {
+    const origin = resolveOrigin(input)
     // Checked explicitly: PrismaRepository discards Prisma's error code, so
     // branching on a unique-constraint violation is not available. The database
     // constraint stays as the backstop for the race this leaves.
@@ -86,7 +105,12 @@ export class ProductsService {
         units_per_package: input.unitsPerPackage ?? null,
         package_type: input.packageType ?? null,
         fractionable: input.fractionable ?? null,
-        ...(ean ? { eans: { create: { ean, status: 'active', is_primary: true, source: 'other' } } } : {}),
+        ...(input.subcategory ? { subcategory: input.subcategory } : {}),
+        ...(input.saleUnit ? { sale_unit: input.saleUnit } : {}),
+        ...origin,
+        ...(ean
+          ? { eans: { create: { ean, status: 'active', is_primary: true, source: origin.origin === 'invoice' ? 'invoice_import' : 'other', actor: origin.origin_actor, valid_from: origin.origin_on } } }
+          : {}),
       },
       include: WITH_EANS,
     })

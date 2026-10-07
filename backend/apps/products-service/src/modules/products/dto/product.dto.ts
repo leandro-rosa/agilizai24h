@@ -44,6 +44,23 @@ export class CreateProductDto {
   @IsInt()
   @Min(1)
   supplierId?: number
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @IsNotEmpty() subcategory?: string
+
+  @ApiPropertyOptional({ example: 'un', description: 'Unidade de venda.' }) @IsOptional() @IsString() @IsNotEmpty() saleUnit?: string
+
+  @ApiPropertyOptional({ enum: ['manual', 'invoice'], description: '`invoice` registra o produto a partir de uma linha de NF-e e exige invoiceNumber, supplierId, originOn e actor.' })
+  @IsOptional()
+  @IsIn(['manual', 'invoice'])
+  origin?: 'manual' | 'invoice'
+
+  @ApiPropertyOptional() @IsOptional() @IsString() invoiceNumber?: string
+
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) purchaseId?: number
+
+  @ApiPropertyOptional({ example: '2026-10-10', description: 'Data da nota.' }) @IsOptional() @IsString() originOn?: string
+
+  @ApiPropertyOptional({ description: 'Quem cadastrou. O gateway define pela sessão; nunca confie num valor do navegador.' }) @IsOptional() @IsString() actor?: string
 }
 
 export class UpdateProductDto {

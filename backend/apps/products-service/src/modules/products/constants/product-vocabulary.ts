@@ -43,3 +43,7 @@ export type EanSource = (typeof EAN_SOURCES)[number]
 export const WRITABLE_EAN_SOURCES = EAN_SOURCES.filter(source => source !== 'legacy_import')
 
 export const EAN_STATUS = { ACTIVE: 'active', INACTIVE: 'inactive' } as const
+
+/** How a product was registered. `legacy_import` = the initial load, whose origin was never recorded. */
+export const PRODUCT_ORIGINS = ['manual', 'invoice', 'legacy_import'] as const
+export type ProductOrigin = (typeof PRODUCT_ORIGINS)[number]

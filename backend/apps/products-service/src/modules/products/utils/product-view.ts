@@ -31,6 +31,8 @@ export interface ProductView {
   /** Populated by the ingestion pipeline, not by create()/update() here — read-only from this API. */
   shelf_life_days: number | null
   sale_unit: string
+  /** How it was registered; for `invoice` the evidence: the invoice, the supplier, the day and who registered it. */
+  origin: { type: string; invoice_number: string | null; supplier_id: number | null; purchase_id: number | null; on: string | null; actor: string | null }
 }
 
 export interface EanRecord {
@@ -75,6 +77,12 @@ export function toProductView(product: {
   supplier_id: number | null
   shelf_life_days: number | null
   sale_unit: string
+  origin: string
+  origin_invoice_number: string | null
+  origin_supplier_id: number | null
+  origin_purchase_id: number | null
+  origin_on: Date | null
+  origin_actor: string | null
   eans: EanRecord[]
 }): ProductView {
   return {
@@ -90,5 +98,6 @@ export function toProductView(product: {
     eans: product.eans.map(toEanView),
     supplier_id: product.supplier_id,
     sale_unit: product.sale_unit,
+    origin: { type: product.origin, invoice_number: product.origin_invoice_number, supplier_id: product.origin_supplier_id, purchase_id: product.origin_purchase_id, on: day(product.origin_on), actor: product.origin_actor },
   }
 }

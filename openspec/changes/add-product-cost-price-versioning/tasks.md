@@ -19,8 +19,8 @@
 
 ## 1c. Product registration from an invoice (amendment 2026-10-07)
 
-- [ ] 1c.1 `POST /products` accepts the origin ("invoice" with number, supplier, date, user) and the invoice EAN as principal; the origin is shown in the registry
-- [ ] 1c.2 `GET /products/next-sku` suggests the number after the highest six-digit numeric SKU, labelled a suggestion; a duplicate SKU is refused
+- [x] 1c.1 `POST /products` accepts the origin ("invoice" with number, supplier, date, user) and the invoice EAN as principal; the origin is shown in the registry
+- [x] 1c.2 `GET /products/next-sku` suggests the number after the highest six-digit numeric SKU, labelled a suggestion; a duplicate SKU is refused
 - [ ] 1c.3 Line check on import: EAN of another product (name it, offer view / fix link), likely existing product (offer to link the EAN), truly new (offer to register)
 - [ ] 1c.4 Pending lines: a purchase keeps lines whose product is not yet registered ("Aguardando cadastro de produto"); nothing is created and nothing is lost; the user can come back
 - [ ] 1c.5 Registering a line creates the product, links the EAN, sets the supplier and, when the purchase is received, the first cost version; otherwise the cost version is created at receipt

@@ -79,6 +79,13 @@ export class ProductsController {
     return this.products.list(category)
   }
 
+  /** Declared before `products/:id` routes so "next-sku" is not read as an id. */
+  @Get('products/next-sku')
+  @ApiOperation({ summary: 'Suggest the SKU for a new product: the next number after the highest six-digit one', description: 'A suggestion, not a reservation: the user confirms or changes it, and a SKU that already exists is refused at create.' })
+  nextSku() {
+    return this.products.nextSku()
+  }
+
   @Get('products/:id')
   @ApiOperation({ summary: 'Retrieve one product' })
   findById(@Param('id', ParseIntPipe) id: number) {

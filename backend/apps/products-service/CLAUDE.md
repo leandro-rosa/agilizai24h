@@ -191,3 +191,16 @@ custo/preço**; nunca reescreve nome, categoria ou EAN de produto existente.
 `ProductView` devolve `ean` (o principal), `eans` (todos, com status e validade) e `supplier_id`.
 
 `POST /products` aceita `ean` (8–14 dígitos; duplicado → 409) e `supplierId`, para cadastrar produto novo dentro do formulário de compra.
+
+
+## Origem do cadastro e SKU sugerido (`add-product-cost-price-versioning`, 1c.1–1c.2)
+
+`product.origin`: `manual` | `invoice` (cadastrado a partir de uma linha de NF-e) | `legacy_import` (carga inicial: **origem não registrada**, nunca
+chutada; os 255 produtos existentes ficaram assim). Origem `invoice` só vale com a evidência: nº da nota, fornecedor, data da nota e usuário
+(`origin_invoice_number/supplier_id/purchase_id/on/actor`); sem ela o `POST /products` recusa e um `CHECK` do banco recusa também (escrito com
+`IS NOT NULL` explícito). `POST /products` aceita ainda `subcategory` e `saleUnit`; o EAN da linha entra como EAN **principal ativo**, fonte
+`invoice_import`, ator e `valid_from` = data da nota. EAN que já é de outro produto, ou SKU repetido: recusa 409 e nada é criado.
+`GET /products/next-sku` devolve `{ suggested, highest, suggestion: true }`: o número depois do maior SKU de seis dígitos (`utils/next-sku.ts`);
+**é sugestão, nada é reservado** (SKU repetido é recusado ao criar); sem SKU de seis dígitos, ou após 999999, `suggested` é null. A leitura do
+produto traz `origin {type, invoice_number, supplier_id, purchase_id, on, actor}`. O primeiro custo do produto novo **não** é gravado aqui:
+nasce da compra, pelo outbox do suppliers-service, na data de recebimento.

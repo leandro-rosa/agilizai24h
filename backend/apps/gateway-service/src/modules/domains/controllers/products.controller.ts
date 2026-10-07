@@ -6,7 +6,7 @@ import { Caller } from '../../auth/guards/caller.decorator'
 import { RequiresPermission } from '../../auth/guards/session.constants'
 import type { AuthenticatedCaller } from '../../auth/services/session.service'
 import { DomainClient } from '../../upstream/domain.client'
-import { eanChange, manualCost, manualEan, manualPrice } from './manual-version'
+import { eanChange, invoiceProduct, manualCost, manualEan, manualPrice } from './manual-version'
 import { correlationOf } from './stores.controller'
 
 @ApiTags('products')
@@ -26,6 +26,21 @@ export class ProductsController {
     })
 
     return result.data
+  }
+
+  /** Declared before `:id` so "next-sku" is not read as an id. */
+  @Get('next-sku')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Suggest the SKU for a new product (the next after the highest six-digit one); a suggestion, not a reservation' })
+  async nextSku(@Req() request: FastifyRequest) {
+    return (await this.domains.products({ method: 'get', path: '/products/next-sku', correlationId: correlationOf(request) })).data
+  }
+
+  @Post('from-invoice')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Register a product from an invoice line', description: 'The origin is always "invoice" and the user is the session user. The EAN of the line becomes the principal EAN. A duplicate SKU, or an EAN that belongs to another product, is refused (409).' })
+  async createFromInvoice(@Body() body: Record<string, unknown>, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.products({ method: 'post', path: '/products', payload: invoiceProduct(body, caller.email), correlationId: correlationOf(request) })).data
   }
 
   @Get(':id')

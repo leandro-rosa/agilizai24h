@@ -185,3 +185,7 @@ resto), então ninguém se passa por NF ou por decisão de preço. Custo e preç
 (`products:read`): `GET /products/:id/prices|eans|timeline|price-margins`, `POST /products/prices/bulk` e `POST /products/eans/resolve`.
 O preço da Precificação não passa por aqui: `POST /pricing/decisions/apply` grava com `source = pricing_intelligence`, o usuário que
 aprovou, o motivo e o id da decisão como chave de idempotência.
+
+
+`POST /products/from-invoice` cadastra um produto a partir de uma linha de NF-e: **origem sempre `invoice` e usuário = sessão** (o navegador não escolhe;
+`invoiceProduct` em `manual-version.ts` deixa passar só os campos do formulário), `products:write`. `GET /products/next-sku` (`products:read`) é só sugestão.
