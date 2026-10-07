@@ -72,6 +72,12 @@ export interface NewPurchaseItem {
   condition: Condition;
   /** Só ao criar já recebido. */
   received_quantity?: number;
+  /** O ORIGINAL da compra em embalagem, como veio na nota (os três juntos; precisam bater com `quantity` e `unit_cost_cents`). */
+  pack_quantity?: number;
+  pack_unit_price_cents?: number;
+  units_per_pack?: number;
+  /** Unidade de medida da nota ("UN", "CX", "FD"). */
+  purchase_unit?: string;
 }
 
 export interface NewPurchase {
@@ -80,6 +86,8 @@ export interface NewPurchase {
   invoice_number?: string;
   invoice_key?: string;
   invoice_object_key?: string;
+  /** Data de emissão da NF (dhEmi), gravada à parte do pedido e do recebimento. */
+  invoice_issued_on?: string;
   origin?: "manual" | "nfe";
   notes?: string;
   /** Etapa em que o pedido entra. Omitida = já recebido (lançamento antigo). */

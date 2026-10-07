@@ -39,8 +39,8 @@
 
 ## 3. Purchases keep the original
 
-- [ ] 3.1 Migration and recording: invoice issue date; per item pack quantity, pack price, units per pack, purchase unit
-- [ ] 3.2 `GET /purchases?sku=` with the original of the packaging
+- [x] 3.1 Migration and recording: invoice issue date; per item pack quantity, pack price, units per pack, purchase unit
+- [x] 3.2 `GET /purchases?sku=` with the original of the packaging
 
 ## 4. Invoice to cost
 

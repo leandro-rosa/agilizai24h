@@ -20,6 +20,7 @@ function fakePrisma() {
   const withItems = (p: any) => ({ ...p, items: db.items.filter(i => i.purchase_id === p.id), supplier: db.suppliers.find(s => s.id === p.supplier_id) })
   const matches = (p: any, where: any = {}): boolean => {
     if (where.supplier_id && p.supplier_id !== where.supplier_id) return false
+    if (where.items?.some?.sku && !db.items.some(i => i.purchase_id === p.id && i.sku === where.items.some.sku)) return false
     if (where.invoice_number && typeof where.invoice_number === 'string' && p.invoice_number !== where.invoice_number) return false
     if (where.status) {
       if (typeof where.status === 'string' && p.status !== where.status) return false
@@ -585,5 +586,68 @@ describe('OrderEmailService — sending an order', () => {
     const sent = await service.send(invoiced.id, { to: 'a@b.com' })
 
     expect(sent.order.status).toBe('invoiced')
+  })
+})
+
+describe('PurchasesService — the original of the packaging and the invoice issue date', () => {
+  const make = () => {
+    const { prisma, db } = fakePrisma()
+
+    return { service: new PurchasesService(prisma as never, catalogue as never), db }
+  }
+
+  it('keeps the original of a box purchase, the unit and the invoice issue date, next to the unit cost', async () => {
+    const { service } = make()
+    const view = await service.create({
+      supplier_id: 5,
+      ordered_on: '2026-10-05',
+      invoice_number: '13021',
+      invoice_issued_on: '2026-10-03',
+      items: [item({ condition: 'paid', quantity: 210, unit_cost_cents: 300, pack_quantity: 10, pack_unit_price_cents: 6300, units_per_pack: 21, purchase_unit: 'CX' })],
+    })
+
+    expect(view.invoice_issued_on).toBe('2026-10-03')
+    expect(view.ordered_on).toBe('2026-10-05')
+    expect(view.items[0]).toMatchObject({ quantity: 210, unit_cost_cents: 300, pack_quantity: 10, pack_unit_price_cents: 6300, units_per_pack: 21, purchase_unit: 'CX' })
+  })
+
+  it('a purchase recorded without it shows the original as not recorded, never made up', async () => {
+    const { service } = make()
+    const view = await service.create({ supplier_id: 5, ordered_on: '2026-10-05', items: [item({ condition: 'paid' })] })
+
+    expect(view.invoice_issued_on).toBeNull()
+    expect(view.items[0]).toMatchObject({ pack_quantity: null, pack_unit_price_cents: null, units_per_pack: null, purchase_unit: null })
+  })
+
+  it('refuses a record that disagrees with its own original, and records nothing', async () => {
+    const { service, db } = make()
+
+    await expect(service.create({ supplier_id: 5, ordered_on: '2026-10-05', items: [item({ condition: 'paid', quantity: 200, unit_cost_cents: 300, pack_quantity: 10, pack_unit_price_cents: 6300, units_per_pack: 21 })] })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(service.create({ supplier_id: 5, ordered_on: '2026-10-05', items: [item({ condition: 'paid', quantity: 210, unit_cost_cents: 450, pack_quantity: 10, pack_unit_price_cents: 6300, units_per_pack: 21 })] })).rejects.toBeInstanceOf(BadRequestException)
+    expect(db.purchases).toHaveLength(0)
+  })
+
+  it('refuses an impossible invoice issue date', async () => {
+    const { service } = make()
+
+    await expect(service.create({ supplier_id: 5, ordered_on: '2026-10-05', invoice_issued_on: '2026-02-30', items: [item()] })).rejects.toBeInstanceOf(BadRequestException)
+  })
+})
+
+describe('PurchasesService.list — by product', () => {
+  it('lists the purchases that include a SKU, showing only that SKU in each', async () => {
+    const { prisma } = fakePrisma()
+    const service = new PurchasesService(prisma as never, catalogue as never)
+    await service.create({ supplier_id: 5, ordered_on: '2026-10-05', invoice_number: 'A', items: [item({ condition: 'paid', quantity: 10 }), item({ sku: 'Q2', condition: 'paid', quantity: 4 })] })
+    await service.create({ supplier_id: 5, ordered_on: '2026-10-09', invoice_number: 'B', items: [item({ sku: 'Q2', condition: 'paid', quantity: 6 })] })
+
+    const q1 = await service.list({ sku: 'Q1' })
+    expect(q1).toHaveLength(1)
+    expect(q1[0].items.map(i => i.sku)).toEqual(['Q1'])
+
+    const q2 = await service.list({ sku: 'Q2' })
+    expect(q2.map(p => p.invoice_number).sort()).toEqual(['A', 'B'])
+    expect(q2.every(p => p.items.every(i => i.sku === 'Q2'))).toBe(true)
+    expect(await service.list({ sku: 'NOPE' })).toEqual([])
   })
 })

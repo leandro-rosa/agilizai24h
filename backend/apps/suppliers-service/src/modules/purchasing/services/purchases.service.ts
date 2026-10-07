@@ -4,6 +4,7 @@ import { ProductsClient } from '../clients/products.client'
 import { PAYMENT_TERMS, type Condition, type Origin, type PaymentMethod, type PaymentStatus, type PaymentTerm, type Stage } from '../constants/purchase-vocabulary'
 import type { CreatePurchaseDto, EditItemDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
 import { checkInvoice, checkMove, effectiveDueDate, isLate, isOverdue, resolveReceipt } from '../utils/order-flow'
+import { checkPackaging } from '../utils/packaging'
 import { isDay } from '../utils/week'
 
 export interface PurchaseItemView {
@@ -21,6 +22,11 @@ export interface PurchaseItemView {
   payment_status: PaymentStatus
   paid_on: string | null
   payment_note: string | null
+  /** The original of a package purchase, as on the invoice; all null when it was not recorded. */
+  pack_quantity: number | null
+  pack_unit_price_cents: number | null
+  units_per_pack: number | null
+  purchase_unit: string | null
   /** Units × unit cost, on the received units once received. For a bonus item it is the reference value, NOT spend. */
   total_cents: number
 }
@@ -34,6 +40,8 @@ export interface PurchaseView {
   status: Stage
   invoice_number: string | null
   invoice_key: string | null
+  /** The invoice issue date (dhEmi); null when it was not recorded. */
+  invoice_issued_on: string | null
   without_invoice: boolean
   notes: string | null
   created_by: string | null
@@ -96,6 +104,10 @@ type ItemRow = {
   payment_status: string
   paid_on: Date | null
   payment_note: string | null
+  pack_quantity: number | null
+  pack_unit_price_cents: number | null
+  units_per_pack: number | null
+  purchase_unit: string | null
 }
 
 type PurchaseRow = {
@@ -106,6 +118,7 @@ type PurchaseRow = {
   status: string
   invoice_number: string | null
   invoice_key: string | null
+  invoice_issued_on?: Date | null
   without_invoice: boolean
   notes: string | null
   created_by: string | null
@@ -142,6 +155,10 @@ export function toView(row: PurchaseRow, today: string = new Date().toISOString(
       payment_status: item.payment_status as PaymentStatus,
       paid_on: day(item.paid_on),
       payment_note: item.payment_note,
+      pack_quantity: item.pack_quantity ?? null,
+      pack_unit_price_cents: item.pack_unit_price_cents ?? null,
+      units_per_pack: item.units_per_pack ?? null,
+      purchase_unit: item.purchase_unit ?? null,
       total_cents: effectiveQuantity(status, item) * item.unit_cost_cents,
     }),
   )
@@ -158,6 +175,7 @@ export function toView(row: PurchaseRow, today: string = new Date().toISOString(
     status,
     invoice_number: row.invoice_number,
     invoice_key: row.invoice_key,
+    invoice_issued_on: day(row.invoice_issued_on ?? null),
     without_invoice: row.without_invoice,
     notes: row.notes,
     created_by: row.created_by,
@@ -204,6 +222,9 @@ export class PurchasesService {
     for (const [name, value] of [['expected_delivery_on', dto.expected_delivery_on], ['payment_due_on', dto.payment_due_on], ['received_on', dto.received_on]] as const) {
       if (value && !isDay(value)) throw new BadRequestException(`${name} must be a real date, YYYY-MM-DD`)
     }
+    if (dto.invoice_issued_on && !isDay(dto.invoice_issued_on)) throw new BadRequestException('invoice_issued_on must be a real date, YYYY-MM-DD')
+    // The original of a package purchase must agree with the units and the unit cost recorded; otherwise the audit trail would lie.
+    const packaging = dto.items.map(item => checkPackaging(item, item.quantity, item.unit_cost_cents))
     if (dto.payment_term && !(PAYMENT_TERMS as readonly string[]).includes(dto.payment_term)) throw new BadRequestException('payment_term must be on_receipt or due_date')
     if (dto.payment_term === 'due_date' && !dto.payment_due_on) throw new BadRequestException('A due date is needed when the payment term is a boleto (due_date)')
 
@@ -241,6 +262,7 @@ export class PurchasesService {
         invoice_number: invoiceNumber,
         invoice_key: dto.invoice_key,
         invoice_object_key: dto.invoice_object_key,
+        invoice_issued_on: dto.invoice_issued_on ? asDate(dto.invoice_issued_on) : undefined,
         without_invoice: withoutInvoice,
         notes: dto.notes,
         created_by: dto.actor,
@@ -252,13 +274,14 @@ export class PurchasesService {
         payment_due_on: dto.payment_due_on ? asDate(dto.payment_due_on) : undefined,
         payment_method: dto.payment_method,
         items: {
-          create: dto.items.map(item => ({
+          create: dto.items.map((item, index) => ({
             sku: item.sku,
             description: item.description,
             quantity: item.quantity,
             received_quantity: received ? (item.received_quantity ?? item.quantity) : undefined,
             unit_cost_cents: item.unit_cost_cents,
             condition: item.condition,
+            ...packaging[index],
           })),
         },
         events: { create: [{ from_status: null, to_status: stage, actor: dto.actor, note: `created at ${stage}` }] },
@@ -276,7 +299,8 @@ export class PurchasesService {
     return toView(created, this.today())
   }
 
-  async list(filter: { supplierId?: number; from?: string; to?: string; invoicesOnly?: boolean; status?: Stage; openOnly?: boolean } = {}): Promise<PurchaseView[]> {
+  /** `sku` lists the purchases that include that product, showing only that product's items (a product's purchase history). */
+  async list(filter: { supplierId?: number; from?: string; to?: string; invoicesOnly?: boolean; status?: Stage; openOnly?: boolean; sku?: string } = {}): Promise<PurchaseView[]> {
     for (const value of [filter.from, filter.to]) if (value && !isDay(value)) throw new BadRequestException('from and to must be YYYY-MM-DD')
 
     const rows = await this.prisma.purchase.findMany({
@@ -288,8 +312,9 @@ export class PurchasesService {
         ...(filter.invoicesOnly ? { invoice_number: { not: null } } : {}),
         ...(filter.status ? { status: filter.status } : {}),
         ...(filter.openOnly ? { status: { not: 'received' } } : {}),
+        ...(filter.sku ? { items: { some: { sku: filter.sku } } } : {}),
       },
-      include: { items: { orderBy: { id: 'asc' } }, supplier: true },
+      include: { items: { where: filter.sku ? { sku: filter.sku } : undefined, orderBy: { id: 'asc' } }, supplier: true },
       orderBy: [{ ordered_on: 'desc' }, { id: 'desc' }],
       take: 500,
     })

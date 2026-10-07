@@ -71,6 +71,17 @@ describe("InvoiceImportDialog — o preço da nota é do fardo", () => {
     expect(updateProduct).toHaveBeenCalledWith({ id: 9, changes: { unitsPerPackage: 6 } });
   });
 
+  it("guarda o original da nota junto: embalagens, preço da embalagem, unidades por embalagem, unidade e a data de emissão", async () => {
+    await openWithFile();
+    fireEvent.click(screen.getByRole("button", { name: "Registrar 1 item" }));
+
+    await waitFor(() => expect(createPurchase).toHaveBeenCalledTimes(1));
+    const sent = createPurchase.mock.calls[0][0] as { invoice_issued_on: string; items: Record<string, unknown>[] };
+    expect(sent.invoice_issued_on).toBe("2026-09-03");
+    // 25 fardos de R$ 43,49 com 6 unidades: 150 unidades a R$ 7,25 (o original fica ao lado do custo unitário).
+    expect(sent.items[0]).toMatchObject({ quantity: 150, unit_cost_cents: 725, pack_quantity: 25, pack_unit_price_cents: 4349, units_per_pack: 6, purchase_unit: "UN" });
+  });
+
   it("pode entrar já recebido, com a data do recebimento, e leva o prazo e o boleto", async () => {
     await openWithFile();
     fireEvent.click(screen.getByLabelText("Já recebi a mercadoria"));

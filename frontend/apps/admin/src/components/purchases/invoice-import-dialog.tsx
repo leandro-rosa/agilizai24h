@@ -125,6 +125,7 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
         invoice_number: preview.number,
         invoice_key: preview.key ?? undefined,
         invoice_object_key: preview.object_key,
+        invoice_issued_on: preview.issued_on,
         origin: "nfe",
         // A nota já foi emitida: entra em "Faturado" (ou já "Recebido", se a mercadoria chegou).
         stage: alreadyReceived ? "received" : "invoiced",
@@ -132,7 +133,8 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
         ...termsPayload(terms),
         items: resolved.map((item) => {
           const converted = conversionOf(item) as { units: number; unitCostCents: number };
-          return { sku: skuFor(item) as string, supplier_code: item.sku ? undefined : item.code, description: item.description, quantity: converted.units, unit_cost_cents: converted.unitCostCents, condition: conditions[item.line] ?? "paid" };
+          // O original da nota (embalagens, preço da embalagem, unidades por embalagem) vai junto: o custo unitário fica auditável.
+          return { sku: skuFor(item) as string, supplier_code: item.sku ? undefined : item.code, description: item.description, quantity: converted.units, unit_cost_cents: converted.unitCostCents, condition: conditions[item.line] ?? "paid", pack_quantity: item.quantity, pack_unit_price_cents: item.unit_cost_cents, units_per_pack: packOf(item), purchase_unit: item.unit ?? undefined };
         }),
       }).unwrap();
       // A embalagem digitada vira dado do produto (só onde ainda não havia): a próxima nota já vem sugerida.

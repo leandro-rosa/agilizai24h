@@ -40,6 +40,30 @@ export class PurchaseItemDto {
   @IsInt()
   @Min(0)
   received_quantity?: number
+
+  @ApiPropertyOptional({ description: 'Embalagens compradas, como na nota. Com pack_unit_price_cents e units_per_pack (os três juntos); precisa bater com quantity e unit_cost_cents.', example: 10 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  pack_quantity?: number
+
+  @ApiPropertyOptional({ description: 'Preço de UMA embalagem, em centavos, como na nota.', example: 6300 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  pack_unit_price_cents?: number
+
+  @ApiPropertyOptional({ description: 'Unidades em cada embalagem.', example: 21 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  units_per_pack?: number
+
+  @ApiPropertyOptional({ description: 'Unidade de medida da nota ("UN", "CX", "FD").', example: 'CX' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  purchase_unit?: string
 }
 
 export class CreatePurchaseDto {
@@ -73,6 +97,11 @@ export class CreatePurchaseDto {
   @IsOptional()
   @IsString()
   invoice_object_key?: string
+
+  @ApiPropertyOptional({ example: '2026-10-05', description: 'Data de emissão da NF (dhEmi). Fica gravada à parte do pedido e do recebimento.' })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  invoice_issued_on?: string
 
   @ApiPropertyOptional()
   @IsOptional()

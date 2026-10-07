@@ -16,7 +16,7 @@ export class PurchasesController {
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'List purchases (newest first), optionally by supplier and dates; `invoices_only=true` lists only those with an invoice' })
+  @ApiOperation({ summary: 'List purchases (newest first), optionally by supplier, dates and `sku` (a product\'s purchases, with only its items); `invoices_only=true` lists only those with an invoice' })
   list(
     @Query('supplier_id') supplierId?: string,
     @Query('from') from?: string,
@@ -24,10 +24,11 @@ export class PurchasesController {
     @Query('invoices_only') invoicesOnly?: string,
     @Query('status') status?: string,
     @Query('open_only') openOnly?: string,
+    @Query('sku') sku?: string,
   ) {
     if (status && !(STAGES as readonly string[]).includes(status)) throw new BadRequestException(`status must be one of: ${STAGES.join(', ')}`)
 
-    return this.purchases.list({ supplierId: supplierId ? Number(supplierId) : undefined, from, to, invoicesOnly: invoicesOnly === 'true', status: status as Stage | undefined, openOnly: openOnly === 'true' })
+    return this.purchases.list({ supplierId: supplierId ? Number(supplierId) : undefined, from, to, invoicesOnly: invoicesOnly === 'true', status: status as Stage | undefined, openOnly: openOnly === 'true', sku: sku || undefined })
   }
 
   /** Declared before `:id` so "summary" is not read as an id. */

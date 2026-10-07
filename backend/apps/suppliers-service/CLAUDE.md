@@ -72,6 +72,18 @@ valor não deve exigir migration.
 - Gaps: sem devolução física modelada; custo pago não altera `CostVersion` do products-service.
 
 
+## O original da compra em embalagem e a data de emissão (`add-product-cost-price-versioning`)
+
+`PurchaseItem` guarda, além das unidades e do custo **por unidade**, o **original como veio na nota**: `pack_quantity` (embalagens),
+`pack_unit_price_cents` (preço de UMA embalagem), `units_per_pack` e `purchase_unit` ("UN", "CX", "FD"). Os três números andam juntos e
+**têm de bater** com o que a compra registra (`utils/packaging.ts`): unidades = embalagens × unidades por embalagem, e custo unitário =
+preço da embalagem ÷ unidades por embalagem, arredondado ao centavo (1 centavo de folga). Uma compra que discorda do próprio original é
+**recusada**, senão a trilha de auditoria mentiria. Ex.: 10 caixas de R$ 63,00 com 21 unidades = 210 un. a R$ 3,00. No banco, um `CHECK`
+recusa o original pela metade — escrito com `IS NOT NULL` explícito de propósito (um `CHECK` cuja expressão dá `NULL` **passa** em SQL).
+`Purchase.invoice_issued_on` guarda a emissão (`dhEmi`), à parte de `ordered_on` (pedido) e `received_on` (recebimento, a data que vale
+para a compra e para o custo). Compra anterior fica com tudo nulo: **"original não registrado"**, nunca um valor inventado.
+`GET /purchases?sku=` lista as compras que têm o produto, mostrando só os itens dele (a aba Compras do produto).
+
 ## Pedidos em etapas e e-mail (`add-purchase-orders-and-email`)
 
 `Purchase.status`: `requisition → awaiting_invoice → invoiced → awaiting_receipt → received`, só para frente, definitivo após `received` (`utils/order-flow.ts`, puro). Nota (nº, chave ou `without_invoice`) exigida a partir de `invoiced`. **Só `received` conta**: `summary`, acerto e mês de compra usam `received_on` e `received_quantity ?? quantity`; pedidos abertos aparecem à parte (`open_orders`). Compras antigas migraram como `received`. `PurchaseEvent` guarda o histórico e `PurchaseEmail` cada tentativa de envio. E-mail atrás da porta `MailTransport` (`mail/`, nodemailer SMTP; fake nos testes; Mailpit no dev): envio só com confirmação, falha não muda a etapa, reenvio só com `resend`, anexo só PDF ≤700 KB. Env opcionais `SMTP_HOST/PORT/SECURE/USER/PASS` e `MAIL_FROM` (sem SMTP o painel diz "não configurado"). Real SMTP é decisão do dono.

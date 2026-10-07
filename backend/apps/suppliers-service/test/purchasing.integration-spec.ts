@@ -35,7 +35,7 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [ConfigModule.forRoot({ isGlobal: true }), AppModule] })
       .overrideProvider(ProductsClient)
-      .useValue({ products: async () => [{ id: 1, sku: 'SINT-1', name: '[SINTÉTICO] produto' }] })
+      .useValue({ products: async () => [{ id: 1, sku: 'SINT-1', name: '[SINTÉTICO] produto' }], resolveEans: async () => ({ resolved: [], unresolved: [] }) })
       .overrideProvider(SalesClient)
       .useValue({ soldBySku: async () => sold })
       .overrideProvider(MailTransport)
@@ -194,5 +194,27 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
     expect(await payables.undo({ purchase_ids: [boleto.id], actor: 'sint' })).toEqual({ reopened_items: 1 })
     expect(own((await payables.overview('2026-11')).orders, boleto.id)).toMatchObject({ state: 'overdue' })
     expect((await purchases.history(boleto.id)).map(e => e.note)).toEqual(expect.arrayContaining([expect.stringContaining('payment recorded'), expect.stringContaining('payment undone')]))
+  })
+
+  it('keeps the original of the packaging and the invoice issue date in real SQL, and lists a product\'s purchases newest first', async () => {
+    const box = await purchases.create({
+      supplier_id: supplierId,
+      ordered_on: '2026-12-02',
+      invoice_number: 'SINT-PACK-1',
+      invoice_issued_on: '2026-12-01',
+      items: [{ sku: 'SINT-1', quantity: 210, unit_cost_cents: 300, condition: 'paid', pack_quantity: 10, pack_unit_price_cents: 6300, units_per_pack: 21, purchase_unit: 'CX' }],
+    })
+    const row = await prisma.purchaseItem.findFirstOrThrow({ where: { purchase_id: box.id } })
+    expect(row).toMatchObject({ pack_quantity: 10, pack_unit_price_cents: 6300, units_per_pack: 21, purchase_unit: 'CX' })
+    expect((await prisma.purchase.findUniqueOrThrow({ where: { id: box.id } })).invoice_issued_on?.toISOString().slice(0, 10)).toBe('2026-12-01')
+
+    await purchases.create({ supplier_id: supplierId, ordered_on: '2026-12-09', invoice_number: 'SINT-PACK-2', items: [{ sku: 'SINT-1', quantity: 5, unit_cost_cents: 310, condition: 'paid' }] })
+    const byProduct = await purchases.list({ supplierId, sku: 'SINT-1' })
+    expect(byProduct[0].ordered_on).toBe('2026-12-09')
+    expect(byProduct.every(p => p.items.every(i => i.sku === 'SINT-1'))).toBe(true)
+    expect(await purchases.list({ supplierId, sku: 'OUTRO' })).toEqual([])
+
+    // The database itself refuses a half-recorded original.
+    await expect(prisma.purchaseItem.create({ data: { purchase_id: box.id, sku: 'SINT-1', quantity: 1, unit_cost_cents: 1, condition: 'paid', pack_quantity: 3 } })).rejects.toThrow()
   })
 })

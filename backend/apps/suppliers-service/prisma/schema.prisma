@@ -78,6 +78,8 @@ model Purchase {
   invoice_key    String?
   /// Onde o arquivo bruto ficou no storage, para auditoria.
   invoice_object_key String?
+  /// Data de emissão da NF (dhEmi). Distinta de ordered_on (pedido) e received_on (recebimento, a que vale como mês da compra).
+  invoice_issued_on  DateTime? @db.Date
   notes       String?
 
   /// requisition | awaiting_invoice | invoiced | awaiting_receipt | received. Só `received` conta como compra.
@@ -132,6 +134,15 @@ model PurchaseItem {
   received_quantity Int?
   /// Centavos por unidade. Bonificação grava o custo de referência (ou 0), nunca é cobrada.
   unit_cost_cents Int
+  /// O ORIGINAL da compra em embalagem, como veio na nota, para o custo unitário poder ser auditado. Os três andam juntos
+  /// (todos ou nenhum) e batem com `quantity` e `unit_cost_cents`: unidades = embalagens × unidades por embalagem. Nulo em
+  /// compra anterior a este registro: "original não registrado", nunca um valor inventado.
+  pack_quantity         Int?
+  /// Preço de UMA embalagem, em centavos, como na nota.
+  pack_unit_price_cents Int?
+  units_per_pack        Int?
+  /// A unidade de medida da nota ("UN", "CX", "FD").
+  purchase_unit         String?
   /// paid | bonus | on_sale
   condition   String
   /// pending | paid. Só vale para `paid`; `on_sale` é quitado pelo acerto e `bonus` não deve nada.
