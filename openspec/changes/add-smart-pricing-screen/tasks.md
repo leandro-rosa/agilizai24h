@@ -85,7 +85,7 @@
 
 ## 14. Verification
 
-- [ ] 14.1 `pnpm turbo run lint typecheck` and the tests of every touched package; `pnpm contrast` if a token changed
-- [ ] 14.2 Check the screen in the browser at desktop and phone width against the empty, insufficient-data and error states; confirm no price version is created by reading, running or simulating
+- [x] 14.1 `pnpm turbo run lint typecheck` and the tests of every touched package; `pnpm contrast` if a token changed
+- [x] 14.2 Check the screen in the browser at desktop and phone width against the empty, insufficient-data and error states; confirm no price version is created by reading, running or simulating
 - [ ] 14.3 With the owner's authorisation and start dates: register the fees and the tax rate, run for one store and one month, review the report with the owner before relying on it
-- [ ] 14.4 Confirm the Smart Supply engine, its screen and its parameter version are unchanged
+- [x] 14.4 Confirm the Smart Supply engine, its screen and its parameter version are unchanged

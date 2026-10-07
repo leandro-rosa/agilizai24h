@@ -78,11 +78,11 @@ export function ProductsTable({
                   <TableCell className="tabular text-right">{money(product.currentPriceCents)}</TableCell>
                   <TableCell className={`tabular text-right font-medium ${marginClass(product)}`}>{percent(product.currentMargin)}</TableCell>
                   <TableCell className="tabular text-right">{percent(product.targetMargin, 0)}</TableCell>
-                  <TableCell className="tabular text-right">
+                  <TableCell className="tabular min-w-48 text-right">
                     {product.recommendedPriceCents === null ? (
                       <div>
                         <span aria-label="sem recomendação">—</span>
-                        {reason && <div className="max-w-44 text-xs font-normal text-muted-foreground">{reason}</div>}
+                        {reason && <div className="ml-auto max-w-48 whitespace-normal text-xs font-normal text-muted-foreground">{reason}</div>}
                       </div>
                     ) : (
                       <span className="font-semibold">{money(product.recommendedPriceCents)}</span>

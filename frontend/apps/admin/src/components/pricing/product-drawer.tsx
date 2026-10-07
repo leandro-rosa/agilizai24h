@@ -121,9 +121,9 @@ function Overview({ product, onApply, onSimulate, canWrite }: { product: Pricing
               <TableBody>
                 {breakdown.rows.map((row) => (
                   <TableRow key={row.key}>
-                    <TableCell>
+                    <TableCell className="whitespace-normal">
                       {row.label}
-                      {row.detail && <div className="text-xs text-muted-foreground">{row.detail}</div>}
+                      {row.detail && <div className="max-w-sm whitespace-normal text-xs text-muted-foreground">{row.detail}</div>}
                     </TableCell>
                     <TableCell className="tabular text-right">{row.key === "voucher" ? "—" : money(Math.round(row.cents))}</TableCell>
                     <TableCell className="tabular text-right">{row.key === "voucher" ? "—" : percent(row.shareOfPrice)}</TableCell>
@@ -401,7 +401,7 @@ export function ProductDrawer({
 }) {
   return (
     <Sheet open={product !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-2xl">
+      <SheetContent className="gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
         {product && <DrawerBody key={product.sku} product={product} scope={scope} run={run} canWrite={canWrite} onApplied={onApplied} />}
       </SheetContent>
     </Sheet>
