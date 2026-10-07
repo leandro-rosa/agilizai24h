@@ -18,6 +18,11 @@ The approved analysis and architecture are in the plan `tela-de-precifica-o-inte
 7. **CMV untouched.** The monthly margin tab reuses the product analysis (end-of-month cost). A cost that changes inside a month is marked, not hidden.
 8. **No new product registry and no new CMV.** Internal code is the SKU; `sale_unit` is the only new product column.
 
+9. **A new product's first cost is created at receipt (owner decision 2026-10-07).** Same effective-date rule as every invoice cost. Until then the suggestion uses the invoice cost, labelled. Alternative: create it at once on the invoice date (rejected: it would break the receipt-date rule).
+10. **SKU suggestion is a premise, not a rule.** products-service has no SKU generation; the real catalogue is all numeric and the newest block is six digits (100011–110023). The next number after the highest six-digit SKU is suggested and confirmed by the user, never created alone, and a duplicate is refused.
+11. **Pending lines are kept on the purchase, not in a second registry.** A line whose product is not registered stays as a pending line of the purchase (description, EAN, quantity, cost); registering it, linking an EAN or choosing a product turns it into a purchase item. No product or SKU exists for it meanwhile.
+12. **The suggestion is the existing engine.** For a product with no price or sales it computes the three prices from the invoice cost, the category and the versioned parameters, flags it as new, lowers the confidence and lists what it used. No second formula.
+
 ## Risks / Trade-offs
 
 - [Relaxing the unique key touches every reader] → contract unchanged and covered by tests before the migration.

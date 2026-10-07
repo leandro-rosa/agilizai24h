@@ -9,6 +9,7 @@ Cost and price are already dated series, but a version has no origin, no user, n
 - **Invoice-originated cost.** A received purchase creates a cost version automatically, effective on the **receipt date**, with an alert for a large variation or a closed month. A bonus item never creates a cost. On a conflict the later effective date wins and, on the same date, the invoice wins; the manual version stays visible as superseded.
 - **Purchases keep the original of the packaging** (pack quantity, pack price, units per pack, purchase unit) and the invoice issue date.
 - **Several EANs per product.** A new table links products and EANs (status, validity, origin, note, principal). An EAN is never deleted and never active on two products; an invoice with an old or a new EAN resolves to the same SKU, and an unknown EAN is reported, never turned into a product.
+- **Register a product from an invoice line.** The import form is pre-filled from the NF-e, the EAN is linked, the first cost version comes from the invoice (at receipt), the SKU is suggested and never created alone, a known product with a new EAN is linked instead of duplicated, an EAN of another product blocks and asks, and "Deixar para depois" keeps the line pending. A price is suggested by the same pricing engine for the new product, labelled as new and without sales history.
 - **Product record:** edit subcategory, status and sale unit. The internal code is the SKU.
 - **Gateway** exposes the price routes the admin already calls and does not find, and writes manual cost/price with the session user and a required reason.
 - **Admin `/products`** evolves into the product registry with a drawer: Visão geral, Custos, Preços, Histórico, Compras, Margem.
@@ -19,6 +20,7 @@ Not in scope: Smart Supply, a new pricing screen, any change to how CMV is compu
 ## Capabilities
 
 ### New Capabilities
+- `invoice-product-registration`: registering a product from an invoice line, linking its EAN, its first cost, pending lines and the suggested price.
 - `product-eans`: several EANs per product, never deleted, never active on two products, resolved by active or historical EAN.
 - `product-cost-history`: provenance, append-only same-date handling, invoice-originated cost and its effective date, conflict rule, bonus rule, timeline, honest history start, historical margin that never uses today's cost.
 

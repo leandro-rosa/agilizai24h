@@ -17,6 +17,18 @@
 - [x] 1b.6 Tests: one EAN, a second, retire the old, old and new EAN in two invoices to the same SKU, unknown EAN, ambiguous, active on two products refused, history unified by SKU
 - [x] 1b.7 Migration verified on a throwaway copy of the real database
 
+## 1c. Product registration from an invoice (amendment 2026-10-07)
+
+- [ ] 1c.1 `POST /products` accepts the origin ("invoice" with number, supplier, date, user) and the invoice EAN as principal; the origin is shown in the registry
+- [ ] 1c.2 `GET /products/next-sku` suggests the number after the highest six-digit numeric SKU, labelled a suggestion; a duplicate SKU is refused
+- [ ] 1c.3 Line check on import: EAN of another product (name it, offer view / fix link), likely existing product (offer to link the EAN), truly new (offer to register)
+- [ ] 1c.4 Pending lines: a purchase keeps lines whose product is not yet registered ("Aguardando cadastro de produto"); nothing is created and nothing is lost; the user can come back
+- [ ] 1c.5 Registering a line creates the product, links the EAN, sets the supplier and, when the purchase is received, the first cost version; otherwise the cost version is created at receipt
+- [ ] 1c.6 Pricing engine computes a suggestion for a product with no price and no sales history (same engine and parameters), says "Produto novo — sem histórico de vendas", lowers confidence, lists the data used
+- [ ] 1c.7 The choice (use suggested / set another / save without price) is recorded as part of the price decision audit
+- [ ] 1c.8 Admin: register-from-invoice form pre-filled from the line, link-EAN and conflict messages, "Deixar para depois", suggestion step
+- [ ] 1c.9 Tests: new product from a line, suggested SKU, duplicate SKU, EAN of another product, link EAN to an existing product, leave for later, first cost at receipt, same product in registry and pricing
+
 ## 2. Gateway
 
 - [x] 2.0 Gateway routes for the EAN actions with the session user
