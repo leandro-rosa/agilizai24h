@@ -22,6 +22,7 @@ import { CatalogueSyncService } from '../services/catalogue-sync.service'
 import { CostService } from '../services/cost.service'
 import { EanService } from '../services/ean.service'
 import { PriceService } from '../services/price.service'
+import { TimelineService } from '../services/timeline.service'
 import { ProductsService } from '../services/products.service'
 import { SkuLinkService } from '../services/sku-link.service'
 
@@ -32,6 +33,7 @@ export class ProductsController {
     private readonly products: ProductsService,
     private readonly costs: CostService,
     private readonly eans: EanService,
+    private readonly timeline: TimelineService,
     private readonly prices: PriceService,
     private readonly skuLinks: SkuLinkService,
     private readonly catalogueSync: CatalogueSyncService,
@@ -94,6 +96,24 @@ export class ProductsController {
   @ApiOperation({ summary: 'Update a product' })
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateProductDto) {
     return this.products.update(id, dto)
+  }
+
+  @Get('products/:id/timeline')
+  @ApiOperation({
+    summary: 'Every change of cost and price of a product, newest first',
+    description: 'Each event carries the value it replaced, its origin, user, supplier and invoice, and whether another version of the same date superseded it. `history_available_from` says where the data starts; nothing is claimed before it.',
+  })
+  productTimeline(@Param('id', ParseIntPipe) id: number) {
+    return this.timeline.timeline(id)
+  }
+
+  @Get('products/:id/price-margins')
+  @ApiOperation({
+    summary: 'The product margin over time, split at every change of cost or price',
+    description: 'Each interval uses the price and the cost in force ON its first day, so a later cost never alters an earlier interval. Margin is `(price − cost) / price`, empty (never zero) when either side is missing.',
+  })
+  productMarginIntervals(@Param('id', ParseIntPipe) id: number) {
+    return this.timeline.marginIntervals(id)
   }
 
   @Get('products/:id/eans')

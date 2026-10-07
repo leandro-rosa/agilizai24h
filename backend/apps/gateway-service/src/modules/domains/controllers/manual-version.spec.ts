@@ -1,0 +1,41 @@
+import { BadRequestException } from '@nestjs/common'
+import { eanChange, manualCost, manualEan, manualPrice } from './manual-version'
+
+describe('manual versions from the browser', () => {
+  it('forces the source to manual and the actor to the session user, whatever the client sent', () => {
+    const payload = manualCost({ effective_from: '2026-10-10', cost_cents: 620, reason: 'fornecedor reajustou', source: 'invoice', actor: 'outra@pessoa.com', supplier_id: 5, purchase_id: 9, source_ref: 'x' }, 'barbara@agiliz.ai')
+
+    expect(payload).toEqual({ effective_from: '2026-10-10', cost_cents: 620, source: 'manual', actor: 'barbara@agiliz.ai', reason: 'fornecedor reajustou' })
+  })
+
+  it('refuses a cost or a price without a reason', () => {
+    expect(() => manualCost({ effective_from: '2026-10-10', cost_cents: 620 }, 'a@b.c')).toThrow(BadRequestException)
+    expect(() => manualPrice({ effective_from: '2026-10-10', price_cents: 1250, reason: '   ' }, 'a@b.c')).toThrow(BadRequestException)
+  })
+
+  it('a price cannot be made to look like a pricing decision or an invoice', () => {
+    expect(manualPrice({ effective_from: '2026-10-10', price_cents: 1250, reason: 'concorrência', source: 'pricing_intelligence', source_ref: 'd1' }, 'a@b.c')).toEqual({
+      effective_from: '2026-10-10',
+      price_cents: 1250,
+      source: 'manual',
+      actor: 'a@b.c',
+      reason: 'concorrência',
+    })
+  })
+
+  it('an EAN keeps only its own fields and the actor comes from the session', () => {
+    expect(manualEan({ ean: '7891000000002', valid_from: '2026-10-01', note: 'nova', make_primary: true, retire_current: true, source: 'invoice_import', actor: 'x' }, 'a@b.c')).toEqual({
+      ean: '7891000000002',
+      valid_from: '2026-10-01',
+      note: 'nova',
+      make_primary: true,
+      retire_current: true,
+      source: 'manual',
+      actor: 'a@b.c',
+    })
+  })
+
+  it('changing an EAN passes only status, end of validity, principal and note', () => {
+    expect(eanChange({ status: 'inactive', valid_to: '2026-10-09', primary: false, note: 'x', ean: '999', product_id: 3, delete: true })).toEqual({ status: 'inactive', valid_to: '2026-10-09', primary: false, note: 'x' })
+  })
+})

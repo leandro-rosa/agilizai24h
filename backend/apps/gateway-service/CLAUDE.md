@@ -176,3 +176,12 @@ Leitura com `products:read`; `POST /pricing/parameters` e `GET /pricing/decision
 como `applied` ou `failed` (com o motivo). A mesma `idempotencyKey` é uma decisão e uma gravação; repetir depois de uma falha tenta a
 gravação de novo. Preço gravado com o registro que não pôde ser fechado volta com `warning` e a decisão aparece em `/decisions/pending`.
 O products-service substitui a versão de preço de mesma data, por isso a decisão guarda o preço anterior.
+
+## Custo, preço e EAN gravados à mão (`/products/...`)
+
+`POST /products/:sku/costs`, `POST /products/:sku/prices` e `POST|PATCH /products/:id/eans` (`products:write`) **forçam a origem** (`source =
+manual`) e **o usuário da sessão** (`actor`); o navegador não escolhe origem, usuário nem dados de compra (`manual-version.ts` descarta o
+resto), então ninguém se passa por NF ou por decisão de preço. Custo e preço **exigem motivo**. Não há rota para apagar um EAN. Leituras
+(`products:read`): `GET /products/:id/prices|eans|timeline|price-margins`, `POST /products/prices/bulk` e `POST /products/eans/resolve`.
+O preço da Precificação não passa por aqui: `POST /pricing/decisions/apply` grava com `source = pricing_intelligence`, o usuário que
+aprovou, o motivo e o id da decisão como chave de idempotência.

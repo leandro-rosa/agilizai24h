@@ -1,9 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req } from '@nestjs/common'
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query, Req } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { PERMISSIONS } from '@app/iam-contracts'
 import type { FastifyRequest } from 'fastify'
+import { Caller } from '../../auth/guards/caller.decorator'
 import { RequiresPermission } from '../../auth/guards/session.constants'
+import type { AuthenticatedCaller } from '../../auth/services/session.service'
 import { DomainClient } from '../../upstream/domain.client'
+import { eanChange, manualCost, manualEan, manualPrice } from './manual-version'
 import { correlationOf } from './stores.controller'
 
 @ApiTags('products')
@@ -68,14 +71,120 @@ export class ProductsController {
 
   @Post(':sku/costs')
   @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
-  @ApiOperation({ summary: 'Record a cost effective from a date' })
-  async recordCost(@Param('sku') sku: string, @Body() body: unknown, @Req() request: FastifyRequest) {
+  @ApiOperation({
+    summary: 'Record a cost by hand, as a new version',
+    description: 'Needs a reason. The source is always `manual` and the user is the logged-in one; nothing already recorded is overwritten.',
+  })
+  async recordCost(@Param('sku') sku: string, @Body() body: Record<string, unknown>, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
     const result = await this.domains.products({
       method: 'post',
       path: `/products/${encodeURIComponent(sku)}/costs`,
-      payload: body,
+      payload: manualCost(body, caller.email),
       correlationId: correlationOf(request),
     })
+
+    return result.data
+  }
+
+  @Post(':sku/prices')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({
+    summary: 'Record a sale price by hand, as a new version',
+    description: 'Needs a reason. The source is always `manual` and the user is the logged-in one. A price from the pricing recommendation goes through `POST /pricing/decisions/apply`, not here.',
+  })
+  async recordPrice(@Param('sku') sku: string, @Body() body: Record<string, unknown>, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({
+      method: 'post',
+      path: `/products/${encodeURIComponent(sku)}/prices`,
+      payload: manualPrice(body, caller.email),
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Get(':id/prices')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'A product sale-price history, with the end of each validity and the origin' })
+  async listPrices(@Param('id') id: string, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({ method: 'get', path: `/products/${encodeURIComponent(id)}/prices`, correlationId: correlationOf(request) })
+
+    return result.data
+  }
+
+  @Post('prices/bulk')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Sale prices for a set of SKUs as of a date', description: 'Partitioned: a missing price is reported, never read as zero.' })
+  async bulkPrices(@Body() body: unknown, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({ method: 'post', path: '/prices/bulk', payload: body, correlationId: correlationOf(request) })
+
+    return result.data
+  }
+
+  @Get(':id/timeline')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Every change of cost and price of a product, with its origin, newest first' })
+  async timeline(@Param('id') id: string, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({ method: 'get', path: `/products/${encodeURIComponent(id)}/timeline`, correlationId: correlationOf(request) })
+
+    return result.data
+  }
+
+  @Get(':id/price-margins')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'The product margin over time, split at every change of cost or price' })
+  async priceMargins(@Param('id') id: string, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({ method: 'get', path: `/products/${encodeURIComponent(id)}/price-margins`, correlationId: correlationOf(request) })
+
+    return result.data
+  }
+
+  @Get(':id/eans')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Every EAN the product has or ever had, with status and validity' })
+  async listEans(@Param('id') id: string, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({ method: 'get', path: `/products/${encodeURIComponent(id)}/eans`, correlationId: correlationOf(request) })
+
+    return result.data
+  }
+
+  @Post(':id/eans')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({
+    summary: 'Link another EAN to the product',
+    description: 'A product can have several EANs. 409 when the EAN is active on another product. `retire_current` makes it the principal and retires the old one, which stays in the history. The source is `manual` and the user is the logged-in one.',
+  })
+  async addEan(@Param('id') id: string, @Body() body: Record<string, unknown>, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({
+      method: 'post',
+      path: `/products/${encodeURIComponent(id)}/eans`,
+      payload: manualEan(body, caller.email),
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Patch(':id/eans/:eanId')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({ summary: 'Inactivate or reactivate an EAN, change the principal or edit its note. There is no delete.' })
+  async updateEan(@Param('id') id: string, @Param('eanId') eanId: string, @Body() body: Record<string, unknown>, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({
+      method: 'patch',
+      path: `/products/${encodeURIComponent(id)}/eans/${encodeURIComponent(eanId)}`,
+      payload: eanChange(body),
+      correlationId: correlationOf(request),
+    })
+
+    return result.data
+  }
+
+  @Post('eans/resolve')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Find the SKU of EANs, active or historical; an unknown EAN is reported, never turned into a product' })
+  async resolveEans(@Body() body: unknown, @Req() request: FastifyRequest) {
+    const result = await this.domains.products({ method: 'post', path: '/eans/resolve', payload: body, correlationId: correlationOf(request) })
 
     return result.data
   }

@@ -19,11 +19,11 @@
 
 ## 2. Gateway
 
-- [ ] 2.0 Gateway routes for the EAN actions with the session user
-- [ ] 2.1 Expose `prices/bulk`, `:id/prices`, `:sku/prices` (the routes the admin calls)
-- [ ] 2.2 Manual cost and price with the session user and a required reason
-- [ ] 2.3 `GET /products/:id/timeline` and `GET /products/:id/price-margins` in products-service, routed by the gateway
-- [ ] 2.4 Pricing apply passes source `pricing_intelligence`, the decision id, the user and the reason
+- [x] 2.0 Gateway routes for the EAN actions with the session user
+- [x] 2.1 Expose `prices/bulk`, `:id/prices`, `:sku/prices` (the routes the admin calls)
+- [x] 2.2 Manual cost and price with the session user and a required reason
+- [x] 2.3 `GET /products/:id/timeline` and `GET /products/:id/price-margins` in products-service, routed by the gateway
+- [x] 2.4 Pricing apply passes source `pricing_intelligence`, the decision id, the user and the reason
 
 ## 3. Purchases keep the original
 

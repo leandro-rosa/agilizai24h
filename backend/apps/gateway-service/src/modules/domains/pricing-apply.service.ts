@@ -18,6 +18,9 @@ interface Decision {
   sku: string
   newPriceCents: number
   effectiveFrom: string
+  /** The approving user, as recorded by the decision (set from the session). */
+  actor: string
+  reason: string | null
   status: string
 }
 
@@ -77,7 +80,9 @@ export class PricingApplyService {
       await this.domains.products({
         method: 'post',
         path: `/products/${encodeURIComponent(decision.sku)}/prices`,
-        payload: { effective_from: decision.effectiveFrom, price_cents: decision.newPriceCents },
+        // The price carries where it came from: the pricing recommendation, who approved it, why, and the decision id as
+        // the idempotency key, so a retried apply can never write the same price twice.
+        payload: { effective_from: decision.effectiveFrom, price_cents: decision.newPriceCents, source: 'pricing_intelligence', actor: decision.actor, reason: decision.reason ?? undefined, source_ref: decision.id },
         correlationId,
       })
     } catch (error) {

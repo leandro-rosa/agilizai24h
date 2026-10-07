@@ -19,7 +19,7 @@ function build(options: { priceWrite?: 'ok' | 'fail'; closeApplied?: 'ok' | 'fai
         const key = call.payload.idempotencyKey
         const found = decisions.get(key)
         if (found) return { data: { created: false, decision: found } }
-        const decision = { id: `d-${decisions.size + 1}`, sku: call.payload.sku, newPriceCents: call.payload.newPriceCents, effectiveFrom: '2026-10-07', status: options.existing ?? 'pending', actor: call.payload.actor }
+        const decision = { id: `d-${decisions.size + 1}`, sku: call.payload.sku, newPriceCents: call.payload.newPriceCents, effectiveFrom: '2026-10-07', status: options.existing ?? 'pending', actor: call.payload.actor, reason: call.payload.reason ?? null }
         decisions.set(key, decision)
         return { data: { created: true, decision } }
       }
@@ -55,7 +55,7 @@ describe('PricingApplyService', () => {
 
     expect(result).toMatchObject({ applied: true, alreadyApplied: false, decision: { status: 'applied', sku: 'COCA' } })
     expect(calls.map(call => `${call.service} ${call.path}`)).toEqual(['intelligence /pricing/decisions', 'products /products/COCA/prices', 'intelligence /pricing/decisions/d-1/applied'])
-    expect(writes(calls)[0].payload).toEqual({ effective_from: '2026-10-07', price_cents: 650 })
+    expect(writes(calls)[0].payload).toEqual({ effective_from: '2026-10-07', price_cents: 650, source: 'pricing_intelligence', actor: 'barbara@agiliz.ai', source_ref: 'd-1' })
   })
 
   it('the actor is the session user and overrides whatever the client sent', async () => {
@@ -111,6 +111,24 @@ describe('PricingApplyService', () => {
 
     await expect(service.apply(input({ idempotencyKey: '' }), 'a@b.c')).rejects.toBeInstanceOf(BadRequestException)
     expect(calls).toHaveLength(0)
+  })
+})
+
+describe('the price carries its origin', () => {
+  it('writes the approving user, the reason and the decision id as the idempotency key', async () => {
+    const { service, calls } = build()
+    await service.apply(input({ reason: 'concorrência' }), 'barbara@agiliz.ai')
+
+    expect(writes(calls)[0].payload).toMatchObject({ source: 'pricing_intelligence', actor: 'barbara@agiliz.ai', reason: 'concorrência', source_ref: 'd-1' })
+  })
+
+  it('a retry after a failed write sends the same decision id, so the price is written once', async () => {
+    const { service, calls, state } = build({ priceWrite: 'fail' })
+    await expect(service.apply(input(), 'a@b.c')).rejects.toBeDefined()
+    state.priceWrite = 'ok'
+    await service.apply(input(), 'a@b.c')
+
+    expect(writes(calls).map(call => call.payload.source_ref)).toEqual(['d-1', 'd-1'])
   })
 })
 

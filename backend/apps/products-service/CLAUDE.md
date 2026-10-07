@@ -121,6 +121,15 @@ primeira versão, ausente — nunca cai para a mais nova. O contrato do `bulk` (
 - `product.sale_unit` (padrão `un`); o código interno é o SKU.
 - Teste de integração (`test/`) roda contra o banco do ambiente: **só contra um banco descartável**.
 
+### Linha do tempo e margem por período (`TimelineService`)
+
+`GET /products/:id/timeline`: tudo o que mudou em custo e preço, do mais novo ao mais antigo; cada evento traz o valor que substituiu
+(derivado da série, nunca guardado), a origem, o usuário, o fornecedor e a nota, e `superseded`. `history_available_from` diz onde o dado
+começa — **nada é afirmado antes dele**. `GET /products/:id/price-margins`: a margem do produto `(preço − custo)/preço` **quebrada em toda
+mudança de custo ou de preço**; cada intervalo lê as versões em vigor **na sua data**, então um custo novo nunca altera um intervalo
+antigo (exemplo do dono nos testes: custo 5,70 → 6,20 em 10/10, preço 11,90 → 12,50 em 16/09 dá 52,1% → 54,4% → 50,4%). Margem vazia
+(nunca zero) quando falta custo ou preço. É a margem do PRODUTO, não a econômica do motor de precificação.
+
 ## Vários EANs por produto (`ProductEan`)
 
 O **SKU identifica o produto; o EAN identifica a embalagem.** Um produto pode ter vários EANs ao longo do tempo (embalagem nova, outro
