@@ -230,3 +230,34 @@ describe('shapePrice', () => {
     expect(shapePrice(691, params)).toBe(790)
   })
 })
+
+describe('computePrice — the real origin of the cost', () => {
+  const origin = (source: string, extra: Partial<{ effectiveFrom: string; invoiceNumber: string | null }> = {}) => ({ source, effectiveFrom: '2026-09-10', invoiceNumber: source === 'invoice' ? '13021' : null, ...extra })
+
+  it('carries the origin of the cost into the result so the screen can say where the number came from', () => {
+    expect(computePrice(base({ costOrigin: origin('invoice') })).costOrigin).toEqual({ source: 'invoice', effectiveFrom: '2026-09-10', invoiceNumber: '13021' })
+    expect(computePrice(base()).costOrigin).toBeNull()
+    expect(computePrice(base({ costCents: null, costOrigin: origin('manual') })).costOrigin).toMatchObject({ source: 'manual' })
+  })
+
+  it('a cost proven by an invoice earns more confidence than a typed one, whatever was bought in the window', () => {
+    // Same product, same sales, same fees: only the backing of the cost changes (hand-checked against the rubric: 8 points = high, 7 = medium).
+    const same = { monthlyUnits: 20, previousCostCents: null }
+    const invoice = computePrice(base({ ...same, costFromPurchase: false, costOrigin: origin('invoice') }))
+    const typed = computePrice(base({ ...same, costFromPurchase: true, costOrigin: origin('manual') }))
+
+    expect(invoice.confidence).toBe('high')
+    // With the origin known, a purchase seen in the window no longer stands in for it.
+    expect(typed.confidence).toBe('medium')
+  })
+
+  it('without an origin it keeps using the purchase seen in the window', () => {
+    const bought = computePrice(base({ costFromPurchase: true, costOrigin: null }))
+    const notBought = computePrice(base({ costFromPurchase: false, costOrigin: null, costAgeDays: 10 }))
+
+    expect(rank(bought.confidence)).toBeGreaterThanOrEqual(rank(notBought.confidence))
+  })
+})
+
+const rank = (confidence: string) => ['insufficient_data', 'low', 'medium', 'high'].indexOf(confidence)
+

@@ -78,3 +78,21 @@ export function parsePriceToCents(input: string): number | null {
 
   return Math.round(value * 100);
 }
+
+const COST_SOURCE_TEXT: Record<string, string> = {
+  invoice: "Nota fiscal",
+  manual: "Digitado à mão",
+  pricing_intelligence: "Precificação Inteligente",
+  catalogue_sync: "Sincronização da precificação",
+  legacy_import: "Carga inicial",
+  other: "Outra origem",
+};
+
+/** De onde vem o custo, em uma frase curta ("Nota fiscal 13021 · desde 10/10/2026"); nulo quando o cadastro não disse. */
+export function costOriginText(origin: { source: string; effectiveFrom: string; invoiceNumber: string | null } | null | undefined): string | null {
+  if (!origin) return null;
+  const day = `${origin.effectiveFrom.slice(8, 10)}/${origin.effectiveFrom.slice(5, 7)}/${origin.effectiveFrom.slice(0, 4)}`;
+  const label = COST_SOURCE_TEXT[origin.source] ?? origin.source;
+
+  return `${label}${origin.invoiceNumber ? ` ${origin.invoiceNumber}` : ""} · desde ${day}`;
+}

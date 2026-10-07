@@ -14,9 +14,9 @@ export interface DataUsed {
   origin: string
 }
 
-export interface NewProductInput extends Omit<PriceInput, 'currentPriceCents' | 'previousCostCents' | 'volumeDroppedAfterPriceChange'> {
-  /** Where the cost came from ("Nota fiscal 13021", "Cadastro"), and whether that invoice is already received. */
-  costOrigin: string
+export interface NewProductInput extends Omit<PriceInput, 'currentPriceCents' | 'previousCostCents' | 'volumeDroppedAfterPriceChange' | 'costOrigin'> {
+  /** Where the cost came from, in words ("Nota fiscal 13021", "Cadastro"), and whether that invoice is already received. */
+  costLabel: string
   costNotReceived: boolean
 }
 
@@ -80,7 +80,7 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
   if (input.costNotReceived) reasons.push('O custo vem de uma nota ainda não recebida; ele só passa a valer no recebimento')
 
   const dataUsed: DataUsed[] = [
-    { code: 'cost', label: 'Custo da unidade', value: money(input.costCents as number), origin: input.costOrigin },
+    { code: 'cost', label: 'Custo da unidade', value: money(input.costCents as number), origin: input.costLabel },
     { code: 'category', label: 'Categoria', value: categoryLabel(input.category), origin: 'Cadastro do produto' },
     { code: 'tax', label: 'Imposto', value: pct(solved.structure.taxRate), origin: 'Parâmetro de precificação' },
     { code: 'payment', label: 'Taxas de pagamento', value: `${pct(payment.rate)}${payment.fixedPerUnitCents > 0 ? ` + ${money(Math.round(payment.fixedPerUnitCents))} por unidade` : ''}`, origin: 'Taxas cadastradas ponderadas pelo mix de vendas da rede' },

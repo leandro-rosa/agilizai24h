@@ -205,8 +205,20 @@ describe('the past does not change when a later cost is recorded', () => {
     const result = await cost.bulkCostAsOf(['MONS', 'NOPE'], day('2026-09-01'))
 
     expect(result.as_of).toBe('2026-09-01')
-    expect(result.resolved).toEqual([{ sku: 'MONS', product_id: 10, cost_cents: 570, effective_from: '2026-08-01' }])
+    expect(result.resolved).toEqual([{ sku: 'MONS', product_id: 10, cost_cents: 570, effective_from: '2026-08-01', source: 'catalogue_sync', invoice_number: null }])
     expect(result.unresolved).toEqual([{ sku: 'NOPE', reason: 'unknown_sku' }])
+  })
+
+  it('says where the cost in force came from, and the invoice number when it came from one', async () => {
+    const { cost } = build()
+    await cost.recordCost('MONS', day('2026-08-01'), 570, { source: 'catalogue_sync' })
+    await cost.recordCost('MONS', day('2026-10-10'), 620, invoice())
+
+    const august = await cost.bulkCostAsOf(['MONS'], day('2026-09-30'))
+    const october = await cost.bulkCostAsOf(['MONS'], day('2026-10-31'))
+
+    expect(august.resolved[0]).toMatchObject({ cost_cents: 570, source: 'catalogue_sync', invoice_number: null })
+    expect(october.resolved[0]).toMatchObject({ cost_cents: 620, source: 'invoice', invoice_number: '13021' })
   })
 })
 

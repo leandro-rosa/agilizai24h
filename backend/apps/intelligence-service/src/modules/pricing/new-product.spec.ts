@@ -9,7 +9,7 @@ const PARAMS = mergePricingParameters(DEFAULT_PRICING_PARAMETERS, { taxRateBps: 
 // Same hand-computed fixture as price.spec: cost 309, tax 7.07%, payment 2%, operating 4%, loss 2% => target 607.15 => 610.
 const input = (over: Partial<NewProductInput> = {}): NewProductInput => ({
   sku: '110024', name: 'Novo sabor de marmita', category: 'meal', costCents: 309, costAgeDays: 0, costFromPurchase: true, costFlaggedUnreliable: false,
-  monthlyUnits: 0, loss: { rate: 0.02, level: 'category' }, payment, operatingShare: 0.04, params: PARAMS, costOrigin: 'Nota fiscal 13021', costNotReceived: false, ...over,
+  monthlyUnits: 0, loss: { rate: 0.02, level: 'category' }, payment, operatingShare: 0.04, params: PARAMS, costLabel: 'Nota fiscal 13021', costNotReceived: false, ...over,
 })
 
 describe('suggestNewProduct', () => {

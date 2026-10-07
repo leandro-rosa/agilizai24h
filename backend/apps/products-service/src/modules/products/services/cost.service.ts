@@ -152,6 +152,8 @@ export class CostService {
         product_id: product.id,
         cost_cents: version.cost_cents,
         effective_from: toDateString(version.effective_from),
+        source: version.source,
+        invoice_number: version.invoice_number ?? null,
       })
     }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 
-import { CONFIDENCE_LABEL, parsePriceToCents, percent, points, signedMoney, signedPercent, STATUS_LABEL, STATUS_TONE } from "./labels";
+import { CONFIDENCE_LABEL, costOriginText, parsePriceToCents, percent, points, signedMoney, signedPercent, STATUS_LABEL, STATUS_TONE } from "./labels";
 
 describe("vocabulário", () => {
   it("usa as cinco situações e as quatro confianças combinadas", () => {
@@ -52,4 +52,17 @@ describe("parsePriceToCents", () => {
   ])("%s → %d", (input, cents) => expect(parsePriceToCents(input)).toBe(cents));
 
   it.each([[""], ["abc"], ["0"], ["-3"], ["0,00"]])("recusa %p", (input) => expect(parsePriceToCents(input)).toBeNull());
+});
+
+describe("costOriginText", () => {
+  it("diz de onde vem o custo, com o número da nota e o dia em que passou a valer", () => {
+    expect(costOriginText({ source: "invoice", effectiveFrom: "2026-10-10", invoiceNumber: "13021" })).toBe("Nota fiscal 13021 · desde 10/10/2026");
+    expect(costOriginText({ source: "manual", effectiveFrom: "2026-08-01", invoiceNumber: null })).toBe("Digitado à mão · desde 01/08/2026");
+    expect(costOriginText({ source: "legacy_import", effectiveFrom: "2026-01-01", invoiceNumber: null })).toBe("Carga inicial · desde 01/01/2026");
+  });
+
+  it("sem origem informada não inventa uma", () => {
+    expect(costOriginText(null)).toBeNull();
+    expect(costOriginText(undefined)).toBeNull();
+  });
 });

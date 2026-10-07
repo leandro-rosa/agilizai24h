@@ -31,6 +31,12 @@ export interface ResolvedCost {
   cost_cents: Centavos
   /** ISO date of the cost version actually used, so a figure stays traceable. */
   effective_from: string
+  /**
+   * Where that version came from (`invoice`, `manual`, `catalogue_sync`, `legacy_import`, …) and, for an invoice, its number. Optional so an
+   * older producer and every existing consumer keep working; a consumer that wants the origin must not assume it is present.
+   */
+  source?: string
+  invoice_number?: string | null
 }
 
 export interface UnresolvedCost {

@@ -35,6 +35,8 @@ export interface Reason {
 export interface PricingProduct {
   sku: string;
   name: string | null;
+  /** De onde vem o custo em vigor, como o cadastro de produtos diz: a origem, o dia em que passou a valer e, se foi uma nota, o número. */
+  costOrigin?: { source: string; effectiveFrom: string; invoiceNumber: string | null } | null;
   /** Cadastrado a partir de uma nota dentro da janela analisada ("Produto novo"); `noSalesHistory` quando ainda não vendeu nela. */
   newProduct?: { registeredOn: string; noSalesHistory: boolean } | null;
   ean: string | null;

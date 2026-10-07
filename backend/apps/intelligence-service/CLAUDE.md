@@ -328,3 +328,9 @@ exige motivo, "sem preço" não aceita preço; um `CHECK` do banco garante preç
 grava, pelo caminho de `decisions/apply`, com a decisão chaveada `new-product:<chave da escolha>`). `GET /pricing/new-product/:sku/choices` lista.
 Cada produto do relatório traz `newProduct { registeredOn, noSalesHistory } | null`: produto cadastrado por uma nota (`origin.type = invoice` no products-service) cujo dia cai **dentro da
 janela analisada** (a tela mostra "Produto novo" e, se ainda não vendeu, "Sem histórico de vendas"). Produto cadastrado antes da janela ou à mão: null.
+
+**Origem real do custo** (`add-product-cost-price-versioning`, etapa 7): o `POST /costs/bulk` do products-service passou a devolver, em cada custo resolvido, a `source` da versão em vigor e o nº da nota
+(`invoice_number`). O motor deixa de **adivinhar** que um custo vem de compra: `PriceInput.costOrigin` carrega a origem real e `PriceResult.costOrigin` a expõe (`{ source, effectiveFrom, invoiceNumber }`; nula
+quando o cadastro não disse). A régua de confiança conta "custo comprovado por nota" quando há origem (`source === 'invoice'`); sem origem (products-service antigo) cai na heurística anterior, a compra vista na janela.
+A regra de "custo desatualizado" **não mudou**: continua sendo custo velho sem compra no período (`costFromPurchase`, via `PurchaseSource`). A variação do custo continua a da janela (custo vigente × custo antes dela);
+a variação de cada nota (valor anterior e %) vive no item da compra (suppliers-service) e na aba Compras do produto. A tela de precificação mostra a origem ao lado do custo médio ("Nota fiscal 13021 · desde 10/10/2026").

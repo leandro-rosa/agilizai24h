@@ -3,10 +3,11 @@ import { UpstreamExceptionFilter } from './upstream-exception.filter'
 
 const run = (error: UpstreamStatusError) => {
   const send = jest.fn()
-  const reply = { status: jest.fn(() => ({ send })) }
+  const status = jest.fn((_code: number) => ({ send }))
+  const reply = { status }
   new UpstreamExceptionFilter().catch(error, { switchToHttp: () => ({ getResponse: () => reply }) } as never)
 
-  return { status: reply.status.mock.calls[0][0], body: send.mock.calls[0][0] }
+  return { status: status.mock.calls[0][0], body: send.mock.calls[0][0] }
 }
 
 describe('UpstreamExceptionFilter', () => {

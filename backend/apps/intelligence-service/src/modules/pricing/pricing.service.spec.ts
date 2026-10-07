@@ -43,7 +43,7 @@ function build(taxRateBps: number | null, extraProducts: Record<string, unknown>
     ],
     costsAsOf: async (_skus: string[], asOf: string) => ({
       as_of: asOf,
-      resolved: [{ sku: 'COCA', product_id: 1, cost_cents: 309, effective_from: '2026-08-15' }],
+      resolved: [{ sku: 'COCA', product_id: 1, cost_cents: 309, effective_from: '2026-08-15', source: 'invoice', invoice_number: '13021' }],
       unresolved: [{ sku: 'MARM', reason: 'no_cost_before_date' }],
       complete: false,
     }),
@@ -173,5 +173,16 @@ describe('PricingService — a product registered from an invoice', () => {
     expect(none.suggestion.suggestedPriceCents).toBeNull()
 
     await expect(build(707, extra).newProduct('NADA', { period: '2026-09', costCents: 100 })).rejects.toThrow('not found')
+  })
+})
+
+describe('PricingService — the origin of the cost comes from the registry', () => {
+  it('reports the origin of the cost in force on each product, and none where the registry has no cost', async () => {
+    const report = await build(707).report({ period: '2026-09' })
+    const coca = report.products.find(product => product.sku === 'COCA')!
+    const marmita = report.products.find(product => product.sku === 'MARM')!
+
+    expect(coca.costOrigin).toEqual({ source: 'invoice', effectiveFrom: '2026-08-15', invoiceNumber: '13021' })
+    expect(marmita.costOrigin).toBeNull()
   })
 })

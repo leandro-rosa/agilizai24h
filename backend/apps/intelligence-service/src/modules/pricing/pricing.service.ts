@@ -129,7 +129,7 @@ export class PricingService {
       costCents: fromRequest ? options.costCents ?? null : input.costCents,
       costAgeDays: fromRequest ? 0 : input.costAgeDays,
       costFromPurchase: fromRequest ? true : input.costFromPurchase,
-      costOrigin: options.costOrigin ?? (fromRequest ? 'Nota fiscal' : 'Custo cadastrado'),
+      costLabel: options.costOrigin ?? (fromRequest ? 'Nota fiscal' : 'Custo cadastrado'),
       costNotReceived: options.costNotReceived ?? false,
     })
 
@@ -230,6 +230,7 @@ export class PricingService {
         costCents: cost?.cost_cents ?? null,
         costAgeDays: cost ? daysBetween(cost.effective_from, asOf) : null,
         costFromPurchase: purchased.has(sku),
+        costOrigin: cost?.source ? { source: cost.source, effectiveFrom: cost.effective_from, invoiceNumber: cost.invoice_number ?? null } : null,
         costFlaggedUnreliable: false,
         previousCostCents: costBefore.get(sku) ?? null,
         currentPriceCents: priceNow.get(sku) ?? null,

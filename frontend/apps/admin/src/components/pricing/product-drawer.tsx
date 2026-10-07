@@ -21,7 +21,7 @@ import {
 } from "@/lib/api/pricing";
 import { count, date, money, period as formatPeriod } from "@/lib/format";
 import { costBreakdown } from "@/lib/pricing/breakdown";
-import { CONFIDENCE_LABEL, CONFIDENCE_TONE, parsePriceToCents, percent, points, signedMoney, STATUS_LABEL, STATUS_TONE } from "@/lib/pricing/labels";
+import { CONFIDENCE_LABEL, CONFIDENCE_TONE, costOriginText, parsePriceToCents, percent, points, signedMoney, STATUS_LABEL, STATUS_TONE } from "@/lib/pricing/labels";
 
 import { ApplyPriceDialog, errorMessage } from "./apply-price-dialog";
 
@@ -54,7 +54,7 @@ function Overview({ product, onApply, onSimulate, canWrite }: { product: Pricing
       <section aria-labelledby="situation" className="flex flex-col gap-2">
         <h3 id="situation" className="text-sm font-semibold">Situação atual</h3>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <Fact label="Custo médio" value={money(product.structure?.productCostCents ?? null)} />
+          <Fact label="Custo médio" value={money(product.structure?.productCostCents ?? null)} hint={costOriginText(product.costOrigin) ?? undefined} />
           <Fact label="Preço atual" value={money(product.currentPriceCents)} />
           <Fact label="Margem atual" value={percent(product.currentMargin)} hint={`Meta ${percent(product.targetMargin, 0)}`} />
           <Fact label="Markup atual" value={product.currentMarkup === null ? "—" : product.currentMarkup.toFixed(2).replace(".", ",")} />

@@ -18,6 +18,11 @@ export interface PriceInput {
   /** Age of that cost in days, and whether it came from a real purchase. */
   costAgeDays: number | null
   costFromPurchase: boolean
+  /**
+   * Where the cost in force really came from (the version's source, its day and, for an invoice, its number). When present it decides whether the
+   * cost is backed by an invoice; `costFromPurchase` (a purchase in the window) then only keeps deciding whether an old cost is stale.
+   */
+  costOrigin?: { source: string; effectiveFrom: string; invoiceNumber: string | null } | null
   costFlaggedUnreliable: boolean
   /** The cost before the latest change, for the variation and the stability of the cost. */
   previousCostCents: number | null
@@ -67,6 +72,8 @@ export interface PriceResult {
   category: string | null
   categoryLabel: string
   subcategory: string | null
+  /** The origin of the cost in force, as the products registry states it; null when it is not known. */
+  costOrigin: { source: string; effectiveFrom: string; invoiceNumber: string | null } | null
   /** Registered from an invoice inside the analysed window ("Produto novo"); `noSalesHistory` when it has not sold in it. Null for every other product. */
   newProduct: { registeredOn: string; noSalesHistory: boolean } | null
   status: PricingStatus
@@ -134,6 +141,7 @@ function identity(input: PriceInput) {
     category: input.category ?? null,
     categoryLabel: categoryLabel(input.category),
     subcategory: input.subcategory ?? null,
+    costOrigin: input.costOrigin ?? null,
     newProduct: input.newProductOn ? { registeredOn: input.newProductOn, noSalesHistory: input.monthlyUnits <= 0 } : null,
   }
 }
@@ -235,7 +243,7 @@ export function computePrice(input: PriceInput): PriceResult {
     { costCents: input.costCents as number, taxRateBps: params.taxRateBps as number, payment: input.payment as PaymentCost, loss: input.loss as { rate: number; level: LossLevel }, operatingShare: input.operatingShare as number },
     margins,
   )
-  const { cost, structure, unitCost, variableShare, unitProfit, marginAt, rawMinimum, rawTarget } = solved
+  const { cost, structure, variableShare, unitProfit, marginAt, rawMinimum, rawTarget } = solved
   const payment = input.payment as PaymentCost
   const loss = input.loss as { rate: number; level: LossLevel }
   const fixedPerUnit = payment.fixedPerUnitCents
@@ -288,7 +296,9 @@ export function computePrice(input: PriceInput): PriceResult {
 
   // Confidence: a small explicit rubric, no false precision.
   let points = 0
-  points += input.costFromPurchase && (input.costAgeDays ?? Infinity) <= params.data.costMaxAgeDays / 2 ? 2 : 1
+  // Backed by an invoice: the real origin when the registry says it, else the purchase seen in the window.
+  const invoiceBacked = input.costOrigin ? input.costOrigin.source === 'invoice' : input.costFromPurchase
+  points += invoiceBacked && (input.costAgeDays ?? Infinity) <= params.data.costMaxAgeDays / 2 ? 2 : 1
   points += input.monthlyUnits >= params.data.minUnitsPerMonth * 3 ? 2 : input.monthlyUnits >= params.data.minUnitsPerMonth ? 1 : 0
   const unstable = costVariation !== null && Math.abs(costVariation) > params.data.stableCostBps / 10_000 * 3
   points += costVariation === null ? 1 : unstable ? 0 : Math.abs(costVariation) <= params.data.stableCostBps / 10_000 ? 2 : 1

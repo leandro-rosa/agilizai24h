@@ -61,4 +61,4 @@
 
 ## 7. Pricing
 
-- [ ] 7.1 The pricing engine reads the real origin, last purchase cost and variation instead of the heuristic
+- [x] 7.1 The pricing engine reads the real origin, last purchase cost and variation instead of the heuristic
