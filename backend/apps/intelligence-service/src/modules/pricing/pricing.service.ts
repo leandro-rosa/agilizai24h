@@ -156,9 +156,11 @@ export class PricingService {
 
     const supplierNames = new Map((await this.suppliers.suppliers(correlationId)).map(supplier => [supplier.id, supplier.name]))
 
-    const [facts, costsNow, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased] = await Promise.all([
+    const [facts, costsNow, costsLatest, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased] = await Promise.all([
       Promise.all(months.map(month => this.loader.month(month, stores, correlationId))),
       this.products.costsAsOf(skus, asOf, correlationId),
+      // The cost in force TODAY, only to tell a cost newer than the period apart from the period's own cost.
+      this.products.costsAsOf(skus, new Date().toISOString().slice(0, 10), correlationId),
       this.products.costsAsOf(skus, beforeWindow, correlationId),
       this.products.pricesAsOf(skus, asOf, correlationId),
       this.products.pricesAsOf(skus, beforeWindow, correlationId),
@@ -204,6 +206,7 @@ export class PricingService {
     const operating = operatingShare(pnls)
 
     const costNow = new Map(costsNow.resolved.map(cost => [cost.sku, cost]))
+    const costLatest = new Map(costsLatest.resolved.map(cost => [cost.sku, cost]))
     const costBefore = new Map(costsBefore.resolved.map(cost => [cost.sku, cost.cost_cents]))
     const priceNow = new Map(pricesNow.resolved.map(price => [price.sku, price.price_cents]))
     const priceBefore = new Map(pricesBefore.resolved.map(price => [price.sku, price.price_cents]))
@@ -230,6 +233,10 @@ export class PricingService {
         costCents: cost?.cost_cents ?? null,
         costAgeDays: cost ? daysBetween(cost.effective_from, asOf) : null,
         costFromPurchase: purchased.has(sku),
+        newerCost: ((): { costCents: number; effectiveFrom: string; source: string } | null => {
+          const latest = costLatest.get(sku)
+          return latest && latest.effective_from > asOf && latest.cost_cents !== cost?.cost_cents ? { costCents: latest.cost_cents, effectiveFrom: latest.effective_from, source: latest.source ?? 'other' } : null
+        })(),
         costOrigin: cost?.source ? { source: cost.source, effectiveFrom: cost.effective_from, invoiceNumber: cost.invoice_number ?? null } : null,
         costFlaggedUnreliable: false,
         previousCostCents: costBefore.get(sku) ?? null,

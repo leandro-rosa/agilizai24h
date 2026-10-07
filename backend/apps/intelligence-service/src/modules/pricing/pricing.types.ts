@@ -1,8 +1,8 @@
 /**
- * Recorded on every result and stored run so a number can be reproduced. pricing-2: the confidence rubric reads the real origin of the cost
+ * Recorded on every result and stored run so a number can be reproduced. pricing-3 adds coverage, pending reasons and the newer-cost flag to the report (the formulas are unchanged). pricing-2: the confidence rubric reads the real origin of the cost
  * (invoice-backed or not), and results carry `costOrigin` and `newProduct`; the price solved from a cost structure is unchanged.
  */
-export const ENGINE_VERSION = 'pricing-2'
+export const ENGINE_VERSION = 'pricing-3'
 
 export const PAYMENT_METHODS = ['pix', 'debit', 'credit', 'voucher'] as const
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number]

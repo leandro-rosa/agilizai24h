@@ -14,7 +14,7 @@ const pnl = (period: string): PnlDto => ({
   ],
 })
 
-function build(taxRateBps: number | null, extraProducts: Record<string, unknown>[] = []) {
+function build(taxRateBps: number | null, extraProducts: Record<string, unknown>[] = [], costsOverride?: (asOf: string) => unknown) {
   const params = mergePricingParameters(DEFAULT_PRICING_PARAMETERS, { taxRateBps } as never)
   const supply = {
     period: async () => ({ store_id: 1, period: 'x', restocks: [{ sku: 'COCA', quantity_restocked: 100 }], removals: [{ sku: 'COCA', reason: 'expired', counts_as_loss: true, quantity_removed: 2 }], adjustments: [] }),
@@ -41,12 +41,13 @@ function build(taxRateBps: number | null, extraProducts: Record<string, unknown>
       { id: 2, sku: 'MARM', name: 'Marmita', category: 'meal' },
       ...extraProducts,
     ],
-    costsAsOf: async (_skus: string[], asOf: string) => ({
+    costsAsOf: async (_skus: string[], asOf: string) =>
+      costsOverride?.(asOf) ?? {
       as_of: asOf,
       resolved: [{ sku: 'COCA', product_id: 1, cost_cents: 309, effective_from: '2026-08-15', source: 'invoice', invoice_number: '13021' }],
       unresolved: [{ sku: 'MARM', reason: 'no_cost_before_date' }],
       complete: false,
-    }),
+    },
     pricesAsOf: async (_skus: string[], asOf: string) => ({
       resolved: [
         { sku: 'COCA', product_id: 1, price_cents: 590, effective_from: '2026-01-01' },
@@ -184,5 +185,37 @@ describe('PricingService — the origin of the cost comes from the registry', ()
 
     expect(coca.costOrigin).toEqual({ source: 'invoice', effectiveFrom: '2026-08-15', invoiceNumber: '13021' })
     expect(marmita.costOrigin).toBeNull()
+  })
+})
+
+describe('PricingService — a period is history', () => {
+  const cost = (asOf: string, effective: string, cents: number, source = 'invoice') => ({ as_of: asOf, resolved: [{ sku: 'COCA', product_id: 1, cost_cents: cents, effective_from: effective, source, invoice_number: null }], unresolved: [], complete: true })
+  // September values at 309 (from August); anything later than 30/09 sees the October invoice at 350.
+  const history = (asOf: string) => (asOf > '2026-09-30' ? cost(asOf, '2026-10-10', 350) : cost(asOf, '2026-08-15', 309, 'catalogue_sync'))
+
+  it('values the period at the cost in force at its end and flags the newer cost apart, never as the period cost', async () => {
+    const coca = (await build(707, [], history).report({ period: '2026-09' })).products.find(p => p.sku === 'COCA')!
+
+    expect(coca.structure?.productCostCents).toBe(309)
+    expect(coca.costOrigin).toMatchObject({ source: 'catalogue_sync', effectiveFrom: '2026-08-15' })
+    expect(coca.newerCost).toEqual({ costCents: 350, effectiveFrom: '2026-10-10', source: 'invoice' })
+  })
+
+  it('no newer cost when the registry has nothing after the period or the same value', async () => {
+    const same = (await build(707).report({ period: '2026-09' })).products.find(p => p.sku === 'COCA')!
+    expect(same.newerCost).toBeNull()
+  })
+})
+
+describe('PricingService — coverage and pending reasons', () => {
+  it('counts the analysable products against the total and groups the others by reason, never as margin zero', async () => {
+    const { summary } = await build(707).report({ period: '2026-09' })
+
+    expect(summary.coverage.total).toBe(2)
+    expect(summary.coverage.analysable + summary.coverage.withoutEnoughData).toBe(2)
+    expect(summary.coverage.withoutEnoughData).toBe(summary.insufficientData)
+    expect(summary.pending.every(group => group.skus.length > 0)).toBe(true)
+    // MARM has no cost in the fixture: it is pending for that reason.
+    expect(summary.pending.find(group => group.code === 'no_cost')?.skus).toContain('MARM')
   })
 })

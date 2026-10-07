@@ -8,7 +8,7 @@
 - [x] 2.2 products-service: `GET /catalogue/last-change` (latest cost or product change) for the pricing freshness
 - [x] 2.3 products-service: import preview (new / updates / conflicts) and apply, with the empty-cell rule
 - [x] 2.4 gateway: import routes with the session user
-- [ ] 2.5 intelligence-service: coverage, pending reasons and "newer cost than the period" in the report
+- [x] 2.5 intelligence-service: coverage, pending reasons and "newer cost than the period" in the report
 
 ## 3. Products screen
 

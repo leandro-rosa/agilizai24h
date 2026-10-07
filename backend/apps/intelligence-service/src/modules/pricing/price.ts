@@ -24,6 +24,8 @@ export interface PriceInput {
    */
   costOrigin?: { source: string; effectiveFrom: string; invoiceNumber: string | null } | null
   costFlaggedUnreliable: boolean
+  /** A cost recorded AFTER the end of the analysed period (the period is history; this is not part of it). */
+  newerCost?: { costCents: number; effectiveFrom: string; source: string } | null
   /** The cost before the latest change, for the variation and the stability of the cost. */
   previousCostCents: number | null
   currentPriceCents: number | null
@@ -72,6 +74,8 @@ export interface PriceResult {
   category: string | null
   categoryLabel: string
   subcategory: string | null
+  /** A cost the registry holds from after the period's end: shown beside the period's cost, never as the period's cost. */
+  newerCost: { costCents: number; effectiveFrom: string; source: string } | null
   /** The origin of the cost in force, as the products registry states it; null when it is not known. */
   costOrigin: { source: string; effectiveFrom: string; invoiceNumber: string | null } | null
   /** Registered from an invoice inside the analysed window ("Produto novo"); `noSalesHistory` when it has not sold in it. Null for every other product. */
@@ -142,6 +146,7 @@ function identity(input: PriceInput) {
     categoryLabel: categoryLabel(input.category),
     subcategory: input.subcategory ?? null,
     costOrigin: input.costOrigin ?? null,
+    newerCost: input.newerCost ?? null,
     newProduct: input.newProductOn ? { registeredOn: input.newProductOn, noSalesHistory: input.monthlyUnits <= 0 } : null,
   }
 }
