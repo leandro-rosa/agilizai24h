@@ -8,14 +8,35 @@ const invoice = (over: Partial<InvoiceInput['items'][number]>[] = [{}]): Invoice
   items: over.map((o, i) => ({ line: i + 1, code: 'QW-01', ean: '7891234567895', description: 'Wrap', unit: 'UN', quantity: 100, quantityIsWhole: true, unitCostCents: 800, totalCents: 80000, ...o })),
 })
 
-const make = (existing: { id: number } | null = null, options: { links?: { code: string; sku: string }[]; alias?: { id: number; name: string } | null; suppliers?: { id: number; name: string; tax_id: string }[] } = {}) => {
+/** The rule products-service applies (`lookupEan`): an active link wins, a historical EAN on ONE product still resolves, on several it is ambiguous, none is unknown. */
+const fakeEanResolver = (catalogue: { sku: string }[], links: { ean: string; sku: string; status: 'active' | 'inactive' }[]) => async (eans: string[]) => {
+  const resolved: { ean: string; match: 'active' | 'historical'; product: (typeof catalogue)[number] }[] = []
+  const unresolved: { ean: string; unresolved: 'ean_not_identified' | 'ean_ambiguous'; candidates?: string[] }[] = []
+
+  for (const ean of eans) {
+    const own = links.filter(link => link.ean === ean)
+    const active = own.find(link => link.status === 'active')
+    const skus = [...new Set(own.map(link => link.sku))]
+    const product = (sku: string) => catalogue.find(p => p.sku === sku) as (typeof catalogue)[number]
+
+    if (active) resolved.push({ ean, match: 'active', product: product(active.sku) })
+    else if (skus.length === 1) resolved.push({ ean, match: 'historical', product: product(skus[0]) })
+    else if (skus.length > 1) unresolved.push({ ean, unresolved: 'ean_ambiguous', candidates: skus })
+    else unresolved.push({ ean, unresolved: 'ean_not_identified' })
+  }
+
+  return { resolved, unresolved }
+}
+
+const make = (existing: { id: number } | null = null, options: { eanLinks?: { ean: string; sku: string; status: 'active' | 'inactive' }[]; links?: { code: string; sku: string }[]; alias?: { id: number; name: string } | null; suppliers?: { id: number; name: string; tax_id: string }[] } = {}) => {
   const prisma = {
     supplier: { findMany: async () => options.suppliers ?? [{ id: 75, name: 'Quinoa', tax_id: '35.370.333/0001-00' }, { id: 1, name: 'Outro', tax_id: '11111111000111' }] },
     supplierAlias: { findUnique: async () => (options.alias ? { supplier: options.alias } : null) },
     purchase: { findFirst: async () => existing },
     supplierProductCode: { findMany: async () => options.links ?? [] },
   }
-  const products = { products: async () => [{ id: 1, sku: 'Q1', name: 'Wrap', ean: '7891234567895', units_per_package: null }, { id: 2, sku: 'B2', name: 'Barra', ean: null, units_per_package: 24 }, { id: 3, sku: 'C3', name: 'Cola', ean: null, units_per_package: null }] }
+  const catalogue = [{ id: 1, sku: 'Q1', name: 'Wrap', ean: '7891234567895', units_per_package: null }, { id: 2, sku: 'B2', name: 'Barra', ean: null, units_per_package: 24 }, { id: 3, sku: 'C3', name: 'Cola', ean: null, units_per_package: null }]
+  const products = { products: async () => catalogue, resolveEans: async (eans: string[]) => fakeEanResolver(catalogue, options.eanLinks ?? [{ ean: '7891234567895', sku: 'Q1', status: 'active' }])(eans) }
 
   return new PurchaseImportService(prisma as never, products as never)
 }
@@ -134,5 +155,53 @@ describe('PurchaseImportService.preview — lines without a barcode match', () =
   it('marks which rule found the product', async () => {
     expect((await make().preview(invoice())).items[0].matched_by).toBe('ean')
     expect((await make().preview(line({ code: 'Q1' }))).items[0].matched_by).toBe('sku')
+  })
+})
+
+describe('PurchaseImportService.preview — several EANs per product', () => {
+  const oldAndNew = [
+    { ean: '7891000000001', sku: 'Q1', status: 'inactive' as const },
+    { ean: '7891000000002', sku: 'Q1', status: 'active' as const },
+  ]
+
+  it('a line with the old EAN, now inactive, still resolves to the same SKU, marked as a historical EAN', async () => {
+    const preview = await make(null, { eanLinks: oldAndNew }).preview(invoice([{ ean: '7891000000001', code: 'X' }]))
+
+    expect(preview.items[0]).toMatchObject({ sku: 'Q1', matched_by: 'ean_historical', unresolved_reason: null })
+  })
+
+  it('an old invoice with the old EAN and a new one with the new EAN both feed the same SKU', async () => {
+    const service = make(null, { eanLinks: oldAndNew })
+    const oldInvoice = await service.preview(invoice([{ ean: '7891000000001', code: 'X' }]))
+    const newInvoice = await service.preview(invoice([{ ean: '7891000000002', code: 'Y' }]))
+
+    expect(oldInvoice.items[0].sku).toBe('Q1')
+    expect(newInvoice.items[0]).toMatchObject({ sku: 'Q1', matched_by: 'ean' })
+  })
+
+  it('an EAN no product has is "not identified", resolves to nothing and no product is created', async () => {
+    const preview = await make(null, { eanLinks: [] }).preview(invoice([{ ean: '7891000009999', code: 'ZZ', description: 'Produto sem cadastro' }]))
+
+    expect(preview.items[0]).toMatchObject({ sku: null, product_name: null, matched_by: null, unresolved_reason: 'ean_not_identified', ean: '7891000009999' })
+  })
+
+  it('an EAN that is historical on several products is ambiguous: it is not resolved and the candidates are shown', async () => {
+    const links = [{ ean: '7891000000007', sku: 'Q1', status: 'inactive' as const }, { ean: '7891000000007', sku: 'B2', status: 'inactive' as const }]
+    const preview = await make(null, { eanLinks: links }).preview(invoice([{ ean: '7891000000007', code: 'AMB' }]))
+
+    expect(preview.items[0]).toMatchObject({ sku: null, unresolved_reason: 'ean_ambiguous' })
+    expect([...preview.items[0].ean_candidates].sort()).toEqual(['B2', 'Q1'])
+  })
+
+  it('a line with no EAN and no other match stays a plain no_match', async () => {
+    const preview = await make(null, { eanLinks: [] }).preview(invoice([{ ean: null, code: 'NOPE' }]))
+
+    expect(preview.items[0]).toMatchObject({ sku: null, unresolved_reason: 'no_match', ean: null })
+  })
+
+  it('the supplier code the operator linked still finds the product when the EAN is unknown', async () => {
+    const preview = await make(null, { eanLinks: [], links: [{ code: 'QW-01', sku: 'Q1' }] }).preview(invoice([{ ean: '7891000009999' }]))
+
+    expect(preview.items[0]).toMatchObject({ sku: 'Q1', matched_by: 'supplier_code' })
   })
 })

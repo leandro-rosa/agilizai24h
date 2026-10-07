@@ -13,8 +13,8 @@
 - [x] 1b.2 Add, retire, reactivate, set principal, edit note (never delete); EAN active on another product is refused naming it
 - [x] 1b.3 Resolve an EAN: active first, historical when unique, ambiguous and unknown reported, never creating a product
 - [x] 1b.4 `ProductView` carries `ean` (the principal) and `eans`; product creation and catalogue sync go through the new links
-- [ ] 1b.5 NF import in suppliers matches active and historical EANs (`ean_historical`) and reports "EAN não identificado"
-- [ ] 1b.6 Tests: one EAN, a second, retire the old, old and new EAN in two invoices to the same SKU, unknown EAN, ambiguous, active on two products refused, history unified by SKU
+- [x] 1b.5 NF import in suppliers matches active and historical EANs (`ean_historical`) and reports "EAN não identificado"
+- [x] 1b.6 Tests: one EAN, a second, retire the old, old and new EAN in two invoices to the same SKU, unknown EAN, ambiguous, active on two products refused, history unified by SKU
 - [x] 1b.7 Migration verified on a throwaway copy of the real database
 
 ## 2. Gateway

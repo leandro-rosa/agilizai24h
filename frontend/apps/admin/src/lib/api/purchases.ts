@@ -236,9 +236,14 @@ export interface InvoicePreviewItem {
   unit: string | null;
   sku: string | null;
   product_name: string | null;
-  unresolved_reason: "no_match" | null;
-  /** Como a linha achou o produto: código de barras, código do fornecedor já vinculado, ou código igual ao SKU. */
-  matched_by: "ean" | "supplier_code" | "sku" | null;
+  /** `ean_not_identified`: o código de barras da linha não é de nenhum produto. `ean_ambiguous`: foi de mais de um. Nenhum cria produto sozinho. */
+  unresolved_reason: "no_match" | "ean_not_identified" | "ean_ambiguous" | null;
+  /** O código de barras da linha, quando tem. */
+  ean: string | null;
+  /** SKUs que tiveram o EAN da linha, quando ele é ambíguo. */
+  ean_candidates: string[];
+  /** Como a linha achou o produto: código de barras, código de barras que o produto não usa mais (`ean_historical`), código do fornecedor já vinculado, ou código igual ao SKU. */
+  matched_by: "ean" | "ean_historical" | "supplier_code" | "sku" | null;
   /** Só para linha sem produto: parecidos do catálogo. SUGESTÃO; nada é aplicado sem a pessoa aceitar. */
   suggestions: { sku: string; name: string; score: number; measure_differs: boolean }[];
   /** Unidades dentro de uma unidade da nota, só como SUGESTÃO (cadastro do produto, senão lida da descrição: "6P", "12UN"). */

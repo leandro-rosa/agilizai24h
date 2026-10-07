@@ -13,7 +13,8 @@ export interface InvoiceInput {
   items: { line: number; code: string; ean: string | null; description: string; unit: string | null; quantity: number; quantityIsWhole: boolean; unitCostCents: number; totalCents: number }[]
 }
 
-export type UnresolvedReason = 'no_match'
+/** `ean_not_identified`: the line has a barcode no product has. `ean_ambiguous`: it is historical on several products. Neither creates a product. */
+export type UnresolvedReason = 'no_match' | 'ean_not_identified' | 'ean_ambiguous'
 
 export interface PreviewItem {
   line: number
@@ -28,8 +29,12 @@ export interface PreviewItem {
   sku: string | null
   product_name: string | null
   unresolved_reason: UnresolvedReason | null
-  /** How the line found its product: the barcode, the supplier's code the operator linked before, or the code equal to a SKU. */
-  matched_by: 'ean' | 'supplier_code' | 'sku' | null
+  /** The barcode on the line, when it has one. */
+  ean: string | null
+  /** Several products the line's EAN was historical on, when it is ambiguous. */
+  ean_candidates: string[]
+  /** How the line found its product: the barcode (`ean`), a barcode the product no longer uses (`ean_historical`), the supplier's code the operator linked before, or the code equal to a SKU. */
+  matched_by: 'ean' | 'ean_historical' | 'supplier_code' | 'sku' | null
   /** For a line with no product: catalogue products that look like it, to be accepted by the operator. Never applied by themselves. */
   suggestions: Suggestion[]
   /**
@@ -73,7 +78,11 @@ export class PurchaseImportService {
     const duplicate = supplier ? await this.prisma.purchase.findFirst({ where: { supplier_id: supplier.id, invoice_number: invoice.number } }) : null
 
     const catalogue = await this.products.products(correlationId)
-    const byEan = new Map(catalogue.filter(p => p.ean).map(p => [p.ean as string, p]))
+    // The barcode is looked up in products-service, which knows every EAN a product ever had: an old invoice with the old
+    // barcode and a new one with the new barcode both reach the same SKU.
+    const eanAnswers = await this.products.resolveEans([...new Set(invoice.items.flatMap(item => (item.ean ? [item.ean] : [])))], correlationId)
+    const byEan = new Map(eanAnswers.resolved.map(answer => [answer.ean, answer]))
+    const unresolvedEan = new Map(eanAnswers.unresolved.map(answer => [answer.ean, answer]))
     const bySku = new Map(catalogue.map(p => [p.sku, p]))
     // The operator's own links: this supplier's code → a product, made when they picked a product for an unmatched line.
     const linked = new Map((supplier ? await this.prisma.supplierProductCode.findMany({ where: { supplier_id: supplier.id } }) : []).map(link => [link.code, link.sku]))
@@ -88,10 +97,13 @@ export class PurchaseImportService {
       duplicate_of: duplicate?.id ?? null,
       items: invoice.items.map(item => {
         const linkedSku = linked.get(item.code)
-        const found: [CatalogueProduct | undefined, PreviewItem['matched_by']] =
-          item.ean && byEan.get(item.ean) ? [byEan.get(item.ean), 'ean'] : linkedSku && bySku.get(linkedSku) ? [bySku.get(linkedSku), 'supplier_code'] : bySku.get(item.code) ? [bySku.get(item.code), 'sku'] : [undefined, null]
+        const eanHit = item.ean ? byEan.get(item.ean) : undefined
+        const found: [CatalogueProduct | undefined, PreviewItem['matched_by']] = eanHit
+          ? [catalogue.find(p => p.sku === eanHit.product.sku) ?? eanHit.product, eanHit.match === 'historical' ? 'ean_historical' : 'ean']
+          : linkedSku && bySku.get(linkedSku) ? [bySku.get(linkedSku), 'supplier_code'] : bySku.get(item.code) ? [bySku.get(item.code), 'sku'] : [undefined, null]
+        const eanIssue = item.ean ? unresolvedEan.get(item.ean) : undefined
 
-        return resolveItem(item, found[0], found[1], found[0] ? [] : suggestProducts(item.description, catalogue))
+        return resolveItem(item, found[0], found[1], found[0] ? [] : suggestProducts(item.description, catalogue), eanIssue)
       }),
     }
   }
@@ -127,7 +139,7 @@ export function packHintFromDescription(description: string): number | null {
   return size !== null && size >= 2 ? size : null
 }
 
-function resolveItem(item: InvoiceInput['items'][number], product: CatalogueProduct | undefined, matchedBy: PreviewItem['matched_by'], suggestions: Suggestion[]): PreviewItem {
+function resolveItem(item: InvoiceInput['items'][number], product: CatalogueProduct | undefined, matchedBy: PreviewItem['matched_by'], suggestions: Suggestion[], eanIssue?: { unresolved: string; candidates?: string[] }): PreviewItem {
   const hint = packHintFromDescription(item.description)
   const catalogue = product?.units_per_package && product.units_per_package >= 2 ? product.units_per_package : null
 
@@ -141,7 +153,9 @@ function resolveItem(item: InvoiceInput['items'][number], product: CatalogueProd
     unit: item.unit,
     sku: product?.sku ?? null,
     product_name: product?.name ?? null,
-    unresolved_reason: product ? null : 'no_match',
+    unresolved_reason: product ? null : eanIssue?.unresolved === 'ean_ambiguous' ? 'ean_ambiguous' : item.ean && eanIssue?.unresolved === 'ean_not_identified' ? 'ean_not_identified' : 'no_match',
+    ean: item.ean,
+    ean_candidates: product ? [] : (eanIssue?.candidates ?? []),
     matched_by: matchedBy,
     suggestions,
     pack_size_suggested: catalogue ?? hint,

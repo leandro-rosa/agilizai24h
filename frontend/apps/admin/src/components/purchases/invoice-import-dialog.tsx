@@ -222,7 +222,8 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                 <TableBody>
                   {preview.items.map((item) => {
                     const sku = skuFor(item);
-                    const fixable = item.unresolved_reason === "no_match";
+                    const fixable = item.unresolved_reason !== null;
+                    const canRegister = item.unresolved_reason === "no_match" || item.unresolved_reason === "ean_not_identified";
                     const converted = conversionOf(item);
                     return (
                       <TableRow key={item.line}>
@@ -235,13 +236,23 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                             <>
                               <span className="text-sm">{item.product_name}</span>
                               {item.matched_by === "supplier_code" && <p className="text-xs text-muted-foreground">pelo código deste fornecedor, vinculado antes</p>}
+                              {item.matched_by === "ean_historical" && <p className="text-xs text-muted-foreground">pelo EAN {item.ean}, que este produto não usa mais (histórico); é o mesmo produto</p>}
                             </>
                           ) : (
                             <>
                               <Combobox options={optionsFor(item)} value={chosenLabel(item)} onChange={(label) => setChosen((c) => ({ ...c, [item.line]: label }))} placeholder="Escolha o produto" className="w-64" />
                               {isSuggested(item) && <p className="text-xs text-warning">Sugerido pelo nome — confira; para trocar, escolha outro no seletor.</p>}
-                              {fixable && !sku && <p className="text-xs text-muted-foreground">{NO_MATCH}; fica de fora se não escolher.</p>}
-                              {fixable && !sku && canCreateProduct && (
+                              {fixable && !sku && (
+                                <p className="text-xs text-muted-foreground">
+                                  {item.unresolved_reason === "ean_not_identified"
+                                    ? `EAN ${item.ean} não identificado`
+                                    : item.unresolved_reason === "ean_ambiguous"
+                                      ? `EAN ${item.ean} já foi de mais de um produto (${item.ean_candidates.join(", ")}); escolha qual`
+                                      : NO_MATCH}
+                                  ; fica de fora se não escolher.
+                                </p>
+                              )}
+                              {canRegister && !sku && canCreateProduct && (
                                 <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setNewProductLine(item.line)}>
                                   Cadastrar produto novo
                                 </Button>

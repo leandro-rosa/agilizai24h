@@ -7,7 +7,7 @@ const updateProduct = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }))
 
 const item = (over: Record<string, unknown> = {}) => ({
   line: 1, code: "118463", description: "Monster Energy LT 473ml 6P F. LISO CP", quantity: 25, unit_cost_cents: 4349, total_cents: 108725, unit: "UN",
-  sku: "M1", product_name: "Energético Monster", unresolved_reason: null, matched_by: "ean", suggestions: [], pack_size_suggested: 6, pack_source: "description", ...over,
+  sku: "M1", product_name: "Energético Monster", unresolved_reason: null, ean: "7891000000001", ean_candidates: [], matched_by: "ean", suggestions: [], pack_size_suggested: 6, pack_source: "description", ...over,
 });
 let preview: Record<string, unknown> = {
   object_key: "k", number: "4990356", key: null, issued_on: "2026-09-03", issuer: { tax_id: "61186888009220", name: "SPAL" }, supplier: { id: 130, name: "Juntos+" }, matched_by: "alias", duplicate_of: null, items: [item()],
@@ -139,5 +139,36 @@ describe("InvoiceImportDialog — sugestões por nome", () => {
 
     await waitFor(() => expect(createPurchase).toHaveBeenCalledTimes(1));
     expect((createPurchase.mock.calls[0][0] as { items: { supplier_code?: string }[] }).items[0].supplier_code).toBeUndefined();
+  });
+});
+
+describe("InvoiceImportDialog — vários EANs por produto", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    preview = { ...preview, supplier: { id: 130, name: "Juntos+" }, duplicate_of: null };
+  });
+
+  it("um EAN antigo do produto resolve para o mesmo produto e a tela diz que é o EAN histórico", async () => {
+    preview = { ...preview, items: [item({ matched_by: "ean_historical", ean: "7891000000001" })] };
+    await openWithFile();
+
+    expect(screen.getByText("Energético Monster")).toBeInTheDocument();
+    expect(screen.getByText(/pelo EAN 7891000000001, que este produto não usa mais \(histórico\); é o mesmo produto/)).toBeInTheDocument();
+  });
+
+  it("um EAN que nenhum produto tem aparece como EAN não identificado e a linha fica de fora até a pessoa escolher", async () => {
+    preview = { ...preview, items: [item({ sku: null, product_name: null, matched_by: null, unresolved_reason: "ean_not_identified", ean: "7891000009999" })] };
+    await openWithFile();
+
+    expect(screen.getByText(/EAN 7891000009999 não identificado; fica de fora se não escolher/)).toBeInTheDocument();
+    expect(createPurchase).not.toHaveBeenCalled();
+  });
+
+  it("um EAN que já foi de mais de um produto pede para escolher qual e não oferece cadastrar produto novo", async () => {
+    preview = { ...preview, items: [item({ sku: null, product_name: null, matched_by: null, unresolved_reason: "ean_ambiguous", ean: "7891000000007", ean_candidates: ["Q1", "B2"] })] };
+    await openWithFile();
+
+    expect(screen.getByText(/já foi de mais de um produto \(Q1, B2\); escolha qual/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cadastrar produto novo" })).not.toBeInTheDocument();
   });
 });

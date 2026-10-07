@@ -6,8 +6,15 @@ export interface CatalogueProduct {
   id: number
   sku: string
   name: string
+  /** The principal EAN. Every EAN of a product, including inactive ones, is resolved by `resolveEans`, not read from here. */
   ean?: string | null
   units_per_package?: number | null
+}
+
+/** The answer of products-service `POST /eans/resolve`: the rule (active, historical, ambiguous, unknown) lives there, once. */
+export interface EanResolution {
+  resolved: { ean: string; match: 'active' | 'historical'; product: CatalogueProduct }[]
+  unresolved: { ean: string; unresolved: 'ean_not_identified' | 'ean_ambiguous' | 'ean_invalid'; candidates?: string[] }[]
 }
 
 /** Read-only: the catalogue, to validate SKUs and resolve invoice lines. Cached for a minute — it changes a few times a week. */
@@ -25,5 +32,21 @@ export class ProductsClient {
     products.catch(() => (this.cache = null))
 
     return products
+  }
+
+  /** Finds the SKU of each EAN, active or historical. Read-only: an unknown EAN never creates a product. */
+  async resolveEans(eans: string[], correlationId?: string): Promise<EanResolution> {
+    if (eans.length === 0) return { resolved: [], unresolved: [] }
+
+    const url = `${this.config.getOrThrow<string>('PRODUCTS_SERVICE_URL')}/eans/resolve`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(correlationId ? { 'x-correlation-id': correlationId } : {}) },
+      body: JSON.stringify({ eans }),
+      signal: AbortSignal.timeout(30_000),
+    })
+    if (!response.ok) throw new Error(`POST ${url} -> ${response.status}`)
+
+    return (await response.json()) as EanResolution
   }
 }
