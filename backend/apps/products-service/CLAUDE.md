@@ -204,3 +204,12 @@ chutada; os 255 produtos existentes ficaram assim). Origem `invoice` só vale co
 **é sugestão, nada é reservado** (SKU repetido é recusado ao criar); sem SKU de seis dígitos, ou após 999999, `suggested` é null. A leitura do
 produto traz `origin {type, invoice_number, supplier_id, purchase_id, on, actor}`. O primeiro custo do produto novo **não** é gravado aqui:
 nasce da compra, pelo outbox do suppliers-service, na data de recebimento.
+
+## Marca, unidade de compra, importação do catálogo e última alteração (`optimize-products-and-pricing-screens`)
+
+`product.brand` e `product.purchase_unit` ("CX", "FD", "UN": como o fornecedor vende) são opcionais e editáveis (`PATCH` aceita `null` para limpar, inclusive `unitsPerPackage` e `packageType`); o **fator** caixa/fardo → unidade continua sendo `units_per_package`
+e o custo é sempre por unidade vendida. A origem `excel` (importação) entrou no vocabulário e no `CHECK` do banco.
+`POST /catalogue-import/preview` classifica cada linha já mapeada (`utils/catalogue-import.ts`, puro): **create / update / unchanged / conflict**, com o motivo. SKU é a chave; conflito = linha sem SKU, SKU repetido na planilha, categoria desconhecida, EAN inválido ou repetido, EAN de outro produto (ativo para atualização; qualquer vínculo para produto novo) ou produto novo sem nome/categoria.
+**Célula vazia nunca apaga** (`clearEmpty` explícito lista em `clears` o que seria limpo); um EAN novo de produto existente entra como adicional; nada é excluído. `POST /catalogue-import/apply` recalcula a prévia sobre o cadastro ATUAL e roda cada linha pelos mesmos serviços do formulário (`create` com origem `excel`, `update`, `EanService.add`); uma linha que falha não impede as outras
+e o resultado é por linha; idempotente (a segunda aplicação dá `unchanged`).
+`GET /catalogue/last-change` devolve o horário mais recente de produto, custo ou preço gravado (`ProductsService.lastChange`): a Precificação o compara com o horário do seu cálculo para dizer que há dado novo.

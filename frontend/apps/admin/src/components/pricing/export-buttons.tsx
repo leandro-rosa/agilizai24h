@@ -1,10 +1,11 @@
 "use client";
 
-import { FileDown, FileSpreadsheet, Loader2 } from "lucide-react";
+import { ChevronDown, FileDown, FileSpreadsheet, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { ExportModel } from "@/lib/pricing/export-model";
 
 /**
@@ -51,20 +52,29 @@ export function ExportButtons({ model, unavailableReason }: { model: ExportModel
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <Button variant="outline" size="sm" onClick={excel} disabled={disabled} title={why} aria-describedby={why ? "export-why" : undefined}>
-        {busy === "excel" ? <Loader2 className="animate-spin" aria-hidden /> : <FileSpreadsheet aria-hidden />}
-        Exportar Excel
-      </Button>
-      <Button size="sm" onClick={pdf} disabled={disabled} title={why} aria-describedby={why ? "export-why" : undefined}>
-        {busy === "pdf" ? <Loader2 className="animate-spin" aria-hidden /> : <FileDown aria-hidden />}
-        Exportar PDF
-      </Button>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" disabled={disabled} title={why} aria-describedby={why ? "export-why" : undefined}>
+            {busy ? <Loader2 className="animate-spin" aria-hidden /> : <FileDown aria-hidden />}
+            Exportar
+            <ChevronDown aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => void excel()}>
+            <FileSpreadsheet aria-hidden /> Excel (planilha)
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void pdf()}>
+            <FileDown aria-hidden /> PDF (relatório)
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       {why && (
         <span id="export-why" className="sr-only">
           {why}
         </span>
       )}
-    </div>
+    </>
   );
 }

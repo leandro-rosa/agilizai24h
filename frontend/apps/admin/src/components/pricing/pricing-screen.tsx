@@ -1,6 +1,7 @@
 "use client";
 
 import { Landmark, RefreshCw } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -8,6 +9,7 @@ import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { Button } from "@/components/ui/button";
 import { useGetLatestPricingReportQuery, useStartPricingRunMutation } from "@/lib/api/pricing";
+import { useGetCatalogueLastChangeQuery } from "@/lib/api/products";
 import { useGetStoresQuery } from "@/lib/api/stores";
 import { useHasPermission } from "@/lib/auth/use-permission";
 import { date, period as formatPeriod } from "@/lib/format";
@@ -19,6 +21,7 @@ import { STATUS_LABEL } from "@/lib/pricing/labels";
 import { ExportButtons } from "./export-buttons";
 import { FiltersBar } from "./filters-bar";
 import { ProductDrawer } from "./product-drawer";
+import { PendingProducts } from "./pending-products";
 import { ProductsTable } from "./products-table";
 import { RulesDialog } from "./rules-dialog";
 import { ScopeBar } from "./scope-bar";
@@ -49,7 +52,8 @@ export function PricingScreen() {
   const [sort, setSort] = useState<SortKey>("impact");
   const [pageState, setPageState] = useState<{ key: string; page: number }>({ key: "", page: 1 });
   const [pageSize, setPageSize] = useState(10);
-  const [selected, setSelected] = useState<string | null>(null);
+  // `?sku=` abre o detalhe do produto direto: é o link "Abrir na Precificação" do cadastro.
+  const [selected, setSelected] = useState<string | null>(useSearchParams().get("sku"));
   const [rulesOpen, setRulesOpen] = useState(false);
 
   const canWrite = useHasPermission("products:write");
@@ -57,6 +61,8 @@ export function PricingScreen() {
   const { data: latest, isLoading, isFetching, error, refetch } = useGetLatestPricingReportQuery(scope);
   const [startRun, { isLoading: starting }] = useStartPricingRunMutation();
   const { data: stores } = useGetStoresQuery();
+  // O relatório guardado não se recalcula a cada custo novo: a tela compara o horário do cálculo com a última alteração do cadastro.
+  const lastChange = useGetCatalogueLastChangeQuery().data;
 
   // Enquanto há um cálculo em andamento, a tela pergunta de novo a cada poucos segundos; ao terminar, o timer se desfaz sozinho.
   const inProgress = Boolean(latest?.inProgress);
@@ -83,6 +89,11 @@ export function PricingScreen() {
   const selectedProduct = useMemo(() => products.find((product) => product.sku === selected) ?? null, [products, selected]);
   const scopeLabel = storeId === null ? "Todas as lojas" : (stores?.find((store) => store.id === storeId)?.name ?? `Loja ${storeId}`);
   const notes = latest ? setupNotes(latest) : [];
+  const computedAt = latest?.run?.computedAt ?? null;
+  const registryChanged = Boolean(computedAt && lastChange?.latest && lastChange.latest > computedAt);
+  // Todos com a mesma meta: ela vai no cabeçalho e a coluna some. Com exceções por produto, a coluna volta.
+  const targets = useMemo(() => [...new Set(products.map((product) => product.targetMargin))], [products]);
+  const defaultTarget = report?.summary.targetMargin ?? null;
 
   const exportModel = useMemo(
     () => (latest ? buildExportModel({ latest, products: filtered, scopeLabel, filtersLabel: describeFilters(filters, options), categories }) : null),
@@ -144,7 +155,14 @@ export function PricingScreen() {
                 <>
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <span>
-                      Calculado em {date(latest.run?.computedAt)} · motor {latest.run?.engineVersion} · regras v{latest.run?.parameterVersion}
+                      Análise histórica de {formatPeriod(period)} (custo vigente no último dia do período) · calculada em {date(latest.run?.computedAt)}
+                      {defaultTarget !== null && (
+                        <>
+                          {" "}
+                          · meta padrão <strong>{Math.round(defaultTarget * 100)}%</strong>
+                          {targets.length > 1 ? " (há exceções por produto/categoria)" : ""}
+                        </>
+                      )}
                       {latest.parametersStale && <strong className="ml-2 text-warning">As regras mudaram depois deste cálculo: recalcule para valerem.</strong>}
                     </span>
                     <Button variant="outline" size="sm" onClick={recalculate} disabled={starting || inProgress || isFetching}>
@@ -153,13 +171,20 @@ export function PricingScreen() {
                     </Button>
                   </div>
 
+                  {registryChanged && (
+                    <p role="status" className="rounded-lg border border-warning/30 bg-warning/12 p-3 text-sm text-warning">
+                      Há custos, preços ou produtos novos no cadastro desde este cálculo. As sugestões abaixo ainda não os refletem: recalcule. O preço vigente continua valendo até alguém aprovar um novo.
+                    </p>
+                  )}
+
                   <SetupBanner notes={notes} onOpenRules={() => setRulesOpen(true)} />
                   <SummaryCards summary={report.summary} />
+                  <PendingProducts groups={report.summary.pending ?? []} products={products} onOpen={setSelected} />
 
                   <FiltersBar filters={filters} onChange={setFilters} sort={sort} onSortChange={setSort} categories={options.categories} suppliers={options.suppliers} />
 
                   <RequestState isLoading={false} isEmpty={filtered.length === 0} emptyMessage="Nenhum produto com esses filtros.">
-                    <ProductsTable rows={paged.rows} total={filtered.length} page={paged.page} pages={paged.pages} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} onOpen={setSelected} />
+                    <ProductsTable rows={paged.rows} total={filtered.length} page={paged.page} pages={paged.pages} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} onOpen={setSelected} showTarget={targets.length > 1} />
                   </RequestState>
 
                   <div className="grid gap-4 xl:grid-cols-3">

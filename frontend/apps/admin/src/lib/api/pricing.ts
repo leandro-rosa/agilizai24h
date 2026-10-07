@@ -35,6 +35,8 @@ export interface Reason {
 export interface PricingProduct {
   sku: string;
   name: string | null;
+  /** Um custo registrado DEPOIS do fim do período analisado: aparece ao lado, nunca como o custo do período. */
+  newerCost?: { costCents: number; effectiveFrom: string; source: string } | null;
   /** De onde vem o custo em vigor, como o cadastro de produtos diz: a origem, o dia em que passou a valer e, se foi uma nota, o número. */
   costOrigin?: { source: string; effectiveFrom: string; invoiceNumber: string | null } | null;
   /** Cadastrado a partir de uma nota dentro da janela analisada ("Produto novo"); `noSalesHistory` quando ainda não vendeu nela. */
@@ -72,6 +74,12 @@ export interface PricingProduct {
   engineVersion: string;
 }
 
+export interface PendingGroup {
+  code: "no_cost" | "stale_cost" | "unreliable_cost" | "no_price" | "no_tax" | "no_payment_or_loss" | "other";
+  label: string;
+  skus: string[];
+}
+
 export interface PricingSummary {
   analysed: number;
   averageMargin: number | null;
@@ -83,6 +91,10 @@ export interface PricingSummary {
   review: number;
   potentialImpactCentsPerMonth: number;
   impactLabel: "Impacto potencial estimado";
+  /** Quantos produtos a análise cobre. Relatórios guardados antes desta versão não trazem. */
+  coverage?: { total: number; analysable: number; withoutEnoughData: number };
+  /** Por que os outros produtos ficaram sem análise; um produto pode ter mais de um motivo. */
+  pending?: PendingGroup[];
   shares: { withinTarget: number; belowTarget: number; opportunities: number; insufficientData: number };
 }
 

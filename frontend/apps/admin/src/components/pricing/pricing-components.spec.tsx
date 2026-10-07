@@ -32,21 +32,39 @@ const { FiltersBar }: { FiltersBar: ComponentType<Record<string, unknown>> } = r
 const { NO_FILTERS } = require("../../lib/pricing/view");
 
 describe("SummaryCards", () => {
-  it("mostra os seis cartões, o impacto sempre rotulado como estimado e a meta com a diferença", () => {
-    render(<SummaryCards summary={summary} />);
+  it("são três cartões: margem dos analisáveis com a meta, produtos para revisar e o impacto estimado", () => {
+    render(<SummaryCards summary={{ ...summary, review: 3, belowTarget: 28, coverage: { total: 255, analysable: 22, withoutEnoughData: 233 } }} />);
 
+    expect(screen.getByText("Margem dos produtos analisáveis")).toBeInTheDocument();
     expect(screen.getByText("36,8%")).toBeInTheDocument();
     expect(screen.getByText(/Meta: 35% · \+1,8 p\.p\./)).toBeInTheDocument();
-    expect(screen.getByText("327")).toBeInTheDocument();
-    expect(screen.getByText("Produtos sem custo confiável")).toBeInTheDocument();
-    expect(screen.getByText("Não recebem recomendação automática")).toBeInTheDocument();
-    expect(screen.getByText(/Impacto potencial estimado/)).toBeInTheDocument();
+    expect(screen.getByText("Produtos que precisam de revisão")).toBeInTheDocument();
+    expect(screen.getByText("31")).toBeInTheDocument();
+    expect(screen.getByText("28 abaixo da margem · 3 para revisar")).toBeInTheDocument();
+    expect(screen.getByText("Impacto mensal estimado")).toBeInTheDocument();
+    expect(screen.getByText("Estimativa, não lucro garantido")).toBeInTheDocument();
+    expect(screen.queryByText("Produtos com oportunidade")).not.toBeInTheDocument();
   });
 
-  it("sem resposta do backend diz Indisponível nos seis, nunca zero", () => {
+  it("diz quantos produtos a análise cobre e o que a margem é, e que o impacto supõe o mesmo volume", () => {
+    render(<SummaryCards summary={{ ...summary, coverage: { total: 255, analysable: 22, withoutEnoughData: 233 } }} />);
+
+    const coverage = screen.getByTestId("coverage");
+    expect(coverage).toHaveTextContent("A análise cobre 22 de 255 produtos; 233 ficaram sem dados suficientes e não entram nas médias.");
+    expect(coverage).toHaveTextContent("Margem econômica: o que sobra do preço depois do custo, das perdas, dos impostos, das taxas de pagamento e do rateio operacional.");
+    expect(coverage).toHaveTextContent("supõe o mesmo volume de vendas");
+  });
+
+  it("um relatório guardado antes da cobertura ainda mostra uma cobertura honesta", () => {
+    render(<SummaryCards summary={{ ...summary, analysed: 255, insufficientData: 233 }} />);
+
+    expect(screen.getByTestId("coverage")).toHaveTextContent("A análise cobre 22 de 255 produtos");
+  });
+
+  it("sem resposta do backend diz Indisponível nos três, nunca zero", () => {
     render(<SummaryCards summary={null} />);
 
-    expect(screen.getAllByText("Indisponível")).toHaveLength(6);
+    expect(screen.getAllByText("Indisponível")).toHaveLength(3);
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 });
@@ -54,14 +72,14 @@ describe("SummaryCards", () => {
 describe("ProductsTable", () => {
   const props = (rows: PricingProduct[], onOpen = jest.fn()) => ({ rows, total: rows.length, page: 1, pages: 1, pageSize: 10, onPageChange: jest.fn(), onPageSizeChange: jest.fn(), onOpen });
 
-  it("mostra produto, margem, preço recomendado e impacto, e abre o drawer pelo Ver", () => {
+  it("mostra produto, custo utilizado, margem, preço sugerido e impacto, e abre o detalhe pelo Analisar", () => {
     const onOpen = jest.fn();
     render(<ProductsTable {...props([product()], onOpen)} />);
 
     expect(screen.getByText("Coca-Cola Lata 350ml")).toBeInTheDocument();
     expect(screen.getByText("32,1%")).toBeInTheDocument();
     expect(screen.getByText("Ajustar")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Ver Coca-Cola Lata 350ml" }));
+    fireEvent.click(screen.getByRole("button", { name: "Analisar Coca-Cola Lata 350ml" }));
     expect(onOpen).toHaveBeenCalledWith("COCA");
   });
 
@@ -97,14 +115,31 @@ describe("FiltersBar", () => {
     expect(onChange).toHaveBeenCalledWith(NO_FILTERS);
   });
 
-  it("os botões de abaixo da meta e de custo alterado alternam e dizem se estão ativos", () => {
+  it("à vista só há busca, categoria e situação; o resto fica em Mais filtros", () => {
+    render(<FiltersBar {...base} filters={NO_FILTERS} onChange={jest.fn()} />);
+
+    expect(screen.getByRole("combobox", { name: "Categoria" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Situação" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Fornecedor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Abaixo da meta" })).not.toBeInTheDocument();
+  });
+
+  it("Mais filtros abre os demais, e o de abaixo da meta alterna e diz se está ativo", () => {
     const onChange = jest.fn();
     render(<FiltersBar {...base} filters={NO_FILTERS} onChange={onChange} />);
+    fireEvent.click(screen.getByRole("button", { name: /Mais filtros/ }));
     const below = screen.getByRole("button", { name: "Abaixo da meta" });
 
+    expect(screen.getByRole("combobox", { name: "Fornecedor" })).toBeInTheDocument();
     expect(below).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(below);
     expect(onChange).toHaveBeenCalledWith({ ...NO_FILTERS, belowTarget: true });
+  });
+
+  it("um filtro ligado dentro de Mais filtros fica contado no botão: nunca vale escondido", () => {
+    render(<FiltersBar {...base} filters={{ ...NO_FILTERS, belowTarget: true, costChanged: true }} onChange={jest.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Mais filtros (2)" })).toBeInTheDocument();
   });
 });
 
@@ -119,7 +154,12 @@ describe("SetupBanner", () => {
     const onOpenRules = jest.fn();
     render(<SetupBanner notes={[{ text: "Nenhuma taxa de pagamento cadastrada.", action: { label: "Cadastrar taxas", href: "/treasury/fees" } }, { text: "A alíquota de imposto não está configurada.", action: { label: "Abrir regras de negócio" } }]} onOpenRules={onOpenRules} />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Nenhuma taxa de pagamento cadastrada.");
+    // Recolhido: o resumo diz quantos avisos há; o detalhe abre num clique.
+    expect(screen.getByText("Qualidade dos dados: 2 avisos")).toBeInTheDocument();
+    expect(screen.getByRole("group")).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("Qualidade dos dados: 2 avisos"));
+    expect(screen.getByRole("group")).toHaveAttribute("open");
+    expect(screen.getByText(/Nenhuma taxa de pagamento cadastrada\./)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Cadastrar taxas" })).toHaveAttribute("href", "/treasury/fees");
     fireEvent.click(screen.getByRole("button", { name: "Abrir regras de negócio" }));
     expect(onOpenRules).toHaveBeenCalled();

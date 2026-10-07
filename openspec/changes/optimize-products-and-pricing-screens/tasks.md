@@ -19,11 +19,11 @@
 
 ## 4. Pricing screen
 
-- [ ] 4.1 Three cards and the coverage; compact pending list with reason and way to fix
-- [ ] 4.2 Leaner table, default target in the header, More filters, one Export button, collapsible quality summary, technical details into the calculation details
-- [ ] 4.3 Detail: method and origin of the cost, fees and taxes, kind of margin, target, premises; Edit registry link
-- [ ] 4.4 Report freshness banner; "custo novo depois do período"
+- [x] 4.1 Three cards and the coverage; compact pending list with reason and way to fix
+- [x] 4.2 Leaner table, default target in the header, More filters, one Export button, collapsible quality summary, technical details into the calculation details
+- [x] 4.3 Detail: method and origin of the cost, fees and taxes, kind of margin, target, premises; Edit registry link
+- [x] 4.4 Report freshness banner; "custo novo depois do período"
 
 ## 5. Verification
 
-- [ ] 5.1 Tests for every item above, typecheck, lint; document in the CLAUDE.md files
+- [x] 5.1 Tests for every item above, typecheck, lint; document in the CLAUDE.md files

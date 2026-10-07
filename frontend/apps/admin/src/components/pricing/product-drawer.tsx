@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { RequestState } from "@/components/request-state";
@@ -24,6 +25,7 @@ import { costBreakdown } from "@/lib/pricing/breakdown";
 import { CONFIDENCE_LABEL, CONFIDENCE_TONE, costOriginText, parsePriceToCents, percent, points, signedMoney, STATUS_LABEL, STATUS_TONE } from "@/lib/pricing/labels";
 
 import { ApplyPriceDialog, errorMessage } from "./apply-price-dialog";
+import { IMPACT_PREMISE, MARGIN_DEFINITION } from "./summary-cards";
 
 export interface DrawerScope {
   period: string;
@@ -40,7 +42,66 @@ function Fact({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-function Overview({ product, onApply, onSimulate, canWrite }: { product: PricingProduct; onApply: () => void; onSimulate: () => void; canWrite: boolean }) {
+/** Como este número nasceu, para quem for conferir: o custo (método e origem), o que entrou na estrutura, que margem é essa, a meta e a premissa do impacto. */
+function CalculationDetails({ product, run, scope }: { product: PricingProduct; run: PricingRunView | null; scope: DrawerScope }) {
+  const structure = product.structure;
+  const origin = costOriginText(product.costOrigin);
+
+  return (
+    <section aria-labelledby="calculation" className="flex flex-col gap-2">
+      <h3 id="calculation" className="text-sm font-semibold">Como este número foi calculado</h3>
+      <dl className="flex flex-col gap-2 text-sm">
+        <div>
+          <dt className="text-xs text-muted-foreground">Custo: método e origem</dt>
+          <dd>
+            {structure ? money(structure.productCostCents) : "Sem custo utilizável"} · custo vigente no último dia de {formatPeriod(scope.period)} (a mesma regra do CMV do financeiro){origin ? ` · origem: ${origin}` : ""}
+            {product.newerCost && (
+              <span className="block text-warning">
+                O cadastro tem um custo mais novo ({money(product.newerCost.costCents)}, desde {date(product.newerCost.effectiveFrom)}). Este período é histórico: o custo novo não entra nele. Para ver o efeito, calcule o período atual.
+              </span>
+            )}
+          </dd>
+        </div>
+        {structure && (
+          <div>
+            <dt className="text-xs text-muted-foreground">Impostos, taxas e demais despesas consideradas</dt>
+            <dd>
+              Imposto {pct2(structure.taxRate)} · taxas de pagamento {pct2(structure.paymentRate)}
+              {structure.paymentFixedCents > 0 ? ` + ${money(Math.round(structure.paymentFixedCents))} por unidade` : ""} · perda {percent(structure.lossRate)} ({LOSS_LEVEL_TEXT[structure.lossLevel] ?? structure.lossLevel}) · rateio operacional {pct2(structure.operatingShare)}
+            </dd>
+          </div>
+        )}
+        <div>
+          <dt className="text-xs text-muted-foreground">Tipo de margem</dt>
+          <dd>{MARGIN_DEFINITION}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Meta aplicada</dt>
+          <dd>
+            {percent(product.targetMargin, 0)} {product.marginFromCategory ? "(meta da categoria)" : "(meta padrão)"} · margem mínima {percent(product.minimumMargin, 0)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Premissa do impacto estimado</dt>
+          <dd>{IMPACT_PREMISE}</dd>
+        </div>
+      </dl>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer">Detalhes técnicos (auditoria)</summary>
+        <p className="pt-1">
+          Motor {product.engineVersion} · regras v{run?.parameterVersion ?? "—"} · calculado em {run?.computedAt ? date(run.computedAt) : "—"}. Resultado reproduzível a partir das entradas guardadas e dessa versão de regras.
+        </p>
+      </details>
+    </section>
+  );
+}
+
+/** Taxas e impostos em duas casas (7,07%): arredondar para uma esconderia o número que o dono cadastrou. */
+const pct2 = (fraction: number) => `${(fraction * 100).toFixed(2).replace(".", ",")}%`;
+
+const LOSS_LEVEL_TEXT: Record<string, string> = { product: "do produto", category: "da categoria", store: "da loja", network: "da rede" };
+
+function Overview({ product, run, scope, onApply, onSimulate, canWrite }: { product: PricingProduct; run: PricingRunView | null; scope: DrawerScope; onApply: () => void; onSimulate: () => void; canWrite: boolean }) {
   const breakdown = useMemo(() => costBreakdown(product), [product]);
   const { data: decisions } = useGetPricingDecisionsQuery({ sku: product.sku, limit: 10 });
 
@@ -140,6 +201,8 @@ function Overview({ product, onApply, onSimulate, canWrite }: { product: Pricing
           </>
         )}
       </section>
+
+      <CalculationDetails product={product} run={run} scope={scope} />
 
       <section aria-labelledby="decisions" className="flex flex-col gap-2">
         <h3 id="decisions" className="text-sm font-semibold">Decisões de preço</h3>
@@ -345,6 +408,9 @@ function DrawerBody({
         <SheetDescription>
           {product.ean ? `EAN ${product.ean} · ` : ""}Código {product.sku} · {product.categoryLabel} · Fornecedor: {product.supplierName ?? "—"}
         </SheetDescription>
+        <Link className="text-xs font-medium underline underline-offset-2" href={`/products?sku=${encodeURIComponent(product.sku)}&tab=overview`}>
+          Editar cadastro
+        </Link>
       </SheetHeader>
 
       <div className="px-4 pb-4">
@@ -356,7 +422,7 @@ function DrawerBody({
             <TabsTrigger value="stores">Lojas</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" className="pt-4">
-            <Overview product={product} canWrite={canWrite} onSimulate={() => setTab("simulator")} onApply={() => setApplying({ priceCents: product.recommendedPriceCents })} />
+            <Overview product={product} run={run} scope={scope} canWrite={canWrite} onSimulate={() => setTab("simulator")} onApply={() => setApplying({ priceCents: product.recommendedPriceCents })} />
           </TabsContent>
           <TabsContent value="simulator" className="pt-4">
             <Simulator product={product} scope={scope} canWrite={canWrite} onApply={(cents) => setApplying({ priceCents: cents })} />

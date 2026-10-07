@@ -11,7 +11,7 @@ export interface SetupNote {
 
 /**
  * O que falta para os números valerem: taxa sem cadastro, alíquota sem valor e qualquer outra lacuna do relatório.
- * A tela nunca mostra produto "saudável" só porque um insumo faltou — o aviso fica sempre à vista.
+ * A tela nunca mostra produto "saudável" só porque um insumo faltou — o aviso existe sempre, e o que impede uma recomendação aparece no próprio produto.
  */
 export function setupNotes(latest: LatestPricingReport): SetupNote[] {
   const notes: SetupNote[] = [];
@@ -29,16 +29,17 @@ export function setupNotes(latest: LatestPricingReport): SetupNote[] {
   return notes;
 }
 
+/** Um resumo recolhido: o número de avisos à vista e o detalhe a um clique. Não ocupa a tela quando está tudo certo. */
 export function SetupBanner({ notes, onOpenRules }: { notes: SetupNote[]; onOpenRules: () => void }) {
   if (notes.length === 0) return null;
 
   return (
-    <div role="alert" className="flex flex-col gap-2 rounded-lg border border-warning/30 bg-warning/12 p-3 text-sm text-warning">
-      <p className="flex items-center gap-2 font-medium">
+    <details className="rounded-lg border border-warning/30 bg-warning/12 p-3 text-sm text-warning">
+      <summary className="flex cursor-pointer items-center gap-2 font-medium">
         <TriangleAlert aria-hidden className="size-4" />
-        Atenção à qualidade dos dados
-      </p>
-      <ul className="flex list-disc flex-col gap-1 pl-5">
+        Qualidade dos dados: {notes.length} {notes.length === 1 ? "aviso" : "avisos"}
+      </summary>
+      <ul className="mt-2 flex list-disc flex-col gap-1 pl-5">
         {notes.map((note) => (
           <li key={note.text}>
             {note.text}{" "}
@@ -54,6 +55,6 @@ export function SetupBanner({ notes, onOpenRules }: { notes: SetupNote[]; onOpen
           </li>
         ))}
       </ul>
-    </div>
+    </details>
   );
 }

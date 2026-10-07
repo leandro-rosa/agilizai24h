@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { PricingProduct } from "@/lib/api/pricing";
-import { count, money } from "@/lib/format";
-import { percent, signedMoney, STATUS_LABEL, STATUS_TONE } from "@/lib/pricing/labels";
+import { count, date, money } from "@/lib/format";
+import { costOriginText, percent, signedMoney, STATUS_LABEL, STATUS_TONE } from "@/lib/pricing/labels";
 import { noRecommendationReason } from "@/lib/pricing/view";
+
+import { IMPACT_PREMISE, MARGIN_DEFINITION } from "./summary-cards";
 
 export const PAGE_SIZES = [10, 25, 50] as const;
 
@@ -35,6 +37,7 @@ export function ProductsTable({
   onPageChange,
   onPageSizeChange,
   onOpen,
+  showTarget = false,
 }: {
   rows: PricingProduct[];
   total: number;
@@ -44,6 +47,8 @@ export function ProductsTable({
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
   onOpen: (sku: string) => void;
+  /** A coluna Meta só existe quando os produtos têm metas diferentes; com a mesma meta para todos ela vai no cabeçalho da tela. */
+  showTarget?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -52,13 +57,16 @@ export function ProductsTable({
           <TableHeader>
             <TableRow>
               <TableHead>Produto</TableHead>
-              <TableHead>Categoria</TableHead>
-              <TableHead className="text-right">Custo médio</TableHead>
-              <TableHead className="text-right">Preço atual</TableHead>
-              <TableHead className="text-right">Margem atual</TableHead>
-              <TableHead className="text-right">Meta</TableHead>
-              <TableHead className="text-right">Preço recomendado</TableHead>
-              <TableHead className="text-right">Impacto (mês)</TableHead>
+              <TableHead className="text-right">Custo utilizado</TableHead>
+              <TableHead className="text-right">Preço vigente</TableHead>
+              <TableHead className="text-right" title={MARGIN_DEFINITION}>
+                Margem atual
+              </TableHead>
+              {showTarget && <TableHead className="text-right">Meta</TableHead>}
+              <TableHead className="text-right">Preço sugerido</TableHead>
+              <TableHead className="text-right" title={IMPACT_PREMISE}>
+                Impacto mensal estimado
+              </TableHead>
               <TableHead>Situação</TableHead>
               <TableHead className="w-20" />
             </TableRow>
@@ -71,7 +79,9 @@ export function ProductsTable({
                 <TableRow key={product.sku}>
                   <TableCell>
                     <div className="font-medium">{product.name ?? product.sku}</div>
-                    <div className="tabular text-xs text-muted-foreground">{product.ean ?? product.sku}</div>
+                    <div className="tabular text-xs text-muted-foreground">
+                      {product.categoryLabel} · {product.ean ?? product.sku}
+                    </div>
                     {product.newProduct && (
                       <div className="mt-0.5 flex flex-wrap gap-1">
                         <StatusBadge tone="attention">Produto novo</StatusBadge>
@@ -79,11 +89,18 @@ export function ProductsTable({
                       </div>
                     )}
                   </TableCell>
-                  <TableCell>{product.categoryLabel}</TableCell>
-                  <TableCell className="tabular text-right">{money(product.structure?.productCostCents ?? null)}</TableCell>
+                  <TableCell className="tabular text-right">
+                    {money(product.structure?.productCostCents ?? null)}
+                    {costOriginText(product.costOrigin) && <div className="text-xs font-normal text-muted-foreground">{costOriginText(product.costOrigin)}</div>}
+                    {product.newerCost && (
+                      <div className="text-xs font-normal text-warning" title="O período analisado é histórico: este custo é posterior a ele e não entra na margem do período.">
+                        Custo novo depois do período: {money(product.newerCost.costCents)} (desde {date(product.newerCost.effectiveFrom)})
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="tabular text-right">{money(product.currentPriceCents)}</TableCell>
                   <TableCell className={`tabular text-right font-medium ${marginClass(product)}`}>{percent(product.currentMargin)}</TableCell>
-                  <TableCell className="tabular text-right">{percent(product.targetMargin, 0)}</TableCell>
+                  {showTarget && <TableCell className="tabular text-right">{percent(product.targetMargin, 0)}</TableCell>}
                   <TableCell className="tabular min-w-48 text-right">
                     {product.recommendedPriceCents === null ? (
                       <div>
@@ -99,8 +116,8 @@ export function ProductsTable({
                     <StatusBadge tone={STATUS_TONE[product.status]}>{STATUS_LABEL[product.status]}</StatusBadge>
                   </TableCell>
                   <TableCell>
-                    <Button size="sm" variant="outline" onClick={() => onOpen(product.sku)} aria-label={`Ver ${product.name ?? product.sku}`}>
-                      Ver
+                    <Button size="sm" variant="outline" onClick={() => onOpen(product.sku)} aria-label={`Analisar ${product.name ?? product.sku}`}>
+                      Analisar
                     </Button>
                   </TableCell>
                 </TableRow>

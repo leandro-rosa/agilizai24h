@@ -851,12 +851,19 @@ navegador logado; typecheck, lint, specs do parser e a prévia contra o catálog
 
 Cartão em `/products/sync` (precisa de `products:write`): lista os nomes de fornecedor da planilha com quantos produtos do catálogo vincularia. O painel **sugere** (igual ao cadastro, alias já confirmado, ou nome que contém/está contido) mas nunca pré-seleciona; o operador vincula, cria fornecedor (nome + categoria) ou pula, e confirma num diálogo. Ao confirmar, cada grafia vira alias do fornecedor (a próxima sincronização casa sozinha) e `Product.supplier_id` é gravado por `PATCH /products/:id` — só nos produtos sem fornecedor. Lógica pura e testada em `lib/catalogue-sync/supplier-review.ts`. Em 2026-10-06 a planilha tinha 26 nomes (249 linhas, 248 SKUs no catálogo); 0 casavam por alias, ~9 tinham candidato por semelhança.
 
-## `/products` — Cadastro de produtos (`add-product-cost-price-versioning`, etapa 5)
+## `/products` — Cadastro de produtos (`add-product-cost-price-versioning` + `optimize-products-and-pricing-screens`)
 
-Lista com busca (nome, SKU ou **qualquer EAN, inclusive inativo**: uma nota antiga ainda traz o código antigo), categoria, fornecedor, situação; colunas SKU, nome (com a
-etiqueta "Cadastrado por NF-e"), EAN principal (+N ativos), categoria, fornecedor, custo e preço de hoje, margem (traço sem os dois lados, nunca 0%), situação. **Ver** abre o
-painel lateral pela URL (`/products?sku=110024&tab=costs`: é o link de "Ver produto" das notas e das mensagens de EAN; aba desconhecida cai em Visão geral, SKU
-inexistente não abre nada); **Editar** (`products:write`) altera nome, subcategoria, unidade de venda, situação e embalagem — descontinuar não apaga histórico.
+**Manutenção do catálogo único** (products-service é o dono; Compras, Notas, Estoque, Vendas, Abastecimento e Precificação referenciam o MESMO produto, sem catálogo paralelo nem sincronização). Tabela enxuta:
+SKU, nome (marca e etiqueta "Cadastrado por NF-e"), categoria, EAN principal (+N ativos), unidade de venda (e o fator "12 un. por caixa"), **último custo unitário com a data**, situação, abrir/editar.
+**Sem preço de venda, margem nem fornecedor na tabela**: essa análise é da Precificação (o detalhe do produto tem o link "Abrir na Precificação"). Busca por nome, SKU ou **qualquer EAN, inclusive inativo**; filtros de categoria e situação.
+Ações: **Novo produto** (o MESMO formulário e serviço do cadastro pela nota, `register-from-invoice-dialog.tsx` sem a evidência da nota; SKU único e EAN que não pode ser de dois produtos valem igual; sem custo aqui, ele nasce da primeira compra),
+**Importar Excel** (menu: *Catálogo de produtos* = o assistente abaixo; *Planilha de precificação (custos e preços)* = `/products/sync`, a importação que já existia; o botão "Sincronizar com a precificação" saiu porque
+não era um refresh de dado compartilhado e sim essa importação) e **Exportar catálogo** (`lib/products/excel.ts`: aba Produtos com marca, unidades, fator, último custo e data, origem — sem preço nem margem — e aba EANs, um por linha com os inativos).
+**Importar catálogo do Excel** (`catalogue-import-dialog.tsx`, `lib/products/import-mapping.ts`): baixa um modelo (com aba de instruções), o operador **mapeia as colunas** (reconhecidas pelo cabeçalho; SKU obrigatório), vê a **prévia**
+(novos, atualizações, sem mudança, conflitos, com o motivo de cada um) e só então aplica; **célula vazia nunca apaga o dado existente** (só com a opção explícita, e a prévia lista o que seria limpo); EAN de outro produto, SKU repetido, categoria
+desconhecida ou EAN inválido são conflito e não se aplicam; nada é excluído; importar o mesmo arquivo duas vezes não duplica (a segunda dá "sem mudança"). Custos e preços não entram aqui. Backend: `POST /catalogue-import/preview|apply`
+(products-service; no gateway `products:write`, usuário da sessão).
+**Detalhe do produto**: identificação, categoria, **marca**, **unidade de compra** ("CX", "FD"), unidade de venda e o **fator caixa/fardo → unidade** (`units_per_package`; o custo é sempre guardado por unidade vendida), vários EANs, histórico de custos, e o link para a Precificação.
 O painel (`components/products/product-drawer.tsx`) tem quatro abas, todas leitura do que o products-service guarda:
 
 - **Visão geral**: identificação (SKU = código interno, unidade de venda, fornecedor, embalagem), **de onde veio o cadastro** (`originText`: NF-e/manual/"carga inicial — origem não
@@ -983,6 +990,19 @@ cobrar?" na ordem produto → problema → preço recomendado → motivo → imp
   `@react-pdf/renderer`): foi verificado renderizando fora dele.
 - **Avisos de configuração** (`setup-banner.tsx`): taxa sem cadastro, alíquota sem valor e demais lacunas do relatório ficam à vista, com o
   caminho para corrigir; nenhum produto vira "saudável" porque faltou um insumo.
+
+### Precificação enxuta (`optimize-products-and-pricing-screens`)
+
+A tela é só **análise, simulação e aprovação**, lendo o cadastro central: não repete formulário de cadastro nem importação (no detalhe, **Editar cadastro** leva ao produto em `/products`; `?sku=` abre o detalhe de um produto direto).
+**Três cartões** (margem dos produtos analisáveis com a meta, produtos que precisam de revisão, impacto mensal estimado) e, abaixo, a **cobertura**: "a análise cobre 22 de 255 produtos; 233 ficaram sem dados suficientes e não entram nas médias" — produto sem dados nunca vira margem zero.
+A **margem atual** é a margem econômica (preço menos custo, perdas, impostos, taxas de pagamento e rateio; `MARGIN_DEFINITION`) e o **impacto** é estimativa que supõe o mesmo volume de vendas (`IMPACT_PREMISE`); as duas frases aparecem na tela, no título das colunas e no detalhe.
+**Produtos sem dados** viram uma pendência compacta e clicável (`pending-products.tsx`): o motivo (custo ausente, custo desatualizado, sem preço, taxa/alíquota…) e o caminho para corrigir ("Corrigir custo" → `/products?sku=…&tab=costs`, "Definir preço" → `&tab=prices`, "Ver análise").
+Tabela: produto, **custo utilizado** (com a origem: "Nota fiscal 13021 · desde 15/08/2026"), preço vigente, margem atual, **preço sugerido**, impacto mensal estimado, situação, **Analisar**; a coluna **Meta** só existe quando há metas diferentes (senão a meta padrão está no cabeçalho).
+Filtros à vista: busca, categoria, situação; o resto em **Mais filtros** (filtro ligado ali fica contado no botão). **Exportar** é um botão com Excel e PDF. O aviso de qualidade dos dados é um **resumo recolhido** ("Qualidade dos dados: N avisos"); o que impede uma recomendação aparece no próprio produto.
+Motor e versão das regras saíram do texto principal: ficam em "Detalhes técnicos (auditoria)" do detalhe. O detalhe tem "Como este número foi calculado": método e origem do custo, impostos/taxas/perda/rateio (duas casas: 7,07%), tipo de margem, meta aplicada (padrão ou da categoria) e a premissa do impacto.
+**Um período é história**: o relatório valoriza o custo vigente no último dia do período (a regra do CMV do financeiro); um custo mais novo que o período aparece à parte ("Custo novo depois do período: R$ 3,50, desde 10/10/2026") e nunca como o custo do período. O cálculo guardado não se refaz a cada
+custo novo: a tela compara o horário do cálculo com `GET /catalogue/last-change` e avisa "há custos, preços ou produtos novos desde este cálculo — recalcule"; **o preço vigente continua valendo até alguém aprovar** (a aprovação registra usuário, data, preço anterior, preço novo e início da vigência; o preço é da rede, não por loja). Nada na tela afirma que o preço foi
+publicado no TouchPay ou na maquininha: não existe integração que confirme isso.
 
 ## `/treasury/fees` — Taxas de pagamento
 

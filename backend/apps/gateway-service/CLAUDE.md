@@ -193,3 +193,5 @@ aprovou, o motivo e o id da decisão como chave de idempotência.
 `GET /pricing/new-product/:sku` (`products:read`) é a sugestão de preço de produto novo (só sugere). `POST /pricing/new-product/:sku/choice` (`products:write`, usuário da
 sessão) registra a escolha primeiro (o intelligence recusa escolha inválida, e então nada é gravado) e, havendo preço, o grava pelo mesmo caminho de `decisions/apply`;
 "salvar sem preço" registra e não grava preço (`PricingApplyService.chooseForNewProduct`).
+
+`POST /catalogue-import/preview|apply` (`products:write`; o `apply` usa o **usuário da sessão**, o corpo só leva `rows` e `clearEmpty`, que é falso a não ser que seja exatamente `true`) e `GET /catalogue/last-change` (`products:read`). `POST /products` (cadastro à mão) agora força origem `manual` e o usuário da sessão (`manualProduct`): o navegador não pode alegar origem de nota ou de importação.
