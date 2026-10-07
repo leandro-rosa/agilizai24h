@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
+import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, ValidateNested } from 'class-validator'
 import { CONDITIONS, ORIGINS, PAYMENT_METHODS, PAYMENT_STATUSES, PAYMENT_TERMS, STAGES, type Condition, type Origin, type PaymentMethod, type PaymentStatus, type PaymentTerm, type Stage } from '../constants/purchase-vocabulary'
@@ -64,6 +64,33 @@ export class PurchaseItemDto {
   @IsString()
   @MaxLength(20)
   purchase_unit?: string
+}
+
+/** A line whose product is not registered yet: kept whole on the purchase, no product and no SKU created. */
+export class PendingLineDto extends OmitType(PurchaseItemDto, ['sku', 'received_quantity'] as const) {
+  @ApiProperty({ description: 'Como a linha apareceu na nota.' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(300)
+  declare description: string
+
+  @ApiPropertyOptional({ description: 'Código de barras da linha, como veio na nota.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  ean?: string
+}
+
+export class ResolvePendingLineDto {
+  @ApiProperty({ description: 'O produto que a linha passa a ser: o recém-cadastrado, aquele ao qual o EAN foi vinculado, ou o escolhido.', example: '110024' })
+  @IsString()
+  @IsNotEmpty()
+  sku: string
+
+  @ApiPropertyOptional({ description: 'Quem resolveu. O gateway coloca o usuário da sessão.' })
+  @IsOptional()
+  @IsString()
+  actor?: string
 }
 
 export class CreatePurchaseDto {
@@ -149,13 +176,20 @@ export class CreatePurchaseDto {
   @IsString()
   actor?: string
 
-  @ApiProperty({ type: [PurchaseItemDto] })
+  @ApiProperty({ type: [PurchaseItemDto], description: 'Pode ser vazio quando há `pending_lines`: a compra precisa de ao menos uma linha, resolvida ou pendente.' })
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(500)
   @ValidateNested({ each: true })
   @Type(() => PurchaseItemDto)
   items: PurchaseItemDto[]
+
+  @ApiPropertyOptional({ type: [PendingLineDto], description: 'Linhas cujo produto ainda não existe no cadastro ("Deixar para depois").' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => PendingLineDto)
+  pending_lines?: PendingLineDto[]
 }
 
 export class UpdatePurchaseItemDto {

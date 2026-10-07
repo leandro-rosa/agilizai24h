@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { ProductsClient } from '../clients/products.client'
 import { PAYMENT_TERMS, type Condition, type Origin, type PaymentMethod, type PaymentStatus, type PaymentTerm, type Stage } from '../constants/purchase-vocabulary'
-import type { CreatePurchaseDto, EditItemDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
+import type { CreatePurchaseDto, EditItemDto, ResolvePendingLineDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
 import { checkInvoice, checkMove, effectiveDueDate, isLate, isOverdue, resolveReceipt } from '../utils/order-flow'
 import { CostSyncService } from './cost-sync.service'
 import type { CostAlert, CostSyncState } from '../utils/cost-sync'
@@ -48,6 +48,28 @@ export interface CostSyncView {
   alerts: CostAlert[]
 }
 
+/** A line of the invoice whose product is not registered yet. Kept whole: nothing was created and nothing was lost. */
+export interface PendingLineView {
+  id: number
+  description: string
+  ean: string | null
+  supplier_code: string | null
+  quantity: number
+  unit_cost_cents: number
+  condition: Condition
+  pack_quantity: number | null
+  pack_unit_price_cents: number | null
+  units_per_pack: number | null
+  purchase_unit: string | null
+  status: 'pending' | 'resolved'
+  /** Once resolved: the product the line became and the item it created. */
+  sku: string | null
+  item_id: number | null
+  resolved_at: string | null
+  resolved_by: string | null
+  total_cents: number
+}
+
 export interface PurchaseView {
   id: number
   supplier_id: number
@@ -80,6 +102,9 @@ export interface PurchaseView {
   /** A paid item is still pending past its due day. */
   overdue: boolean
   items: PurchaseItemView[]
+  /** Lines waiting for a product to be registered ("Aguardando cadastro de produto"), and how many are still pending. */
+  pending_lines: PendingLineView[]
+  awaiting_product_registration: number
   /** Spend: paid items at cost. On-sale items are owed only as they sell (see the settlement); bonus items cost nothing. */
   paid_cents: number
   on_sale_cents: number
@@ -160,7 +185,12 @@ type PurchaseRow = {
   payment_method: string | null
   supplier?: { name: string } | null
   items: ItemRow[]
+  pending_lines?: PendingLineRow[]
 }
+
+type PendingLineRow = { id: number; description: string; ean: string | null; supplier_code: string | null; quantity: number; unit_cost_cents: number; condition: string; pack_quantity: number | null; pack_unit_price_cents: number | null; units_per_pack: number | null; purchase_unit: string | null; status: string; sku: string | null; item_id: number | null; resolved_at: Date | null; resolved_by: string | null }
+
+const WITH_ALL = { items: { orderBy: { id: 'asc' as const } }, supplier: true, pending_lines: { orderBy: { id: 'asc' as const } } }
 
 /** Units that count: the received units once received, otherwise what was ordered. */
 const effectiveQuantity = (status: string, item: { quantity: number; received_quantity: number | null }) => (status === 'received' ? (item.received_quantity ?? item.quantity) : item.quantity)
@@ -197,6 +227,27 @@ export function toView(row: PurchaseRow, today: string = new Date().toISOString(
       },
     }),
   )
+  const pendingLines = (row.pending_lines ?? []).map(
+    (line): PendingLineView => ({
+      id: line.id,
+      description: line.description,
+      ean: line.ean,
+      supplier_code: line.supplier_code,
+      quantity: line.quantity,
+      unit_cost_cents: line.unit_cost_cents,
+      condition: line.condition as Condition,
+      pack_quantity: line.pack_quantity,
+      pack_unit_price_cents: line.pack_unit_price_cents,
+      units_per_pack: line.units_per_pack,
+      purchase_unit: line.purchase_unit,
+      status: line.status as 'pending' | 'resolved',
+      sku: line.sku,
+      item_id: line.item_id,
+      resolved_at: at(line.resolved_at),
+      resolved_by: line.resolved_by,
+      total_cents: line.quantity * line.unit_cost_cents,
+    }),
+  )
   const sum = (condition: Condition) => items.filter(i => i.condition === condition).reduce((s, i) => s + i.total_cents, 0)
   const due = effectiveDueDate((row.payment_term as PaymentTerm | null) ?? null, day(row.payment_due_on), day(row.received_on))
   const pending = items.some(i => i.condition === 'paid' && i.payment_status === 'pending')
@@ -229,6 +280,8 @@ export function toView(row: PurchaseRow, today: string = new Date().toISOString(
     late: isLate(status, day(row.expected_delivery_on), today),
     overdue: isOverdue(due, pending, today),
     items,
+    pending_lines: pendingLines,
+    awaiting_product_registration: pendingLines.filter(l => l.status === 'pending').length,
     paid_cents: sum('paid'),
     on_sale_cents: sum('on_sale'),
     bonus_units: items.filter(i => i.condition === 'bonus').reduce((s, i) => s + (i.received_quantity ?? i.quantity), 0),
@@ -261,6 +314,9 @@ export class PurchasesService {
     if (dto.invoice_issued_on && !isDay(dto.invoice_issued_on)) throw new BadRequestException('invoice_issued_on must be a real date, YYYY-MM-DD')
     // The original of a package purchase must agree with the units and the unit cost recorded; otherwise the audit trail would lie.
     const packaging = dto.items.map(item => checkPackaging(item, item.quantity, item.unit_cost_cents))
+    const pendingLines = dto.pending_lines ?? []
+    if (dto.items.length + pendingLines.length === 0) throw new BadRequestException('A purchase needs at least one line, registered or pending')
+    const pendingPackaging = pendingLines.map(line => checkPackaging(line, line.quantity, line.unit_cost_cents))
     if (dto.payment_term && !(PAYMENT_TERMS as readonly string[]).includes(dto.payment_term)) throw new BadRequestException('payment_term must be on_receipt or due_date')
     if (dto.payment_term === 'due_date' && !dto.payment_due_on) throw new BadRequestException('A due date is needed when the payment term is a boleto (due_date)')
 
@@ -321,9 +377,12 @@ export class PurchasesService {
             ...packaging[index],
           })),
         },
-        events: { create: [{ from_status: null, to_status: stage, actor: dto.actor, note: `created at ${stage}` }] },
+        events: { create: [{ from_status: null, to_status: stage, actor: dto.actor, note: `created at ${stage}${pendingLines.length > 0 ? `; ${pendingLines.length} line(s) awaiting product registration` : ''}` }] },
+        ...(pendingLines.length > 0
+          ? { pending_lines: { create: pendingLines.map((line, index) => ({ description: line.description, ean: line.ean?.trim() || null, supplier_code: line.supplier_code?.trim() || null, quantity: line.quantity, unit_cost_cents: line.unit_cost_cents, condition: line.condition, ...pendingPackaging[index] })) } }
+          : {}),
       },
-      include: { items: { orderBy: { id: 'asc' } }, supplier: true },
+      include: WITH_ALL,
     })
 
     // Once the purchase is recorded, the operator's OK on each manual pick sticks: the operator picked a product for a line the invoice did not resolve: remember it for this supplier's next invoices.
@@ -368,7 +427,7 @@ export class PurchasesService {
   }
 
   async findById(id: number): Promise<PurchaseView> {
-    const row = await this.prisma.purchase.findUnique({ where: { id }, include: { items: { orderBy: { id: 'asc' } }, supplier: true } })
+    const row = await this.prisma.purchase.findUnique({ where: { id }, include: WITH_ALL })
     if (!row) throw new NotFoundException(`Purchase ${id} not found`)
 
     return toView(row, this.today())
@@ -387,7 +446,7 @@ export class PurchasesService {
    * The stage change and its history row are written together.
    */
   async transition(id: number, dto: TransitionDto, correlationId?: string): Promise<PurchaseView> {
-    const order = await this.prisma.purchase.findUnique({ where: { id }, include: { items: { orderBy: { id: 'asc' } }, supplier: true } })
+    const order = await this.prisma.purchase.findUnique({ where: { id }, include: WITH_ALL })
     if (!order) throw new NotFoundException(`Purchase ${id} not found`)
 
     const from = order.status as Stage
@@ -435,7 +494,7 @@ export class PurchasesService {
         if (open.length > 0) await tx.purchaseEvent.create({ data: { purchase_id: id, from_status: dto.to, to_status: dto.to, actor: dto.actor, note: `payment recorded: ${open.length} item(s) paid on receipt` } })
       }
 
-      return tx.purchase.findUnique({ where: { id }, include: { items: { orderBy: { id: 'asc' } }, supplier: true } })
+      return tx.purchase.findUnique({ where: { id }, include: WITH_ALL })
     })
 
     if (dto.to === 'received') {
@@ -445,6 +504,43 @@ export class PurchasesService {
     }
 
     return toView(updated as PurchaseRow, this.today())
+  }
+
+  /**
+   * A pending line becomes an item of the purchase, for the product the operator registered, linked or chose. The line keeps what it
+   * became. In a received purchase the new item goes to the product's cost like any received item (vigência = the receipt day), so the
+   * first cost of a product registered from an invoice exists as soon as both the product and the receipt do.
+   */
+  async resolvePendingLine(id: number, lineId: number, dto: ResolvePendingLineDto, correlationId?: string): Promise<PurchaseView> {
+    const order = await this.prisma.purchase.findUnique({ where: { id }, include: WITH_ALL })
+    if (!order) throw new NotFoundException(`Purchase ${id} not found`)
+    const line = order.pending_lines.find(l => l.id === lineId)
+    if (!line) throw new NotFoundException(`Pending line ${lineId} does not belong to purchase ${id}`)
+    if (line.status !== 'pending') throw new ConflictException(`Line ${lineId} was already resolved (product ${line.sku})`)
+
+    const sku = dto.sku.trim()
+    const known = new Set((await this.products.products(correlationId)).map(p => p.sku))
+    if (!known.has(sku)) throw new BadRequestException(`Unknown product: ${sku}`)
+    const received = order.status === 'received'
+    if (received && (await this.anySettled(order))) throw new ConflictException('This purchase was already counted in a confirmed settlement: its items can no longer change')
+
+    const packaging = checkPackaging(line, line.quantity, line.unit_cost_cents)
+    await this.prisma.$transaction(async tx => {
+      const item = await tx.purchaseItem.create({
+        data: {
+          purchase_id: id, sku, description: line.description, quantity: line.quantity, unit_cost_cents: line.unit_cost_cents, condition: line.condition,
+          received_quantity: received ? line.quantity : undefined,
+          ...(received ? { cost_sync: CostSyncService.initialState(line.condition) } : {}),
+          ...packaging,
+        },
+      })
+      await tx.pendingLine.update({ where: { id: lineId }, data: { status: 'resolved', sku, item_id: item.id, resolved_at: new Date(), resolved_by: dto.actor ?? null } })
+      if (line.supplier_code) await tx.supplierProductCode.upsert({ where: { supplier_id_code: { supplier_id: order.supplier_id, code: line.supplier_code } }, create: { supplier_id: order.supplier_id, code: line.supplier_code, sku }, update: { sku } })
+      await tx.purchaseEvent.create({ data: { purchase_id: id, from_status: order.status, to_status: order.status, actor: dto.actor, note: `pending line resolved: ${line.description} -> ${sku}` } })
+    })
+    if (received) await this.costSync.drain(id, correlationId)
+
+    return this.findById(id)
   }
 
   /** Resends the costs of a received purchase that failed (or are still pending). 404 for an unknown purchase, 409 before the receipt. */

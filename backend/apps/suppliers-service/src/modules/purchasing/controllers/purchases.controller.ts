@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { STAGES, type Stage } from '../constants/purchase-vocabulary'
-import { CreatePurchaseDto, SendOrderEmailDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
+import { CreatePurchaseDto, ResolvePendingLineDto, SendOrderEmailDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
 import { OrderEmailService } from '../mail/order-email.service'
 import { PurchaseImportService, type InvoiceInput } from '../services/purchase-import.service'
 import { PurchasesService } from '../services/purchases.service'
@@ -69,6 +69,13 @@ export class PurchasesController {
   @ApiOperation({ summary: 'Move an order to the next stage', description: 'One stage at a time; invoicing needs a number, an NF-e or "no invoice"; receiving records the quantity received per item. The gateway sets `actor` from the session.' })
   transition(@Param('id', ParseIntPipe) id: number, @Body() dto: TransitionDto, @Headers('x-correlation-id') correlationId?: string) {
     return this.purchases.transition(id, dto, correlationId)
+  }
+
+  @Post(':id/pending-lines/:lineId/resolve')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Turn a pending invoice line into an item, for the product that was registered, linked or chosen', description: 'The line keeps the product it became. In a received purchase the item sends its cost to the product at once (vigência = receipt day). The gateway sets `actor` from the session.' })
+  resolvePendingLine(@Param('id', ParseIntPipe) id: number, @Param('lineId', ParseIntPipe) lineId: number, @Body() dto: ResolvePendingLineDto, @Headers('x-correlation-id') correlationId?: string) {
+    return this.purchases.resolvePendingLine(id, lineId, dto, correlationId)
   }
 
   @Post(':id/cost-sync')

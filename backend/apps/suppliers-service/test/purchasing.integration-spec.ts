@@ -281,4 +281,72 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
       await expect(prisma.purchaseItem.update({ where: { id: any.id }, data: { cost_sync: 'bogus' } })).rejects.toThrow()
     })
   })
+
+  describe('pending invoice lines (real SQL)', () => {
+    const line = (over: Record<string, unknown> = {}) => ({ description: 'Novo sabor de marmita', ean: '7891000100103', supplier_code: 'FORN-77', quantity: 20, unit_cost_cents: 850, condition: 'paid' as const, ...over })
+
+    it('keeps a line without a product on the purchase, whole, creating no item and sending no cost', async () => {
+      recordInvoiceCost.mockClear()
+      const order = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-15', invoice_number: 'SINT-PEND-1', received_on: '2026-10-15', items: [{ sku: 'SINT-1', quantity: 5, unit_cost_cents: 100, condition: 'paid' }], pending_lines: [line()] })
+
+      expect(order.awaiting_product_registration).toBe(1)
+      expect(order.pending_lines[0]).toMatchObject({ status: 'pending', description: 'Novo sabor de marmita', ean: '7891000100103', quantity: 20, unit_cost_cents: 850, total_cents: 17000, sku: null })
+      expect(order.items).toHaveLength(1)
+      expect(recordInvoiceCost.mock.calls.map(([, input]) => (input as { cost_cents: number }).cost_cents)).not.toContain(850)
+    })
+
+    it('a purchase of only pending lines is accepted; an empty one is not', async () => {
+      const only = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-16', invoice_number: 'SINT-PEND-2', stage: 'awaiting_receipt', items: [], pending_lines: [line()] })
+      expect(only.items).toEqual([])
+      expect(only.awaiting_product_registration).toBe(1)
+
+      await expect(purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-16', invoice_number: 'SINT-PEND-3', items: [] })).rejects.toThrow(/at least one line/)
+    })
+
+    it('resolving in a received purchase creates the item, sends its first cost on the receipt day and remembers the supplier code', async () => {
+      costInForce = null
+      recordInvoiceCost.mockClear()
+      const order = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-17', invoice_number: 'SINT-PEND-4', received_on: '2026-10-18', items: [{ sku: 'SINT-1', quantity: 1, unit_cost_cents: 100, condition: 'paid' }], pending_lines: [line()] })
+
+      const resolved = await purchases.resolvePendingLine(order.id, order.pending_lines[0].id, { sku: 'SINT-1', actor: 'ana@agiliz.ai' })
+
+      expect(resolved.awaiting_product_registration).toBe(0)
+      expect(resolved.pending_lines[0]).toMatchObject({ status: 'resolved', sku: 'SINT-1', resolved_by: 'ana@agiliz.ai' })
+      const created = resolved.items.find(i => i.id === resolved.pending_lines[0].item_id)
+      expect(created).toMatchObject({ sku: 'SINT-1', quantity: 20, unit_cost_cents: 850, received_quantity: 20, cost_sync: { state: 'synced', previous_cost_cents: 100 } })
+      expect(recordInvoiceCost).toHaveBeenCalledWith('SINT-1', expect.objectContaining({ effective_from: '2026-10-18', cost_cents: 850, purchase_quantity: 20, purchase_total_cents: 17000 }), undefined)
+      expect(await prisma.supplierProductCode.findFirst({ where: { supplier_id: supplierId, code: 'FORN-77' } })).toMatchObject({ sku: 'SINT-1' })
+    })
+
+    it('resolving in a purchase not received yet creates no cost; the cost goes out at receipt', async () => {
+      recordInvoiceCost.mockClear()
+      const order = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-19', invoice_number: 'SINT-PEND-5', stage: 'awaiting_receipt', items: [], pending_lines: [line({ supplier_code: undefined })] })
+      const resolved = await purchases.resolvePendingLine(order.id, order.pending_lines[0].id, { sku: 'SINT-1' })
+
+      expect(resolved.items[0].cost_sync.state).toBeNull()
+      expect(recordInvoiceCost).not.toHaveBeenCalled()
+
+      const received = await purchases.transition(order.id, { to: 'received', received_on: '2026-10-20', actor: 'ana@agiliz.ai' })
+      expect(received.items[0].cost_sync.state).toMatch(/synced|unchanged/)
+      expect(recordInvoiceCost).toHaveBeenCalledWith('SINT-1', expect.objectContaining({ effective_from: '2026-10-20', cost_cents: 850 }), undefined)
+    })
+
+    it('a line resolves once, to an existing product only, and the purchase stays intact otherwise', async () => {
+      const order = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-21', invoice_number: 'SINT-PEND-6', stage: 'awaiting_receipt', items: [], pending_lines: [line({ supplier_code: undefined })] })
+      const lineId = order.pending_lines[0].id
+
+      await expect(purchases.resolvePendingLine(order.id, lineId, { sku: 'NAO-EXISTE' })).rejects.toThrow(/Unknown product/)
+      expect((await purchases.findById(order.id)).awaiting_product_registration).toBe(1)
+
+      await purchases.resolvePendingLine(order.id, lineId, { sku: 'SINT-1' })
+      await expect(purchases.resolvePendingLine(order.id, lineId, { sku: 'SINT-1' })).rejects.toThrow(/already resolved/)
+      await expect(purchases.resolvePendingLine(order.id, 999999, { sku: 'SINT-1' })).rejects.toThrow(/does not belong/)
+      expect((await purchases.findById(order.id)).items).toHaveLength(1)
+    })
+
+    it('the database refuses a resolved line without its product', async () => {
+      const order = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-22', invoice_number: 'SINT-PEND-7', stage: 'awaiting_receipt', items: [], pending_lines: [line()] })
+      await expect(prisma.pendingLine.update({ where: { id: order.pending_lines[0].id }, data: { status: 'resolved' } })).rejects.toThrow()
+    })
+  })
 })

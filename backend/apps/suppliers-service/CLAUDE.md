@@ -100,6 +100,17 @@ previous_cost_cents, variation_bps, alerts}. Avisos: `large_variation` (variaç�
 `closed_month_unknown` (accounting sem URL/fora do ar: nunca vira "aberto"). Compras anteriores ficam com `cost_sync` NULL: nada é enviado
 retroativamente sem decisão. Sem BullMQ de propósito (este serviço não tem fila; o outbox vive no banco que já guarda o fato).
 
+## Linhas pendentes de cadastro (`add-product-cost-price-versioning`, 1c.4–1c.5)
+
+`POST /purchases` aceita `pending_lines`: linhas da nota cujo produto ainda não existe ("Deixar para depois"). Ficam em `purchase_pending_line`
+**inteiras** (descrição, EAN, código do fornecedor, quantidade, custo, condição, original da embalagem): nenhum produto, SKU, item ou custo é
+criado e nada se perde. A compra aceita `items` vazio se houver linha pendente (precisa de ao menos uma de cada tipo somadas) e traz
+`pending_lines` e `awaiting_product_registration` (quantas faltam: "Aguardando cadastro de produto"). `POST /purchases/:id/pending-lines/:lineId/resolve
+{sku}` (gateway: usuário da sessão) transforma a linha em item do produto cadastrado, vinculado ou escolhido (SKU tem de existir; resolve uma vez só),
+grava o vínculo código-do-fornecedor → SKU e guarda na linha o produto e o item que ela virou. **Compra já recebida**: o item entra no outbox e o custo
+sai na hora (vigência = dia do recebimento), é o primeiro custo do produto novo; **compra ainda não recebida**: nenhum custo existe, ele sai no
+recebimento. Compra com acerto confirmado não aceita item novo. Um `CHECK` do banco recusa linha resolvida sem produto.
+
 ## Pedidos em etapas e e-mail (`add-purchase-orders-and-email`)
 
 `Purchase.status`: `requisition → awaiting_invoice → invoiced → awaiting_receipt → received`, só para frente, definitivo após `received` (`utils/order-flow.ts`, puro). Nota (nº, chave ou `without_invoice`) exigida a partir de `invoiced`. **Só `received` conta**: `summary`, acerto e mês de compra usam `received_on` e `received_quantity ?? quantity`; pedidos abertos aparecem à parte (`open_orders`). Compras antigas migraram como `received`. `PurchaseEvent` guarda o histórico e `PurchaseEmail` cada tentativa de envio. E-mail atrás da porta `MailTransport` (`mail/`, nodemailer SMTP; fake nos testes; Mailpit no dev): envio só com confirmação, falha não muda a etapa, reenvio só com `resend`, anexo só PDF ≤700 KB. Env opcionais `SMTP_HOST/PORT/SECURE/USER/PASS` e `MAIL_FROM` (sem SMTP o painel diz "não configurado"). Real SMTP é decisão do dono.

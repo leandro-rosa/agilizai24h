@@ -112,6 +112,7 @@ model Purchase {
   items    PurchaseItem[]
   events   PurchaseEvent[]
   emails   PurchaseEmail[]
+  pending_lines PendingLine[]
 
   @@unique([supplier_id, invoice_number])
   @@index([supplier_id, ordered_on])
@@ -252,4 +253,38 @@ model PurchaseEmail {
 
   @@index([purchase_id])
   @@map("purchase_email")
+}
+
+/// Linha da nota cujo produto ainda não existe no cadastro. A compra a guarda inteira ("Aguardando cadastro de produto"): nada é criado
+/// e nada se perde. Ao resolver (produto cadastrado, EAN vinculado ou produto escolhido) a linha vira um PurchaseItem.
+model PendingLine {
+  id            Int     @id @default(autoincrement())
+  purchase_id   Int
+  /// Como a linha apareceu na nota.
+  description   String
+  ean           String?
+  /// `cProd` da nota, para gravar o vínculo do fornecedor ao resolver.
+  supplier_code String?
+  quantity      Int
+  unit_cost_cents Int
+  /// paid | bonus | on_sale
+  condition     String
+  pack_quantity         Int?
+  pack_unit_price_cents Int?
+  units_per_pack        Int?
+  purchase_unit         String?
+  /// pending | resolved
+  status        String  @default("pending")
+  /// O SKU escolhido ao resolver, e o item que ele criou.
+  sku           String?
+  item_id       Int?
+  resolved_at   DateTime?
+  resolved_by   String?
+  created_at    DateTime @default(now())
+
+  purchase Purchase @relation(fields: [purchase_id], references: [id], onDelete: Cascade)
+
+  @@index([purchase_id])
+  @@index([status])
+  @@map("purchase_pending_line")
 }

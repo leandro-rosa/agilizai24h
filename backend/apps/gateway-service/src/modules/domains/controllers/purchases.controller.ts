@@ -99,6 +99,14 @@ export class PurchasesController {
     return (await this.domains.suppliers({ method: 'post', path: `/purchases/${encodeURIComponent(id)}/transition`, payload: asActor(body, caller), correlationId: correlationOf(request) })).data
   }
 
+  @Post(':id/pending-lines/:lineId/resolve')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Turn a pending invoice line into an item of the purchase, for a registered, linked or chosen product' })
+  async resolvePendingLine(@Param('id') id: string, @Param('lineId') lineId: string, @Body() body: { sku?: string }, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: `/purchases/${encodeURIComponent(id)}/pending-lines/${encodeURIComponent(lineId)}/resolve`, payload: { sku: body?.sku, actor: caller.email }, correlationId: correlationOf(request) })).data
+  }
+
   @Post(':id/cost-sync')
   @HttpCode(200)
   @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
