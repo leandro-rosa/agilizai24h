@@ -4,6 +4,8 @@ import { ProductsClient } from '../clients/products.client'
 import { PAYMENT_TERMS, type Condition, type Origin, type PaymentMethod, type PaymentStatus, type PaymentTerm, type Stage } from '../constants/purchase-vocabulary'
 import type { CreatePurchaseDto, EditItemDto, TransitionDto, UpdateOrderDto, UpdatePurchaseItemDto } from '../dto/purchase.dto'
 import { checkInvoice, checkMove, effectiveDueDate, isLate, isOverdue, resolveReceipt } from '../utils/order-flow'
+import { CostSyncService } from './cost-sync.service'
+import type { CostAlert, CostSyncState } from '../utils/cost-sync'
 import { checkPackaging } from '../utils/packaging'
 import { isDay } from '../utils/week'
 
@@ -29,6 +31,21 @@ export interface PurchaseItemView {
   purchase_unit: string | null
   /** Units × unit cost, on the received units once received. For a bonus item it is the reference value, NOT spend. */
   total_cents: number
+  /** The invoice cost on its way to the product: `state` null until the purchase is received. A bonus is `skipped_bonus` (it never creates a cost). */
+  cost_sync: CostSyncView
+}
+
+export interface CostSyncView {
+  state: CostSyncState | null
+  attempts: number
+  synced_at: string | null
+  error: string | null
+  version_id: number | null
+  /** The cost the invoice replaced, and how far the new one moved (basis points of the old one). Null when there was no cost before. */
+  previous_cost_cents: number | null
+  variation_bps: number | null
+  /** `large_variation` | `closed_month` (the month is closed: its CMV is not recomputed by itself) | `closed_month_unknown`. */
+  alerts: CostAlert[]
 }
 
 export interface PurchaseView {
@@ -108,6 +125,14 @@ type ItemRow = {
   pack_unit_price_cents: number | null
   units_per_pack: number | null
   purchase_unit: string | null
+  cost_sync?: string | null
+  cost_sync_attempts?: number
+  cost_synced_at?: Date | null
+  cost_sync_error?: string | null
+  cost_version_id?: number | null
+  cost_previous_cents?: number | null
+  cost_variation_bps?: number | null
+  cost_alerts?: string[]
 }
 
 type PurchaseRow = {
@@ -160,6 +185,16 @@ export function toView(row: PurchaseRow, today: string = new Date().toISOString(
       units_per_pack: item.units_per_pack ?? null,
       purchase_unit: item.purchase_unit ?? null,
       total_cents: effectiveQuantity(status, item) * item.unit_cost_cents,
+      cost_sync: {
+        state: (item.cost_sync as CostSyncState | null | undefined) ?? null,
+        attempts: item.cost_sync_attempts ?? 0,
+        synced_at: at(item.cost_synced_at ?? null),
+        error: item.cost_sync_error ?? null,
+        version_id: item.cost_version_id ?? null,
+        previous_cost_cents: item.cost_previous_cents ?? null,
+        variation_bps: item.cost_variation_bps ?? null,
+        alerts: (item.cost_alerts ?? []) as CostAlert[],
+      },
     }),
   )
   const sum = (condition: Condition) => items.filter(i => i.condition === condition).reduce((s, i) => s + i.total_cents, 0)
@@ -205,6 +240,7 @@ export class PurchasesService {
   constructor(
     private readonly prisma: PrismaClientService,
     private readonly products: ProductsClient,
+    private readonly costSync: CostSyncService,
   ) {}
 
   /** `YYYY-MM-DD` of today; one place so tests can pin it. */
@@ -281,6 +317,7 @@ export class PurchasesService {
             received_quantity: received ? (item.received_quantity ?? item.quantity) : undefined,
             unit_cost_cents: item.unit_cost_cents,
             condition: item.condition,
+            ...(received ? { cost_sync: CostSyncService.initialState(item.condition) } : {}),
             ...packaging[index],
           })),
         },
@@ -294,6 +331,13 @@ export class PurchasesService {
       const code = item.supplier_code?.trim()
       if (!code) continue
       await this.prisma.supplierProductCode.upsert({ where: { supplier_id_code: { supplier_id: dto.supplier_id, code } }, create: { supplier_id: dto.supplier_id, code, sku: item.sku }, update: { sku: item.sku } })
+    }
+
+    // Received on entry: the cost goes to the product now (a failure stays on the item and is retried; it never undoes the purchase).
+    if (received) {
+      await this.costSync.drain(created.id, correlationId)
+
+      return this.findById(created.id)
     }
 
     return toView(created, this.today())
@@ -342,7 +386,7 @@ export class PurchasesService {
    * needs the invoice number, an NF-e or "no invoice"; receiving records the quantity received per item (default: ordered) and the day.
    * The stage change and its history row are written together.
    */
-  async transition(id: number, dto: TransitionDto): Promise<PurchaseView> {
+  async transition(id: number, dto: TransitionDto, correlationId?: string): Promise<PurchaseView> {
     const order = await this.prisma.purchase.findUnique({ where: { id }, include: { items: { orderBy: { id: 'asc' } }, supplier: true } })
     if (!order) throw new NotFoundException(`Purchase ${id} not found`)
 
@@ -381,6 +425,8 @@ export class PurchasesService {
     const updated = await this.prisma.$transaction(async tx => {
       if (receipt && 'lines' in receipt) for (const line of receipt.lines) await tx.purchaseItem.update({ where: { id: line.itemId }, data: { received_quantity: line.received } })
       await tx.purchase.update({ where: { id }, data })
+      // The items to send are marked in the SAME transaction as the receipt: it never commits without them.
+      if (dto.to === 'received') await this.costSync.markItems(tx, order.items)
       await tx.purchaseEvent.create({ data: { purchase_id: id, from_status: from, to_status: dto.to, actor: dto.actor, note: dto.note } })
       if (dto.pay_on_receipt) {
         // Paid on delivery: the same click that records the receipt records the payment, on the receipt day.
@@ -392,7 +438,22 @@ export class PurchasesService {
       return tx.purchase.findUnique({ where: { id }, include: { items: { orderBy: { id: 'asc' } }, supplier: true } })
     })
 
+    if (dto.to === 'received') {
+      await this.costSync.drain(id, correlationId)
+
+      return this.findById(id)
+    }
+
     return toView(updated as PurchaseRow, this.today())
+  }
+
+  /** Resends the costs of a received purchase that failed (or are still pending). 404 for an unknown purchase, 409 before the receipt. */
+  async retryCostSync(id: number, correlationId?: string): Promise<{ sent: number; failed: number }> {
+    const order = await this.prisma.purchase.findUnique({ where: { id }, select: { status: true } })
+    if (!order) throw new NotFoundException(`Purchase ${id} not found`)
+    if (order.status !== 'received') throw new ConflictException('Only a received purchase sends its cost to the product')
+
+    return this.costSync.retry(id, correlationId)
   }
 
   /** Delivery deadline, payment term and notes: changeable at any stage (they are plans, not facts). */
@@ -442,7 +503,14 @@ export class PurchasesService {
       if (itemChanges) {
         if (itemChanges.removed.length > 0) await tx.purchaseItem.deleteMany({ where: { id: { in: itemChanges.removed } } })
         for (const change of itemChanges.updated) await tx.purchaseItem.update({ where: { id: change.id }, data: change.data })
-        for (const data of itemChanges.created) await tx.purchaseItem.create({ data: { purchase_id: id, ...data } })
+        for (const data of itemChanges.created) await tx.purchaseItem.create({ data: { purchase_id: id, ...data, ...(received ? { cost_sync: CostSyncService.initialState(data.condition) } : {}) } })
+      }
+      // A received purchase that was edited: what changed (or all, when the receipt day moved) goes to the product again. The old
+      // version stays (append-only); a corrected cost or day is a new version, an unchanged one creates nothing.
+      if (received) {
+        const resend = dto.received_on ? order.items.filter(i => !itemChanges?.removed.includes(i.id)) : (itemChanges?.updated.map(u => order.items.find(i => i.id === u.id)).filter((i): i is (typeof order.items)[number] => i !== undefined) ?? [])
+        const conditionOf = new Map(itemChanges?.updated.map(u => [u.id, (u.data.condition as string | undefined) ?? undefined]) ?? [])
+        await this.costSync.markItems(tx, resend.map(i => ({ id: i.id, condition: conditionOf.get(i.id) ?? i.condition })))
       }
       await tx.purchase.update({
         where: { id },
@@ -462,6 +530,8 @@ export class PurchasesService {
       })
       if (notes.length > 0) await tx.purchaseEvent.create({ data: { purchase_id: id, from_status: order.status, to_status: order.status, actor: dto.actor, note: `edited: ${notes.join(', ')}` } })
     })
+
+    if (received) await this.costSync.drain(id, correlationId)
 
     return this.findById(id)
   }

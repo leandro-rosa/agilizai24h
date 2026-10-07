@@ -48,6 +48,7 @@ services:
       SMTP_PORT: "1025"
       MAIL_FROM: pedidos@agiliz.local
       PRODUCTS_SERVICE_URL: http://agiliz-products-dev:3000
+      ACCOUNTING_SERVICE_URL: http://agiliz-accounting-dev:3000
       PORT: 3000
     # No published host port: domain services stay internal to agiliz_network,
     # reachable only through gateway-service.

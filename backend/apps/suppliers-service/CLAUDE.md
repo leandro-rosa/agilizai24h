@@ -84,6 +84,22 @@ recusa o original pela metade — escrito com `IS NOT NULL` explícito de propó
 para a compra e para o custo). Compra anterior fica com tudo nulo: **"original não registrado"**, nunca um valor inventado.
 `GET /purchases?sku=` lista as compras que têm o produto, mostrando só os itens dele (a aba Compras do produto).
 
+## Custo da NF para o produto (outbox, `add-product-cost-price-versioning`)
+
+Receber uma compra **grava o custo da NF no produto**, mas nunca dentro do recebimento. A mesma transação que recebe marca cada item em
+`purchase_item.cost_sync = pending` (bonificação = `skipped_bonus`: **brinde nunca cria custo**); o `CostSyncService` (laço a cada
+`COST_SYNC_INTERVAL_MS`, padrão 30 s, 0 desliga; mais um envio imediato após o recebimento) chama `POST /products/:sku/costs` do
+products-service com `source: invoice`, vigência = `received_on`, fornecedor, compra, item, nº da nota, quantidade/total e o original da
+embalagem. Estados: `pending → synced | unchanged | failed`. `unchanged` = o custo em vigor já era igual (nenhuma versão criada). Chave
+idempotente `purchase-item:<id>:<dia>:<custo>`: reenviar não duplica, e corrigir o custo de um item recebido cria a versão corrigida (a antiga
+fica; append-only). Editar um pedido recebido (itens alterados/novos, ou `received_on` movido) reenfileira o que mudou.
+Falha fica no item (`cost_sync_error`, tentativas) e é reenviada com recuo (1, 2, 4… até 30 min, 8 tentativas) ou à mão por
+`POST /purchases/:id/cost-sync`. Cada item do `PurchaseView` traz `cost_sync` {state, attempts, synced_at, error, version_id,
+previous_cost_cents, variation_bps, alerts}. Avisos: `large_variation` (variação ≥ `COST_VARIATION_ALERT_BPS`, padrão 1000 = 10%, PROVISÓRIO),
+`closed_month` (o mês da vigência está fechado no accounting, via `ACCOUNTING_SERVICE_URL`; o CMV desse mês **não** é recalculado sozinho) e
+`closed_month_unknown` (accounting sem URL/fora do ar: nunca vira "aberto"). Compras anteriores ficam com `cost_sync` NULL: nada é enviado
+retroativamente sem decisão. Sem BullMQ de propósito (este serviço não tem fila; o outbox vive no banco que já guarda o fato).
+
 ## Pedidos em etapas e e-mail (`add-purchase-orders-and-email`)
 
 `Purchase.status`: `requisition → awaiting_invoice → invoiced → awaiting_receipt → received`, só para frente, definitivo após `received` (`utils/order-flow.ts`, puro). Nota (nº, chave ou `without_invoice`) exigida a partir de `invoiced`. **Só `received` conta**: `summary`, acerto e mês de compra usam `received_on` e `received_quantity ?? quantity`; pedidos abertos aparecem à parte (`open_orders`). Compras antigas migraram como `received`. `PurchaseEvent` guarda o histórico e `PurchaseEmail` cada tentativa de envio. E-mail atrás da porta `MailTransport` (`mail/`, nodemailer SMTP; fake nos testes; Mailpit no dev): envio só com confirmação, falha não muda a etapa, reenvio só com `resend`, anexo só PDF ≤700 KB. Env opcionais `SMTP_HOST/PORT/SECURE/USER/PASS` e `MAIL_FROM` (sem SMTP o painel diz "não configurado"). Real SMTP é decisão do dono.

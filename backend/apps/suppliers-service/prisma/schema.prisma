@@ -151,12 +151,25 @@ model PurchaseItem {
   /// Forma em que foi pago (boleto | transfer | other), quando registrada a baixa.
   paid_method    String?
   payment_note   String?
+  /// Saída para o custo do produto (outbox): pending | synced | unchanged | skipped_bonus | failed. NULL = compra ainda não recebida
+  /// (ou anterior a este registro: nada é enviado retroativamente sem decisão). Quem envia é o laço do `CostSyncService`.
+  cost_sync          String?
+  cost_sync_attempts Int       @default(0)
+  cost_sync_attempted_at DateTime?
+  cost_synced_at     DateTime?
+  cost_sync_error    String?
+  /// O que o products-service respondeu: a versão criada, o custo que ela substituiu e os avisos (variação grande, mês fechado).
+  cost_version_id    Int?
+  cost_previous_cents Int?
+  cost_variation_bps Int?
+  cost_alerts        String[]  @default([])
   created_at  DateTime @default(now())
 
   purchase Purchase @relation(fields: [purchase_id], references: [id], onDelete: Cascade)
 
   @@index([purchase_id])
   @@index([sku])
+  @@index([cost_sync])
   @@map("purchase_item")
 }
 

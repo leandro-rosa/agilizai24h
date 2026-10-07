@@ -22,6 +22,22 @@ class EnvironmentVariables {
   @IsNotEmpty()
   PRODUCTS_SERVICE_URL: string
 
+  /** Optional: to flag a cost dated in an already closed month. Without it the alert is `closed_month_unknown`, never "open". */
+  @IsOptional()
+  @IsString()
+  ACCOUNTING_SERVICE_URL?: string
+
+  /** Outbox of the invoice cost: loop period in ms (0 turns the loop off) and the variation, in basis points, that raises an alert. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  COST_SYNC_INTERVAL_MS?: number
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  COST_VARIATION_ALERT_BPS?: number
+
   /**
    * Outgoing e-mail (orders to suppliers). All optional: with no SMTP_HOST the panel reports "e-mail not configured" and sends
    * nothing. In development point it at the local mail catcher; real credentials are the owner's to set.

@@ -67,8 +67,17 @@ export class PurchasesController {
   @Post(':id/transition')
   @HttpCode(200)
   @ApiOperation({ summary: 'Move an order to the next stage', description: 'One stage at a time; invoicing needs a number, an NF-e or "no invoice"; receiving records the quantity received per item. The gateway sets `actor` from the session.' })
-  transition(@Param('id', ParseIntPipe) id: number, @Body() dto: TransitionDto) {
-    return this.purchases.transition(id, dto)
+  transition(@Param('id', ParseIntPipe) id: number, @Body() dto: TransitionDto, @Headers('x-correlation-id') correlationId?: string) {
+    return this.purchases.transition(id, dto, correlationId)
+  }
+
+  @Post(':id/cost-sync')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Resend the invoice costs of a received purchase that failed to reach the product', description: 'Puts the failed items back in the queue and sends them now. Safe to repeat: the other side is idempotent. Answers with the purchase, whose items carry the new state.' })
+  async retryCostSync(@Param('id', ParseIntPipe) id: number, @Headers('x-correlation-id') correlationId?: string) {
+    await this.purchases.retryCostSync(id, correlationId)
+
+    return this.purchases.findById(id)
   }
 
   @Patch(':id')

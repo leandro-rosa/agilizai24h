@@ -112,6 +112,8 @@ function fakePrisma() {
   return { prisma, db }
 }
 
+/** The outbox is exercised in cost-sync.service.spec.ts; here receiving must not depend on it. */
+const noCostSync = { markItems: async () => undefined, drain: async () => ({ sent: 0, failed: 0 }), retry: async () => ({ sent: 0, failed: 0 }) }
 const catalogue = { products: async () => [{ id: 1, sku: 'Q1', name: 'Quinoa wrap' }, { id: 2, sku: 'Q2', name: 'Quinoa bar' }, { id: 3, sku: 'Q3', name: 'Quinoa cookie' }] }
 const item = (over: Record<string, unknown> = {}) => ({ sku: 'Q1', quantity: 100, unit_cost_cents: 500, condition: 'on_sale' as const, ...over })
 
@@ -119,7 +121,7 @@ describe('PurchasesService', () => {
   const make = () => {
     const { prisma, db } = fakePrisma()
 
-    return { service: new PurchasesService(prisma as never, catalogue as never), db }
+    return { service: new PurchasesService(prisma as never, catalogue as never, noCostSync as never), db }
   }
 
   it('records a manual purchase with no invoice number', async () => {
@@ -177,7 +179,7 @@ describe('PurchasesService', () => {
 describe('SettlementService — the Quinoa case', () => {
   const setup = async (sold: unknown) => {
     const { prisma, db } = fakePrisma()
-    const purchases = new PurchasesService(prisma as never, catalogue as never)
+    const purchases = new PurchasesService(prisma as never, catalogue as never, noCostSync as never)
     const sales = { soldBySku: jest.fn(async () => sold) }
     const settlements = new SettlementService(prisma as never, sales as never)
     const bought = await purchases.create({ supplier_id: 5, ordered_on: '2026-10-05', items: [item()] })
@@ -249,7 +251,7 @@ describe('SettlementService — the Quinoa case', () => {
 describe('order stages', () => {
   const make = () => {
     const { prisma, db } = fakePrisma()
-    const service = new PurchasesService(prisma as never, catalogue as never)
+    const service = new PurchasesService(prisma as never, catalogue as never, noCostSync as never)
     jest.spyOn(service, 'today').mockReturnValue('2026-10-12')
 
     return { service, db, prisma }
@@ -361,7 +363,7 @@ describe('order stages', () => {
 describe('editing an order', () => {
   const make = () => {
     const { prisma, db } = fakePrisma()
-    const service = new PurchasesService(prisma as never, catalogue as never)
+    const service = new PurchasesService(prisma as never, catalogue as never, noCostSync as never)
     jest.spyOn(service, 'today').mockReturnValue('2026-10-12')
 
     return { service, db }
@@ -422,7 +424,7 @@ describe('editing an order', () => {
 describe('receiving and paying in the same step', () => {
   const make = () => {
     const { prisma, db } = fakePrisma()
-    const service = new PurchasesService(prisma as never, catalogue as never)
+    const service = new PurchasesService(prisma as never, catalogue as never, noCostSync as never)
     jest.spyOn(service, 'today').mockReturnValue('2026-10-12')
 
     return { service, db }
@@ -454,7 +456,7 @@ describe('deleting an order', () => {
   const make = () => {
     const { prisma, db } = fakePrisma()
 
-    return { service: new PurchasesService(prisma as never, catalogue as never), db }
+    return { service: new PurchasesService(prisma as never, catalogue as never, noCostSync as never), db }
   }
 
   it('deletes a wrong entry with its items, but refuses one a confirmed settlement counted', async () => {
@@ -474,7 +476,7 @@ describe('deleting an order', () => {
 describe('settlement counts only received orders', () => {
   it('ignores on-sale items still waiting for receipt, and uses the received quantity', async () => {
     const { prisma } = fakePrisma()
-    const purchases = new PurchasesService(prisma as never, catalogue as never)
+    const purchases = new PurchasesService(prisma as never, catalogue as never, noCostSync as never)
     const sales = { soldBySku: async () => ({ from: '', to: '', rows: [{ sku: 'Q1', quantity: 95, revenue_cents: 1 }], months_without_dated_receipts: [], stores_missing: 0 }) }
     const settlements = new SettlementService(prisma as never, sales as never)
 
@@ -494,7 +496,7 @@ describe('OrderEmailService — sending an order', () => {
   const PDF = Buffer.from('%PDF-1.4 fake').toString('base64')
   const setup = (transport: Partial<{ from: () => string | null; send: jest.Mock }> = {}) => {
     const { prisma, db } = fakePrisma()
-    const purchases = new PurchasesService(prisma as never, catalogue as never)
+    const purchases = new PurchasesService(prisma as never, catalogue as never, noCostSync as never)
     const send = transport.send ?? jest.fn(async () => ({ messageId: '<abc@mail>' }))
     const mail = { from: transport.from ?? (() => 'pedidos@agiliz.ai'), send }
     const service = new OrderEmailService(prisma as never, purchases, mail as never)
@@ -593,7 +595,7 @@ describe('PurchasesService — the original of the packaging and the invoice iss
   const make = () => {
     const { prisma, db } = fakePrisma()
 
-    return { service: new PurchasesService(prisma as never, catalogue as never), db }
+    return { service: new PurchasesService(prisma as never, catalogue as never, noCostSync as never), db }
   }
 
   it('keeps the original of a box purchase, the unit and the invoice issue date, next to the unit cost', async () => {
@@ -637,7 +639,7 @@ describe('PurchasesService — the original of the packaging and the invoice iss
 describe('PurchasesService.list — by product', () => {
   it('lists the purchases that include a SKU, showing only that SKU in each', async () => {
     const { prisma } = fakePrisma()
-    const service = new PurchasesService(prisma as never, catalogue as never)
+    const service = new PurchasesService(prisma as never, catalogue as never, noCostSync as never)
     await service.create({ supplier_id: 5, ordered_on: '2026-10-05', invoice_number: 'A', items: [item({ condition: 'paid', quantity: 10 }), item({ sku: 'Q2', condition: 'paid', quantity: 4 })] })
     await service.create({ supplier_id: 5, ordered_on: '2026-10-09', invoice_number: 'B', items: [item({ sku: 'Q2', condition: 'paid', quantity: 6 })] })
 

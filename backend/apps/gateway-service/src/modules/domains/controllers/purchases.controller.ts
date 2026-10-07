@@ -99,6 +99,14 @@ export class PurchasesController {
     return (await this.domains.suppliers({ method: 'post', path: `/purchases/${encodeURIComponent(id)}/transition`, payload: asActor(body, caller), correlationId: correlationOf(request) })).data
   }
 
+  @Post(':id/cost-sync')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Resend the invoice costs of a received purchase that did not reach the product' })
+  async retryCostSync(@Param('id') id: string, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: `/purchases/${encodeURIComponent(id)}/cost-sync`, correlationId: correlationOf(request) })).data
+  }
+
   @Delete(':id')
   @HttpCode(204)
   @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)

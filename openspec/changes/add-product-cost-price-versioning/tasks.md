@@ -44,9 +44,9 @@
 
 ## 4. Invoice to cost
 
-- [ ] 4.1 On receipt, enqueue the cost sync (idempotent key = purchase item id); never for bonus; only when the cost differs
-- [ ] 4.2 Vigência = receipt date; flags for variation and closed month; failure stored and retryable
-- [ ] 4.3 Tests: rise, same cost, bonus, repeated sync, closed month, failure
+- [x] 4.1 On receipt, enqueue the cost sync (idempotent key = purchase item id); never for bonus; only when the cost differs
+- [x] 4.2 Vigência = receipt date; flags for variation and closed month; failure stored and retryable
+- [x] 4.3 Tests: rise, same cost, bonus, repeated sync, closed month, failure
 
 ## 5. Admin `/products`
 

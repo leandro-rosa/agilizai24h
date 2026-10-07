@@ -5,6 +5,8 @@ import { AppModule } from '../src/app.module'
 import { PrismaClientService } from '../src/modules/db-client/prisma-client.service'
 import { PayablesService } from '../src/modules/purchasing/services/payables.service'
 import { PurchaseImportService } from '../src/modules/purchasing/services/purchase-import.service'
+import { AccountingClient } from '../src/modules/purchasing/clients/accounting.client'
+import { CostSyncService } from '../src/modules/purchasing/services/cost-sync.service'
 import { ProductsClient } from '../src/modules/purchasing/clients/products.client'
 import { SalesClient } from '../src/modules/purchasing/clients/sales.client'
 import { PurchasesService } from '../src/modules/purchasing/services/purchases.service'
@@ -26,6 +28,15 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
   let settlements: SettlementService
   let supplierId: number
 
+  /** products-service: answers like the real one (`unchanged` when the cost already in force is the same). */
+  let costInForce: number | null = 570
+  const recordInvoiceCost = jest.fn(async (_sku: string, input: { cost_cents: number; purchase_item_id: number }) => {
+    const previous = costInForce
+    if (previous === input.cost_cents) return { created: false, unchanged: true, version_id: null, cost_cents: input.cost_cents, previous_cost_cents: previous }
+    costInForce = input.cost_cents
+
+    return { created: true, unchanged: false, version_id: 500 + input.purchase_item_id, cost_cents: input.cost_cents, previous_cost_cents: previous }
+  })
   const fakeMail = { from: () => 'pedidos@agiliz.local', send: jest.fn(async () => ({ messageId: '<sint@mail>' })) }
   let emails: OrderEmailService
   let importer: PurchaseImportService
@@ -35,7 +46,9 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [ConfigModule.forRoot({ isGlobal: true }), AppModule] })
       .overrideProvider(ProductsClient)
-      .useValue({ products: async () => [{ id: 1, sku: 'SINT-1', name: '[SINTÉTICO] produto' }], resolveEans: async () => ({ resolved: [], unresolved: [] }) })
+      .useValue({ products: async () => [{ id: 1, sku: 'SINT-1', name: '[SINTÉTICO] produto' }], resolveEans: async () => ({ resolved: [], unresolved: [] }), recordInvoiceCost })
+      .overrideProvider(AccountingClient)
+      .useValue({ monthStatus: async (period: string) => (period === '2026-09' ? 'closed' : 'open') })
       .overrideProvider(SalesClient)
       .useValue({ soldBySku: async () => sold })
       .overrideProvider(MailTransport)
@@ -216,5 +229,56 @@ const throwaway = process.env.PURCHASING_IT_THROWAWAY_DB === 'true'
 
     // The database itself refuses a half-recorded original.
     await expect(prisma.purchaseItem.create({ data: { purchase_id: box.id, sku: 'SINT-1', quantity: 1, unit_cost_cents: 1, condition: 'paid', pack_quantity: 3 } })).rejects.toThrow()
+  })
+
+  describe('invoice cost outbox (real SQL)', () => {
+    const sync = () => app.get(CostSyncService)
+
+    it('receiving marks the items in the same transaction, sends the cost dated on the receipt and stores what came back', async () => {
+      costInForce = 570
+      const order = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-01', stage: 'awaiting_receipt', invoice_number: 'SINT-OUT-1', items: [{ sku: 'SINT-1', quantity: 150, unit_cost_cents: 620, condition: 'paid' }, { sku: 'SINT-1', quantity: 12, unit_cost_cents: 620, condition: 'bonus' }] })
+      expect(order.items.map(i => i.cost_sync.state)).toEqual([null, null])
+
+      const received = await purchases.transition(order.id, { to: 'received', received_on: '2026-10-10', actor: 'ana@agiliz.ai' })
+
+      const [paid, bonus] = received.items
+      expect(paid.cost_sync).toMatchObject({ state: 'synced', version_id: 500 + paid.id, previous_cost_cents: 570, variation_bps: 877, alerts: [] })
+      expect(bonus.cost_sync.state).toBe('skipped_bonus')
+      expect(recordInvoiceCost).toHaveBeenCalledWith('SINT-1', expect.objectContaining({ effective_from: '2026-10-10', cost_cents: 620, purchase_item_id: paid.id, source_ref: `purchase-item:${paid.id}:2026-10-10:620` }), undefined)
+      expect(recordInvoiceCost.mock.calls.some(([, input]) => (input as { purchase_item_id: number }).purchase_item_id === bonus.id)).toBe(false)
+    })
+
+    it('the same cost afterwards is unchanged; a failure is kept with its error and a manual retry sends it', async () => {
+      costInForce = 620
+      const same = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-12', invoice_number: 'SINT-OUT-2', items: [{ sku: 'SINT-1', quantity: 10, unit_cost_cents: 620, condition: 'paid' }] })
+      expect(same.items[0].cost_sync.state).toBe('unchanged')
+
+      recordInvoiceCost.mockRejectedValueOnce(new Error('POST /products/SINT-1/costs -> 503'))
+      const failing = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-10-13', invoice_number: 'SINT-OUT-3', items: [{ sku: 'SINT-1', quantity: 10, unit_cost_cents: 700, condition: 'paid' }] })
+      expect(failing.items[0].cost_sync).toMatchObject({ state: 'failed', attempts: 1, error: expect.stringContaining('503') })
+
+      await purchases.retryCostSync(failing.id)
+      const healed = await purchases.findById(failing.id)
+      expect(healed.items[0].cost_sync).toMatchObject({ state: 'synced', error: null, alerts: ['large_variation'] })
+      await expect(purchases.retryCostSync(999999)).rejects.toThrow('not found')
+    })
+
+    it('a cost dated in a closed month is flagged, and the background loop drains what the receipt left pending', async () => {
+      costInForce = 600
+      const closed = await purchases.create({ supplier_id: supplierId, ordered_on: '2026-09-20', invoice_number: 'SINT-OUT-4', items: [{ sku: 'SINT-1', quantity: 10, unit_cost_cents: 610, condition: 'paid' }] })
+      expect(closed.items[0].cost_sync.alerts).toEqual(['closed_month'])
+
+      // Left pending by a crash between commit and send: the loop (not the request) picks it up.
+      const row = closed.items[0]
+      await prisma.purchaseItem.update({ where: { id: row.id }, data: { cost_sync: 'pending', cost_sync_attempts: 0 } })
+      costInForce = 600
+      expect((await sync().drain()).sent).toBeGreaterThanOrEqual(1)
+      expect((await purchases.findById(closed.id)).items[0].cost_sync.state).toBe('synced')
+    })
+
+    it('the database refuses a state outside the vocabulary', async () => {
+      const any = await prisma.purchaseItem.findFirstOrThrow({ where: { cost_sync: 'synced' } })
+      await expect(prisma.purchaseItem.update({ where: { id: any.id }, data: { cost_sync: 'bogus' } })).rejects.toThrow()
+    })
   })
 })
