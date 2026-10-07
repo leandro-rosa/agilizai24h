@@ -3,13 +3,24 @@ import { CostVersionRepository } from '../../db-client/repositories/cost-version
 import { ProductRepository } from '../../db-client/repositories/product.repository'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { UNRESOLVED_REASONS } from '../constants/product-vocabulary'
-import { resolveCostAsOf } from '../utils/resolve-cost'
+import { describeVersions } from '../utils/describe-versions'
+import { costProvenance, type CostVersionMeta } from '../utils/provenance'
+import { COST_RANK, resolveByProduct, resolveVersionAsOf } from '../utils/resolve-version'
 
 // The response shape lives in the shared contracts package, so finance and
 // supply consume the same types rather than restating a lookalike. In
 // particular BulkCostResult is partitioned, not a map — see that package.
 export type { BulkCostResult, ResolvedCost, UnresolvedCost } from '@app/products-contracts'
 import type { BulkCostResult, ResolvedCost, UnresolvedCost } from '@app/products-contracts'
+
+/** What recording a cost reports: the version, and whether it is the one in force for its date. */
+export interface RecordedCost extends ResolvedCost {
+  version_id: number
+  source: string
+  /** False when the same version already existed and nothing was written. */
+  created: boolean
+  in_force: boolean
+}
 
 @Injectable()
 export class CostService {
@@ -20,29 +31,40 @@ export class CostService {
   ) {}
 
   /**
-   * Records a cost effective from a date. Re-recording for a date that already
-   * has a version replaces that version; it never creates a second one, and it
-   * never touches any other version.
+   * Records a cost effective from a date as a NEW version. It never overwrites or removes another one, not even one of
+   * the same effective date: a correction is a later version of that date, and which of them is in force is decided at
+   * read time. Recording the very same value, date and source again is a no-op (re-applying a sheet adds nothing), and a
+   * version carrying an idempotency key (`sourceRef`) is created only once.
    */
-  async recordCost(sku: string, effectiveFrom: Date, costCents: number): Promise<ResolvedCost> {
+  async recordCost(sku: string, effectiveFrom: Date, costCents: number, meta?: CostVersionMeta): Promise<RecordedCost> {
     if (!Number.isInteger(costCents) || costCents < 0) {
       throw new BadRequestException('cost_cents must be a non-negative integer in minor units')
     }
 
+    const provenance = costProvenance(meta)
     const product = await this.prisma.product.findUnique({ where: { sku } })
     if (!product) throw new NotFoundException(`Unknown SKU ${sku}`)
 
-    const version = await this.prisma.costVersion.upsert({
-      where: { product_id_effective_from: { product_id: product.id, effective_from: effectiveFrom } },
-      create: { product_id: product.id, effective_from: effectiveFrom, cost_cents: costCents },
-      update: { cost_cents: costCents },
-    })
+    const existing = provenance.source_ref
+      ? await this.prisma.costVersion.findFirst({ where: { source: provenance.source, source_ref: provenance.source_ref } })
+      : await this.prisma.costVersion.findFirst({ where: { product_id: product.id, effective_from: effectiveFrom, cost_cents: costCents, source: provenance.source } })
+
+    const version =
+      existing ?? (await this.prisma.costVersion.create({ data: { product_id: product.id, effective_from: effectiveFrom, cost_cents: costCents, ...provenance } }))
+
+    const own = await this.prisma.costVersion.findMany({ where: { product_id: product.id, effective_from: { lte: version.effective_from } } })
+    const inForce = resolveVersionAsOf(own, version.effective_from, COST_RANK)
 
     return {
       sku,
       product_id: product.id,
       cost_cents: version.cost_cents,
       effective_from: toDateString(version.effective_from),
+      version_id: version.id,
+      source: version.source,
+      created: existing === null,
+      // False when another version of the same date outranks this one (an invoice over a manual entry).
+      in_force: inForce?.id === version.id,
     }
   }
 
@@ -76,13 +98,8 @@ export class CostService {
     const resolved: ResolvedCost[] = []
     const unresolved: UnresolvedCost[] = []
 
-    const versions = products.length
-      ? await this.costs.findEffectiveForProducts(
-          products.map(product => product.id),
-          asOf,
-        )
-      : []
-    const byProduct = new Map(versions.map(version => [version.product_id, version]))
+    const versions = products.length ? await this.costs.findUpTo(products.map(product => product.id), asOf) : []
+    const byProduct = resolveByProduct(versions, asOf, COST_RANK)
 
     for (const sku of requested) {
       const product = bySku.get(sku)
@@ -92,10 +109,7 @@ export class CostService {
         continue
       }
 
-      // DISTINCT ON already narrowed to the effective version per product; the
-      // pure helper re-applies the same rule so the two can be tested against
-      // each other rather than trusting the query alone.
-      const version = resolveCostAsOf(byProduct.get(product.id) ? [byProduct.get(product.id)!] : [], asOf)
+      const version = byProduct.get(product.id) ?? null
 
       if (!version) {
         // Distinct from a recorded cost of zero, which resolves normally.
@@ -119,8 +133,11 @@ export class CostService {
     }
   }
 
-  listVersions(productId: number) {
-    return this.costs.findAllForProduct(productId)
+  /** Every version of a product, oldest first, with the day it stops being in force and whether it was superseded. */
+  async listVersions(productId: number) {
+    const rows = await this.costs.findAllForProduct(productId)
+
+    return describeVersions(rows, COST_RANK).map(({ version, valid_to, superseded }) => ({ ...version, valid_to, superseded }))
   }
 }
 

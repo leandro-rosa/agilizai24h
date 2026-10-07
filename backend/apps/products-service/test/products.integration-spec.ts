@@ -144,14 +144,14 @@ describe('products integration', () => {
       expect(versions).toHaveLength(2)
     })
 
-    it('replaces in place when re-recording the same effective date', async () => {
+    it('adds a corrective version when re-recording the same effective date, keeping the earlier one', async () => {
       const product = await createProduct(unique('Produto'))
       await costs.recordCost(product.sku, new Date('2026-06-01'), 300)
-      await costs.recordCost(product.sku, new Date('2026-06-01'), 320)
+      await costs.recordCost(product.sku, new Date('2026-06-01'), 320, { source: 'manual', actor: 'ana@agiliz.ai', reason: 'correção' })
 
       const versions = await costs.listVersions(product.id)
-      expect(versions).toHaveLength(1)
-      expect(versions[0].cost_cents).toBe(320)
+      expect(versions.map(v => v.cost_cents)).toEqual([300, 320])
+      expect((await costs.costAsOf(product.sku, new Date('2026-06-15'))).cost_cents).toBe(320)
     })
 
     it('rejects a non-integer or negative cost', async () => {

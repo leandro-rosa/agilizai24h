@@ -52,6 +52,9 @@ model Product {
   /// Se a embalagem de compra pode ser fracionada no abastecimento.
   fractionable      Boolean?
 
+  /// Unidade em que o produto é vendido ("un", "kg", "porção"). O código interno do produto é o próprio SKU.
+  sale_unit String @default("un")
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -83,14 +86,34 @@ model CostVersion {
   /// real, and very expensive to diagnose.
   cost_cents Int
 
+  /// manual | invoice | pricing_intelligence | catalogue_sync | legacy_import | other.
+  /// `legacy_import` is only written by the migration: the origin of those rows was never recorded.
+  source String
+  /// Who entered it, when a person did (the session user, never what the client sent).
+  actor  String?
+  reason String?
+  /// Idempotency key of the origin (e.g. the purchase item id): (source, source_ref) is unique when set.
+  source_ref String?
+  /// Set when the version comes from a purchase: no other service's table is referenced, only its ids.
+  supplier_id      Int?
+  purchase_id      Int?
+  purchase_item_id Int?
+  invoice_number   String?
+  /// What was bought as it came on the invoice, so the unit cost can be audited.
+  purchase_quantity    Int?
+  purchase_total_cents Int?
+  pack_quantity        Int?
+  units_per_pack       Int?
+
+  /// Recording time. The version is never updated afterwards: a correction is a NEW version.
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
-  /// Re-recording a cost for the same effective date replaces that version
-  /// rather than creating a second one.
-  @@unique([product_id, effective_from])
+  /// NOT unique: recording the same effective date again adds a corrective version and keeps the earlier one.
+  /// Which one is in force is decided at read time (see `utils/resolve-version.ts`). The only uniqueness is the
+  /// partial index on (source, source_ref), created in the migration because Prisma cannot express it.
   @@index([product_id, effective_from])
   @@map("cost_version")
 }
@@ -113,12 +136,19 @@ model PriceVersion {
   product_id     Int
   effective_from DateTime @db.Date
   price_cents    Int
+
+  /// Same provenance as CostVersion. For `pricing_intelligence`, `source_ref` is the pricing decision id.
+  source     String
+  actor      String?
+  reason     String?
+  source_ref String?
+
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
   product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
-  @@unique([product_id, effective_from])
+  /// NOT unique, same as CostVersion: a same-date correction is a new version. Partial unique on (source, source_ref) in the migration.
   @@index([product_id, effective_from])
   @@map("price_version")
 }

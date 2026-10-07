@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
+import { describeVersions } from '../utils/describe-versions'
+import { priceProvenance, type PriceVersionMeta } from '../utils/provenance'
+import { NO_RANK, resolveByProduct, resolveVersionAsOf } from '../utils/resolve-version'
 
 export interface ResolvedPrice {
   sku: string
@@ -11,6 +14,14 @@ export interface ResolvedPrice {
 export interface UnresolvedPrice {
   sku: string
   reason: 'unknown_sku' | 'no_price_before_date'
+}
+
+/** O que gravar um preço devolve: a versão e se é a que vale para a data. */
+export interface RecordedPrice extends ResolvedPrice {
+  version_id: number
+  source: string
+  created: boolean
+  in_force: boolean
 }
 
 export interface BulkPriceResult {
@@ -36,33 +47,49 @@ function toDateString(date: Date): string {
 export class PriceService {
   constructor(private readonly prisma: PrismaClientService) {}
 
-  async recordPrice(sku: string, effectiveFrom: Date, priceCents: number): Promise<ResolvedPrice> {
+  /**
+   * Grava um preço como NOVA versão. Nunca sobrescreve nem apaga outra, nem a de mesma data de vigência: uma correção é
+   * uma versão posterior daquela data, e qual vale é decidido na leitura (a última gravada). Regravar o mesmo valor, data
+   * e origem não faz nada; uma versão com chave de idempotência (`sourceRef`, ex.: a decisão de preço) nasce uma vez só.
+   */
+  async recordPrice(sku: string, effectiveFrom: Date, priceCents: number, meta?: PriceVersionMeta): Promise<RecordedPrice> {
     if (!Number.isInteger(priceCents) || priceCents < 0) {
       throw new BadRequestException('price_cents must be a non-negative integer in minor units')
     }
 
+    const provenance = priceProvenance(meta)
     const product = await this.prisma.product.findUnique({ where: { sku } })
     if (!product) throw new NotFoundException(`Unknown SKU ${sku}`)
 
-    const version = await this.prisma.priceVersion.upsert({
-      where: { product_id_effective_from: { product_id: product.id, effective_from: effectiveFrom } },
-      create: { product_id: product.id, effective_from: effectiveFrom, price_cents: priceCents },
-      update: { price_cents: priceCents },
-    })
+    const existing = provenance.source_ref
+      ? await this.prisma.priceVersion.findFirst({ where: { source: provenance.source, source_ref: provenance.source_ref } })
+      : await this.prisma.priceVersion.findFirst({ where: { product_id: product.id, effective_from: effectiveFrom, price_cents: priceCents, source: provenance.source } })
+
+    const version =
+      existing ?? (await this.prisma.priceVersion.create({ data: { product_id: product.id, effective_from: effectiveFrom, price_cents: priceCents, ...provenance } }))
+
+    const own = await this.prisma.priceVersion.findMany({ where: { product_id: product.id, effective_from: { lte: version.effective_from } } })
+    const inForce = resolveVersionAsOf(own, version.effective_from, NO_RANK)
 
     return {
       sku,
       product_id: product.id,
       price_cents: version.price_cents,
       effective_from: toDateString(version.effective_from),
+      version_id: version.id,
+      source: version.source,
+      created: existing === null,
+      in_force: inForce?.id === version.id,
     }
   }
 
-  listVersions(productId: number) {
-    return this.prisma.priceVersion.findMany({
-      where: { product_id: productId },
-      orderBy: { effective_from: 'desc' },
-    })
+  /** Todas as versões do produto, da mais nova para a mais antiga, com o dia em que deixam de valer e se foram substituídas. */
+  async listVersions(productId: number) {
+    const rows = await this.prisma.priceVersion.findMany({ where: { product_id: productId }, orderBy: [{ effective_from: 'asc' }, { id: 'asc' }] })
+
+    return describeVersions(rows, NO_RANK)
+      .map(({ version, valid_to, superseded }) => ({ ...version, valid_to, superseded }))
+      .reverse()
   }
 
   /**
@@ -74,18 +101,13 @@ export class PriceService {
    */
   async bulkPriceAsOf(skus: string[], asOf: Date): Promise<BulkPriceResult> {
     const unique = [...new Set(skus)]
-    const products = await this.prisma.product.findMany({
-      where: { sku: { in: unique } },
-      include: {
-        price_versions: {
-          where: { effective_from: { lte: asOf } },
-          orderBy: { effective_from: 'desc' },
-          take: 1,
-        },
-      },
-    })
-
+    const products = await this.prisma.product.findMany({ where: { sku: { in: unique } } })
     const byS = new Map(products.map(p => [p.sku, p]))
+    const versions = products.length
+      ? await this.prisma.priceVersion.findMany({ where: { product_id: { in: products.map(p => p.id) }, effective_from: { lte: asOf } } })
+      : []
+    const inForce = resolveByProduct(versions, asOf, NO_RANK)
+
     const resolved: ResolvedPrice[] = []
     const unresolved: UnresolvedPrice[] = []
 
@@ -96,7 +118,7 @@ export class PriceService {
         continue
       }
 
-      const version = product.price_versions[0]
+      const version = inForce.get(product.id)
       if (!version) {
         unresolved.push({ sku, reason: 'no_price_before_date' })
         continue

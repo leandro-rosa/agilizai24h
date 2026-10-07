@@ -1,11 +1,11 @@
 ## 1. Versions in products-service (append-only, provenance)
 
-- [ ] 1.1 Migration: provenance columns on `cost_version` and `price_version`, relax the unique key to an index, backfill existing rows as `legacy_import`
-- [ ] 1.2 Record cost and price as new versions (never upsert), with source, user, reason and the purchase fields; catalogue-sync writes through the same recording with source `catalogue_sync`
-- [ ] 1.3 As-of lookup: latest effective date, then source precedence for the same date, then latest recorded; contract unchanged
-- [ ] 1.4 Version lists return derived `valid_to`, `superseded` and the provenance
-- [ ] 1.5 Tests: same-date correction, invoice over manual, later manual over earlier invoice, before the first version, bulk contract unchanged, past margin unchanged
-- [ ] 1.6 Apply the migration in dev and compare counts before and after
+- [x] 1.1 Migration: provenance columns on `cost_version` and `price_version`, relax the unique key to an index, backfill existing rows as `legacy_import`
+- [x] 1.2 Record cost and price as new versions (never upsert), with source, user, reason and the purchase fields; catalogue-sync writes through the same recording with source `catalogue_sync`
+- [x] 1.3 As-of lookup: latest effective date, then source precedence for the same date, then latest recorded; contract unchanged
+- [x] 1.4 Version lists return derived `valid_to`, `superseded` and the provenance
+- [x] 1.5 Tests: same-date correction, invoice over manual, later manual over earlier invoice, before the first version, bulk contract unchanged, past margin unchanged
+- [x] 1.6 Apply the migration in dev and compare counts before and after
 
 ## 2. Gateway
 

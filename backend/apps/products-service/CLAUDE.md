@@ -94,9 +94,32 @@ visível.
 - Sem custo por loja: custo é de rede. Mudar isso é mudança de spec.
 - Sem preço de venda: a reconciliação usa **custo**; receita vem dos relatórios
   de venda, que já a declaram.
-- Correção retroativa de custo é feita gravando uma versão corretiva para a
-  mesma data de vigência; não há trilha de auditoria de correções.
+- Correção retroativa de custo é uma versão corretiva de mesma data de vigência — agora **sem sobrescrever**
+  (ver "Versões só crescem" abaixo).
 
+
+## Versões só crescem, e dizem de onde vieram (`add-product-cost-price-versioning`)
+
+`cost_version` e `price_version` são **append-only**. Gravar uma data que já tem versão **adiciona** outra; nenhuma é sobrescrita nem apagada.
+Quem vale numa data (`utils/resolve-version.ts`, a única regra): a **maior data de vigência ≤ data**; entre versões da mesma data, para
+**custo** a de origem mais forte (`invoice` > `manual` > o resto) e depois a **última gravada**; para **preço**, a última gravada. Antes da
+primeira versão, ausente — nunca cai para a mais nova. O contrato do `bulk` (particionado) não mudou.
+
+- **Origem em toda versão:** `source` (`manual | invoice | pricing_intelligence | catalogue_sync | legacy_import | other`), `actor`, `reason`,
+  `source_ref` (chave de idempotência: o mesmo `(source, source_ref)` nasce uma vez, índice parcial no banco) e, no custo de NF,
+  `supplier_id`, `purchase_id`, `purchase_item_id`, `invoice_number`, `purchase_quantity`, `purchase_total_cents`, `pack_quantity`,
+  `units_per_pack`. `utils/provenance.ts` valida: **manual exige usuário e motivo**; **invoice exige fornecedor, compra, item e chave**;
+  dados de compra só com `invoice`; preço nunca é `invoice`; `pricing_intelligence` exige o usuário e o id da decisão. `legacy_import`
+  só a migration escreve. Sem `source` o padrão é `other` (não `manual`: a importação de custo do ingestion não é digitação).
+- **Sem `source` no banco não há default**: uma versão nova esquecida de rotular é recusada, nunca vira "legado".
+- **Backfill:** as versões que já existiam viraram `legacy_import` (255 custos e 23 preços na cópia testada), sem usuário nem fornecedor inventados.
+- **Gravar o mesmo valor, data e origem de novo não faz nada** (reaplicar a planilha não duplica); a resposta traz `created` e `in_force`
+  (falso quando outra versão da mesma data prevalece, ex.: uma NF sobre um manual).
+- **Fim de vigência é derivado** (`utils/describe-versions.ts`): o dia antes da próxima data; versão sobreposta na mesma data aparece
+  `superseded` e sem fim. `GET /products/:id/costs|prices` devolvem isso junto da origem. Nada guardado, então nunca discorda da série.
+- `/catalogue-sync/apply` só **adiciona** (`catalogue_sync`) e a leitura do "estado atual" usa a mesma regra.
+- `product.sale_unit` (padrão `un`); o código interno é o SKU.
+- Teste de integração (`test/`) roda contra o banco do ambiente: **só contra um banco descartável**.
 
 ## Vínculos de SKU (`SkuLink`) — troca de código de barras
 

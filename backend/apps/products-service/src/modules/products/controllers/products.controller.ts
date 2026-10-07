@@ -93,32 +93,45 @@ export class ProductsController {
 
   @Post('products/:sku/costs')
   @ApiOperation({
-    summary: 'Record a cost effective from a date',
+    summary: 'Record a cost effective from a date, as a new version',
     description:
-      'Never overwrites earlier versions. Re-recording for an effective date that already exists replaces that one version only.',
+      'Append-only: never overwrites or removes a version, not even one of the same effective date (a correction is a later version of that date). Recording the same value, date and source again, or the same `source_ref`, writes nothing. The reply says whether the version is the one in force for its date.',
   })
   recordCost(@Param('sku') sku: string, @Body() dto: RecordCostDto) {
-    return this.costs.recordCost(sku, new Date(dto.effective_from), dto.cost_cents)
+    return this.costs.recordCost(sku, new Date(dto.effective_from), dto.cost_cents, {
+      source: dto.source,
+      actor: dto.actor,
+      reason: dto.reason,
+      sourceRef: dto.source_ref,
+      supplierId: dto.supplier_id,
+      purchaseId: dto.purchase_id,
+      purchaseItemId: dto.purchase_item_id,
+      invoiceNumber: dto.invoice_number,
+      purchaseQuantity: dto.purchase_quantity,
+      purchaseTotalCents: dto.purchase_total_cents,
+      packQuantity: dto.pack_quantity,
+      unitsPerPack: dto.units_per_pack,
+    })
   }
 
   @Get('products/:id/costs')
-  @ApiOperation({ summary: 'List a product cost history' })
+  @ApiOperation({ summary: 'List a product cost history, oldest first, with `valid_to` and `superseded` derived' })
   listCosts(@Param('id', ParseIntPipe) id: number) {
     return this.costs.listVersions(id)
   }
 
   @Post('products/:sku/prices')
   @ApiOperation({
-    summary: 'Record a sale price effective from a date',
+    summary: 'Record a sale price effective from a date, as a new version',
     description:
-      'Mirrors the cost endpoint: re-recording for a date that already has a version replaces it and never creates a second one.',
+      'Same contract as the cost endpoint: append-only, a same-date correction is a later version, the same `source_ref` (e.g. the pricing decision) writes once.',
   })
   recordPrice(@Param('sku') sku: string, @Body() dto: RecordPriceDto) {
-    return this.prices.recordPrice(sku, new Date(dto.effective_from), dto.price_cents)
+    return this.prices.recordPrice(sku, new Date(dto.effective_from), dto.price_cents, { source: dto.source, actor: dto.actor, reason: dto.reason, sourceRef: dto.source_ref })
   }
 
   @Get('products/:id/prices')
-  @ApiOperation({ summary: 'List a product sale-price history' })
+  @ApiOperation({ summary: 'List a product sale-price history, newest first, with `valid_to` and `superseded` derived' })
   listPrices(@Param('id', ParseIntPipe) id: number) {
     return this.prices.listVersions(id)
   }

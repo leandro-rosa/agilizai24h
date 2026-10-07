@@ -10,21 +10,21 @@ export class CostVersionRepository extends PrismaRepository<CostVersion, CostVer
   }
 
   /**
-   * Costs in effect on `asOf` for a set of products, resolved in the database
-   * with DISTINCT ON so this stays one query rather than one per SKU.
+   * EVERY version of these products effective on or before `asOf`, not just one per product: several versions can
+   * share a date (a correction, an invoice over a manual entry), and which one is in force is decided by
+   * `resolveByProduct`, the one place that rule lives.
    */
-  findEffectiveForProducts(productIds: number[], asOf: Date) {
+  findUpTo(productIds: number[], asOf: Date) {
     return this.prismaClient.costVersion.findMany({
       where: { product_id: { in: productIds }, effective_from: { lte: asOf } },
-      orderBy: [{ product_id: 'asc' }, { effective_from: 'desc' }],
-      distinct: ['product_id'],
+      orderBy: [{ product_id: 'asc' }, { effective_from: 'asc' }, { id: 'asc' }],
     })
   }
 
   findAllForProduct(productId: number) {
     return this.prismaClient.costVersion.findMany({
       where: { product_id: productId },
-      orderBy: { effective_from: 'asc' },
+      orderBy: [{ effective_from: 'asc' }, { id: 'asc' }],
     })
   }
 }

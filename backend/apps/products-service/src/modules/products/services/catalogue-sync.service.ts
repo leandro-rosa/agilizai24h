@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
+import { COST_RANK, NO_RANK, resolveByProduct } from '../utils/resolve-version'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { normalizeName } from '../utils/normalize-name'
 import { planSync, type CatalogueEntry, type SheetRow, type SyncPlan } from '../utils/catalogue-sync'
@@ -27,19 +28,11 @@ export class CatalogueSyncService {
     const today = new Date(new Date().toISOString().slice(0, 10))
     const [products, costs, prices] = await Promise.all([
       this.prisma.product.findMany({ select: { id: true, sku: true, name: true, ean: true } }),
-      this.prisma.costVersion.findMany({
-        where: { effective_from: { lte: today } },
-        orderBy: [{ product_id: 'asc' }, { effective_from: 'desc' }],
-        distinct: ['product_id'],
-      }),
-      this.prisma.priceVersion.findMany({
-        where: { effective_from: { lte: today } },
-        orderBy: [{ product_id: 'asc' }, { effective_from: 'desc' }],
-        distinct: ['product_id'],
-      }),
+      this.prisma.costVersion.findMany({ where: { effective_from: { lte: today } } }),
+      this.prisma.priceVersion.findMany({ where: { effective_from: { lte: today } } }),
     ])
-    const cost = new Map(costs.map(c => [c.product_id, c.cost_cents]))
-    const price = new Map(prices.map(p => [p.product_id, p.price_cents]))
+    const cost = new Map([...resolveByProduct(costs, today, COST_RANK)].map(([id, version]) => [id, version.cost_cents]))
+    const price = new Map([...resolveByProduct(prices, today, NO_RANK)].map(([id, version]) => [id, version.price_cents]))
     return products.map(p => ({ sku: p.sku, name: p.name, ean: p.ean, cost_cents: cost.get(p.id) ?? null, price_cents: price.get(p.id) ?? null }))
   }
 
@@ -65,18 +58,15 @@ export class CatalogueSyncService {
     const newDate = new Date(newProductsFrom)
     const changeDate = new Date(changesFrom)
 
-    const recordCost = (productId: number, date: Date, cents: number) =>
-      this.prisma.costVersion.upsert({
-        where: { product_id_effective_from: { product_id: productId, effective_from: date } },
-        create: { product_id: productId, effective_from: date, cost_cents: cents },
-        update: { cost_cents: cents },
-      })
-    const recordPrice = (productId: number, date: Date, cents: number) =>
-      this.prisma.priceVersion.upsert({
-        where: { product_id_effective_from: { product_id: productId, effective_from: date } },
-        create: { product_id: productId, effective_from: date, price_cents: cents },
-        update: { price_cents: cents },
-      })
+    // Sheet sync only ever ADDS a version (source `catalogue_sync`); applying the same sheet twice adds nothing.
+    const recordCost = async (productId: number, date: Date, cents: number) => {
+      const same = await this.prisma.costVersion.findFirst({ where: { product_id: productId, effective_from: date, cost_cents: cents, source: 'catalogue_sync' } })
+      if (!same) await this.prisma.costVersion.create({ data: { product_id: productId, effective_from: date, cost_cents: cents, source: 'catalogue_sync' } })
+    }
+    const recordPrice = async (productId: number, date: Date, cents: number) => {
+      const same = await this.prisma.priceVersion.findFirst({ where: { product_id: productId, effective_from: date, price_cents: cents, source: 'catalogue_sync' } })
+      if (!same) await this.prisma.priceVersion.create({ data: { product_id: productId, effective_from: date, price_cents: cents, source: 'catalogue_sync' } })
+    }
 
     for (const item of plan.create.filter(c => selection.create.includes(c.sku))) {
       try {

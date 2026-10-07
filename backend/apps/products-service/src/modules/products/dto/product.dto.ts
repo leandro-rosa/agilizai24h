@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Matches, Min, ArrayNotEmpty, IsArray, ValidateNested } from 'class-validator'
-import { PRODUCT_CATEGORY_VALUES, type ProductCategory } from '../constants/product-vocabulary'
+import { PRODUCT_CATEGORY_VALUES, WRITABLE_VERSION_SOURCES, type ProductCategory } from '../constants/product-vocabulary'
 
 export class CreateProductDto {
   @ApiProperty({ example: 'REF-GUA-350' })
@@ -90,6 +90,35 @@ export class RecordCostDto {
   @IsInt()
   @Min(0)
   cost_cents: number
+
+  @ApiPropertyOptional({ enum: WRITABLE_VERSION_SOURCES, description: 'Where this version came from. Default "other". A manual one needs `actor` and `reason`.' })
+  @IsOptional()
+  @IsIn(WRITABLE_VERSION_SOURCES)
+  source?: string
+
+  @ApiPropertyOptional({ description: 'Who entered it. The gateway sets this from the session; never trust a browser value.' })
+  @IsOptional()
+  @IsString()
+  actor?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string
+
+  @ApiPropertyOptional({ description: 'Idempotency key of the origin (purchase item, pricing decision): the same key creates the version once.' })
+  @IsOptional()
+  @IsString()
+  source_ref?: string
+
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) supplier_id?: number
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) purchase_id?: number
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) purchase_item_id?: number
+  @ApiPropertyOptional() @IsOptional() @IsString() invoice_number?: string
+  @ApiPropertyOptional({ description: 'Units bought, as on the invoice.' }) @IsOptional() @IsInt() @Min(1) purchase_quantity?: number
+  @ApiPropertyOptional({ description: 'Total paid for them, in centavos.' }) @IsOptional() @IsInt() @Min(1) purchase_total_cents?: number
+  @ApiPropertyOptional({ description: 'Packages bought (boxes, bales).' }) @IsOptional() @IsInt() @Min(1) pack_quantity?: number
+  @ApiPropertyOptional({ description: 'Units in each package.' }) @IsOptional() @IsInt() @Min(1) units_per_pack?: number
 }
 
 export class BulkCostDto {
@@ -116,6 +145,26 @@ export class RecordPriceDto {
   @IsInt()
   @Min(0)
   price_cents: number
+
+  @ApiPropertyOptional({ enum: WRITABLE_VERSION_SOURCES, description: 'Where this version came from. Default "other". A manual one needs `actor` and `reason`.' })
+  @IsOptional()
+  @IsIn(WRITABLE_VERSION_SOURCES)
+  source?: string
+
+  @ApiPropertyOptional({ description: 'Who entered it. The gateway sets this from the session; never trust a browser value.' })
+  @IsOptional()
+  @IsString()
+  actor?: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string
+
+  @ApiPropertyOptional({ description: 'Idempotency key of the origin (purchase item, pricing decision): the same key creates the version once.' })
+  @IsOptional()
+  @IsString()
+  source_ref?: string
 }
 
 export class BulkPriceDto {
