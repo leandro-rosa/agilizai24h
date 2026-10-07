@@ -4,6 +4,7 @@ export interface FeeRow {
   acquirer: string
   payment_method: string
   rate_bps: number
+  fixed_cents?: number
   effective_from: Date
 }
 
@@ -11,6 +12,8 @@ export interface RateInForce {
   acquirer: string
   payment_method: PaymentMethod
   rate_bps: number
+  /** Fixed fee per sale, in centavos. */
+  fixed_cents: number
   /** 'YYYY-MM-DD' */
   effective_from: string
 }
@@ -48,6 +51,7 @@ export function ratesInForce(fees: FeeRow[], on: string): RatesInForce {
       acquirer: fee.acquirer,
       payment_method: fee.payment_method,
       rate_bps: fee.rate_bps,
+      fixed_cents: fee.fixed_cents ?? 0,
       effective_from: isoDay(fee.effective_from),
     }))
     .sort((a, b) => a.acquirer.localeCompare(b.acquirer) || a.payment_method.localeCompare(b.payment_method))

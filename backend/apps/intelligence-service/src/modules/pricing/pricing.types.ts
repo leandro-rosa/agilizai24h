@@ -34,6 +34,14 @@ export interface PricingParameters {
     costMaxAgeDays: number
     stableCostBps: number
   }
+  payment: {
+    /**
+     * Brand names the sales report uses mapped to the name the fee is registered
+     * under, folded (lower case, no accents or spaces). Sodexo is the former
+     * name of Pluxee, and sales still say SODEXO (owner decision 2026-10-06).
+     */
+    brandAliases: Record<string, string>
+  }
   minConfidence: 'low' | 'medium' | 'high'
 }
 
@@ -52,6 +60,8 @@ export interface PaymentCost {
   /** The mix-weighted fee as a fraction of the price. */
   rate: number
   components: PaymentCostComponent[]
+  /** Fixed fees per sold unit, in centavos (e.g. Ticket R$ 0,89 per sale, spread over the units sold). */
+  fixedPerUnitCents: number
   voucherShare: number
   voucherBasis: VoucherBasis
   /** Share of sales whose method or rate could not be resolved — priced at the average of the rest. */

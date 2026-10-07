@@ -35,6 +35,40 @@ The system SHALL return, for a given date, the rate in force for each registered
 - **WHEN** the rates for a date are read
 - **THEN** `voucher` is reported as having no rate, not as 0%
 
+### Requirement: A fee can carry a fixed amount per sale
+
+A fee SHALL optionally carry a fixed amount per sale, in centavos, in addition to its percentage (for example Ticket at R$ 0,89 per sale). The amount SHALL default to zero, SHALL be an exact integer and SHALL be dated together with the rate. Pricing SHALL treat it as a cost of each sold unit, weighted by the brand's share of the sales, and SHALL NOT convert it into a percentage.
+
+#### Scenario: Registering a fixed fee
+
+- **WHEN** the owner registers Ticket `voucher` at 5.99% with R$ 0,89 per sale
+- **THEN** both values are stored and returned for the dates in force
+
+#### Scenario: Rejecting an invalid fixed fee
+
+- **WHEN** a fixed fee is negative or not a whole number of centavos
+- **THEN** the system rejects it and stores nothing
+
+### Requirement: The rate used for a brand is the highest active one
+
+When a brand has several active conditions (for example PAT, Auxílio or Multi), the rate registered for the brand SHALL be the highest of them, because sales identify the brand and not the condition. Cancelled conditions (express reimbursement, advance payment) SHALL NOT be registered. This choice SHALL be documented with the registration so a later reader can tell it is a prudent assumption and not the measured mix.
+
+#### Scenario: Prudent rate per brand
+
+- **GIVEN** Ticket with PAT 3.6%, TR/TA 4.99% and TR/TA 5.99% active
+- **WHEN** the brand is registered
+- **THEN** its rate is 5.99%
+
+### Requirement: Brand aliases map sales names to registered brands
+
+The system SHALL map a brand name used by the sales report to the brand the fee is registered under, as backend configuration. Sodexo SHALL map to Pluxee by default. A sale under an alias SHALL use the rate of the real brand and SHALL NOT be reported as a brand without a rate.
+
+#### Scenario: Sodexo sales use the Pluxee rate
+
+- **GIVEN** a Pluxee rate is registered and sales are reported under SODEXO
+- **WHEN** the effective voucher fee is derived
+- **THEN** those sales are weighted with the Pluxee rate and no brand is reported as missing a rate
+
 ### Requirement: The effective voucher fee averages the brands
 
 The system SHALL derive an effective voucher fee as the average of the rates in force for all registered voucher brands. When the volume of voucher sales by brand in the period is sufficient, the average SHALL be weighted by each brand's share of that volume. Otherwise it SHALL be the simple average. The result SHALL state which of the two was used, and the simple average SHALL carry lower confidence. The sufficient-volume threshold SHALL be configurable.

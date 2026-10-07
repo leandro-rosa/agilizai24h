@@ -15,6 +15,10 @@ describe('pricing parameters', () => {
     expect(DEFAULT_PRICING_PARAMETERS.margin.targetBps).toBe(3500)
   })
 
+  it('maps Sodexo to Pluxee by default', () => {
+    expect(DEFAULT_PRICING_PARAMETERS.payment.brandAliases).toEqual({ sodexo: 'pluxee' })
+  })
+
   it('refuses an unknown parameter', () => {
     expect(() => mergePricingParameters(DEFAULT_PRICING_PARAMETERS, { margim: {} } as never)).toThrow(PricingParametersInvalidError)
     expect(() => mergePricingParameters(DEFAULT_PRICING_PARAMETERS, { margin: { nope: 1 } } as never)).toThrow(PricingParametersInvalidError)

@@ -172,6 +172,9 @@ model AcquirerFee {
   /// Basis points: 139 = 1,39%. Inteiro, porque taxa em float acumula erro
   /// ao multiplicar por milhares de transações.
   rate_bps       Int
+  /// Fixed fee charged on each sale, in centavos (e.g. Ticket R$ 0,89). Zero
+  /// when the acquirer charges none. Additive to `rate_bps`, never a percentage.
+  fixed_cents    Int      @default(0)
   effective_from DateTime @db.Date
   created_at     DateTime @default(now())
 

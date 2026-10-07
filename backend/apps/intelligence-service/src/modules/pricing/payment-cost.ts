@@ -4,6 +4,8 @@ export interface FeeRate {
   acquirer: string
   method: PaymentMethod
   rateBps: number
+  /** Fixed fee per sale, in centavos. */
+  fixedCents?: number
 }
 
 /** One group of the sales payment mix, as the sales service returns it. */
@@ -36,8 +38,10 @@ export function methodOf(raw: string | null): PaymentMethod | null {
 export interface VoucherFee {
   /** Basis points, fractional because it is an average. `null` when no voucher brand has a rate. */
   rateBps: number | null
+  /** The same average over the brands' fixed fee per sale, in centavos. */
+  fixedCents: number
   basis: VoucherBasis
-  brands: { brand: string; rateBps: number; share: number }[]
+  brands: { brand: string; rateBps: number; fixedCents: number; share: number }[]
   /** Brands with voucher sales and no registered rate. Never priced as 0%. */
   missingRateBrands: string[]
 }
@@ -47,19 +51,25 @@ export interface VoucherFee {
  * weighted by each brand's share of the voucher sales when there is enough
  * volume, a simple average otherwise.
  */
-export function effectiveVoucherFee(rates: FeeRate[], mix: MixRow[], minReceiptLines: number): VoucherFee {
+export function effectiveVoucherFee(rates: FeeRate[], mix: MixRow[], minReceiptLines: number, aliases: Record<string, string> = {}): VoucherFee {
   const voucherRates = rates.filter(rate => rate.method === 'voucher')
-  if (voucherRates.length === 0) return { rateBps: null, basis: 'none', brands: [], missingRateBrands: [] }
+  if (voucherRates.length === 0) return { rateBps: null, fixedCents: 0, basis: 'none', brands: [], missingRateBrands: [] }
 
   const voucherRows = mix.filter(row => methodOf(row.method) === 'voucher')
-  const registered = voucherRates.map(rate => ({ ...rate, key: fold(rate.acquirer) }))
+  const registered = voucherRates.map(rate => ({ ...rate, key: fold(rate.acquirer), fixedCents: rate.fixedCents ?? 0 }))
+  // Sodexo is Pluxee: a sale reported under an alias is priced with the rate registered under the real name.
+  const aliasOf = new Map(Object.entries(aliases).map(([from, to]) => [fold(from), fold(to)]))
+  const canonical = (name: string | null) => {
+    const key = fold(name)
+    return aliasOf.get(key) ?? key
+  }
 
   const amountByBrand = new Map<string, number>()
   const missing = new Set<string>()
   let lines = 0
   for (const row of voucherRows) {
     lines += row.receiptLines
-    const candidates = [fold(row.cardBrand), fold(row.acquirer)].filter(Boolean)
+    const candidates = [canonical(row.cardBrand), canonical(row.acquirer)].filter(Boolean)
     const hit = registered.find(rate => candidates.includes(rate.key))
     if (hit) amountByBrand.set(hit.key, (amountByBrand.get(hit.key) ?? 0) + row.amountCents)
     else if (row.amountCents > 0) missing.add(row.cardBrand ?? row.acquirer ?? 'sem bandeira')
@@ -71,10 +81,11 @@ export function effectiveVoucherFee(rates: FeeRate[], mix: MixRow[], minReceiptL
   if (weighted) {
     const brands = registered
       .filter(rate => amountByBrand.has(rate.key))
-      .map(rate => ({ brand: rate.acquirer, rateBps: rate.rateBps, share: (amountByBrand.get(rate.key) ?? 0) / matched }))
+      .map(rate => ({ brand: rate.acquirer, rateBps: rate.rateBps, fixedCents: rate.fixedCents, share: (amountByBrand.get(rate.key) ?? 0) / matched }))
 
     return {
       rateBps: brands.reduce((sum, brand) => sum + brand.rateBps * brand.share, 0),
+      fixedCents: brands.reduce((sum, brand) => sum + brand.fixedCents * brand.share, 0),
       basis: 'sales_weighted',
       brands,
       missingRateBrands: [...missing],
@@ -84,8 +95,9 @@ export function effectiveVoucherFee(rates: FeeRate[], mix: MixRow[], minReceiptL
   const share = 1 / registered.length
   return {
     rateBps: registered.reduce((sum, rate) => sum + rate.rateBps * share, 0),
+    fixedCents: registered.reduce((sum, rate) => sum + rate.fixedCents * share, 0),
     basis: 'simple_average',
-    brands: registered.map(rate => ({ brand: rate.acquirer, rateBps: rate.rateBps, share })),
+    brands: registered.map(rate => ({ brand: rate.acquirer, rateBps: rate.rateBps, fixedCents: rate.fixedCents, share })),
     missingRateBrands: [...missing],
   }
 }
@@ -96,12 +108,15 @@ export function effectiveVoucherFee(rates: FeeRate[], mix: MixRow[], minReceiptL
  * be resolved are reported, and priced at the average of the resolved ones so
  * the result stays usable, but `complete` is false and confidence drops.
  */
-export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLines: number): PaymentCost | null {
+export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLines: number, aliases: Record<string, string> = {}): PaymentCost | null {
   const total = mix.reduce((sum, row) => sum + row.amountCents, 0)
   if (total <= 0) return null
 
   const notes: string[] = []
-  const voucher = effectiveVoucherFee(rates, mix, minVoucherReceiptLines)
+  const voucher = effectiveVoucherFee(rates, mix, minVoucherReceiptLines, aliases)
+  const totalLines = mix.reduce((sum, row) => sum + row.receiptLines, 0)
+  const fixedOf = new Map(rates.map(rate => [`${fold(rate.acquirer)}|${rate.method}`, rate.fixedCents ?? 0]))
+  let fixedCentsTotal = 0
   const amount: Record<PaymentMethod, number> = { pix: 0, debit: 0, credit: 0, voucher: 0 }
   const rateOf: Partial<Record<PaymentMethod, number>> = {}
   let unresolved = 0
@@ -135,6 +150,9 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
     }
     amount[method] += row.amountCents
     weightedBps += rate * row.amountCents
+    // A fixed fee is charged per sale, so it follows the share of receipt lines, not of revenue.
+    const fixed = method === 'voucher' ? voucher.fixedCents : (fixedOf.get(`${fold(row.acquirer)}|${method}`) ?? 0)
+    fixedCentsTotal += fixed * row.receiptLines
     const entry = methodRate.get(method) ?? { weight: 0, bps: 0 }
     methodRate.set(method, { weight: entry.weight + row.amountCents, bps: entry.bps + rate * row.amountCents })
   }
@@ -152,6 +170,7 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
 
   return {
     rate: weightedBps / resolved / 10_000,
+    fixedPerUnitCents: totalLines > 0 ? fixedCentsTotal / totalLines : 0,
     components,
     voucherShare: amount.voucher / total,
     voucherBasis: amount.voucher > 0 || voucher.basis !== 'none' ? voucher.basis : 'none',

@@ -349,6 +349,13 @@ export class CreateFeeDto {
   @Max(10_000)
   rate_bps: number
 
+  @ApiPropertyOptional({ description: 'Fixed fee per sale, in centavos: 89 = R$ 0,89. Default 0.', example: 89 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10_000)
+  fixed_cents?: number
+
   @ApiProperty({ example: '2026-01-01' })
   @IsDateString()
   effective_from: string

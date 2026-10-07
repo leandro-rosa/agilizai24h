@@ -5,7 +5,7 @@ import { httpGet } from './http-read'
 
 export interface RatesInForceDto {
   on: string
-  rates: { acquirer: string; payment_method: 'pix' | 'debit' | 'credit' | 'voucher'; rate_bps: number; effective_from: string }[]
+  rates: { acquirer: string; payment_method: 'pix' | 'debit' | 'credit' | 'voucher'; rate_bps: number; fixed_cents?: number; effective_from: string }[]
   /** Methods with no rate registered on that date — never a 0% rate. */
   methods_without_rate: string[]
 }

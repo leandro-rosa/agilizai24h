@@ -138,9 +138,9 @@ export class PricingService {
       }
     })
 
-    const rates: FeeRate[] = fees.rates.map(rate => ({ acquirer: rate.acquirer, method: rate.payment_method, rateBps: rate.rate_bps }))
+    const rates: FeeRate[] = fees.rates.map(rate => ({ acquirer: rate.acquirer, method: rate.payment_method, rateBps: rate.rate_bps, fixedCents: rate.fixed_cents ?? 0 }))
     const mixRows: MixRow[] = mix.rows.map(row => ({ method: row.method, acquirer: row.acquirer, cardBrand: row.card_brand, receiptLines: row.receipt_lines, amountCents: row.amount_paid_cents }))
-    const payment = paymentCost(rates, mixRows, params.data.voucherMinReceiptLines)
+    const payment = paymentCost(rates, mixRows, params.data.voucherMinReceiptLines, params.payment.brandAliases)
     const operating = operatingShare(pnls)
 
     const costNow = new Map(costsNow.resolved.map(cost => [cost.sku, cost]))

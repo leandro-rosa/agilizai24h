@@ -33,6 +33,8 @@ export interface CostStructure {
   lossRate: number
   lossLevel: LossLevel
   paymentRate: number
+  /** Fixed payment fees per sold unit, in centavos, added on top of the percentage fees. */
+  paymentFixedCents: number
   voucherShare: number
   voucherBasis: string
   operatingShare: number
@@ -156,6 +158,9 @@ export function computePrice(input: PriceInput): PriceResult {
   const taxRate = (params.taxRateBps as number) / 10_000
 
   const lossAdjusted = cost / (1 - loss.rate)
+  // A fee charged per sale is a cost of the sold unit (lost units are never sold, so loss does not multiply it).
+  const fixedPerUnit = payment.fixedPerUnitCents
+  const unitCost = lossAdjusted + fixedPerUnit
   const variableShare = taxRate + payment.rate + operatingShare
 
   const structure: CostStructure = {
@@ -165,6 +170,7 @@ export function computePrice(input: PriceInput): PriceResult {
     lossRate: loss.rate,
     lossLevel: loss.level,
     paymentRate: payment.rate,
+    paymentFixedCents: fixedPerUnit,
     voucherShare: payment.voucherShare,
     voucherBasis: payment.voucherBasis,
     operatingShare,
@@ -172,12 +178,12 @@ export function computePrice(input: PriceInput): PriceResult {
   }
 
   const reasons: Reason[] = []
-  const unitProfit = (price: number) => price * (1 - variableShare) - lossAdjusted
+  const unitProfit = (price: number) => price * (1 - variableShare) - unitCost
   const marginAt = (price: number) => unitProfit(price) / price
 
   const currentMargin = marginAt(current)
-  const rawMinimum = priceForMargin(lossAdjusted, variableShare, margins.minimum)
-  const rawTarget = priceForMargin(lossAdjusted, variableShare, margins.target)
+  const rawMinimum = priceForMargin(unitCost, variableShare, margins.minimum)
+  const rawTarget = priceForMargin(unitCost, variableShare, margins.target)
 
   if (rawMinimum === null || rawTarget === null) {
     const result = insufficient(input, ['A estrutura de custos consome toda a margem: nenhum preço atinge a meta'], margins)

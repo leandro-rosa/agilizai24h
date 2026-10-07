@@ -49,6 +49,15 @@ describe('ratesInForce', () => {
   })
 })
 
+describe('fixed fee per sale', () => {
+  it('returns the fixed fee with the rate and defaults it to zero', () => {
+    const result = ratesInForce([{ ...fee('Ticket', 'voucher', 599, '2026-01-01'), fixed_cents: 89 }, fee('Alelo', 'voucher', 690, '2026-01-01')], '2026-02-01')
+
+    expect(result.rates.find(rate => rate.acquirer === 'Ticket')?.fixed_cents).toBe(89)
+    expect(result.rates.find(rate => rate.acquirer === 'Alelo')?.fixed_cents).toBe(0)
+  })
+})
+
 describe('CreateFeeDto validation', () => {
   const valid = { acquirer: 'PagBank', payment_method: 'debit', rate_bps: 139, effective_from: '2026-01-01' }
   const errorsFor = (input: object) => validate(plainToInstance(CreateFeeDto, input))
@@ -63,6 +72,8 @@ describe('CreateFeeDto validation', () => {
     ['non-integer rate', { rate_bps: 1.5 }],
     ['unknown method', { payment_method: 'boleto' }],
     ['empty acquirer', { acquirer: '   ' }],
+    ['negative fixed fee', { fixed_cents: -1 }],
+    ['non-integer fixed fee', { fixed_cents: 0.5 }],
   ])('rejects %s', async (_name, override) => {
     expect((await errorsFor({ ...valid, ...override })).length).toBeGreaterThan(0)
   })

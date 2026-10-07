@@ -28,6 +28,8 @@ See proposal.md for motivation. Current state that shapes the approach:
 
 **2. Fees stay in `AcquirerFee`; no schema change.** Voucher brands are `acquirer` values under `voucher`. The second debit/credit condition the owner mentioned (1.89% and 3.50% next to 1.39% and 2.97%) is registered as a distinct acquirer label, and the engine weights by the `(acquirer, method)` share observed in sales. Alternative: add a `condition` column to the key. Rejected: sales already carry `acquirer`, so a label is enough, and a column would touch a table that works. If a sales `acquirer` string has no registered match, it is reported as missing a rate, never as 0%.
 
+**2a. Fixed fee per sale becomes a column; rate per brand is the highest active one; aliases are configuration.** Decided by the owner on 2026-10-06 after the real sales were read: voucher is about 25% of revenue and the average receipt is about R$ 9–10, so Ticket's R$ 0,89 per sale is roughly a tenth of the ticket and cannot be left out. `AcquirerFee` gains `fixed_cents` (additive migration, default 0). Sales do not say PAT versus Auxílio, so each brand is registered at its highest active rate (Pluxee 6,90%, Ticket 5,99% + R$ 0,89, VR Benefícios 6,85%, Alelo 6,9%) and the averaging across brands is done by the engine; this is prudent, not measured, and is labelled so. Sodexo (the name sales use, about half of the voucher volume) is Pluxee: a `payment.brandAliases` pricing parameter, not a code constant. The fixed fee is spread over the units sold using the share of receipt lines, and is not multiplied by loss because lost units are never sold. Alternatives: one row per condition weighted by an unknown mix (rejected: nothing measures it), a percentage-equivalent of the fixed fee using the average ticket (rejected: it hides a per-sale cost that varies with price).
+
 **3. Fee API gets validation and an "in force" read.** Rate in `[0, 10000]` bps, method in the existing vocabulary, a read that returns the latest rate on or before a date per `(acquirer, method)` and an explicit "no rate". Seed values are proposed to the owner and registered only after confirmation; they are not code constants.
 
 **4. Voucher fee = average over brands.** Weighted by brand share of voucher sales in the lookback window when voucher sales reach a configurable minimum count; otherwise the simple average, flagged. The share of voucher in total sales comes from the same sales aggregate. Alternative: a single flat voucher rate. Rejected by the owner's instruction.
@@ -48,6 +50,8 @@ See proposal.md for motivation. Current state that shapes the approach:
 
 ## Risks / Trade-offs
 
+- [Receipt lines are used as the count of sales, but a coupon can hold several lines] → Overstates the per-sale fee slightly when baskets have several items; documented, and the average line is about R$ 9–10 so most coupons are one line.
+- [Highest-rate-per-brand overstates the voucher cost] → Intentional prudence chosen by the owner; labelled as an assumption, and a measured PAT/Auxílio split can replace it later without changing the engine.
 - [Sales `acquirer`/`card_brand` strings may not match registered names] → An alias check at registration time and an explicit "missing rate" result; weights never fall back silently to zero.
 - [Tax rate has no source today] → The engine refuses to recommend when it is unset, rather than assuming 7.07%; the owner confirms it as a parameter.
 - [Operating allocation may overlap with CMV or loss] → One documented list of what each component includes, a test that shows an expense once, and the owner reviews the first real report before trusting it.
@@ -61,5 +65,5 @@ Additive only. New tables in `intelligence-service`; new read routes in the gate
 
 ## Open Questions
 
-- Exact seed rates per voucher brand and which acquirer label carries the second debit/credit condition (owner to confirm; engine does not depend on the values).
+- Effective dates of every fee, and which acquirer label carries the second debit/credit condition (owner to confirm; engine does not depend on the values). Note that sales report the acquirer as `PagSeguro`, so PIX/debit/credit fees must be registered under that name to be matched.
 - Lookback window for the payment mix and loss (default proposed: last 3 closed months).

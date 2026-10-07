@@ -1,30 +1,85 @@
 # Taxas iniciais para confirmação do dono
 
-Nada aqui é cadastrado automaticamente. Só entra em `AcquirerFee` o que for confirmado.
+Nada aqui é cadastrado automaticamente. Só entra em `AcquirerFee` o que for confirmado, com data de vigência.
 Valores em % (o cadastro guarda em basis points: 1,39% = 139).
 
-## Informado pelo dono (referência atual)
+## O que as vendas reais mostram (dev, só leitura, recibos `OK`)
 
-| Adquirente | Método | Taxa | Vigência | Confirmado |
+| Método | Adquirente | Bandeira | Recibos | R$ | Ticket médio |
+|---|---|---|---|---|---|
+| Voucher | PagSeguro | SODEXO | 2.624 | 26.426 | 10,07 |
+| Voucher | PagSeguro | TICKET | 1.804 | 15.686 | 8,70 |
+| Voucher | PagSeguro | ALELO | 710 | 7.510 | 10,58 |
+| Voucher | PagSeguro | VR | 70 | 530 | 7,57 |
+| PIX | PagSeguro | — | 4.919 | 44.297 | 9,01 |
+| Débito | PagSeguro | MAESTRO / VISA_ELECTRON / MASTERCARD / ELO | — | — | ~9 |
+| Crédito | PagSeguro | MASTERCARD / VISA / ELO / AMEX | — | — | ~9–10 |
+
+- O adquirente nas vendas é **PagSeguro** (não "PagBank"): as taxas de PIX/débito/crédito precisam usar esse nome.
+- **SODEXO** é a maior bandeira de voucher (~53% do voucher) e não está na sua lista: Sodexo = Pluxee (mesma empresa, nome novo). Precisa de um alias.
+- Voucher ≈ 25% da receita nesses dados (sua referência: ~22%).
+- Ticket médio de ~R$ 9–10: uma taxa fixa por transação pesa muito (R$ 0,89 sobre R$ 8,70 ≈ 10%).
+
+## Informado pelo dono
+
+### PIX / débito / crédito (PagSeguro)
+
+| Método | Taxa | Confirmado |
+|---|---|---|
+| pix | 0,69% | [ ] |
+| debit | 1,39% (condição 2: 1,89%) | [ ] |
+| credit | 2,97% (condição 2: 3,50%) | [ ] |
+
+### VR/VA (valores recebidos; vigência ainda não informada)
+
+| Bandeira | Linha | Taxa | Prazo | Situação |
 |---|---|---|---|---|
-| PagBank | pix | 0,69% | ? | [ ] |
-| PagBank | debit | 1,39% | ? | [ ] |
-| PagBank | credit | 2,97% | ? | [ ] |
-| (rótulo a definir, ex.: "PagBank condição 2") | debit | 1,89% | ? | [ ] |
-| (rótulo a definir, ex.: "PagBank condição 2") | credit | 3,50% | ? | [ ] |
+| Pluxee (= Sodexo) | Administração | 6,90% | 28 dias | ativa |
+| Pluxee | Reembolso expresso | 9,6% | — | **cancelado** (não entra) |
+| Ticket | PAT | 3,6% | 28 dias | ativa |
+| Ticket | TR/TA até R$ 1.000 | 4,99% | 28 dias | ativa |
+| Ticket | TR/TA acima de R$ 1.000 | 5,99% | 28 dias | ativa |
+| Ticket | Taxa por transação | R$ 0,89 / R$ 1,15 | — | ativa (a confirmar o que cada valor significa) |
+| Ticket | Antecipação | 6,40% em 7 dias | — | **cancelada** (não entra) |
+| VR Benefícios | Auxílio | 6,85% | 28 dias | ativa |
+| VR Benefícios | PAT | 3,6% | 28 dias | ativa |
+| VR Benefícios | Transferência | R$ 10,90 | — | ativa (custo por transferência, não por venda) |
+| VR Benefícios | Antecipação | 0,2745% ao dia | — | **cancelada** (não entra) |
+| Alelo | Auxílio/Refeição | 6,9% | 30 dias | ativa |
+| Alelo | Cartão Natal | 6% | 30 dias | ativa |
+| Alelo | PAT | 3,6% | 15 dias | ativa |
+| Alelo | Multi | 6% | 2 dias | ativa |
 
-## VR/VA — valores não informados
+## Problemas de modelagem (o cadastro atual guarda um percentual por adquirente, método e data)
 
-| Bandeira | Método | Taxa | Vigência | Confirmado |
-|---|---|---|---|---|
-| Pluxee | voucher | ? | ? | [ ] |
-| Ticket | voucher | ? | ? | [ ] |
-| VR Benefícios | voucher | ? | ? | [ ] |
-| Alelo | voucher | ? | ? | [ ] |
+1. **Várias taxas por bandeira.** As vendas só dizem a bandeira, não se foi PAT, Auxílio ou Multi. Sem decisão, a taxa de cada bandeira é ambígua.
+2. **Taxa fixa por transação** (Ticket R$ 0,89 / R$ 1,15; VR transferência R$ 10,90) não é percentual. O cadastro atual não guarda valor fixo.
+3. **Faixa por valor** (Ticket TR/TA 4,99% / 5,99%): precisa saber se a faixa é por venda ou por volume mensal.
+4. **Prazo de 15 a 30 dias** é custo de capital de giro, não taxa de venda. Fora do preço nesta fase; pertence ao fluxo de caixa.
+5. Linhas **canceladas** não entram.
 
-## Perguntas
+## Outras perguntas
 
-1. A partir de que data cada taxa vale? (o cadastro é datado; uma data errada muda a margem de meses fechados)
-2. As taxas de 1,89% e 3,50% são de outro plano/máquina do PagBank ou de outro adquirente? Qual rótulo usar?
-3. Os nomes das bandeiras precisam bater com o que as vendas registram em `acquirer`/`card_brand`; confirmar a grafia.
-4. Alíquota de imposto (referência histórica ~7,07%): confirmar o valor e desde quando.
+- A partir de que data cada taxa vale? (o cadastro é datado; data errada muda a margem de meses fechados)
+- Alíquota de imposto (referência histórica ~7,07%): confirmar o valor e desde quando.
+
+## Decisões do dono (2026-10-06)
+
+- **Taxa por bandeira = a maior taxa ativa** (as vendas só informam a bandeira, não PAT/Auxílio). Média entre bandeiras feita pelo motor.
+- **Ticket: R$ 0,89 por venda** (o R$ 1,15 não vale).
+- **Sodexo = Pluxee.**
+- **Alíquota: 7,07%.**
+
+## Proposta de cadastro (ainda NÃO registrada: falta a data de vigência e a autorização para gravar no banco)
+
+| Adquirente | Método | Taxa | Fixo por venda |
+|---|---|---|---|
+| PagSeguro | pix | 0,69% | — |
+| PagSeguro | debit | 1,39% | — |
+| PagSeguro | credit | 2,97% | — |
+| Pluxee | voucher | 6,90% | — |
+| Ticket | voucher | 5,99% | R$ 0,89 |
+| VR Benefícios | voucher | 6,85% | — |
+| Alelo | voucher | 6,9% | — |
+
+Pendente: vigência de cada uma, e o tratamento das condições 1,89% (débito) e 3,50% (crédito).

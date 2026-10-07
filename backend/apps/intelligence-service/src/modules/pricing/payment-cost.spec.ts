@@ -45,6 +45,39 @@ describe('effectiveVoucherFee', () => {
   })
 })
 
+describe('Sodexo is Pluxee', () => {
+  const rates = [rate('Pluxee', 'voucher', 690), rate('Ticket', 'voucher', 599), rate('Alelo', 'voucher', 690)]
+  const aliases = { sodexo: 'pluxee' }
+
+  it('prices SODEXO sales with the Pluxee rate instead of reporting a missing brand', () => {
+    const fee = effectiveVoucherFee(rates, [row('Voucher', 'PagSeguro', 'SODEXO', 100, 5000), row('Voucher', 'PagSeguro', 'TICKET', 100, 5000)], 50, aliases)
+
+    expect(fee.missingRateBrands).toEqual([])
+    expect(fee.basis).toBe('sales_weighted')
+    expect(fee.rateBps).toBeCloseTo(0.5 * 690 + 0.5 * 599, 6)
+  })
+
+  it('without the alias the Sodexo sales are reported missing', () => {
+    expect(effectiveVoucherFee(rates, [row('Voucher', 'PagSeguro', 'SODEXO', 100, 5000), row('Voucher', 'PagSeguro', 'TICKET', 100, 5000)], 50).missingRateBrands).toEqual(['SODEXO'])
+  })
+})
+
+describe('fixed fee per sale', () => {
+  const rates = [rate('PagBank', 'pix', 69), { ...rate('Ticket', 'voucher', 599), fixedCents: 89 }, rate('Alelo', 'voucher', 690)]
+
+  it('weights the voucher fixed fee by brand and spreads it over every sale', () => {
+    // 100 Ticket lines + 100 Alelo lines, equal revenue => voucher fixed = 44.5; voucher is 200 of 400 lines => 22.25 per sold line
+    const mix = [row('Voucher', 'PagSeguro', 'TICKET', 100, 5000), row('Voucher', 'PagSeguro', 'ALELO', 100, 5000), row('Pix', 'PagBank', null, 200, 10_000)]
+    const cost = paymentCost(rates, mix, 50)!
+
+    expect(cost.fixedPerUnitCents).toBeCloseTo(22.25, 6)
+  })
+
+  it('is zero when no fee has a fixed part', () => {
+    expect(paymentCost([rate('PagBank', 'pix', 69)], [row('Pix', 'PagBank', null, 10, 1000)], 50)!.fixedPerUnitCents).toBe(0)
+  })
+})
+
 describe('paymentCost', () => {
   const RATES = [rate('PagBank', 'pix', 69), rate('PagBank', 'debit', 139), rate('PagBank', 'credit', 297), ...VOUCHERS]
 

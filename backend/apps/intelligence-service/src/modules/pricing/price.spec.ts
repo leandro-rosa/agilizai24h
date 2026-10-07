@@ -2,7 +2,7 @@ import { computePrice, shapePrice, type PriceInput } from './price'
 import { DEFAULT_PRICING_PARAMETERS, mergePricingParameters } from './pricing.parameters'
 import { ANALYSIS_ONLY_STATEMENT, type PaymentCost } from './pricing.types'
 
-const payment = (overrides: Partial<PaymentCost> = {}): PaymentCost => ({ rate: 0.02, components: [], voucherShare: 0.22, voucherBasis: 'sales_weighted', unresolvedShare: 0, complete: true, notes: [], ...overrides })
+const payment = (overrides: Partial<PaymentCost> = {}): PaymentCost => ({ rate: 0.02, fixedPerUnitCents: 0, components: [], voucherShare: 0.22, voucherBasis: 'sales_weighted', unresolvedShare: 0, complete: true, notes: [], ...overrides })
 
 const PARAMS = mergePricingParameters(DEFAULT_PRICING_PARAMETERS, { taxRateBps: 707 })
 
@@ -111,6 +111,25 @@ describe('computePrice', () => {
 
     expect(result.targetMargin).toBe(0.3)
     expect(result.marginFromCategory).toBe(true)
+  })
+})
+
+describe('fixed fee per sale', () => {
+  it('raises the target price and shows up in the structure', () => {
+    const without = computePrice(base())
+    const withFixed = computePrice(base({ payment: payment({ fixedPerUnitCents: 20 }) }))
+
+    // 20 cents per sold unit / (1 - 0.1307 - 0.35) = +38.5 cents on the raw target
+    expect(withFixed.structure?.paymentFixedCents).toBe(20)
+    expect((withFixed.targetPriceCents as number) - (without.targetPriceCents as number)).toBeGreaterThanOrEqual(30)
+    expect(withFixed.currentMargin as number).toBeLessThan(without.currentMargin as number)
+  })
+
+  it('is not multiplied by the loss rate: lost units are never sold', () => {
+    const result = computePrice(base({ loss: { rate: 0.12, level: 'product' }, payment: payment({ fixedPerUnitCents: 20 }) }))
+
+    expect(result.structure?.lossAdjustedCostCents).toBeCloseTo(309 / 0.88, 6)
+    expect(result.structure?.paymentFixedCents).toBe(20)
   })
 })
 

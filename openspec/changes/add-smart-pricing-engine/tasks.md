@@ -4,6 +4,7 @@
 - [x] 1.2 Add a read for the rate in force on a date per (acquirer, method), returning an explicit "no rate" and never 0
 - [x] 1.3 Expose the new read through the gateway next to the existing `GET/POST /treasury/fees`
 - [x] 1.4 Unit tests: effective-date selection, past-month reads, invalid input, missing rate
+- [x] 1.6 Add `fixed_cents` to `AcquirerFee` (additive migration, default 0), accept it on registration with validation, return it from the in-force read
 - [x] 1.5 Prepare the proposed seed rates (PagBank pix/debit/credit, the second debit/credit condition, each voucher brand) as a reviewable list for the owner; register only what the owner confirms
 
 ## 2. Sales aggregate (sales-service)
@@ -17,6 +18,8 @@
 - [x] 3.1 Implement the effective voucher fee: weighted by brand share when voucher volume reaches the configured minimum, simple average otherwise, with the method label and the lower-confidence flag
 - [x] 3.2 Report a brand with sales but no registered rate as missing, never as 0%
 - [x] 3.3 Implement the mix-weighted payment cost over the lookback window per store or network
+- [x] 3.5 Brand aliases (Sodexo = Pluxee) as a pricing parameter, applied before matching sales brands to registered fees
+- [x] 3.6 Fixed fee per sale: weight by brand, spread over the units sold by receipt-line share, add to the unit cost without multiplying it by loss
 - [x] 3.4 Unit tests for the spec scenarios (weighted, simple fallback, missing brand, mix weighting)
 
 ## 4. Pricing parameters (intelligence-service)
@@ -51,5 +54,6 @@
 ## 8. Verification
 
 - [x] 8.1 Run `pnpm turbo run lint typecheck` and the affected services' tests
+- [ ] 8.4 Register the confirmed fees (PagSeguro pix/debit/credit; Pluxee 6,90%, Ticket 5,99% + R$ 0,89, VR Benefícios 6,85%, Alelo 6,9%) and the 7,07% tax rate once the owner gives the effective dates and authorises writing to the dev database
 - [ ] 8.2 Run the engine on real data (read-only) for one store and one month and review the report with the owner before building the screen; confirm no price version was created in products-service
 - [x] 8.3 Confirm the Smart Supply engine's tests and parameter version are unchanged
