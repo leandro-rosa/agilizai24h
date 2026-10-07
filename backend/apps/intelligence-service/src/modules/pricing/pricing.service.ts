@@ -7,6 +7,7 @@ import { AccountingClient } from '../sources/accounting.client'
 import { ProductsClient } from '../sources/products.client'
 import { SalesClient } from '../sources/sales.client'
 import { StoresClient } from '../sources/stores.client'
+import { SuppliersClient } from '../sources/suppliers.client'
 import { SupplyClient } from '../sources/supply.client'
 import { TreasuryClient } from '../sources/treasury.client'
 import { chooseLoss, type LossObservation } from './loss'
@@ -73,6 +74,7 @@ export class PricingService {
     private readonly stores: StoresClient,
     private readonly treasury: TreasuryClient,
     private readonly accounting: AccountingClient,
+    private readonly suppliers: SuppliersClient,
     private readonly purchases: PurchaseSource,
     private readonly parameters: PricingParametersService,
   ) {
@@ -95,6 +97,8 @@ export class PricingService {
     const wanted = query.skus?.length ? new Set(query.skus) : null
     const scoped = wanted ? catalogue.filter(product => wanted.has(product.sku)) : catalogue
     const skus = scoped.map(product => product.sku)
+
+    const supplierNames = new Map((await this.suppliers.suppliers(correlationId)).map(supplier => [supplier.id, supplier.name]))
 
     const [facts, costsNow, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased] = await Promise.all([
       Promise.all(months.map(month => this.loader.month(month, stores, correlationId))),
@@ -161,6 +165,10 @@ export class PricingService {
         sku,
         name: product.name,
         category: product.category ?? null,
+        subcategory: product.subcategory ?? null,
+        ean: product.ean ?? null,
+        supplierId: product.supplier_id ?? null,
+        supplierName: product.supplier_id ? (supplierNames.get(product.supplier_id) ?? null) : null,
         costCents: cost?.cost_cents ?? null,
         costAgeDays: cost ? daysBetween(cost.effective_from, asOf) : null,
         costFromPurchase: purchased.has(sku),

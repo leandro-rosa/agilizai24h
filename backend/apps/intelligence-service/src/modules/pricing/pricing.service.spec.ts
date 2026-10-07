@@ -37,7 +37,7 @@ function build(taxRateBps: number | null) {
   }
   const products = {
     products: async () => [
-      { id: 1, sku: 'COCA', name: 'Coca-Cola Lata 350ml', category: 'beverage' },
+      { id: 1, sku: 'COCA', name: 'Coca-Cola Lata 350ml', category: 'beverage', subcategory: 'Refrigerantes', ean: '789490001537', supplier_id: 9 },
       { id: 2, sku: 'MARM', name: 'Marmita', category: 'meal' },
     ],
     costsAsOf: async (_skus: string[], asOf: string) => ({
@@ -71,9 +71,10 @@ function build(taxRateBps: number | null) {
     }),
   }
   const accounting = { pnl: async (period: string) => pnl(period) }
+  const suppliers = { suppliers: async () => [{ id: 9, name: 'Coca-Cola FEMSA' }] }
   const parameters = { current: async () => ({ id: 7, createdAt: '', note: null, values: params }) }
 
-  return new PricingService(supply as never, sales as never, products as never, stores as never, treasury as never, accounting as never, new NullPurchaseSource(), parameters as never)
+  return new PricingService(supply as never, sales as never, products as never, stores as never, treasury as never, accounting as never, suppliers as never, new NullPurchaseSource(), parameters as never)
 }
 
 describe('PricingService.report', () => {
@@ -90,6 +91,15 @@ describe('PricingService.report', () => {
     expect(coca.monthlyUnits).toBe(100)
     expect(coca.status).toBe('adjust')
     expect(coca.recommendedPriceCents).toBeGreaterThan(590)
+  })
+
+  it('carries the identity the table needs, and none for a product without a supplier', async () => {
+    const report = await build(707).report({ period: '2026-09' })
+    const coca = report.products.find(product => product.sku === 'COCA')!
+    const marmita = report.products.find(product => product.sku === 'MARM')!
+
+    expect(coca).toMatchObject({ ean: '789490001537', supplierId: 9, supplierName: 'Coca-Cola FEMSA', category: 'beverage', categoryLabel: 'Bebidas', subcategory: 'Refrigerantes' })
+    expect(marmita).toMatchObject({ ean: null, supplierId: null, supplierName: null, categoryLabel: 'Refeições' })
   })
 
   it('gives no recommendation to a product without a cost and counts it', async () => {

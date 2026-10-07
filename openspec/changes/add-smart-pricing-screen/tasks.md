@@ -1,36 +1,36 @@
 ## 1. Report additions (intelligence-service)
 
-- [ ] 1.1 Add to each report product: SKU, EAN, supplier (id and name, none when absent), category key and Portuguese label (unknown → "Outros"), subcategory
-- [ ] 1.2 Compute the margin at the previous cost and at the current cost and the change in percentage points, per product
-- [ ] 1.3 Unit tests with hand-computed fixtures: cost rising 2,80 → 3,09 at an unchanged price; product without a supplier; unknown category
+- [x] 1.1 Add to each report product: SKU, EAN, supplier (id and name, none when absent), category key and Portuguese label (unknown → "Outros"), subcategory
+- [x] 1.2 Compute the margin at the previous cost and at the current cost and the change in percentage points, per product
+- [x] 1.3 Unit tests with hand-computed fixtures: cost rising 2,80 → 3,09 at an unchanged price; product without a supplier; unknown category
 
 ## 2. Stored runs (intelligence-service)
 
-- [ ] 2.1 Table `pricing_run` (period, store or null, status, engine and parameter version, computed_at, error, report JSON) and its migration
-- [ ] 2.2 Queue and worker that execute the report for a scope and store it; de-duplicate a run already in progress; a failed run keeps its reason and does not replace the latest completed one
-- [ ] 2.3 Routes: start a run, read the latest completed run with its freshness and the last failure, "no run yet" as an explicit answer
-- [ ] 2.4 Tests: reading does not run the engine, de-duplication, failure keeps the previous run, no-run answer
-- [ ] 2.5 Set `WITH_KAFKA_BROKERS=false` in the new test setup and register the queue in the app module
+- [x] 2.1 Table `pricing_run` (period, store or null, status, engine and parameter version, computed_at, error, report JSON) and its migration
+- [x] 2.2 Queue and worker that execute the report for a scope and store it; de-duplicate a run already in progress; a failed run keeps its reason and does not replace the latest completed one
+- [x] 2.3 Routes: start a run, read the latest completed run with its freshness and the last failure, "no run yet" as an explicit answer
+- [x] 2.4 Tests: reading does not run the engine, de-duplication, failure keeps the previous run, no-run answer
+- [x] 2.5 Set `WITH_KAFKA_BROKERS=false` in the new test setup and register the queue in the app module
 
 ## 3. History, simulation and stores (intelligence-service)
 
-- [ ] 3.1 Monthly history of a product: cost and price in force at month end, margin, markup and the four flags; empty values for missing cost or price
-- [ ] 3.2 Simulation route over the stored cost structure with the engine formulas, rejecting a price that is not a positive whole number of centavos, and "not simulable" for a product without a structure
-- [ ] 3.3 Per-store view: units, revenue, loss and estimated margin per store, missing stores listed as missing
-- [ ] 3.4 Tests: month without cost, price-change flag, simulated price equals the engine value for the same price, product without a structure, store without data
+- [x] 3.1 Monthly history of a product: cost and price in force at month end, margin, markup and the four flags; empty values for missing cost or price
+- [x] 3.2 Simulation route over the stored cost structure with the engine formulas, rejecting a price that is not a positive whole number of centavos, and "not simulable" for a product without a structure
+- [x] 3.3 Per-store view: units, revenue, loss and estimated margin per store, missing stores listed as missing
+- [x] 3.4 Tests: month without cost, price-change flag, simulated price equals the engine value for the same price, product without a structure, store without data
 
 ## 4. Decisions (intelligence-service and gateway)
 
-- [ ] 4.1 Table `pricing_decision` and its migration (product, previous and new price, effective date, user, recommended price and confidence, run and parameter version, reason, status, idempotency key, error)
-- [ ] 4.2 Routes in intelligence-service to record a decision, mark it applied or failed, and list a product's and the latest decisions; the reason is required when the new price differs from the recommendation
-- [ ] 4.3 Gateway orchestration of apply: record pending, write the price with `POST /products/:sku/prices`, mark applied or failed; product write permission; idempotent on the key
-- [ ] 4.4 A read that lists pending decisions older than a few minutes
-- [ ] 4.5 Tests: accepting the recommendation, a different price without a reason, price write failure leaves a failed decision, repeated request creates one decision, two same-day changes keep both previous prices, permission refused
+- [x] 4.1 Table `pricing_decision` and its migration (product, previous and new price, effective date, user, recommended price and confidence, run and parameter version, reason, status, idempotency key, error)
+- [x] 4.2 Routes in intelligence-service to record a decision, mark it applied or failed, and list a product's and the latest decisions; the reason is required when the new price differs from the recommendation
+- [x] 4.3 Gateway orchestration of apply: record pending, write the price with `POST /products/:sku/prices`, mark applied or failed; product write permission; idempotent on the key
+- [x] 4.4 A read that lists pending decisions older than a few minutes
+- [x] 4.5 Tests: accepting the recommendation, a different price without a reason, price write failure leaves a failed decision, repeated request creates one decision, two same-day changes keep both previous prices, permission refused
 
 ## 5. Gateway routes
 
-- [ ] 5.1 Routes for runs (start, read), history, simulate, stores, decisions (apply, list), reusing the existing permission decorators
-- [ ] 5.2 Confirm `no-writes.spec.ts` of intelligence-service still passes: the only price write is in the gateway
+- [x] 5.1 Routes for runs (start, read), history, simulate, stores, decisions (apply, list), reusing the existing permission decorators
+- [x] 5.2 Confirm `no-writes.spec.ts` of intelligence-service still passes: the only price write is in the gateway
 
 ## 6. Admin foundation
 

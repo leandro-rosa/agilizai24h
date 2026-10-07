@@ -1,3 +1,4 @@
+import { categoryLabel } from './categories'
 import { marginsFor } from './pricing.parameters'
 import { ANALYSIS_ONLY_STATEMENT, ENGINE_VERSION, type Confidence, type LossLevel, type PaymentCost, type PricingParameters, type PricingStatus } from './pricing.types'
 
@@ -5,6 +6,11 @@ export interface PriceInput {
   sku: string
   name?: string | null
   category?: string | null
+  subcategory?: string | null
+  ean?: string | null
+  /** Declared supplier; none when the catalogue has none. */
+  supplierId?: number | null
+  supplierName?: string | null
   /** Acquisition cost per unit. `null` = no cost registered. */
   costCents: number | null
   /** Age of that cost in days, and whether it came from a real purchase. */
@@ -50,7 +56,13 @@ export interface Reason {
 export interface PriceResult {
   sku: string
   name: string | null
+  ean: string | null
+  supplierId: number | null
+  supplierName: string | null
+  /** The catalogue key (`beverage`...) and its Portuguese label; margin overrides are keyed by the key. */
   category: string | null
+  categoryLabel: string
+  subcategory: string | null
   status: PricingStatus
   confidence: Confidence
   /** `null` when insufficient data or below the minimum confidence. */
@@ -65,6 +77,9 @@ export interface PriceResult {
   marginFromCategory: boolean
   structure: CostStructure | null
   costVariation: number | null
+  /** The economic margin at the current price had the cost not changed, and the change the cost caused, in fraction points. */
+  marginAtPreviousCost: number | null
+  marginChangeFromCost: number | null
   monthlyUnits: number
   /** Margin in R$ per month at the current price. */
   monthlyMarginCents: number | null
@@ -102,11 +117,22 @@ export function shapePrice(rawCents: number, params: PricingParameters): number 
   return params.psychological.enabled ? psychological(stepped, params.psychological.endingCents) : stepped
 }
 
-function insufficient(input: PriceInput, reasons: string[], margins: ReturnType<typeof marginsFor>): PriceResult {
+function identity(input: PriceInput) {
   return {
     sku: input.sku,
     name: input.name ?? null,
+    ean: input.ean ?? null,
+    supplierId: input.supplierId ?? null,
+    supplierName: input.supplierName ?? null,
     category: input.category ?? null,
+    categoryLabel: categoryLabel(input.category),
+    subcategory: input.subcategory ?? null,
+  }
+}
+
+function insufficient(input: PriceInput, reasons: string[], margins: ReturnType<typeof marginsFor>): PriceResult {
+  return {
+    ...identity(input),
     status: 'insufficient_data',
     confidence: 'insufficient_data',
     minimumPriceCents: null,
@@ -120,6 +146,8 @@ function insufficient(input: PriceInput, reasons: string[], margins: ReturnType<
     marginFromCategory: margins.fromCategory,
     structure: null,
     costVariation: null,
+    marginAtPreviousCost: null,
+    marginChangeFromCost: null,
     monthlyUnits: input.monthlyUnits,
     monthlyMarginCents: null,
     impactCentsPerMonth: null,
@@ -253,10 +281,13 @@ export function computePrice(input: PriceInput): PriceResult {
 
   const impact = shown === null ? null : input.monthlyUnits * (unitProfit(shown) - unitProfit(current))
 
+  // What the margin would be at the current price with the previous cost, so a cost rise is shown as a loss of margin.
+  const previousCost = input.previousCostCents
+  const marginAtPreviousCost =
+    previousCost && previousCost > 0 ? (current * (1 - variableShare) - (previousCost / (1 - loss.rate) + fixedPerUnit)) / current : null
+
   return {
-    sku: input.sku,
-    name: input.name ?? null,
-    category: input.category ?? null,
+    ...identity(input),
     status,
     confidence,
     minimumPriceCents: minimumPrice,
@@ -270,6 +301,8 @@ export function computePrice(input: PriceInput): PriceResult {
     marginFromCategory: margins.fromCategory,
     structure,
     costVariation,
+    marginAtPreviousCost,
+    marginChangeFromCost: marginAtPreviousCost === null ? null : currentMargin - marginAtPreviousCost,
     monthlyUnits: input.monthlyUnits,
     monthlyMarginCents: input.monthlyUnits * unitProfit(current),
     impactCentsPerMonth: impact,

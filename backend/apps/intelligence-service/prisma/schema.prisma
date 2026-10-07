@@ -38,6 +38,63 @@ model PricingParameterVersion {
   @@map("pricing_parameter_version")
 }
 
+/// One execution of the pricing report for a period and a scope (a store, or the
+/// network when store_id is null), stored with the versions that produced it so
+/// the screen reads it instead of recomputing, and a number can be reproduced.
+model PricingRun {
+  id                   String    @id
+  /// The last month of the window, YYYY-MM.
+  period               String
+  /// Null = the network.
+  store_id             Int?
+  /// 'queued' | 'running' | 'completed' | 'failed'
+  status               String
+  engine_version       String
+  /// The pricing parameter version in force; updated to the one actually used when the run completes.
+  parameter_version_id Int
+  error                String?
+  /// The full report; null until the run completes.
+  report               Json?
+  created_at           DateTime  @default(now())
+  finished_at          DateTime?
+
+  @@index([period, store_id, status])
+  @@map("pricing_run")
+}
+
+/// A decision to change a product price, recorded BEFORE the price is written
+/// and closed as applied or failed after, so a price can always be traced to
+/// who changed it, from what, to what and why. The recommendation, confidence
+/// and versions are copied in so the decision stays explainable if the run it
+/// came from is later replaced.
+model PricingDecision {
+  id                       String   @id
+  /// Makes a repeated request one decision: unique.
+  idempotency_key          String   @unique
+  sku                      String
+  /// The price in force just before this change; null when none was.
+  previous_price_cents     Int?
+  new_price_cents          Int
+  effective_from           DateTime @db.Date
+  /// Who approved it (the session user, set by the gateway).
+  actor                    String
+  /// What the engine recommended in the report the user saw; null when it recommended none.
+  recommended_price_cents  Int?
+  confidence               String?
+  run_id                   String?
+  parameter_version_id     Int?
+  reason                   String?
+  /// 'pending' | 'applied' | 'failed'
+  status                   String
+  error                    String?
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
+
+  @@index([sku, created_at])
+  @@index([status, created_at])
+  @@map("pricing_decision")
+}
+
 /// The baseline quantity ("qtd itens por loja") of a SKU — ONE value per SKU,
 /// applied to every store (owner decision 2026-09-30), with an append-only
 /// history: a re-import adds a row, it never overwrites. The current baseline

@@ -114,6 +114,31 @@ describe('computePrice', () => {
   })
 })
 
+describe('cost change impact on margin', () => {
+  it('shows the margin at the previous cost and the drop the cost rise caused', () => {
+    const result = computePrice(base({ costCents: 309, previousCostCents: 280 }))
+
+    // variable share 0.1307, loss 2%: margin at price 590 = (590 * 0.8693 - cost / 0.98) / 590
+    const at = (cost: number) => (590 * 0.8693 - cost / 0.98) / 590
+    expect(result.marginAtPreviousCost).toBeCloseTo(at(280), 6)
+    expect(result.currentMargin).toBeCloseTo(at(309), 6)
+    expect(result.marginChangeFromCost).toBeCloseTo(at(309) - at(280), 6)
+    expect(result.marginChangeFromCost as number).toBeLessThan(0)
+  })
+
+  it('has no impact without a previous cost', () => {
+    expect(computePrice(base({ previousCostCents: null })).marginChangeFromCost).toBeNull()
+  })
+})
+
+describe('category label', () => {
+  it('uses the Portuguese label and falls back to Outros for an unknown key', () => {
+    expect(computePrice(base({ category: 'beverage' })).categoryLabel).toBe('Bebidas')
+    expect(computePrice(base({ category: 'frozen' })).categoryLabel).toBe('Outros')
+    expect(computePrice(base({ category: null })).categoryLabel).toBe('Outros')
+  })
+})
+
 describe('fixed fee per sale', () => {
   it('raises the target price and shows up in the structure', () => {
     const without = computePrice(base())

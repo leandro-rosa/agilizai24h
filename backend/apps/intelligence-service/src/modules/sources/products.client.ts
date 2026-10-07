@@ -11,6 +11,7 @@ export interface ProductDto {
   /** 'meal' | 'snack' | 'beverage' | 'essential' (the first level). */
   category?: string | null
   subcategory?: string | null
+  ean?: string | null
   package_type?: string | null
   units_per_package?: number | null
   /** Declared supplier (suppliers-service id); null/absent when none is registered. */

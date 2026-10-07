@@ -1,6 +1,8 @@
 /** One job per store; the run is finished when every store has reported. */
 export const INTELLIGENCE_QUEUES = {
   ENGINE_STORE: 'intelligence.engine-store',
+  /** One job per pricing report run (a period and a scope). */
+  PRICING_RUN: 'intelligence.pricing-run',
 } as const
 
 /** Bounded retries: a transient read failure gets another try, a real defect reaches a terminal failure. */
@@ -13,5 +15,11 @@ export interface EngineStoreJob {
   schemaVersion: 1
   runId: string
   storeId: number
+  correlationId?: string
+}
+
+export interface PricingRunJob {
+  schemaVersion: 1
+  runId: string
   correlationId?: string
 }

@@ -13,6 +13,11 @@ export interface PurchaseSummaryDto {
   rows: { sku: string; units_paid: number; units_on_sale: number; bonus_units: number; cents_paid: number; cents_on_sale: number }[]
 }
 
+export interface SupplierDto {
+  id: number
+  name: string
+}
+
 @Injectable()
 export class SuppliersClient {
   constructor(
@@ -24,5 +29,10 @@ export class SuppliersClient {
     const body = await httpGet<PurchaseSummaryDto>(this.http, `${this.config.getOrThrow<string>('SUPPLIERS_SERVICE_URL')}/purchases/summary?month=${encodeURIComponent(month)}`, { correlationId })
 
     return body as PurchaseSummaryDto
+  }
+
+  /** Active suppliers, for naming a product's declared supplier. */
+  async suppliers(correlationId?: string): Promise<SupplierDto[]> {
+    return (await httpGet<SupplierDto[]>(this.http, `${this.config.getOrThrow<string>('SUPPLIERS_SERVICE_URL')}/suppliers`, { correlationId })) ?? []
   }
 }

@@ -14,6 +14,7 @@ import { BaselineModule } from './modules/baseline/baseline.module'
 import { FlagsModule } from './modules/flags/flags.module'
 import { ParametersModule } from './modules/parameters/parameters.module'
 import { PricingModule } from './modules/pricing/pricing.module'
+import { PricingRunWorker } from './modules/pricing/pricing-run.worker'
 import { RefreshModule } from './modules/refresh/refresh.module'
 import { REFRESH_QUEUES } from './modules/refresh/refresh.constants'
 import { PeriodUpdatedRefreshWorker, RefreshAdvanceWorker, RefreshCheckWorker } from './modules/refresh/refresh.workers'
@@ -44,6 +45,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
     HoldItModule.register(
       [
         INTELLIGENCE_QUEUES.ENGINE_STORE,
+        INTELLIGENCE_QUEUES.PRICING_RUN,
         BACKTEST_QUEUES.BACKTEST,
         PERIOD_EVENT_QUEUES.PERIOD_DATA_UPDATED_INTELLIGENCE,
         REFRESH_QUEUES.CHECK,
@@ -52,7 +54,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common'
       { withKafkaBrokers: false },
     ),
     HoldItModule.registerWorker({
-      processors: [EngineStoreWorker, BacktestWorker, PeriodUpdatedRefreshWorker, RefreshCheckWorker, RefreshAdvanceWorker],
+      processors: [EngineStoreWorker, PricingRunWorker, BacktestWorker, PeriodUpdatedRefreshWorker, RefreshCheckWorker, RefreshAdvanceWorker],
     }),
   ],
 })
