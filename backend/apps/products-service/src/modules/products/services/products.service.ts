@@ -3,7 +3,7 @@ import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { NameOverrideRepository } from '../../db-client/repositories/name-override.repository'
 import { ProductRepository } from '../../db-client/repositories/product.repository'
 import { UNRESOLVED_REASONS, type ProductCategory, type UnresolvedReason } from '../constants/product-vocabulary'
-import type { ProductOrigin } from '../constants/product-vocabulary'
+import type { ProductOrigin, ProductStatus } from '../constants/product-vocabulary'
 import { cleanEan } from '../utils/ean'
 import { nextSku, type NextSku } from '../utils/next-sku'
 import { resolveOrigin } from '../utils/origin'
@@ -127,7 +127,7 @@ export class ProductsService {
 
   async update(
     id: number,
-    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number; packageType?: string; fractionable?: boolean; supplierId?: number | null },
+    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number; packageType?: string; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: ProductStatus; saleUnit?: string },
   ): Promise<ProductView> {
     const existing = await this.prisma.product.findUnique({ where: { id } })
     if (!existing) throw new NotFoundException(`Product ${id} not found`)
@@ -141,6 +141,9 @@ export class ProductsService {
         ...(changes.packageType !== undefined ? { package_type: changes.packageType } : {}),
         ...(changes.fractionable !== undefined ? { fractionable: changes.fractionable } : {}),
         ...(changes.supplierId !== undefined ? { supplier_id: changes.supplierId } : {}),
+        ...(changes.subcategory !== undefined ? { subcategory: changes.subcategory } : {}),
+        ...(changes.status !== undefined ? { status: changes.status } : {}),
+        ...(changes.saleUnit !== undefined ? { sale_unit: changes.saleUnit } : {}),
       },
       include: WITH_EANS,
     })

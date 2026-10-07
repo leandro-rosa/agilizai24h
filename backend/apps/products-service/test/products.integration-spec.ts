@@ -629,4 +629,19 @@ describe('products integration', () => {
       expect(Number(suggestion.highest)).toBeGreaterThanOrEqual(918007)
     })
   })
+
+  describe('editing a product (real SQL)', () => {
+    it('reads status and subcategory, and edits status, subcategory and sale unit without touching anything else', async () => {
+      const product = await createProduct('Para editar')
+      expect(product).toMatchObject({ status: 'active', subcategory: null, sale_unit: 'un' })
+
+      const edited = await products.update(product.id, { subcategory: 'Marmitas', status: 'discontinued', saleUnit: 'porção' })
+
+      expect(edited).toMatchObject({ status: 'discontinued', subcategory: 'Marmitas', sale_unit: 'porção', name: 'Para editar', sku: product.sku })
+      expect((await products.findById(product.id)).status).toBe('discontinued')
+      expect(edited.origin.type).toBe('manual')
+
+      expect((await products.update(product.id, { subcategory: null })).subcategory).toBeNull()
+    })
+  })
 })

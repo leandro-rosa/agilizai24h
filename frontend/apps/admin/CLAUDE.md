@@ -851,18 +851,28 @@ navegador logado; typecheck, lint, specs do parser e a prévia contra o catálog
 
 Cartão em `/products/sync` (precisa de `products:write`): lista os nomes de fornecedor da planilha com quantos produtos do catálogo vincularia. O painel **sugere** (igual ao cadastro, alias já confirmado, ou nome que contém/está contido) mas nunca pré-seleciona; o operador vincula, cria fornecedor (nome + categoria) ou pula, e confirma num diálogo. Ao confirmar, cada grafia vira alias do fornecedor (a próxima sincronização casa sozinha) e `Product.supplier_id` é gravado por `PATCH /products/:id` — só nos produtos sem fornecedor. Lógica pura e testada em `lib/catalogue-sync/supplier-review.ts`. Em 2026-10-06 a planilha tinha 26 nomes (249 linhas, 248 SKUs no catálogo); 0 casavam por alias, ~9 tinham candidato por semelhança.
 
-## `/products` — Cadastro de produtos
+## `/products` — Cadastro de produtos (`add-product-cost-price-versioning`, etapa 5)
 
-Tela majoritariamente somente-leitura (catálogo, custo e preço do dia,
-margem) — a única capacidade de edição é o diálogo "Editar embalagem"
-(`add-restock-mix-operational-revision`, tarefa 14), escopado só aos 3
-campos de embalagem (`unitsPerPackage`/`packageType`/`fractionable`).
-`ProductView`/`toView()` em `products-service` ainda não devolve a maior
-parte dos outros campos nullable de `Product` (`subcategory`, `ean`,
-`supplier_id`, `net_weight`, `ncm`, `cest`, `shelf_life_days`, `status`) —
-gap conhecido, deixado de propósito pela tarefa 2 desta mudança. Um editor
-futuro para esses campos precisa primeiro de trabalho no backend
-(`toView()` e o tipo `ProductView`), não só de frontend.
+Lista com busca (nome, SKU ou **qualquer EAN, inclusive inativo**: uma nota antiga ainda traz o código antigo), categoria, fornecedor, situação; colunas SKU, nome (com a
+etiqueta "Cadastrado por NF-e"), EAN principal (+N ativos), categoria, fornecedor, custo e preço de hoje, margem (traço sem os dois lados, nunca 0%), situação. **Ver** abre o
+painel lateral pela URL (`/products?sku=110024&tab=costs`: é o link de "Ver produto" das notas e das mensagens de EAN; aba desconhecida cai em Visão geral, SKU
+inexistente não abre nada); **Editar** (`products:write`) altera nome, subcategoria, unidade de venda, situação e embalagem — descontinuar não apaga histórico.
+O painel (`components/products/product-drawer.tsx`) tem quatro abas, todas leitura do que o products-service guarda:
+
+- **Visão geral**: identificação (SKU = código interno, unidade de venda, fornecedor, embalagem), **de onde veio o cadastro** (`originText`: NF-e/manual/"carga inicial — origem não
+  registrada", nunca chutada) e a tabela de **EANs** (situação, desde, até, origem, usuário, observação; **+ Adicionar EAN** com "tornar principal" e "inativar o atual";
+  tornar principal / inativar / reativar; **nunca apaga**, o histórico do EAN fica no produto).
+- **Custos**: cinco coisas diferentes e nomeadas (`lib/products/cost-metrics.ts`): custo **vigente** (o que a Precificação usa), **último custo de compra**, **custo médio das compras**
+  (ponderado, rotulado MÉTRICA DERIVADA, só com compras que têm quantidade e total) e o **custo usado no CMV do mês** (o vigente no último dia do mês, a regra do financeiro); a
+  tabela traz vigência com fim, origem, fornecedor e nota (link `/purchases/invoices?purchase=ID`), quantidade/total/embalagem da compra, usuário, motivo e quando foi registrado;
+  versão substituída (mesma data, outra prevaleceu) fica à vista, esmaecida. "Histórico disponível a partir de …": nada é afirmado antes da primeira versão.
+- **Preços**: preço vigente com origem, versões (a da Precificação Inteligente traz o id da decisão) e a **margem de cada período**, cada um com o preço e o custo que valiam na data em que
+  começou (`GET /products/:id/price-margins`): uma mudança de hoje nunca altera um período antigo.
+- **Histórico**: linha do tempo única de custo e preço, "R$ 5,70 → R$ 6,20", origem, usuário, nota, fornecedor e motivo.
+
+**Novo custo / Novo preço** (`manual-version-dialog.tsx`): valor, data de início e **motivo obrigatório**; o gateway força origem "Manual" e o usuário da sessão, e o painel nem
+manda esses campos. Aviso fixo: custo de data passada só muda o CMV do mês quando ele for reapurado. As abas **Compras** e **Margem** são a etapa 6 (ainda não existem).
+Não visto no navegador logado (sem credencial); specs com API mockada e relógio fixo.
 
 ## `/ingestion` — "Arquivos no Drive" (`add-drive-ingestion-source`)
 

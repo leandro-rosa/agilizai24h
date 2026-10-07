@@ -195,7 +195,6 @@ export function PurchaseFormDialog({
     }
   }
 
-  const costOfRow = newProductFor !== null ? parseMoneyToCents(rows[newProductFor]?.cost ?? "") : null;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -317,7 +316,6 @@ export function PurchaseFormDialog({
         <NewProductDialog
           open
           onOpenChange={(next) => !next && setNewProductFor(null)}
-          unitCostCents={costOfRow}
           supplierId={supplierId ? Number(supplierId) : undefined}
           onCreated={(product: Product) => {
             setCreated((current) => [...current, product]);

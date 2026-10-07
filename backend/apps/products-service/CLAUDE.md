@@ -184,7 +184,7 @@ custo/preço**; nunca reescreve nome, categoria ou EAN de produto existente.
 - O catálogo real não tinha NENHUM preço de venda cadastrado: a primeira sincronização propõe
   preencher o preço de todos os existentes.
 - Gaps: fornecedor da planilha só é exibido (products-service não fala com suppliers-service;
-  `supplier_id` fica nulo até alguém vincular); `ProductView` devolve `supplier_id` e `PATCH /products/:id` aceita `supplierId` (null desvincula), mas ainda não devolve EAN/subcategoria; o arquivo
+  `supplier_id` fica nulo até alguém vincular); `ProductView` devolve `supplier_id` e `PATCH /products/:id` aceita `supplierId` (null desvincula), e hoje devolve também `eans`, `subcategory`, `status`, `sale_unit` e `origin` (o `PATCH` aceita `subcategory`, `status` e `saleUnit`); o arquivo
   é escolhido à mão (sem leitura automática do Drive); depois de cadastrar, as linhas já rejeitadas
   como `unknown_sku` só entram numa NOVA importação de vendas/abastecimento.
 

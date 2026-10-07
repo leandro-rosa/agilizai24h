@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
 import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Matches, Min, ArrayNotEmpty, IsArray, ValidateNested } from 'class-validator'
-import { PRODUCT_CATEGORY_VALUES, WRITABLE_EAN_SOURCES, WRITABLE_VERSION_SOURCES, type ProductCategory } from '../constants/product-vocabulary'
+import { PRODUCT_CATEGORY_VALUES, PRODUCT_STATUSES, WRITABLE_EAN_SOURCES, WRITABLE_VERSION_SOURCES, type ProductCategory, type ProductStatus } from '../constants/product-vocabulary'
 
 export class CreateProductDto {
   @ApiProperty({ example: 'REF-GUA-350' })
@@ -96,6 +96,15 @@ export class UpdateProductDto {
   @IsInt()
   @Min(1)
   supplierId?: number | null
+
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() subcategory?: string | null
+
+  @ApiPropertyOptional({ enum: PRODUCT_STATUSES, description: 'discontinued tira o produto de circulação sem apagar histórico.' })
+  @IsOptional()
+  @IsIn(PRODUCT_STATUSES)
+  status?: ProductStatus
+
+  @ApiPropertyOptional({ example: 'un' }) @IsOptional() @IsString() @IsNotEmpty() saleUnit?: string
 }
 
 export class RecordCostDto {

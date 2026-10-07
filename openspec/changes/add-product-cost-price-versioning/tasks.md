@@ -50,9 +50,9 @@
 
 ## 5. Admin `/products`
 
-- [ ] 5.1 List with the filters and columns of the registry
-- [ ] 5.2 Drawer: Visão geral (with the Identificação section: EANs table and + Adicionar EAN), Custos, Preços, Histórico
-- [ ] 5.3 Dialogs for a new cost and a new price (value, start date, reason)
+- [x] 5.1 List with the filters and columns of the registry
+- [x] 5.2 Drawer: Visão geral (with the Identificação section: EANs table and + Adicionar EAN), Custos, Preços, Histórico
+- [x] 5.3 Dialogs for a new cost and a new price (value, start date, reason)
 
 ## 6. Purchases and margin tabs
 

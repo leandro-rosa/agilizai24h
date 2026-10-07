@@ -55,6 +55,78 @@ export interface NewProductFromInvoice {
   originOn: string;
 }
 
+/** Uma versão de custo, como o histórico a devolve: nunca apagada, com a origem e o fim da vigência derivados da próxima versão. */
+export interface CostVersionView {
+  id: number;
+  effective_from: string;
+  cost_cents: number;
+  /** Último dia em que vale; nulo quando é a vigente ou quando foi substituída por outra da mesma data. */
+  valid_to: string | null;
+  /** Outra versão da mesma data prevaleceu: esta nunca valeu, mas fica no histórico. */
+  superseded: boolean;
+  source: VersionSource;
+  actor: string | null;
+  reason: string | null;
+  supplier_id: number | null;
+  purchase_id: number | null;
+  invoice_number: string | null;
+  purchase_quantity: number | null;
+  purchase_total_cents: number | null;
+  pack_quantity: number | null;
+  units_per_pack: number | null;
+  created_at: string;
+}
+
+export interface PriceVersionView {
+  id: number;
+  effective_from: string;
+  price_cents: number;
+  valid_to: string | null;
+  superseded: boolean;
+  source: VersionSource;
+  actor: string | null;
+  reason: string | null;
+  /** Para um preço vindo da Precificação Inteligente, o id da decisão. */
+  source_ref: string | null;
+  created_at: string;
+}
+
+export type VersionSource = "manual" | "invoice" | "pricing_intelligence" | "catalogue_sync" | "legacy_import" | "other";
+
+export interface TimelineEvent {
+  kind: "cost" | "price";
+  date: string;
+  value_cents: number;
+  /** O que valia na véspera; nulo na primeira versão (nada é afirmado antes dela). */
+  previous_value_cents: number | null;
+  source: VersionSource;
+  actor: string | null;
+  reason: string | null;
+  superseded: boolean;
+  recorded_at: string;
+  supplier_id?: number | null;
+  purchase_id?: number | null;
+  invoice_number?: string | null;
+  purchase_quantity?: number | null;
+  purchase_total_cents?: number | null;
+  source_ref?: string | null;
+}
+
+export interface MarginInterval {
+  from: string;
+  to: string | null;
+  price_cents: number | null;
+  cost_cents: number | null;
+  /** `(preço − custo) / preço`; nulo quando falta um dos lados, nunca zero. */
+  margin: number | null;
+  markup: number | null;
+  price_source: VersionSource | null;
+  cost_source: VersionSource | null;
+  cost_invoice_number: string | null;
+  cost_supplier_id: number | null;
+  price_reason: string | null;
+}
+
 export interface NextSku {
   /** O número depois do maior SKU de seis dígitos; uma SUGESTÃO (nada é reservado). Nulo quando não há de onde contar. */
   suggested: string | null;
@@ -133,7 +205,7 @@ export interface SyncApplyResult {
 export const productsApi = createApi({
   reducerPath: "productsApi",
   baseQuery: gatewayBaseQuery,
-  tagTypes: ["Product", "SkuLink"],
+  tagTypes: ["Product", "SkuLink", "ProductHistory"],
   endpoints: (builder) => ({
     getProducts: builder.query<Product[], void>({
       query: () => "/products",
@@ -182,17 +254,39 @@ export const productsApi = createApi({
       // como zero, o que aqui INFLA a margem em vez de deixar o buraco visível.
       query: ({ skus, asOf }) => ({ url: "/products/prices/bulk", method: "POST", body: { skus, as_of: asOf } }),
     }),
-    recordPrice: builder.mutation<unknown, { sku: string; effective_from: string; price_cents: number }>({
-      query: ({ sku, ...body }) => ({ url: `/products/${sku}/prices`, method: "POST", body }),
-      invalidatesTags: ["Product"],
+    /** Preço digitado à mão: o gateway força origem "manual" e o usuário da sessão, e exige o motivo. */
+    recordPrice: builder.mutation<unknown, { sku: string; effective_from: string; price_cents: number; reason: string }>({
+      query: ({ sku, ...body }) => ({ url: `/products/${encodeURIComponent(sku)}/prices`, method: "POST", body }),
+      invalidatesTags: ["Product", "ProductHistory"],
     }),
     createProduct: builder.mutation<Product, { sku: string; name: string; category: Product["category"]; ean?: string; supplierId?: number }>({
       query: (body) => ({ url: "/products", method: "POST", body }),
       invalidatesTags: ["Product"],
     }),
-    /** Custo de referência datado (não existe "custo atual": toda cifra de custo vale a partir de uma data). */
-    recordCost: builder.mutation<unknown, { sku: string; effective_from: string; cost_cents: number }>({
+    /** Custo digitado à mão (não existe "custo atual": todo custo vale a partir de uma data). Origem "manual", usuário da sessão e motivo obrigatório. */
+    recordCost: builder.mutation<unknown, { sku: string; effective_from: string; cost_cents: number; reason: string }>({
       query: ({ sku, ...body }) => ({ url: `/products/${encodeURIComponent(sku)}/costs`, method: "POST", body }),
+      invalidatesTags: ["Product", "ProductHistory"],
+    }),
+    getProductCosts: builder.query<CostVersionView[], number>({
+      query: (id) => `/products/${id}/costs`,
+      providesTags: ["ProductHistory"],
+    }),
+    getProductPrices: builder.query<PriceVersionView[], number>({
+      query: (id) => `/products/${id}/prices`,
+      providesTags: ["ProductHistory"],
+    }),
+    getProductTimeline: builder.query<{ product_id: number; history_available_from: string | null; events: TimelineEvent[] }, number>({
+      query: (id) => `/products/${id}/timeline`,
+      providesTags: ["ProductHistory"],
+    }),
+    getProductMargins: builder.query<{ product_id: number; history_available_from: string | null; intervals: MarginInterval[] }, number>({
+      query: (id) => `/products/${id}/price-margins`,
+      providesTags: ["ProductHistory"],
+    }),
+    /** Inativar ou tornar principal um EAN. Nunca apaga: o histórico de compras e vendas dele continua. */
+    updateProductEan: builder.mutation<ProductEan[], { productId: number; eanId: number; status?: "active" | "inactive"; primary?: boolean; valid_to?: string; note?: string }>({
+      query: ({ productId, eanId, ...body }) => ({ url: `/products/${productId}/eans/${eanId}`, method: "PATCH", body }),
       invalidatesTags: ["Product"],
     }),
     getNextSku: builder.query<NextSku, void>({
@@ -205,13 +299,13 @@ export const productsApi = createApi({
       invalidatesTags: ["Product"],
     }),
     /** Vincula um código de barras a um produto que já existe (nunca cria produto). */
-    addProductEan: builder.mutation<ProductEan[], { productId: number; ean: string; note?: string }>({
+    addProductEan: builder.mutation<ProductEan[], { productId: number; ean: string; note?: string; valid_from?: string; make_primary?: boolean; retire_current?: boolean }>({
       query: ({ productId, ...body }) => ({ url: `/products/${productId}/eans`, method: "POST", body }),
       invalidatesTags: ["Product"],
     }),
     updateProduct: builder.mutation<
       Product,
-      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number; packageType?: string; fractionable?: boolean; supplierId?: number | null } }
+      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number; packageType?: string; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: "active" | "discontinued"; saleUnit?: string } }
     >({
       query: ({ id, changes }) => ({ url: `/products/${id}`, method: "PATCH", body: changes }),
       invalidatesTags: ["Product"],
@@ -235,4 +329,9 @@ export const {
   useCreateProductFromInvoiceMutation,
   useAddProductEanMutation,
   useRecordCostMutation,
+  useGetProductCostsQuery,
+  useGetProductPricesQuery,
+  useGetProductTimelineQuery,
+  useGetProductMarginsQuery,
+  useUpdateProductEanMutation,
 } = productsApi;
