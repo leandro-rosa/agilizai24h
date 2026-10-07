@@ -89,6 +89,7 @@ describe('PricingService.report', () => {
     expect(coca.structure?.paymentRate).toBeCloseTo(0.017486, 6)
     expect(coca.structure?.voucherShare).toBeCloseTo(0.22, 6)
     expect(coca.monthlyUnits).toBe(100)
+    expect(coca.monthlyRevenueCents).toBe(59_000)
     expect(coca.status).toBe('adjust')
     expect(coca.recommendedPriceCents).toBeGreaterThan(590)
   })

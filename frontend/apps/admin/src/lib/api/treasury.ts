@@ -203,7 +203,16 @@ export interface AcquirerFee {
   acquirer: string;
   payment_method: PaymentMethod;
   rate_bps: number;
+  /** Taxa fixa por venda, em centavos (Ticket R$ 0,89 = 89). */
+  fixed_cents: number;
   effective_from: string;
+}
+
+export interface RatesInForce {
+  on: string;
+  rates: AcquirerFee[];
+  /** Métodos sem taxa cadastrada na data — nunca 0%. */
+  methods_without_rate: PaymentMethod[];
 }
 
 export interface PendingImport {
@@ -461,6 +470,10 @@ export const treasuryApi = createApi({
       query: () => "/treasury/fees",
       providesTags: ["Fee"],
     }),
+    getFeesInForce: builder.query<RatesInForce, string | void>({
+      query: (on) => `/treasury/fees/in-force${on ? `?on=${on}` : ""}`,
+      providesTags: ["Fee"],
+    }),
     createFee: builder.mutation<AcquirerFee, Partial<AcquirerFee>>({
       query: (body) => ({ url: "/treasury/fees", method: "POST", body }),
       invalidatesTags: ["Fee"],
@@ -564,6 +577,7 @@ export const {
   useDeleteMappingMutation,
   useApplyMappingsMutation,
   useGetFeesQuery,
+  useGetFeesInForceQuery,
   useCreateFeeMutation,
   useUploadStatementsMutation,
   useGetPendingImportsQuery,

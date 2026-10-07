@@ -930,6 +930,48 @@ Grupo "Compras" no menu (`supply:read`). Abas **Por fornecedor / Por produto**, 
 - **Rentabilidade** (`profitability-strip.tsx`, no molde do relatório de Margem e Markup do PDV): lucro bruto, margem média, markup (preço ÷ custo), preço médio, "produtos com atenção" (margem < `analysis.attentionMargin`, 20%, parâmetro do backend) e cobertura do custo (parcela da receita com custo cadastrado). A tabela de produtos ganha custo médio, preço médio, lucro bruto, margem com barra e markup, e esconde por padrão os produtos sem movimento no mês. Margem/markup/lucro só contam SKUs com custo; "Sprite zero" tem custo R$ 0,00 no cadastro e aparece com 100%.
 - Gaps: comparação entre fornecedores do mesmo produto depende de compras; venda/abastecimento passa de 100% porque a venda do mês também sai de estoque anterior (ver intelligence-service); sem gráfico de linhas na evolução (só tabela).
 
+## `/purchases/pricing` — Precificação Inteligente (`add-smart-pricing-screen`)
+
+A tela do motor de preço do `intelligence-service` (`modules/pricing`), no grupo **Compras**. Responde "meu preço está certo e quanto
+cobrar?" na ordem produto → problema → preço recomendado → motivo → impacto → ação, sem virar BI de gráficos. **Só recomenda**: a
+única ação que muda um preço é "Aplicar novo preço".
+
+- **O relatório é uma execução guardada.** A tela lê `GET /pricing/runs/latest?period&storeId` (nunca recalcula); `state: "none"` é
+  "ainda não calculado" (botão **Calcular relatório**), não um relatório vazio. `POST /pricing/runs` inicia o cálculo em segundo plano e
+  a tela pergunta de novo a cada 3 s enquanto `inProgress`; um cálculo que falhou aparece ao lado do relatório anterior, que ele não
+  substitui. `parametersStale` avisa que as regras mudaram depois do cálculo ("Recalcular").
+- **Regra que molda recomendação nunca é recalculada no navegador** (`lib/pricing/`): `labels` (vocabulário e formatação que nunca vira
+  zero), `view` (filtros, cinco ordenações, paginação, seções de apoio), `breakdown` (decompõe a estrutura que o motor mandou),
+  `rules-form` / `fee-form` (texto digitado ↔ bps/centavos, com todos os problemas de uma vez), `export-model` (um modelo só para
+  Excel e PDF). Filtros e ordenação são do navegador sobre o relatório guardado; os seis cartões descrevem o escopo inteiro, não o
+  filtrado. **Margem por categoria** é do escopo inteiro (o backend não manda receita por produto): só o filtro de categoria a recorta.
+- **Maior oportunidade** = maior distância até a meta entre quem tem recomendação (distinto de "maior impacto"). Quem não tem o
+  número vai sempre para o fim de qualquer ordenação.
+- **Drawer** (`product-drawer.tsx`, remontado por produto): Visão geral (três preços, por que a IA recomenda, impacto, estrutura de
+  custos com a frase "Rateio operacional utilizado exclusivamente para análise de preço…", decisões do produto), **Simulador**
+  (`POST /pricing/products/:sku/simulate`, com debounce; a resposta guarda o preço que a gerou), **Histórico** (margem do produto
+  `(preço − custo)/preço` por mês, com marcadores — não é a margem econômica) e **Lojas** (volume e perda da loja; taxas e rateio são da rede).
+- **Aplicar novo preço** (`apply-price-dialog.tsx`, só com `products:write`): aprovar exatamente a recomendação não exige motivo; qualquer
+  outro preço exige. A chave de idempotência nasce ao abrir (clique duplo = uma decisão). O gateway grava o preço e registra a decisão
+  (preço anterior, novo, data, usuário, recomendação e confiança da época); depois de aplicar, a tela inicia um novo cálculo.
+- **Regras de negócio** (`rules-dialog.tsx`): salvar cria uma NOVA versão dos parâmetros (nunca edita a antiga) e vale a partir do próximo
+  cálculo; mostra todos os problemas de uma vez; as taxas de pagamento aparecem só para leitura, com link para `/treasury/fees`.
+- **Exportar**: Excel (`lib/pricing/excel.ts`, 4 abas, números como número, ausência = célula vazia) e PDF (`lib/pricing/pdf/report.tsx`,
+  tema escuro, gerado do mesmo modelo — não é print da tela). O renderizador do PDF só carrega no clique. O PDF não roda no Jest (ESM do
+  `@react-pdf/renderer`): foi verificado renderizando fora dele.
+- **Avisos de configuração** (`setup-banner.tsx`): taxa sem cadastro, alíquota sem valor e demais lacunas do relatório ficam à vista, com o
+  caminho para corrigir; nenhum produto vira "saudável" porque faltou um insumo.
+
+## `/treasury/fees` — Taxas de pagamento
+
+Taxa por adquirente/bandeira de VR/VA e meio de pagamento, com taxa fixa por venda e data de início (`GET/POST /treasury/fees`,
+`GET /treasury/fees/in-force`). O cadastro sempre passa por uma **confirmação que mostra o que será salvo** (uma data errada muda a
+margem de meses já analisados); conflito de adquirente/meio/data é mostrado como conflito. Nenhuma taxa é cadastrada sozinha: os nomes
+sugeridos (PagBank, Pluxee, Ticket, VR Benefícios, Alelo) são só sugestão de digitação.
+
+Gaps conhecidos: sem imagem de produto (o catálogo não tem o campo); a aba Lojas usa as taxas e o rateio da rede; sem aplicar preço em
+lote; verificação com dado real depende do dono cadastrar as taxas, a alíquota e as datas de início.
+
 ## Scripts
 
 `pnpm dev` (Turbopack) / `build` / `start` / `lint` / `typecheck`. ESLint flat

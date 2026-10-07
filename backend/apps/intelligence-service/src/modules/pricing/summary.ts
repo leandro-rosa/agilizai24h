@@ -18,7 +18,9 @@ export interface PricingSummary {
 }
 
 export interface CategorySummary {
+  /** The Portuguese label, and the catalogue key it comes from (margin overrides and the screen's filter use the key). */
   category: string
+  categoryKey: string
   averageMargin: number | null
   targetMargin: number
   /** Margin minus target, in fraction points. */
@@ -58,19 +60,19 @@ export function summarise(results: PriceResult[], targetMargin: number, revenueB
 
 export function byCategory(results: PriceResult[], revenueBySku: Map<string, number>): CategorySummary[] {
   const groups = new Map<string, PriceResult[]>()
-  for (const result of results) groups.set(result.category ?? 'sem categoria', [...(groups.get(result.category ?? 'sem categoria') ?? []), result])
+  for (const result of results) groups.set(result.category ?? '', [...(groups.get(result.category ?? '') ?? []), result])
 
   const totalRevenue = [...revenueBySku.values()].reduce((sum, value) => sum + value, 0)
 
   return [...groups.entries()]
-    .map(([category, items]) => {
+    .map(([categoryKey, items]) => {
       const rated = items.filter(item => item.currentMargin !== null)
       const revenue = items.reduce((sum, item) => sum + (revenueBySku.get(item.sku) ?? 0), 0)
       const ratedRevenue = rated.reduce((sum, item) => sum + (revenueBySku.get(item.sku) ?? 0), 0)
       const margin = ratedRevenue > 0 ? rated.reduce((sum, item) => sum + (item.currentMargin as number) * (revenueBySku.get(item.sku) ?? 0), 0) / ratedRevenue : null
       const target = items[0].targetMargin
 
-      return { category, averageMargin: margin, targetMargin: target, difference: margin === null ? null : margin - target, revenueCents: revenue, revenueShare: totalRevenue > 0 ? revenue / totalRevenue : 0, products: items.length }
+      return { category: items[0].categoryLabel, categoryKey, averageMargin: margin, targetMargin: target, difference: margin === null ? null : margin - target, revenueCents: revenue, revenueShare: totalRevenue > 0 ? revenue / totalRevenue : 0, products: items.length }
     })
     .sort((a, b) => b.revenueCents - a.revenueCents)
 }

@@ -167,3 +167,12 @@ vs CORS-com-credenciais" que ficava em aberto aqui (design de
 ## Pedidos em etapas e e-mail (`add-purchase-orders-and-email`)
 
 `PurchasesController` ganhou `POST /purchases/:id/transition`, `PATCH /purchases/:id`, `GET /purchases/:id/history`, `GET /purchases/:id/email-preview`, `POST /purchases/:id/send` e `GET /purchases/payments/pending` (`suppliers:read`/`suppliers:write`). O ator (`created_by`/`sent_by`/`received_by`…) é **sempre `caller.email` da sessão**: o gateway sobrescreve qualquer `actor` vindo no corpo (`asActor`).
+
+## Precificação (`/pricing/*`)
+
+Leitura com `products:read`; `POST /pricing/parameters` e `GET /pricing/decisions/pending` com `products:write`. **`POST /pricing/decisions/apply`**
+(`products:write`) é o único caminho que muda um preço, e é orquestrado aqui (`PricingApplyService`), onde está a sessão: registra a decisão
+`pending` no intelligence-service (o `actor` é sempre `caller.email`, nunca o do corpo), grava `POST /products/:sku/prices` e fecha a decisão
+como `applied` ou `failed` (com o motivo). A mesma `idempotencyKey` é uma decisão e uma gravação; repetir depois de uma falha tenta a
+gravação de novo. Preço gravado com o registro que não pôde ser fechado volta com `warning` e a decisão aparece em `/decisions/pending`.
+O products-service substitui a versão de preço de mesma data, por isso a decisão guarda o preço anterior.

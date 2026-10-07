@@ -19,3 +19,16 @@ describe("activeHref", () => {
     expect(activeHref("/nada", HREFS)).toBeNull();
   });
 });
+
+describe("precificação e taxas", () => {
+  const hrefs = ["/purchases", "/purchases/pricing", "/treasury", "/treasury/fees"];
+
+  it("a precificação acende o próprio item, não Compras e Fornecedores", () => {
+    expect(activeHref("/purchases/pricing", hrefs)).toBe("/purchases/pricing");
+    expect(activeHref("/purchases", hrefs)).toBe("/purchases");
+  });
+
+  it("as taxas acendem o próprio item, não Lançamentos", () => {
+    expect(activeHref("/treasury/fees", hrefs)).toBe("/treasury/fees");
+  });
+});

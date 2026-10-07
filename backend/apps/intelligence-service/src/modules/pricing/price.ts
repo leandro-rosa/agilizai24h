@@ -22,6 +22,8 @@ export interface PriceInput {
   currentPriceCents: number | null
   /** Average units sold per month over the window. */
   monthlyUnits: number
+  /** Average revenue per month over the window, in centavos; `null` when sales were not read. */
+  monthlyRevenueCents?: number | null
   /** True when units fell clearly after the latest price increase. */
   volumeDroppedAfterPriceChange: boolean
   loss: { rate: number; level: LossLevel } | null
@@ -81,6 +83,7 @@ export interface PriceResult {
   marginAtPreviousCost: number | null
   marginChangeFromCost: number | null
   monthlyUnits: number
+  monthlyRevenueCents: number | null
   /** Margin in R$ per month at the current price. */
   monthlyMarginCents: number | null
   /** Estimated change in R$ per month, volume held constant. An estimate, never a guaranteed profit. */
@@ -149,6 +152,7 @@ function insufficient(input: PriceInput, reasons: string[], margins: ReturnType<
     marginAtPreviousCost: null,
     marginChangeFromCost: null,
     monthlyUnits: input.monthlyUnits,
+    monthlyRevenueCents: input.monthlyRevenueCents ?? null,
     monthlyMarginCents: null,
     impactCentsPerMonth: null,
     impactLabel: 'Impacto potencial estimado',
@@ -304,6 +308,7 @@ export function computePrice(input: PriceInput): PriceResult {
     marginAtPreviousCost,
     marginChangeFromCost: marginAtPreviousCost === null ? null : currentMargin - marginAtPreviousCost,
     monthlyUnits: input.monthlyUnits,
+    monthlyRevenueCents: input.monthlyRevenueCents ?? null,
     monthlyMarginCents: input.monthlyUnits * unitProfit(current),
     impactCentsPerMonth: impact,
     impactLabel: 'Impacto potencial estimado',

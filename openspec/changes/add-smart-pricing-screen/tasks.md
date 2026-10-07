@@ -34,54 +34,54 @@
 
 ## 6. Admin foundation
 
-- [ ] 6.1 Sidebar entry "Precificação Inteligente" in Compras (`/purchases/pricing`) and "Taxas de pagamento" in Tesouraria (`/treasury/fees`), with their read permissions
-- [ ] 6.2 RTK Query file `src/lib/api/pricing.ts` (runs, report, product, history, simulate, stores, decisions, parameters) and fee endpoints in `treasury.ts`
-- [ ] 6.3 Pure helpers in `src/lib/pricing/` (status and confidence labels, money and percent formatting that never turns a missing value into zero, filters, sorts, view model shared by screen and exports) with a spec per module
+- [x] 6.1 Sidebar entry "Precificação Inteligente" in Compras (`/purchases/pricing`) and "Taxas de pagamento" in Tesouraria (`/treasury/fees`), with their read permissions
+- [x] 6.2 RTK Query file `src/lib/api/pricing.ts` (runs, report, product, history, simulate, stores, decisions, parameters) and fee endpoints in `treasury.ts`
+- [x] 6.3 Pure helpers in `src/lib/pricing/` (status and confidence labels, money and percent formatting that never turns a missing value into zero, filters, sorts, view model shared by screen and exports) with a spec per module
 
 ## 7. Pricing screen
 
-- [ ] 7.1 Header, month and store selector (with "Todas as lojas"), run freshness and "Recalcular"
-- [ ] 7.2 Filters (category, supplier, product, status, margin band, below target, cost changed), combinable and clearable
-- [ ] 7.3 The six top cards with "Impacto potencial estimado" and "Indisponível" states
-- [ ] 7.4 Product table: columns, five sorts, pagination, "—" with a reason for products without a recommendation, status and confidence badges
-- [ ] 7.5 Banner for missing fees, unset tax rate and other report notes, linking to where to fix them
-- [ ] 7.6 Sections: Principais oportunidades, Custos que mais mudaram, Margem por categoria
-- [ ] 7.7 Loading, empty, no-run-yet and error states with `RequestState`
+- [x] 7.1 Header, month and store selector (with "Todas as lojas"), run freshness and "Recalcular"
+- [x] 7.2 Filters (category, supplier, product, status, margin band, below target, cost changed), combinable and clearable
+- [x] 7.3 The six top cards with "Impacto potencial estimado" and "Indisponível" states
+- [x] 7.4 Product table: columns, five sorts, pagination, "—" with a reason for products without a recommendation, status and confidence badges
+- [x] 7.5 Banner for missing fees, unset tax rate and other report notes, linking to where to fix them
+- [x] 7.6 Sections: Principais oportunidades, Custos que mais mudaram, Margem por categoria
+- [x] 7.7 Loading, empty, no-run-yet and error states with `RequestState`
 
 ## 8. Drawer
 
-- [ ] 8.1 Visão geral: product, current situation, the three prices with confidence, "Por que a IA recomenda esse preço?", estimated impact, cost structure with the analysis-only statement
-- [ ] 8.2 Simulador calling the backend with a short debounce; no price is changed
-- [ ] 8.3 Histórico table with the four markers
-- [ ] 8.4 Lojas table with the note that fees and allocation are the network's
-- [ ] 8.5 The product's decisions listed in the drawer
+- [x] 8.1 Visão geral: product, current situation, the three prices with confidence, "Por que a IA recomenda esse preço?", estimated impact, cost structure with the analysis-only statement
+- [x] 8.2 Simulador calling the backend with a short debounce; no price is changed
+- [x] 8.3 Histórico table with the four markers
+- [x] 8.4 Lojas table with the note that fees and allocation are the network's
+- [x] 8.5 The product's decisions listed in the drawer
 
 ## 9. Business rules modal
 
-- [ ] 9.1 Show the version in force and earlier versions; edit target, minimum, per-category margins, rounding, psychological price, minimum sales, minimum confidence, tax rate and brand aliases; show every validation problem at once
-- [ ] 9.2 Say that a change applies on the next run; show the fees in force read-only with a link to `/treasury/fees`
-- [ ] 9.3 Hide editing for users without the product write permission
+- [x] 9.1 Show the version in force and earlier versions; edit target, minimum, per-category margins, rounding, psychological price, minimum sales, minimum confidence, tax rate and brand aliases; show every validation problem at once
+- [x] 9.2 Say that a change applies on the next run; show the fees in force read-only with a link to `/treasury/fees`
+- [x] 9.3 Hide editing for users without the product write permission
 
 ## 10. Fees screen
 
-- [ ] 10.1 `/treasury/fees`: list by acquirer and method with rate, fixed amount, start date, "in force today", and methods without a rate shown as missing
-- [ ] 10.2 Registration form in percent and reais, confirmation step showing acquirer, method, rate, fixed amount and start date, conflict and validation errors shown, treasury write permission
+- [x] 10.1 `/treasury/fees`: list by acquirer and method with rate, fixed amount, start date, "in force today", and methods without a rate shown as missing
+- [x] 10.2 Registration form in percent and reais, confirmation step showing acquirer, method, rate, fixed amount and start date, conflict and validation errors shown, treasury write permission
 
 ## 11. Apply price
 
-- [ ] 11.1 "Aplicar novo preço" in the drawer: accept the recommendation or type a price, reason required when it differs, effective date today, confidence shown beside the action
-- [ ] 11.2 Show the outcome (applied or failed with the reason) and refresh the product after applying
-- [ ] 11.3 Only for users with the product write permission
+- [x] 11.1 "Aplicar novo preço" in the drawer: accept the recommendation or type a price, reason required when it differs, effective date today, confidence shown beside the action
+- [x] 11.2 Show the outcome (applied or failed with the reason) and refresh the product after applying
+- [x] 11.3 Only for users with the product write permission
 
 ## 12. Export
 
-- [ ] 12.1 Excel from the report in view: products, costs that changed, margin by category, and a metadata sheet with versions and data-quality notes; numbers as numbers, gaps as empty cells, filters applied
-- [ ] 12.2 PDF in the dark brand theme: period and scope, average margin, below target, opportunities, cost changes, recommended prices with impact, data-quality observations
-- [ ] 12.3 Both disabled with an explanation while no report is loaded; specs for the pure parts
+- [x] 12.1 Excel from the report in view: products, costs that changed, margin by category, and a metadata sheet with versions and data-quality notes; numbers as numbers, gaps as empty cells, filters applied
+- [x] 12.2 PDF in the dark brand theme: period and scope, average margin, below target, opportunities, cost changes, recommended prices with impact, data-quality observations
+- [x] 12.3 Both disabled with an explanation while no report is loaded; specs for the pure parts
 
 ## 13. Documentation
 
-- [ ] 13.1 Add a `/purchases/pricing` section and the fees screen to the admin `CLAUDE.md`; update the intelligence-service and gateway `CLAUDE.md`
+- [x] 13.1 Add a `/purchases/pricing` section and the fees screen to the admin `CLAUDE.md`; update the intelligence-service and gateway `CLAUDE.md`
 
 ## 14. Verification
 

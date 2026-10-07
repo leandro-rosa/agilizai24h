@@ -176,6 +176,7 @@ export class PricingService {
         previousCostCents: costBefore.get(sku) ?? null,
         currentPriceCents: priceNow.get(sku) ?? null,
         monthlyUnits: units / monthsWithSales,
+        monthlyRevenueCents: own ? own.revenueCents / monthsWithSales : null,
         volumeDroppedAfterPriceChange: priceRose && first > 0 && last < first * 0.8,
         loss: chooseLoss(
           {

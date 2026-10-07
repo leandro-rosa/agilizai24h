@@ -1,0 +1,409 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+import { RequestState } from "@/components/request-state";
+import { StatusBadge } from "@/components/status-badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  useGetPricingDecisionsQuery,
+  useGetProductHistoryQuery,
+  useGetProductStoresQuery,
+  useSimulatePriceMutation,
+  type PricingProduct,
+  type PricingRunView,
+  type Simulation,
+} from "@/lib/api/pricing";
+import { count, date, money, period as formatPeriod } from "@/lib/format";
+import { costBreakdown } from "@/lib/pricing/breakdown";
+import { CONFIDENCE_LABEL, CONFIDENCE_TONE, parsePriceToCents, percent, points, signedMoney, STATUS_LABEL, STATUS_TONE } from "@/lib/pricing/labels";
+
+import { ApplyPriceDialog, errorMessage } from "./apply-price-dialog";
+
+export interface DrawerScope {
+  period: string;
+  storeId: number | null;
+}
+
+function Fact({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="tabular text-base font-semibold">{value}</p>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function Overview({ product, onApply, onSimulate, canWrite }: { product: PricingProduct; onApply: () => void; onSimulate: () => void; canWrite: boolean }) {
+  const breakdown = useMemo(() => costBreakdown(product), [product]);
+  const { data: decisions } = useGetPricingDecisionsQuery({ sku: product.sku, limit: 10 });
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge tone={STATUS_TONE[product.status]}>{STATUS_LABEL[product.status]}</StatusBadge>
+        <StatusBadge tone={CONFIDENCE_TONE[product.confidence]}>Confiança {CONFIDENCE_LABEL[product.confidence].toLowerCase()}</StatusBadge>
+      </div>
+
+      <section aria-labelledby="situation" className="flex flex-col gap-2">
+        <h3 id="situation" className="text-sm font-semibold">Situação atual</h3>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <Fact label="Custo médio" value={money(product.structure?.productCostCents ?? null)} />
+          <Fact label="Preço atual" value={money(product.currentPriceCents)} />
+          <Fact label="Margem atual" value={percent(product.currentMargin)} hint={`Meta ${percent(product.targetMargin, 0)}`} />
+          <Fact label="Markup atual" value={product.currentMarkup === null ? "—" : product.currentMarkup.toFixed(2).replace(".", ",")} />
+          <Fact label="Vendas (mês)" value={`${count(Math.round(product.monthlyUnits))} un.`} />
+          <Fact label="Faturamento (mês)" value={money(product.monthlyRevenueCents === null ? null : Math.round(product.monthlyRevenueCents))} />
+        </div>
+      </section>
+
+      <section aria-labelledby="prices" className="flex flex-col gap-2">
+        <h3 id="prices" className="text-sm font-semibold">Preços sugeridos pela IA</h3>
+        <div className="grid grid-cols-3 gap-2">
+          <Fact label="Preço mínimo" value={money(product.minimumPriceCents)} hint={`Margem ${percent(product.minimumMargin, 0)}`} />
+          <Fact label="Preço-meta" value={money(product.targetPriceCents)} hint={`Margem ${percent(product.targetMargin, 0)}`} />
+          <div className="rounded-lg border border-primary/50 bg-primary/10 p-3">
+            <p className="text-xs text-muted-foreground">Preço recomendado</p>
+            <p className="tabular text-base font-semibold">{money(product.recommendedPriceCents)}</p>
+            <p className="text-xs text-muted-foreground">{product.recommendedMargin === null ? "Sem recomendação" : `Margem ${percent(product.recommendedMargin)}`}</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="why" className="flex flex-col gap-2">
+        <h3 id="why" className="text-sm font-semibold">Por que a IA recomenda esse preço?</h3>
+        {product.insufficientReasons.length > 0 ? (
+          <ul className="flex list-disc flex-col gap-1 pl-5 text-sm text-muted-foreground">
+            {product.insufficientReasons.map((text) => (
+              <li key={text}>{text}. Não há recomendação automática para este produto.</li>
+            ))}
+          </ul>
+        ) : (
+          <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
+            {product.reasons.map((reason) => (
+              <li key={reason.code}>{reason.text}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="impact" className="flex flex-col gap-2">
+        <h3 id="impact" className="text-sm font-semibold">Impacto estimado</h3>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Fact label="Impacto (mês)" value={signedMoney(product.impactCentsPerMonth)} hint="Impacto potencial estimado" />
+          <Fact label="Margem estimada" value={percent(product.recommendedMargin)} />
+          <Fact label="Alteração de preço" value={product.recommendedPriceCents === null || product.currentPriceCents === null ? "—" : `${money(product.currentPriceCents)} → ${money(product.recommendedPriceCents)}`} />
+          <Fact label="Volume atual" value={`${count(Math.round(product.monthlyUnits))} un./mês`} />
+        </div>
+        {product.monthlyMarginCents !== null && <p className="text-xs text-muted-foreground">Margem potencial hoje: {money(Math.round(product.monthlyMarginCents))} por mês.</p>}
+      </section>
+
+      <section aria-labelledby="structure" className="flex flex-col gap-2">
+        <h3 id="structure" className="text-sm font-semibold">Estrutura de custos considerada</h3>
+        {breakdown === null ? (
+          <p className="text-sm text-muted-foreground">Sem estrutura de custos calculada: faltam dados para este produto.</p>
+        ) : (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Componente</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead className="text-right">% sobre o preço</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {breakdown.rows.map((row) => (
+                  <TableRow key={row.key}>
+                    <TableCell>
+                      {row.label}
+                      {row.detail && <div className="text-xs text-muted-foreground">{row.detail}</div>}
+                    </TableCell>
+                    <TableCell className="tabular text-right">{row.key === "voucher" ? "—" : money(Math.round(row.cents))}</TableCell>
+                    <TableCell className="tabular text-right">{row.key === "voucher" ? "—" : percent(row.shareOfPrice)}</TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="font-semibold">
+                  <TableCell>Custo econômico estimado</TableCell>
+                  <TableCell className="tabular text-right">{money(Math.round(breakdown.economicCostCents))}</TableCell>
+                  <TableCell className="tabular text-right">{percent(breakdown.economicCostShare)}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+            <p className="text-xs text-muted-foreground">{breakdown.statement}</p>
+          </>
+        )}
+      </section>
+
+      <section aria-labelledby="decisions" className="flex flex-col gap-2">
+        <h3 id="decisions" className="text-sm font-semibold">Decisões de preço</h3>
+        {!decisions || decisions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nenhuma decisão de preço registrada para este produto.</p>
+        ) : (
+          <ul className="flex flex-col gap-2 text-sm">
+            {decisions.map((decision) => (
+              <li key={decision.id} className="rounded-lg border p-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="tabular font-medium">
+                    {money(decision.previousPriceCents)} → {money(decision.newPriceCents)}
+                  </span>
+                  <StatusBadge tone={decision.status === "applied" ? "positive" : decision.status === "failed" ? "critical" : "attention"}>
+                    {decision.status === "applied" ? "Aplicado" : decision.status === "failed" ? "Falhou" : "Pendente"}
+                  </StatusBadge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {date(decision.effectiveFrom)} · {decision.actor}
+                  {decision.recommendedPriceCents !== null && ` · IA recomendava ${money(decision.recommendedPriceCents)}`}
+                </p>
+                {decision.reason && <p className="text-xs">Motivo: {decision.reason}</p>}
+                {decision.error && <p className="text-xs text-destructive">{decision.error}</p>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <div className="sticky bottom-0 flex gap-2 border-t bg-background py-3">
+        <Button variant="outline" className="flex-1" onClick={onSimulate}>
+          Simular outro preço
+        </Button>
+        {canWrite && (
+          <Button className="flex-1" onClick={onApply}>
+            Aplicar novo preço
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SimulationResult({ result }: { result: Simulation }) {
+  if (!result.simulable) return <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">{result.reason}</p>;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <Fact label="Margem estimada" value={percent(result.margin)} hint={`Atual ${percent(result.currentMargin)}`} />
+        <Fact label="Markup" value={result.markup.toFixed(2).replace(".", ",")} />
+        <Fact label="Lucro unitário" value={money(Math.round(result.unitProfitCents))} />
+        <Fact label="Impacto (mês)" value={signedMoney(Math.round(result.monthlyImpactCents))} hint="Impacto potencial estimado" />
+        <Fact label="Diferença para a meta" value={points(result.differenceToTarget)} hint={`Meta ${percent(result.targetMargin, 0)}`} />
+      </div>
+    </div>
+  );
+}
+
+function Simulator({ product, scope, canWrite, onApply }: { product: PricingProduct; scope: DrawerScope; canWrite: boolean; onApply: (cents: number) => void }) {
+  const [text, setText] = useState("");
+  // A resposta guarda o preço que a gerou: uma resposta de outro preço digitado nunca aparece como a deste.
+  const [outcome, setOutcome] = useState<{ cents: number; result: Simulation | null; failure: string | null } | null>(null);
+  const [simulate, { isLoading }] = useSimulatePriceMutation();
+  const cents = parsePriceToCents(text);
+  const shown = outcome !== null && outcome.cents === cents ? outcome : null;
+
+  useEffect(() => {
+    if (cents === null) return;
+    const timer = setTimeout(async () => {
+      try {
+        setOutcome({ cents, result: await simulate({ sku: product.sku, priceCents: cents, period: scope.period, storeId: scope.storeId }).unwrap(), failure: null });
+      } catch (error) {
+        setOutcome({ cents, result: null, failure: errorMessage(error) });
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [cents, product.sku, scope.period, scope.storeId, simulate]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground">
+        Preço atual: <span className="tabular font-medium text-foreground">{money(product.currentPriceCents)}</span>. Digite outro preço para testar &quot;e se eu vender por…?&quot;. Nada é alterado.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="simulate-price">Preço a simular (R$)</Label>
+        <Input id="simulate-price" inputMode="decimal" value={text} onChange={(event) => setText(event.target.value)} placeholder="6,50" />
+        {text !== "" && cents === null && <p className="text-xs text-destructive">Informe um preço válido, maior que zero.</p>}
+      </div>
+      {shown?.failure && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/12 p-3 text-sm text-destructive">{shown.failure}</p>}
+      {cents !== null && shown === null && isLoading && <p role="status" className="text-sm text-muted-foreground">Calculando…</p>}
+      {shown?.result && <SimulationResult result={shown.result} />}
+      {canWrite && cents !== null && shown?.result?.simulable && (
+        <Button variant="outline" onClick={() => onApply(cents)}>
+          Aplicar este preço
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function History({ sku, period }: { sku: string; period: string }) {
+  const { data, isLoading, error, refetch } = useGetProductHistoryQuery({ sku, period });
+
+  return (
+    <RequestState isLoading={isLoading} error={error} isEmpty={data?.rows.length === 0} onRetry={refetch} emptyMessage="Sem histórico para este produto.">
+      <div className="flex flex-col gap-2">
+        <p className="text-xs text-muted-foreground">Margem do produto: (preço − custo) ÷ preço, ao fim de cada mês. Não é a margem econômica da recomendação.</p>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Período</TableHead>
+              <TableHead className="text-right">Custo</TableHead>
+              <TableHead className="text-right">Preço</TableHead>
+              <TableHead className="text-right">Margem</TableHead>
+              <TableHead className="text-right">Markup</TableHead>
+              <TableHead>O que mudou</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {[...(data?.rows ?? [])].reverse().map((row) => (
+              <TableRow key={row.month}>
+                <TableCell>{formatPeriod(row.month)}</TableCell>
+                <TableCell className="tabular text-right">{money(row.costCents)}</TableCell>
+                <TableCell className="tabular text-right">{money(row.priceCents)}</TableCell>
+                <TableCell className="tabular text-right">{percent(row.margin)}</TableCell>
+                <TableCell className="tabular text-right">{row.markup === null ? "—" : row.markup.toFixed(2).replace(".", ",")}</TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    {row.costRose && <StatusBadge tone="attention">Custo subiu</StatusBadge>}
+                    {row.priceChanged && <StatusBadge tone="neutral">Preço alterado</StatusBadge>}
+                    {row.marginFell && <StatusBadge tone="critical">Margem caiu</StatusBadge>}
+                    {row.marginImproved && <StatusBadge tone="positive">Margem melhorou</StatusBadge>}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </RequestState>
+  );
+}
+
+function Stores({ sku, period }: { sku: string; period: string }) {
+  const { data, isLoading, error, refetch } = useGetProductStoresQuery({ sku, period });
+
+  return (
+    <RequestState isLoading={isLoading} error={error} isEmpty={data?.stores.length === 0 && data.missingStores.length === 0} onRetry={refetch} emptyMessage="Sem dados de lojas para este produto.">
+      <div className="flex flex-col gap-2">
+        <p className="text-xs text-muted-foreground">{data?.note}</p>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Loja</TableHead>
+              <TableHead className="text-right">Vendas</TableHead>
+              <TableHead className="text-right">Faturamento</TableHead>
+              <TableHead className="text-right">Perda</TableHead>
+              <TableHead className="text-right">Margem estimada</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(data?.stores ?? []).map((store) => (
+              <TableRow key={store.storeId}>
+                <TableCell>{store.storeName}</TableCell>
+                <TableCell className="tabular text-right">{count(store.unitsSold)} un.</TableCell>
+                <TableCell className="tabular text-right">{money(store.revenueCents)}</TableCell>
+                <TableCell className="tabular text-right">{percent(store.lossRate)}</TableCell>
+                <TableCell className="tabular text-right">{percent(store.estimatedMargin)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {(data?.missingStores.length ?? 0) > 0 && (
+          <p className="text-xs text-muted-foreground">Sem dados no período (não é venda zero): {data?.missingStores.map((store) => store.storeName).join(", ")}.</p>
+        )}
+      </div>
+    </RequestState>
+  );
+}
+
+function DrawerBody({
+  product,
+  scope,
+  run,
+  canWrite,
+  onApplied,
+}: {
+  product: PricingProduct;
+  scope: DrawerScope;
+  run: PricingRunView | null;
+  canWrite: boolean;
+  onApplied: () => void;
+}) {
+  const [tab, setTab] = useState("overview");
+  const [applying, setApplying] = useState<{ priceCents: number | null } | null>(null);
+
+  return (
+    <>
+      <SheetHeader>
+        <SheetTitle>{product.name ?? product.sku}</SheetTitle>
+        <SheetDescription>
+          {product.ean ? `EAN ${product.ean} · ` : ""}Código {product.sku} · {product.categoryLabel} · Fornecedor: {product.supplierName ?? "—"}
+        </SheetDescription>
+      </SheetHeader>
+
+      <div className="px-4 pb-4">
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList>
+            <TabsTrigger value="overview">Visão geral</TabsTrigger>
+            <TabsTrigger value="simulator">Simulador</TabsTrigger>
+            <TabsTrigger value="history">Histórico</TabsTrigger>
+            <TabsTrigger value="stores">Lojas</TabsTrigger>
+          </TabsList>
+          <TabsContent value="overview" className="pt-4">
+            <Overview product={product} canWrite={canWrite} onSimulate={() => setTab("simulator")} onApply={() => setApplying({ priceCents: product.recommendedPriceCents })} />
+          </TabsContent>
+          <TabsContent value="simulator" className="pt-4">
+            <Simulator product={product} scope={scope} canWrite={canWrite} onApply={(cents) => setApplying({ priceCents: cents })} />
+          </TabsContent>
+          <TabsContent value="history" className="pt-4">
+            <History sku={product.sku} period={scope.period} />
+          </TabsContent>
+          <TabsContent value="stores" className="pt-4">
+            <Stores sku={product.sku} period={scope.period} />
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      <ApplyPriceDialog
+        product={product}
+        initialPriceCents={applying?.priceCents ?? null}
+        runId={run?.id ?? null}
+        open={applying !== null}
+        onOpenChange={(open) => !open && setApplying(null)}
+        onApplied={onApplied}
+      />
+    </>
+  );
+}
+
+/** O painel lateral do produto: sem navegar para outra página. Trocar de produto remonta o corpo, com aba e formulários limpos. */
+export function ProductDrawer({
+  product,
+  scope,
+  run,
+  canWrite,
+  onClose,
+  onApplied,
+}: {
+  product: PricingProduct | null;
+  scope: DrawerScope;
+  run: PricingRunView | null;
+  canWrite: boolean;
+  onClose: () => void;
+  /** Depois de um preço aplicado: o relatório precisa ser recalculado. */
+  onApplied: () => void;
+}) {
+  return (
+    <Sheet open={product !== null} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-2xl">
+        {product && <DrawerBody key={product.sku} product={product} scope={scope} run={run} canWrite={canWrite} onApplied={onApplied} />}
+      </SheetContent>
+    </Sheet>
+  );
+}

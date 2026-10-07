@@ -48,6 +48,25 @@ No gateway: `/pricing/*` (leitura com `products:read`, `POST /pricing/parameters
 
 Gaps conhecidos: o relatório do catálogo é calculado na requisição (cache de 60 s do `FactsLoader`), não por fila como o motor de mix; sem tela, sem aplicar preço, sem Excel/PDF (fases seguintes); `costFlaggedUnreliable` ainda não tem fonte (sempre `false`); `volumeDroppedAfterPriceChange` é uma aproximação (preço subiu na janela e o último mês vendeu < 80% do primeiro).
 
+### Relatório guardado, histórico, simulação, lojas e decisões (`add-smart-pricing-screen`)
+
+- **`pricing_run`**: o relatório é uma execução em fila (`intelligence.pricing-run`, `PricingRunWorker`), guardada com período, escopo (loja ou
+  rede), versão do motor e dos parâmetros. `POST /pricing/runs {period, storeId?}` inicia (devolve a que já está em andamento em vez de
+  abrir outra; uma execução parada há mais de 15 min é dada como falha e deixa de bloquear); `GET /pricing/runs/latest` lê a última
+  **concluída** sem recalcular, com `state: "none"` explícito, a falha mais recente e `parametersStale`. Uma falha nunca substitui o concluído.
+  `GET /pricing/report` continua existindo só como cálculo interno na requisição (a tela não o usa).
+- **Campos do relatório**: SKU, EAN, fornecedor (id e nome, nenhum quando não há), categoria (chave e rótulo em português; fora do mapa = "Outros"),
+  receita mensal e a margem com o custo anterior (`marginAtPreviousCost`, `marginChangeFromCost`).
+- **`GET /pricing/products/:sku/history`**: custo e preço vigentes no fim de cada mês, margem do PRODUTO `(p−c)/p` (não a econômica), markup e
+  marcadores (custo subiu, preço alterado, margem caiu/melhorou); mês sem custo ou preço fica vazio, nunca zero.
+- **`POST /pricing/products/:sku/simulate {priceCents}`**: as mesmas contas do motor sobre a estrutura do relatório guardado (409 sem relatório,
+  `simulable: false` sem estrutura, 400 para preço que não é inteiro positivo de centavos). Não lê nem escreve em outro serviço.
+- **`GET /pricing/products/:sku/stores`**: unidades, receita, perda e margem estimada por loja (taxas e rateio da rede); loja sem o período vai em `missingStores`.
+- **`pricing_decision`**: `POST /pricing/decisions` registra a decisão como `pending` — o preço anterior e a recomendação saem do servidor,
+  nunca do corpo; motivo obrigatório quando o preço difere da recomendação (ou não há recomendação); a mesma `idempotencyKey` é uma decisão
+  só. `…/applied` e `…/failed` a fecham (uma aplicada nunca vira falha); `GET /pricing/decisions[?sku]` e `/pending` leem. **Este serviço
+  nunca grava preço**: quem grava é o gateway, entre o registro e o fechamento.
+
 ## Runs (`/runs`) — rotas internas
 
 - `POST /runs {rangeFrom, rangeTo, asOf?}` só **registra** a run (versão do motor + versão
