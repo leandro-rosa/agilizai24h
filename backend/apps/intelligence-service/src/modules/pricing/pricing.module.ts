@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common'
 import { HttpPurchaseSource, PurchaseSource } from '../analysis/purchase-source'
+import { NewProductChoiceService } from './new-product-choice.service'
 import { PricingController } from './pricing.controller'
 import { PricingDecisionsService } from './pricing-decisions.service'
 import { PricingProductService } from './pricing-product.service'
@@ -15,7 +16,7 @@ import { PricingService } from './pricing.service'
 @Global()
 @Module({
   controllers: [PricingController],
-  providers: [PricingService, PricingParametersService, PricingRunsService, PricingProductService, PricingDecisionsService, { provide: PurchaseSource, useClass: HttpPurchaseSource }],
-  exports: [PricingService, PricingParametersService, PricingRunsService, PricingProductService, PricingDecisionsService],
+  providers: [PricingService, PricingParametersService, PricingRunsService, PricingProductService, PricingDecisionsService, NewProductChoiceService, { provide: PurchaseSource, useClass: HttpPurchaseSource }],
+  exports: [PricingService, PricingParametersService, PricingRunsService, PricingProductService, PricingDecisionsService, NewProductChoiceService],
 })
 export class PricingModule {}

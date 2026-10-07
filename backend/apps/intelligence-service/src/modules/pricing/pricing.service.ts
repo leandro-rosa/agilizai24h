@@ -15,6 +15,7 @@ import { operatingShare, type OperatingShare } from './operating-share'
 import { paymentCost, type FeeRate, type MixRow } from './payment-cost'
 import { computePrice, type PriceInput, type PriceResult } from './price'
 import { PricingParametersService } from './pricing-parameters.service'
+import { suggestNewProduct, type NewProductSuggestion } from './new-product'
 import { ENGINE_VERSION, type PaymentCost } from './pricing.types'
 import { byCategory, summarise, type CategorySummary, type PricingSummary } from './summary'
 
@@ -82,6 +83,61 @@ export class PricingService {
   }
 
   async report(query: PricingQuery, correlationId?: string): Promise<PricingReport> {
+    const c = await this.collect(query, correlationId)
+    const results = c.inputs.map(computePrice)
+    const revenueBySku = c.revenueBySku
+    const { version, params, months, asOf, fees, mix, payment, operating } = c
+
+    const notes: string[] = []
+    if (params.taxRateBps === null) notes.push('A alíquota de imposto não está configurada: nenhum produto recebe recomendação até o dono confirmá-la.')
+    if (fees.rates.length === 0) notes.push('Nenhuma taxa de pagamento cadastrada.')
+    if (fees.methods_without_rate.length > 0 && fees.rates.length > 0) notes.push(`Métodos sem taxa cadastrada: ${fees.methods_without_rate.join(', ')}.`)
+    if (mix.periods_without_transactions.length > 0) notes.push(`Meses sem detalhe de vendas por meio de pagamento: ${mix.periods_without_transactions.join(', ')}.`)
+    if (!operating) notes.push('Sem DRE com receita de lojas no período: rateio operacional indisponível.')
+
+    return {
+      meta: {
+        engineVersion: ENGINE_VERSION,
+        parameterVersion: version.id,
+        months,
+        asOf,
+        storeId: query.storeId ?? null,
+        payment: payment ? { rate: payment.rate, voucherShare: payment.voucherShare, voucherBasis: payment.voucherBasis, unresolvedShare: payment.unresolvedShare, complete: payment.complete, notes: payment.notes, components: payment.components } : null,
+        paymentMixMonthsWithoutTransactions: mix.periods_without_transactions,
+        operating: operating ? { share: operating.share, months: operating.months, accounts: operating.accounts } : null,
+        notes,
+      },
+      summary: summarise(results, params.margin.targetBps / 10_000, revenueBySku),
+      categories: byCategory(results, revenueBySku),
+      products: results,
+    }
+  }
+
+  /**
+   * A price suggestion for a product with no price (and usually no sales), from the same inputs and the same cost structure as the
+   * report. The cost comes from the request when the invoice is not received yet (no cost version exists then), else from the product.
+   * Read-only: it suggests, it never writes a price.
+   */
+  async newProduct(sku: string, options: { costCents?: number; costOrigin?: string; costNotReceived?: boolean; period?: string }, correlationId?: string): Promise<{ meta: Pick<PricingReport['meta'], 'engineVersion' | 'parameterVersion' | 'asOf' | 'months'>; suggestion: NewProductSuggestion }> {
+    const c = await this.collect({ period: options.period, skus: [sku] }, correlationId)
+    const input = c.inputs.find(candidate => candidate.sku === sku)
+    if (!input) throw new NotFoundException(`Product ${sku} not found`)
+
+    const fromRequest = options.costCents !== undefined
+    const suggestion = suggestNewProduct({
+      ...input,
+      costCents: fromRequest ? options.costCents ?? null : input.costCents,
+      costAgeDays: fromRequest ? 0 : input.costAgeDays,
+      costFromPurchase: fromRequest ? true : input.costFromPurchase,
+      costOrigin: options.costOrigin ?? (fromRequest ? 'Nota fiscal' : 'Custo cadastrado'),
+      costNotReceived: options.costNotReceived ?? false,
+    })
+
+    return { meta: { engineVersion: ENGINE_VERSION, parameterVersion: c.version.id, asOf: c.asOf, months: c.months }, suggestion }
+  }
+
+  /** Everything the engine needs for the scoped products, before the engine runs. */
+  private async collect(query: PricingQuery, correlationId?: string) {
     const version = await this.parameters.current()
     const params = version.values
     const end = query.period ?? shiftMonth(currentMonth(), -1)
@@ -152,7 +208,7 @@ export class PricingService {
     const priceNow = new Map(pricesNow.resolved.map(price => [price.sku, price.price_cents]))
     const priceBefore = new Map(pricesBefore.resolved.map(price => [price.sku, price.price_cents]))
 
-    const results = scoped.map(product => {
+    const inputs = scoped.map((product): PriceInput => {
       const sku = product.sku
       const own = bySku.get(sku)
       const cost = costNow.get(sku)
@@ -192,33 +248,12 @@ export class PricingService {
         params,
       }
 
-      return computePrice(input)
+      return input
     })
 
     const revenueBySku = new Map([...bySku].map(([sku, entry]) => [sku, entry.revenueCents]))
-    const notes: string[] = []
-    if (params.taxRateBps === null) notes.push('A alíquota de imposto não está configurada: nenhum produto recebe recomendação até o dono confirmá-la.')
-    if (fees.rates.length === 0) notes.push('Nenhuma taxa de pagamento cadastrada.')
-    if (fees.methods_without_rate.length > 0 && fees.rates.length > 0) notes.push(`Métodos sem taxa cadastrada: ${fees.methods_without_rate.join(', ')}.`)
-    if (mix.periods_without_transactions.length > 0) notes.push(`Meses sem detalhe de vendas por meio de pagamento: ${mix.periods_without_transactions.join(', ')}.`)
-    if (!operating) notes.push('Sem DRE com receita de lojas no período: rateio operacional indisponível.')
 
-    return {
-      meta: {
-        engineVersion: ENGINE_VERSION,
-        parameterVersion: version.id,
-        months,
-        asOf,
-        storeId: query.storeId ?? null,
-        payment: payment ? { rate: payment.rate, voucherShare: payment.voucherShare, voucherBasis: payment.voucherBasis, unresolvedShare: payment.unresolvedShare, complete: payment.complete, notes: payment.notes, components: payment.components } : null,
-        paymentMixMonthsWithoutTransactions: mix.periods_without_transactions,
-        operating: operating ? { share: operating.share, months: operating.months, accounts: operating.accounts } : null,
-        notes,
-      },
-      summary: summarise(results, params.margin.targetBps / 10_000, revenueBySku),
-      categories: byCategory(results, revenueBySku),
-      products: results,
-    }
+    return { version, params, months, asOf, fees, mix, payment, operating, inputs, revenueBySku }
   }
 
   /** One product, computed from the same inputs as the report. */

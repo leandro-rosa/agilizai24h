@@ -85,6 +85,31 @@ export class PricingController {
     return this.get('/pricing/decisions/pending', query, request)
   }
 
+  @Get('new-product/:sku')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'A price suggestion for a product with no price and no sales history (same engine and parameters); suggests, never writes' })
+  async newProduct(@Param('sku') sku: string, @Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    return this.get(`/pricing/new-product/${encodeURIComponent(sku)}`, query, request)
+  }
+
+  @Get('new-product/:sku/choices')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'What was chosen for the price of a product registered from an invoice' })
+  async newProductChoices(@Param('sku') sku: string, @Req() request: FastifyRequest) {
+    return this.get(`/pricing/new-product/${encodeURIComponent(sku)}/choices`, {}, request)
+  }
+
+  @Post('new-product/:sku/choice')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)
+  @ApiOperation({
+    summary: 'Choose the price of a product registered from an invoice: use the suggestion, type another, or save without a price',
+    description: 'The actor is the logged-in user. The choice is recorded first; a chosen price is then written like any approved price. Without a price, nothing is written.',
+  })
+  async chooseNewProductPrice(@Param('sku') sku: string, @Body() body: Record<string, unknown>, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return this.applier.chooseForNewProduct(sku, body ?? {}, caller.email, correlationOf(request))
+  }
+
   @Post('decisions/apply')
   @HttpCode(200)
   @RequiresPermission(PERMISSIONS.PRODUCTS_WRITE)

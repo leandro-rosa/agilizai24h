@@ -189,3 +189,7 @@ aprovou, o motivo e o id da decisão como chave de idempotência.
 
 `POST /products/from-invoice` cadastra um produto a partir de uma linha de NF-e: **origem sempre `invoice` e usuário = sessão** (o navegador não escolhe;
 `invoiceProduct` em `manual-version.ts` deixa passar só os campos do formulário), `products:write`. `GET /products/next-sku` (`products:read`) é só sugestão.
+
+`GET /pricing/new-product/:sku` (`products:read`) é a sugestão de preço de produto novo (só sugere). `POST /pricing/new-product/:sku/choice` (`products:write`, usuário da
+sessão) registra a escolha primeiro (o intelligence recusa escolha inválida, e então nada é gravado) e, havendo preço, o grava pelo mesmo caminho de `decisions/apply`;
+"salvar sem preço" registra e não grava preço (`PricingApplyService.chooseForNewProduct`).

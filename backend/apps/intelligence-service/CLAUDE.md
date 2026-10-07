@@ -310,3 +310,19 @@ de quem opera.
 
 `PurchaseSource` agora é `HttpPurchaseSource` (lê `suppliers-service /purchases/summary`, cache 60 s; `SUPPLIERS_SERVICE_URL`). Mês antes da primeira compra → `null` (**"Sem histórico de compras", nunca zero**); depois da base, SKU sem compra é zero real. `purchasedUnits/Cents` = pago + consignado; **`bonusUnits` à parte**; SKU recebido só como bonificação no mês fica **fora de margem, markup, lucro e atenção** (motivo `bonus`) e fora do denominador da cobertura do custo. Falha do suppliers-service **não** vira "sem histórico": a análise falha de forma explícita.
 
+
+
+## Preço sugerido para produto novo (`add-product-cost-price-versioning`, 1c.6–1c.7)
+
+`GET /pricing/new-product/:sku[?costCents&costOrigin&costNotReceived&period]` sugere preço para produto **sem preço e sem histórico de vendas**
+(`modules/pricing/new-product.ts`). **Não há fórmula própria**: usa `solveStructure` (extraída de `computePrice`, `price.ts`), a mesma estrutura de custo
+(imposto, taxa de pagamento ponderada pelo mix da rede, perda, rateio, margem alvo/mínima) e o mesmo arredondamento da tela de precificação; o teste
+mostra que a sugestão é o preço-alvo que um produto com a mesma estrutura recebe. Rótulo "Produto novo — sem histórico de vendas" (ou "Produto com poucas
+vendas"), **confiança nunca acima de `low`** (não há venda para confirmar) e `dataUsed` lista cada dado com a origem (custo e de onde veio, categoria,
+imposto, taxas, perda da **categoria** — sem histórico do produto —, rateio, margens, arredondamento). Sem custo/imposto/taxas/perda/rateio devolve
+`insufficient_data` com o motivo e **sem preço**. `costCents` é o custo da NF quando a compra ainda não foi recebida (não existe versão de custo ainda;
+`costNotReceived=true` aparece na resposta). Só sugere; nunca grava preço. `PricingService.report` ganhou `collect()` (as entradas do motor), usado também aqui.
+`POST /pricing/new-product/:sku/choice` registra a escolha (`suggested_accepted` | `changed_by_hand` | `left_without_price`) em `new_product_price_choice`: a
+sugestão é **recalculada no servidor** na hora (não vale o número que o navegador disser), "usar a sugestão" é recusado se o preço difere dela, preço digitado
+exige motivo, "sem preço" não aceita preço; um `CHECK` do banco garante preço escolhido salvo em `left_without_price`. É auditoria: não grava preço (o gateway
+grava, pelo caminho de `decisions/apply`, com a decisão chaveada `new-product:<chave da escolha>`). `GET /pricing/new-product/:sku/choices` lista.

@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Headers, Param, ParseIntPipe, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
+import { NewProductChoiceService } from './new-product-choice.service'
 import { PricingParametersInvalidError } from './pricing.parameters'
 import { PricingParametersService, type PricingParametersPatch } from './pricing-parameters.service'
 import { PricingDecisionsService, type RecordDecisionInput } from './pricing-decisions.service'
@@ -30,6 +31,7 @@ export class PricingController {
     private readonly runs: PricingRunsService,
     private readonly productService: PricingProductService,
     private readonly decisions: PricingDecisionsService,
+    private readonly choices: NewProductChoiceService,
   ) {}
 
   @Post('runs')
@@ -111,6 +113,41 @@ export class PricingController {
   @ApiQuery({ name: 'period', required: false, example: '2026-09' })
   stores(@Param('sku') sku: string, @Query('period') period?: string, @Headers('x-correlation-id') correlationId?: string) {
     return this.productService.storesOf(sku, { period: query(period).period }, correlationId)
+  }
+
+  @Get('new-product/:sku')
+  @ApiOperation({
+    summary: 'A price suggestion for a product with no price and no sales history (same engine, same parameters)',
+    description:
+      'Suggests, never writes. `costCents` is the invoice cost when the purchase is not received yet (no cost version exists then); `costNotReceived=true` says so in the answer. Labelled "Produto novo — sem histórico de vendas", confidence never above low, with the data it used.',
+  })
+  newProduct(
+    @Param('sku') sku: string,
+    @Query('costCents') costCents?: string,
+    @Query('costOrigin') costOrigin?: string,
+    @Query('costNotReceived') costNotReceived?: string,
+    @Query('period') period?: string,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    const cost = costCents === undefined ? undefined : Number(costCents)
+    if (cost !== undefined && !(Number.isInteger(cost) && cost > 0)) throw new BadRequestException('costCents must be a positive whole number of centavos')
+
+    return this.pricing.newProduct(sku, { costCents: cost, costOrigin, costNotReceived: costNotReceived === 'true', period }, correlationId)
+  }
+
+  @Post('new-product/:sku/choice')
+  @ApiOperation({
+    summary: 'Record what was chosen for a new product\'s price: used the suggestion, typed another, or saved without a price',
+    description: 'An audit only: it never writes a price. The suggestion is recomputed on the server; "used the suggestion" is refused when the price differs from it, and a typed price needs a reason. The gateway sets `actor` and, when a price was written, `decisionId`.',
+  })
+  recordChoice(@Param('sku') sku: string, @Body() body: Record<string, unknown>, @Headers('x-correlation-id') correlationId?: string) {
+    return this.choices.record({ ...body, sku, correlationId })
+  }
+
+  @Get('new-product/:sku/choices')
+  @ApiOperation({ summary: 'The recorded price choices of a product registered from an invoice, newest first' })
+  choicesOf(@Param('sku') sku: string) {
+    return this.choices.list(sku)
   }
 
   @Post('decisions')

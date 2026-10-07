@@ -165,6 +165,49 @@ function insufficient(input: PriceInput, reasons: string[], margins: ReturnType<
 
 const pct = (value: number) => `${(value * 100).toFixed(1).replace('.', ',')}%`
 
+/**
+ * The cost structure and the prices that solve it, for ONE set of inputs. Shared by the recommendation of a product that sells and by the
+ * suggestion for a new one, so there is a single formula: price × (1 − tax − payment fee − operating share) − unit cost = margin × price.
+ */
+export function solveStructure(
+  input: { costCents: number; taxRateBps: number; payment: PaymentCost; loss: { rate: number; level: LossLevel }; operatingShare: number },
+  margins: ReturnType<typeof marginsFor>,
+) {
+  const cost = input.costCents
+  const taxRate = input.taxRateBps / 10_000
+  const lossAdjusted = cost / (1 - input.loss.rate)
+  // A fee charged per sale is a cost of the sold unit (lost units are never sold, so loss does not multiply it).
+  const fixedPerUnit = input.payment.fixedPerUnitCents
+  const unitCost = lossAdjusted + fixedPerUnit
+  const variableShare = taxRate + input.payment.rate + input.operatingShare
+
+  const structure: CostStructure = {
+    productCostCents: cost,
+    lossAdjustedCostCents: lossAdjusted,
+    taxRate,
+    lossRate: input.loss.rate,
+    lossLevel: input.loss.level,
+    paymentRate: input.payment.rate,
+    paymentFixedCents: fixedPerUnit,
+    voucherShare: input.payment.voucherShare,
+    voucherBasis: input.payment.voucherBasis,
+    operatingShare: input.operatingShare,
+    statement: ANALYSIS_ONLY_STATEMENT,
+  }
+  const unitProfit = (price: number) => price * (1 - variableShare) - unitCost
+
+  return {
+    cost,
+    structure,
+    unitCost,
+    variableShare,
+    unitProfit,
+    marginAt: (price: number) => unitProfit(price) / price,
+    rawMinimum: priceForMargin(unitCost, variableShare, margins.minimum),
+    rawTarget: priceForMargin(unitCost, variableShare, margins.target),
+  }
+}
+
 export function computePrice(input: PriceInput): PriceResult {
   const { params } = input
   const margins = marginsFor(params, input.category ?? null)
@@ -182,40 +225,18 @@ export function computePrice(input: PriceInput): PriceResult {
   if (input.currentPriceCents === null || input.currentPriceCents <= 0) missing.push('Sem preço atual')
   if (missing.length > 0) return insufficient(input, missing, margins)
 
-  const cost = input.costCents as number
   const current = input.currentPriceCents as number
+  const solved = solveStructure(
+    { costCents: input.costCents as number, taxRateBps: params.taxRateBps as number, payment: input.payment as PaymentCost, loss: input.loss as { rate: number; level: LossLevel }, operatingShare: input.operatingShare as number },
+    margins,
+  )
+  const { cost, structure, unitCost, variableShare, unitProfit, marginAt, rawMinimum, rawTarget } = solved
   const payment = input.payment as PaymentCost
   const loss = input.loss as { rate: number; level: LossLevel }
-  const operatingShare = input.operatingShare as number
-  const taxRate = (params.taxRateBps as number) / 10_000
-
-  const lossAdjusted = cost / (1 - loss.rate)
-  // A fee charged per sale is a cost of the sold unit (lost units are never sold, so loss does not multiply it).
   const fixedPerUnit = payment.fixedPerUnitCents
-  const unitCost = lossAdjusted + fixedPerUnit
-  const variableShare = taxRate + payment.rate + operatingShare
-
-  const structure: CostStructure = {
-    productCostCents: cost,
-    lossAdjustedCostCents: lossAdjusted,
-    taxRate,
-    lossRate: loss.rate,
-    lossLevel: loss.level,
-    paymentRate: payment.rate,
-    paymentFixedCents: fixedPerUnit,
-    voucherShare: payment.voucherShare,
-    voucherBasis: payment.voucherBasis,
-    operatingShare,
-    statement: ANALYSIS_ONLY_STATEMENT,
-  }
 
   const reasons: Reason[] = []
-  const unitProfit = (price: number) => price * (1 - variableShare) - unitCost
-  const marginAt = (price: number) => unitProfit(price) / price
-
   const currentMargin = marginAt(current)
-  const rawMinimum = priceForMargin(unitCost, variableShare, margins.minimum)
-  const rawTarget = priceForMargin(unitCost, variableShare, margins.target)
 
   if (rawMinimum === null || rawTarget === null) {
     const result = insufficient(input, ['A estrutura de custos consome toda a margem: nenhum preço atinge a meta'], margins)

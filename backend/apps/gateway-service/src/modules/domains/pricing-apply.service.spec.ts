@@ -15,6 +15,10 @@ function build(options: { priceWrite?: 'ok' | 'fail'; closeApplied?: 'ok' | 'fai
   const domains = {
     intelligence: async (call: any) => {
       calls.push({ service: 'intelligence', method: call.method, path: call.path, payload: call.payload })
+      if (call.path.includes('/new-product/')) {
+        if (call.payload.choice === 'changed_by_hand' && !call.payload.reason) throw new UpstreamStatusError('intelligence', 400, { message: 'reason is required when the price is typed by hand' })
+        return { data: { created: true, choice: { id: 'c-1', choice: call.payload.choice, actor: call.payload.actor } } }
+      }
       if (call.path === '/pricing/decisions') {
         const key = call.payload.idempotencyKey
         const found = decisions.get(key)
@@ -145,5 +149,52 @@ describe('permissions', () => {
     for (const method of ['latest', 'startRun', 'run', 'history', 'stores', 'simulate', 'decisions', 'currentParameters', 'parameterVersions'] as const) {
       expect(permissionOf(method)).toBe(PERMISSIONS.PRODUCTS_READ)
     }
+  })
+})
+
+describe('the price of a product registered from an invoice', () => {
+  const choose = (over: Record<string, unknown> = {}) => ({ idempotencyKey: 'n1', choice: 'suggested_accepted', chosenPriceCents: 610, costCents: 309, costOrigin: 'Nota fiscal 13021', ...over })
+
+  it('records the choice first, then writes the chosen price through the same apply path, keyed to the choice', async () => {
+    const { service, calls } = build()
+    const result = await service.chooseForNewProduct('110024', choose(), 'ana@agiliz.ai', 'corr')
+
+    expect(calls.map(c => `${c.service} ${c.path}`)).toEqual(['intelligence /pricing/new-product/110024/choice', 'intelligence /pricing/decisions', 'products /products/110024/prices', 'intelligence /pricing/decisions/d-1/applied'])
+    expect(calls[1].payload).toMatchObject({ idempotencyKey: 'new-product:n1', sku: '110024', newPriceCents: 610, actor: 'ana@agiliz.ai' })
+    expect(writes(calls)[0].payload).toMatchObject({ source: 'pricing_intelligence', actor: 'ana@agiliz.ai', price_cents: 610 })
+    expect(result.applied?.applied).toBe(true)
+  })
+
+  it('saving without a price writes nothing in products and records only the choice', async () => {
+    const { service, calls } = build()
+    const result = await service.chooseForNewProduct('110024', choose({ choice: 'left_without_price', chosenPriceCents: undefined }), 'ana@agiliz.ai')
+
+    expect(calls.map(c => c.path)).toEqual(['/pricing/new-product/110024/choice'])
+    expect(writes(calls)).toHaveLength(0)
+    expect(result.applied).toBeNull()
+  })
+
+  it('a choice the engine refuses writes no price', async () => {
+    const { service, calls } = build()
+
+    await expect(service.chooseForNewProduct('110024', choose({ choice: 'changed_by_hand', chosenPriceCents: 690 }), 'ana@agiliz.ai')).rejects.toThrow()
+    expect(writes(calls)).toHaveLength(0)
+    expect(calls.map(c => c.path)).toEqual(['/pricing/new-product/110024/choice'])
+  })
+
+  it('the user is the session user, never the one in the body, and a key is required', async () => {
+    const { service, calls } = build()
+    await service.chooseForNewProduct('110024', choose({ actor: 'forjado@x' }), 'ana@agiliz.ai')
+    expect(calls[0].payload.actor).toBe('ana@agiliz.ai')
+
+    await expect(service.chooseForNewProduct('110024', choose({ idempotencyKey: '' }), 'ana@agiliz.ai')).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  it('reading the suggestion needs read, choosing needs write', () => {
+    const permission = (method: keyof PricingController) => Reflect.getMetadata(REQUIRED_PERMISSION_KEY, PricingController.prototype[method])
+
+    expect(permission('newProduct')).toBe(PERMISSIONS.PRODUCTS_READ)
+    expect(permission('newProductChoices')).toBe(PERMISSIONS.PRODUCTS_READ)
+    expect(permission('chooseNewProductPrice')).toBe(PERMISSIONS.PRODUCTS_WRITE)
   })
 })

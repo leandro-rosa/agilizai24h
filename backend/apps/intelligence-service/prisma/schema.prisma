@@ -95,6 +95,35 @@ model PricingDecision {
   @@map("pricing_decision")
 }
 
+/// What the operator chose for the price of a product registered from an invoice: the suggestion as it was computed at that moment,
+/// and the choice (used as suggested | typed another | saved without a price). It is an audit trail: it never writes a price.
+model NewProductPriceChoice {
+  id                    String   @id
+  idempotency_key       String   @unique
+  sku                   String
+  /// suggested_accepted | changed_by_hand | left_without_price
+  choice                String
+  /// The suggestion recomputed on the server at the time of the choice (null when the engine had no price to suggest).
+  suggested_price_cents Int?
+  confidence            String?
+  parameter_version_id  Int?
+  /// The price chosen; null only for left_without_price.
+  chosen_price_cents    Int?
+  /// The pricing decision that wrote the price (pricing_decision.id), when one was written.
+  decision_id           String?
+  reason                String?
+  actor                 String
+  /// Cost and origin the suggestion used, and the data it listed, as a snapshot.
+  cost_cents            Int?
+  cost_origin           String?
+  cost_not_received     Boolean  @default(false)
+  data_used             Json?
+  created_at            DateTime @default(now())
+
+  @@index([sku, created_at])
+  @@map("new_product_price_choice")
+}
+
 /// The baseline quantity ("qtd itens por loja") of a SKU — ONE value per SKU,
 /// applied to every store (owner decision 2026-09-30), with an append-only
 /// history: a re-import adds a row, it never overwrites. The current baseline

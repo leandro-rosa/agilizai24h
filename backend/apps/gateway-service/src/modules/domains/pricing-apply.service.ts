@@ -102,6 +102,33 @@ export class PricingApplyService {
     }
   }
 
+  /**
+   * The price choice for a product registered from an invoice. The choice is recorded FIRST (the server recomputes the suggestion and
+   * refuses a choice that does not follow its rules), so nothing is written for an invalid one. A chosen price then goes through the
+   * same apply path as any approved price, with the decision keyed `new-product:<choice key>` so the decision and the choice stay
+   * joined and a retry writes once. "Saved without a price" records the choice and writes no price.
+   */
+  async chooseForNewProduct(sku: string, input: Record<string, unknown>, actor: string, correlationId?: string): Promise<{ choice: unknown; applied: ApplyPriceResult | null }> {
+    const key = typeof input.idempotencyKey === 'string' ? input.idempotencyKey.trim() : ''
+    if (!key) throw new BadRequestException('idempotencyKey is required')
+
+    const recorded = await this.domains.intelligence<{ created: boolean; choice: unknown }>({
+      method: 'post',
+      path: `/pricing/new-product/${encodeURIComponent(sku)}/choice`,
+      payload: {
+        idempotencyKey: key, choice: input.choice, chosenPriceCents: input.chosenPriceCents, reason: input.reason,
+        costCents: input.costCents, costOrigin: input.costOrigin, costNotReceived: input.costNotReceived, actor,
+      },
+      correlationId,
+    })
+    if (input.choice === 'left_without_price') return { choice: recorded.data.choice, applied: null }
+
+    const reason = typeof input.reason === 'string' && input.reason.trim() ? input.reason.trim() : 'Produto novo: preço sugerido pelo motor aceito'
+    const applied = await this.apply({ idempotencyKey: `new-product:${key}`, sku, newPriceCents: input.chosenPriceCents, effectiveFrom: input.effectiveFrom, reason }, actor, correlationId)
+
+    return { choice: recorded.data.choice, applied }
+  }
+
   private async close(id: string, outcome: 'applied' | 'failed', payload: unknown, correlationId?: string): Promise<void> {
     try {
       await this.domains.intelligence({ method: 'post', path: `/pricing/decisions/${encodeURIComponent(id)}/${outcome}`, payload, correlationId })
