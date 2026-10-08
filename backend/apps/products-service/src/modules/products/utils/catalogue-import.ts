@@ -123,11 +123,12 @@ export function classifyImport(rows: ImportRow[], existing: ExistingProduct[], o
     let classification: ImportRowResult['classification'] = null
     const result = (action: ImportAction, extra: Partial<ImportRowResult> = {}): ImportRowResult => ({ row: row.row, sku, action, changes: [], clears: [], addEan: null, problems, notes, classification, values: null, ...extra })
 
-    if (!sku) return (problems.push('Linha sem SKU'), result('conflict'))
-    if (firstRowOfSku.has(sku)) return (problems.push(`SKU repetido na planilha (já na linha ${firstRowOfSku.get(sku)})`), result('conflict'))
-    firstRowOfSku.set(sku, row.row)
+    if (sku && firstRowOfSku.has(sku)) return (problems.push(`SKU repetido na planilha (já na linha ${firstRowOfSku.get(sku)})`), result('conflict'))
+    if (sku) firstRowOfSku.set(sku, row.row)
 
-    const values: NormalisedValues = { sku }
+    // No SKU in the row: the row can only CREATE a product (the system gives it the next automatic SKU on apply). It has nothing to match an existing
+    // product by except a barcode, and a barcode already tied to a product is a conflict (say which SKU to use), never a silent update.
+    const values: NormalisedValues = { sku: sku ?? '' }
     const name = text(row.name)
     if (name) values.name = name
     if (!blank(row.category)) {
@@ -159,7 +160,8 @@ export function classifyImport(rows: ImportRow[], existing: ExistingProduct[], o
       else firstRowOfEan.set(ean, row.row)
     }
 
-    const current = bySku.get(sku)
+    const current = sku ? bySku.get(sku) : undefined
+    if (!sku) notes.push('Sem SKU na planilha: o sistema dá o próximo SKU automático ao importar')
     const holders = ean ? (owners.get(ean) ?? []) : []
 
     // Applies a subcategory text to a category: it must belong to it (ignoring case and accents); the canonical spelling is what is applied.

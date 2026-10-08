@@ -3,6 +3,7 @@ import { principalOf } from '../utils/ean'
 import { COST_RANK, NO_RANK, resolveByProduct } from '../utils/resolve-version'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { normalizeName } from '../utils/normalize-name'
+import { SkuSequenceService } from './sku-sequence.service'
 import { TaxonomyService } from './taxonomy.service'
 import { planSync, type CatalogueEntry, type SheetRow, type SyncPlan } from '../utils/catalogue-sync'
 
@@ -26,6 +27,7 @@ export class CatalogueSyncService {
   constructor(
     private readonly prisma: PrismaClientService,
     private readonly taxonomy: TaxonomyService,
+    private readonly skus: SkuSequenceService,
   ) {}
 
   /** Estado atual: cada produto com o custo e o preço vigentes HOJE (últimas versões com início ≤ hoje). */
@@ -90,6 +92,7 @@ export class CatalogueSyncService {
             package_type: item.package_type,
           },
         })
+        await this.skus.observe(item.sku)
         if (item.cost_cents !== null) await recordCost(product.id, newDate, item.cost_cents)
         if (item.price_cents !== null) await recordPrice(product.id, newDate, item.price_cents)
         results.push({ sku: item.sku, action: 'create', ok: true })

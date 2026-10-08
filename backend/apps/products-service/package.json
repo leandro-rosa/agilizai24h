@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.app.json --composite false --noEmit",
     "test": "jest --passWithNoTests",
     "test:integration": "jest --config jest.integration.config.js --runInBand --passWithNoTests",
+    "test:integration:db": "bash test/support/with-test-db.sh pnpm test:integration",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy"

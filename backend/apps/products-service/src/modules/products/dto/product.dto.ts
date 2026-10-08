@@ -1,13 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Matches, Min, ArrayNotEmpty, IsArray, ValidateNested } from 'class-validator'
+import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, ArrayNotEmpty, IsArray, ValidateNested } from 'class-validator'
 import { PRODUCT_STATUSES, WRITABLE_EAN_SOURCES, WRITABLE_VERSION_SOURCES, type ProductCategory, type ProductStatus } from '../constants/product-vocabulary'
 
 export class CreateProductDto {
-  @ApiProperty({ example: 'REF-GUA-350' })
+  @ApiPropertyOptional({ example: '100113', description: 'Omitido: o sistema gera o próximo SKU automático ao salvar. Informado: validado e preservado quando livre.' })
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  sku: string
+  sku?: string
 
   @ApiProperty({ example: 'Refrigerante Guaraná 350ml' })
   @IsString()
@@ -51,6 +52,8 @@ export class CreateProductDto {
   @ApiPropertyOptional({ example: 'un', description: 'Unidade de venda.' }) @IsOptional() @IsString() @IsNotEmpty() saleUnit?: string
 
   @ApiPropertyOptional() @IsOptional() @IsString() @IsNotEmpty() brand?: string
+
+  @ApiPropertyOptional({ example: '269 ml', description: 'Peso ou volume líquido, como no rótulo.' }) @IsOptional() @IsString() @IsNotEmpty() @MaxLength(40) netWeight?: string
 
   @ApiPropertyOptional({ description: 'Verdadeiro quando uma pessoa salvou a classificação por um formulário.' }) @IsOptional() @IsBoolean() classificationConfirmed?: boolean
 
@@ -120,6 +123,8 @@ export class UpdateProductDto {
   @ApiPropertyOptional({ example: 'un' }) @IsOptional() @IsString() @IsNotEmpty() saleUnit?: string
 
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() brand?: string | null
+
+  @ApiPropertyOptional({ nullable: true, example: '269 ml' }) @IsOptional() @IsString() @MaxLength(40) netWeight?: string | null
 
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() purchaseUnit?: string | null
 }

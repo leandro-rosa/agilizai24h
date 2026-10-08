@@ -5,7 +5,8 @@ import { ProductRepository } from '../../db-client/repositories/product.reposito
 import { UNRESOLVED_REASONS, type ProductCategory, type UnresolvedReason } from '../constants/product-vocabulary'
 import type { ProductOrigin, ProductStatus } from '../constants/product-vocabulary'
 import { cleanEan } from '../utils/ean'
-import { nextSku, type NextSku } from '../utils/next-sku'
+import type { NextSku } from '../utils/next-sku'
+import { SkuSequenceService } from './sku-sequence.service'
 import { TaxonomyService } from './taxonomy.service'
 import { resolveOrigin } from '../utils/origin'
 import { normalizeName } from '../utils/normalize-name'
@@ -17,7 +18,8 @@ export type { ProductView }
 const WITH_EANS = { eans: { orderBy: [{ is_primary: 'desc' as const }, { status: 'asc' as const }, { id: 'asc' as const }] } }
 
 export interface CreateProductInput {
-  sku: string
+  /** Omitted: the next automatic SKU is allocated on save. Given: validated, preserved when free, and the sequence is moved above it when needed. */
+  sku?: string
   name: string
   category: ProductCategory
   unitsPerPackage?: number
@@ -32,6 +34,7 @@ export interface CreateProductInput {
   classificationConfirmed?: boolean
   saleUnit?: string
   brand?: string
+  netWeight?: string
   purchaseUnit?: string
   /** `invoice` = registered from an NF-e line (needs invoiceNumber, supplierId, originOn and actor). */
   origin?: ProductOrigin
@@ -75,13 +78,12 @@ export class ProductsService {
     private readonly overrides: NameOverrideRepository,
     private readonly prisma: PrismaClientService,
     private readonly taxonomy: TaxonomyService,
+    private readonly skus: SkuSequenceService,
   ) {}
 
-  /** The SKU the registration form proposes (the next after the highest six-digit one). Nothing is reserved: a duplicate is refused at create. */
-  async nextSku(): Promise<NextSku> {
-    const rows = await this.prisma.$queryRaw<{ sku: string }[]>`SELECT sku FROM product WHERE sku ~ '^[0-9]{6}$' ORDER BY sku DESC LIMIT 1`
-
-    return nextSku(rows.map(r => r.sku))
+  /** The number the next registration will probably get, for the form to show as a forecast: nothing is reserved until the product is saved. */
+  nextSku(): Promise<NextSku> {
+    return this.skus.forecast()
   }
 
   async create(input: CreateProductInput): Promise<ProductView> {
@@ -91,8 +93,11 @@ export class ProductsService {
     // Checked explicitly: PrismaRepository discards Prisma's error code, so
     // branching on a unique-constraint violation is not available. The database
     // constraint stays as the backstop for the race this leaves.
-    const existing = await this.prisma.product.findUnique({ where: { sku: input.sku } })
-    if (existing) throw new ConflictException(`A product with SKU ${input.sku} already exists`)
+    const given = input.sku?.trim() || undefined
+    if (given !== undefined) {
+      const existing = await this.prisma.product.findUnique({ where: { sku: given } })
+      if (existing) throw new ConflictException(`A product with SKU ${given} already exists`)
+    }
 
     const ean = input.ean === undefined || input.ean === null ? null : cleanEan(input.ean)
     if (input.ean && !ean) throw new BadRequestException('EAN inválido: use só dígitos, de 8 a 14')
@@ -110,9 +115,9 @@ export class ProductsService {
       }
     }
 
-    const created = await this.prisma.product.create({
+    const insert = (sku: string) => this.prisma.product.create({
       data: {
-        sku: input.sku,
+        sku,
         supplier_id: input.supplierId ?? null,
         name: input.name,
         category: classification.category,
@@ -124,6 +129,7 @@ export class ProductsService {
         ...(classification.subcategory ? { subcategory: classification.subcategory } : {}),
         ...(input.saleUnit ? { sale_unit: input.saleUnit } : {}),
         ...(input.brand ? { brand: input.brand } : {}),
+        ...(input.netWeight ? { net_weight: input.netWeight } : {}),
         ...(input.purchaseUnit ? { purchase_unit: input.purchaseUnit } : {}),
         ...origin,
         ...(ean
@@ -133,12 +139,32 @@ export class ProductsService {
       include: WITH_EANS,
     })
 
+    let created: Awaited<ReturnType<typeof insert>>
+    if (given !== undefined) {
+      created = await insert(given)
+      await this.skus.observe(given)
+    } else {
+      // Allocated only after every check passed, so a refused registration does not burn a number. A code typed by hand between the allocation and the
+      // insert could still collide (unique violation): take the next number, a few times at most.
+      let attempt = 0
+      for (;;) {
+        const sku = await this.skus.allocate()
+        try {
+          created = await insert(sku)
+          break
+        } catch (error) {
+          if ((error as { code?: string })?.code !== 'P2002' || ++attempt >= 5) throw error
+        }
+      }
+    }
+
+
     return toProductView(created)
   }
 
   async update(
     id: number,
-    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number | null; packageType?: string | null; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: ProductStatus; saleUnit?: string; brand?: string | null; purchaseUnit?: string | null; classificationConfirmed?: boolean },
+    changes: { name?: string; category?: ProductCategory; unitsPerPackage?: number | null; packageType?: string | null; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; status?: ProductStatus; saleUnit?: string; brand?: string | null; netWeight?: string | null; purchaseUnit?: string | null; classificationConfirmed?: boolean },
   ): Promise<ProductView> {
     const existing = await this.prisma.product.findUnique({ where: { id } })
     if (!existing) throw new NotFoundException(`Product ${id} not found`)
@@ -168,6 +194,7 @@ export class ProductsService {
         ...(changes.status !== undefined ? { status: changes.status } : {}),
         ...(changes.saleUnit !== undefined ? { sale_unit: changes.saleUnit } : {}),
         ...(changes.brand !== undefined ? { brand: changes.brand } : {}),
+        ...(changes.netWeight !== undefined ? { net_weight: changes.netWeight } : {}),
         ...(changes.purchaseUnit !== undefined ? { purchase_unit: changes.purchaseUnit } : {}),
       },
       include: WITH_EANS,

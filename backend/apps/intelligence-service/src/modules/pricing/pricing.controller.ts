@@ -96,6 +96,16 @@ export class PricingController {
     return this.pricing.report(query(period, storeId), correlationId)
   }
 
+  @Get('current')
+  @ApiOperation({
+    summary: 'The pricing decision as of TODAY: cost and price in force today, computed in the request (nothing is stored)',
+    description: 'Same engine, rules and sales/loss/payment/expense windows as the report, but each product is valued at the cost and the price in force today, so a price or cost changed since the last closed month is already in it. `meta.basis` is "current". Without `storeId` it is the network.',
+  })
+  @ApiQuery({ name: 'storeId', required: false })
+  currentDecision(@Query('storeId') storeId?: string, @Headers('x-correlation-id') correlationId?: string) {
+    return this.pricing.report({ ...query(undefined, storeId), asOf: new Date().toISOString().slice(0, 10) }, correlationId)
+  }
+
   @Get('products/:sku')
   @ApiOperation({ summary: 'One product, computed from the same inputs as the report' })
   product(@Param('sku') sku: string, @Query('period') period?: string, @Query('storeId') storeId?: string, @Headers('x-correlation-id') correlationId?: string) {
@@ -129,6 +139,31 @@ export class PricingController {
       if (error instanceof InvalidPriceError) throw new BadRequestException(error.message)
       throw error
     }
+  }
+
+  @Post('current/:sku/simulate')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Simulate a typed price over the CURRENT basis of one product (cost and price in force today)',
+    description: 'Estimate only; writes nothing and needs no stored report. Optional `replacementCostCents` simulates with a replacement quote the user typed (never a purchase).',
+  })
+  async simulateCurrent(@Param('sku') sku: string, @Body() body: { priceCents?: unknown; replacementCostCents?: unknown; storeId?: number | null }, @Headers('x-correlation-id') correlationId?: string) {
+    try {
+      return await this.pricing.simulateCurrent(sku, { priceCents: body?.priceCents, replacementCostCents: body?.replacementCostCents, storeId: body?.storeId, asOf: new Date().toISOString().slice(0, 10) }, correlationId)
+    } catch (error) {
+      if (error instanceof InvalidPriceError) throw new BadRequestException(error.message)
+      throw error
+    }
+  }
+
+  @Get('current/:sku/stores')
+  @ApiOperation({ summary: 'Each store\'s units, revenue, loss and estimated margin of one product, over its CURRENT basis (no stored report needed)' })
+  async currentStores(@Param('sku') sku: string, @Headers('x-correlation-id') correlationId?: string) {
+    const report = await this.pricing.report({ skus: [sku], asOf: new Date().toISOString().slice(0, 10) }, correlationId)
+    const product = report.products.find(candidate => candidate.sku === sku)
+    if (!product) throw new NotFoundException(`Product ${sku} not found`)
+
+    return this.productService.storesFor(product, sku, query(undefined).period ?? report.meta.months[report.meta.months.length - 1], correlationId)
   }
 
   @Get('products/:sku/stores')

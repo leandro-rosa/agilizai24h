@@ -109,6 +109,42 @@ describe('PricingService.report', () => {
     expect(coca.recommendedPriceCents).toBeGreaterThan(590)
   })
 
+  it('with an as-of day, values cost and price in force THAT day (the current basis) and says so; without it, the last day of the period', async () => {
+    const asked: { costs: string[]; prices: string[] } = { costs: [], prices: [] };
+    const service = build(707, [], (asOf: string) => {
+      asked.costs.push(asOf)
+      const cents = asOf >= '2026-10-01' ? 350 : 309
+
+      return { as_of: asOf, resolved: [{ sku: 'COCA', product_id: 1, cost_cents: cents, effective_from: asOf >= '2026-10-01' ? '2026-10-05' : '2026-08-15', source: 'invoice', invoice_number: '13021' }], unresolved: [{ sku: 'MARM', reason: 'no_cost_before_date' }], complete: false }
+    })
+
+    const period = await service.report({ period: '2026-09' })
+    const current = await service.report({ period: '2026-09', asOf: '2026-10-08' })
+    const coca = (report: typeof period) => report.products.find(product => product.sku === 'COCA')!
+
+    expect(period.meta).toMatchObject({ basis: 'period', asOf: '2026-09-30' })
+    expect(current.meta).toMatchObject({ basis: 'current', asOf: '2026-10-08' })
+    expect(current.meta.months).toEqual(MONTHS)
+    expect(coca(period).structure?.productCostCents).toBe(309)
+    // The cost bought on 05/10 is already the cost of the current basis, and it is not reported as a "newer cost" (it IS the cost in force).
+    expect(coca(current).structure?.productCostCents).toBe(350)
+    expect(coca(current).newerCost ?? null).toBeNull()
+    expect(coca(current).currentMargin).toBeLessThan(coca(period).currentMargin as number)
+    expect(asked.costs).toContain('2026-10-08')
+  })
+
+  it('simulates a typed price over the current basis of a product, with today\'s cost, and refuses a bad price or an unknown product', async () => {
+    const service = build(707, [], (asOf: string) => ({ as_of: asOf, resolved: [{ sku: 'COCA', product_id: 1, cost_cents: asOf >= '2026-10-01' ? 350 : 309, effective_from: '2026-08-15', source: 'invoice', invoice_number: '13021' }], unresolved: [{ sku: 'MARM', reason: 'no_cost_before_date' }], complete: false }))
+    const today = '2026-10-08'
+    const atCurrent = await service.simulateCurrent('COCA', { priceCents: 700, asOf: today })
+    const atPeriod = await service.simulateCurrent('COCA', { priceCents: 700, asOf: '2026-09-30' })
+
+    expect(atCurrent).toMatchObject({ simulable: true, reportRunId: 'current', priceCents: 700 })
+    expect((atCurrent as { margin: number }).margin).toBeLessThan((atPeriod as { margin: number }).margin)
+    await expect(service.simulateCurrent('COCA', { priceCents: -5, asOf: today })).rejects.toThrow()
+    await expect(service.simulateCurrent('NOPE', { priceCents: 700, asOf: today })).rejects.toThrow(/not found/)
+  })
+
   it('carries the identity the table needs, and none for a product without a supplier', async () => {
     const report = await build(707).report({ period: '2026-09' })
     const coca = report.products.find(product => product.sku === 'COCA')!

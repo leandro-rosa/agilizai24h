@@ -31,6 +31,30 @@ export class PricingController {
     return this.send('post', '/pricing/runs', request, body)
   }
 
+  @Get('current')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'The pricing decision as of today: cost and price in force today, computed in the request' })
+  @ApiQuery({ name: 'storeId', required: false })
+  async current(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    // Sem loja é a rede: o parâmetro some, em vez de ir como o texto "undefined".
+    return this.get('/pricing/current', query?.storeId ? { storeId: query.storeId } : {}, request)
+  }
+
+  @Post('current/:sku/simulate')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Simulate a typed price over the current basis of one product (estimate; changes nothing)' })
+  async simulateCurrent(@Param('sku') sku: string, @Body() body: unknown, @Req() request: FastifyRequest) {
+    return this.send('post', `/pricing/current/${encodeURIComponent(sku)}/simulate`, request, body)
+  }
+
+  @Get('current/:sku/stores')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'Each store\'s units, revenue, loss and estimated margin of one product, over its current basis' })
+  async currentStores(@Param('sku') sku: string, @Req() request: FastifyRequest) {
+    return this.get(`/pricing/current/${encodeURIComponent(sku)}/stores`, {}, request)
+  }
+
   @Get('runs/latest')
   @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
   @ApiOperation({ summary: 'The latest completed report of a scope, without recomputing' })

@@ -18,6 +18,7 @@ import { paymentCost, type FeeRate, type MixRow } from './payment-cost'
 import { computePrice, costBasisOf, type OperatingContext, type PriceInput, type PriceResult } from './price'
 import { PricingParametersService } from './pricing-parameters.service'
 import { suggestNewProduct, type NewProductSuggestion } from './new-product'
+import { assertPrice, simulate, type NotSimulable, type Simulation } from './simulate'
 import { ENGINE_VERSION, type PaymentCost } from './pricing.types'
 import { byCategory, summarise, type CategorySummary, type PricingSummary } from './summary'
 
@@ -26,6 +27,11 @@ export interface PricingQuery {
   period?: string
   storeId?: number
   skus?: string[]
+  /**
+   * The day costs and prices are resolved as of (`YYYY-MM-DD`). Absent: the last day of `period` (the historical diagnosis of that period). Given
+   * (today): the CURRENT decision basis, with the cost and the price in force that day; the sales, loss, payment and expense windows stay those of `period`.
+   */
+  asOf?: string
 }
 
 export interface PricingReport {
@@ -35,6 +41,8 @@ export interface PricingReport {
     /** The months read and the day costs and prices were resolved as of. */
     months: string[]
     asOf: string
+    /** `period`: the diagnosis of a past period (cost and price of its last day). `current`: cost and price in force today. */
+    basis?: 'period' | 'current'
     storeId: number | null
     /** Explains how the shared components were built, so no number is read as more certain than it is. */
     payment: Pick<PaymentCost, 'voucherShare' | 'voucherBasis' | 'unresolvedShare' | 'complete' | 'notes' | 'components' | 'fixed'> & { rate: number; fixedPerUnitCents: number } | null
@@ -126,6 +134,7 @@ export class PricingService {
         parameterVersion: version.id,
         months,
         asOf,
+        basis: query.asOf === undefined ? ('period' as const) : ('current' as const),
         storeId: query.storeId ?? null,
         payment: payment ? { rate: payment.rate, voucherShare: payment.voucherShare, voucherBasis: payment.voucherBasis, unresolvedShare: payment.unresolvedShare, complete: payment.complete, notes: payment.notes, components: payment.components, fixed: payment.fixed, fixedPerUnitCents: payment.fixedPerUnitCents } : null,
         paymentMixMonthsWithoutTransactions: mix.periods_without_transactions,
@@ -137,6 +146,21 @@ export class PricingService {
       categories: byCategory(results, revenueBySku),
       products: results,
     }
+  }
+
+  /**
+   * A typed price simulated over the CURRENT basis of one product (cost and price in force today): the same structure the current report shows for it.
+   * Estimate only; it writes nothing and needs no stored run.
+   */
+  async simulateCurrent(sku: string, input: { priceCents: unknown; replacementCostCents?: unknown; storeId?: number | null; asOf: string }, correlationId?: string): Promise<(Simulation | NotSimulable) & { reportRunId: string }> {
+    const priceCents = assertPrice(input.priceCents)
+    const replacement = input.replacementCostCents === undefined || input.replacementCostCents === null ? null : assertPrice(input.replacementCostCents)
+    const report = await this.report({ skus: [sku], storeId: input.storeId ?? undefined, asOf: input.asOf }, correlationId)
+    const product = report.products.find(candidate => candidate.sku === sku)
+    if (!product) throw new NotFoundException(`Product ${sku} not found`)
+    const result = simulate({ structure: product.structure, currentPriceCents: product.currentPriceCents, monthlyUnits: product.monthlyUnits, targetMargin: product.targetMargin, priceCents, replacementCostCents: replacement })
+
+    return { ...result, reportRunId: 'current' }
   }
 
   /**
@@ -206,7 +230,7 @@ export class PricingService {
     const params = version.values
     const end = query.period ?? shiftMonth(currentMonth(), -1)
     const months = monthsBetween(shiftMonth(end, -(params.data.lookbackMonths - 1)), end)
-    const asOf = lastDayOf(end)
+    const asOf = query.asOf ?? lastDayOf(end)
     const beforeWindow = lastDayOf(shiftMonth(months[0], -1))
 
     const allStores = (await this.stores.stores(correlationId)).filter(store => !isSynthetic(store.name))

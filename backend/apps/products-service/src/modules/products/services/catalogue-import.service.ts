@@ -68,8 +68,9 @@ export class CatalogueImportService {
       }
       try {
         const v = item.values
+        let created: string | null = null
         if (item.action === 'create') {
-          await this.products.create({ sku: v.sku, name: v.name as string, category: v.category as string, subcategory: v.subcategory ?? undefined, classificationConfirmed: false, brand: v.brand ?? undefined, saleUnit: v.saleUnit, purchaseUnit: v.purchaseUnit ?? undefined, packageType: v.packageType ?? undefined, unitsPerPackage: v.unitsPerPackage ?? undefined, ean: v.ean, origin: 'excel', actor })
+          created = (await this.products.create({ sku: v.sku || undefined, name: v.name as string, category: v.category as string, subcategory: v.subcategory ?? undefined, classificationConfirmed: false, brand: v.brand ?? undefined, saleUnit: v.saleUnit, purchaseUnit: v.purchaseUnit ?? undefined, packageType: v.packageType ?? undefined, unitsPerPackage: v.unitsPerPackage ?? undefined, ean: v.ean, origin: 'excel', actor })).sku
         } else {
           const id = idBySku.get(v.sku) as number
           const clear = (field: string) => (item.clears.includes(field) ? null : undefined)
@@ -86,7 +87,7 @@ export class CatalogueImportService {
           })
           if (item.addEan) await this.eans.add(id, { ean: item.addEan, source: 'other', actor, note: 'Importação de planilha' })
         }
-        results.push({ row: item.row, sku: item.sku, action: item.action, ok: true })
+        results.push({ row: item.row, sku: item.sku ?? created, action: item.action, ok: true })
       } catch (error) {
         results.push({ row: item.row, sku: item.sku, action: item.action, ok: false, error: error instanceof Error ? error.message : String(error) })
       }

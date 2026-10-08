@@ -267,3 +267,13 @@ model Subcategory {
   @@index([category_id])
   @@map("subcategory")
 }
+
+/// The automatic SKU counter: a single row (id = 1). `last_value` only ever grows (an explicit six-digit SKU above it moves it up), so a SKU is never
+/// handed out twice, even after the product is deleted. A gap is possible (a number taken for a registration that then failed) and is not a defect.
+model SkuSequence {
+  id         Int      @id
+  last_value Int
+  updated_at DateTime @default(now()) @updatedAt
+
+  @@map("sku_sequence")
+}

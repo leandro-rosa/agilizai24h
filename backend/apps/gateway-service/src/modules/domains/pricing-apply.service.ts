@@ -9,6 +9,8 @@ export interface ApplyPriceInput {
   effectiveFrom?: unknown
   reason?: unknown
   runId?: unknown
+  /** `current`: the recommendation compared with is today's (cost and price in force today), not a stored run's. */
+  basis?: unknown
   period?: unknown
   storeId?: unknown
 }

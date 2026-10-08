@@ -21,6 +21,7 @@ describe('suggestNewProduct', () => {
     expect(result.confidence).toBe('low')
     expect(result.suggestedPriceCents).toBe(610)
     expect(result.suggestedMargin).toBeGreaterThanOrEqual(result.targetMargin - 0.005)
+    expect(result.blocker).toBeNull()
   })
 
   it('uses the same engine: the suggestion is the target price a product with the same cost structure gets', () => {
@@ -61,6 +62,7 @@ describe('suggestNewProduct', () => {
     expect(result.status).toBe('insufficient_data')
     expect(result.suggestedPriceCents).toBeNull()
     expect(result.insufficientReasons).toHaveLength(1)
+    expect(result.blocker).toBe('missing_data')
   })
 })
 
@@ -92,5 +94,6 @@ describe('suggestNewProduct — classification and the unreachable target', () =
     expect(result.status).toBe('insufficient_data')
     expect(result.suggestedPriceCents).toBeNull()
     expect(result.insufficientReasons[0]).toMatch(/não é alcançável pela fórmula/)
+    expect(result.blocker).toBe('unreachable')
   })
 })

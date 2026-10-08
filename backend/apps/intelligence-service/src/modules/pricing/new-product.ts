@@ -49,6 +49,8 @@ export interface NewProductSuggestion {
   dataUsed: DataUsed[]
   reasons: string[]
   insufficientReasons: string[]
+  /** Why there is no price, when there is none: information is missing (`missing_data`) or the target cannot be reached by the formula (`unreachable`). Null when there is a price. */
+  blocker: 'missing_data' | 'unreachable' | null
   engineVersion: string
 }
 
@@ -73,14 +75,14 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
   if (!input.loss) missing.push('Sem histórico de perda para a categoria')
   if (input.operatingShare === null) missing.push('Rateio operacional indisponível')
   if (missing.length > 0) {
-    return { ...base, status: 'insufficient_data', confidence: 'low', minimumPriceCents: null, suggestedPriceCents: null, suggestedMargin: null, structure: null, dataUsed: [], reasons: [], insufficientReasons: missing }
+    return { ...base, status: 'insufficient_data', confidence: 'low', minimumPriceCents: null, suggestedPriceCents: null, suggestedMargin: null, structure: null, dataUsed: [], reasons: [], insufficientReasons: missing, blocker: 'missing_data' as const }
   }
 
   const payment = input.payment as NonNullable<typeof input.payment>
   const loss = input.loss as NonNullable<typeof input.loss>
   const solved = solveStructure({ costCents: input.costCents as number, taxRateBps: params.taxRateBps as number, payment, loss, operatingShare: input.operatingShare as number, perTransactionPerUnitCents: input.perTransactionPerUnitCents ?? 0 }, margins)
   if (solved.rawTarget === null || solved.rawMinimum === null) {
-    return { ...base, status: 'insufficient_data', confidence: 'low', minimumPriceCents: null, suggestedPriceCents: null, suggestedMargin: null, structure: solved.structure, dataUsed: [], reasons: [], insufficientReasons: [solved.unreachable ?? 'A meta não é alcançável pela fórmula'] }
+    return { ...base, status: 'insufficient_data', confidence: 'low', minimumPriceCents: null, suggestedPriceCents: null, suggestedMargin: null, structure: solved.structure, dataUsed: [], reasons: [], insufficientReasons: [solved.unreachable ?? 'A meta não é alcançável pela fórmula'], blocker: 'unreachable' as const }
   }
 
   const operating = input.operating ?? null
@@ -126,5 +128,6 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
     dataUsed,
     reasons,
     insufficientReasons: [],
+    blocker: null,
   }
 }

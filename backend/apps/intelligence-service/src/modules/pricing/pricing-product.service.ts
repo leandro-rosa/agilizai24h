@@ -93,10 +93,17 @@ export class PricingProductService {
     return { ...result, reportRunId: run }
   }
 
-  /** Each store's own volume and loss for the product, at the current price. */
+  /** Each store's own volume and loss for the product, at the current price, over the structure of the latest stored report. */
   async storesOf(sku: string, input: { period?: string }, correlationId?: string): Promise<ProductStores> {
     const scope = this.runs.scope(input.period)
     const { product } = await this.fromStoredReport(sku, { period: scope.period, storeId: null })
+
+    return this.storesFor(product, sku, scope.period, correlationId)
+  }
+
+  /** The same, over a product the caller already computed (the current basis needs no stored report). */
+  async storesFor(product: PriceResult, sku: string, period: string, correlationId?: string): Promise<ProductStores> {
+    const scope = { period }
     const allStores = (await this.stores.stores(correlationId)).filter(store => !isSynthetic(store.name))
     const months = monthsBetween(shiftMonth(scope.period, -2), scope.period)
     const facts = await Promise.all(months.map(month => this.loader.month(month, allStores, correlationId)))

@@ -951,4 +951,76 @@ describe('products integration', () => {
       expect(await prisma.product.count({ where: { sku: bad } })).toBe(0)
     })
   })
+
+  describe('automatic SKU (real SQL)', () => {
+    const bySku = async (sku: string) => prisma.product.findUniqueOrThrow({ where: { sku } })
+    const track = (sku: string) => (createdSkus.push(sku), sku)
+
+    it('simultaneous registrations without a SKU all get different, increasing six-digit numbers', async () => {
+      const made = await Promise.all(Array.from({ length: 12 }, (_, i) => products.create({ name: `SKU auto ${i}`, category: 'beverage' })))
+      made.forEach(product => track(product.sku))
+      const skus = made.map(product => product.sku)
+
+      expect(new Set(skus).size).toBe(12)
+      expect(skus.every(sku => /^\d{6}$/.test(sku))).toBe(true)
+    })
+
+    it('a SKU of a deleted product is not handed out again', async () => {
+      const first = await products.create({ name: 'SKU descartado', category: 'beverage' })
+      await prisma.product.delete({ where: { sku: first.sku } })
+      const second = await products.create({ name: 'SKU seguinte', category: 'beverage' })
+      track(second.sku)
+
+      expect(Number(second.sku)).toBeGreaterThan(Number(first.sku))
+    })
+
+    it('a six-digit SKU typed above the counter is kept, and the next automatic one comes after it', async () => {
+      const [{ last_value }] = await prisma.$queryRaw<{ last_value: number }[]>`SELECT last_value FROM sku_sequence WHERE id = 1`
+      const typed = String(last_value + 500)
+      const manual = await products.create({ sku: typed, name: 'SKU digitado', category: 'beverage' })
+      track(manual.sku)
+      const auto = await products.create({ name: 'SKU depois do digitado', category: 'beverage' })
+      track(auto.sku)
+
+      expect(manual.sku).toBe(typed)
+      expect(Number(auto.sku)).toBe(Number(typed) + 1)
+    })
+
+    it('a typed SKU that already exists is refused and does not move the counter or touch the other product', async () => {
+      const original = await products.create({ name: 'SKU original', category: 'beverage' })
+      track(original.sku)
+
+      await expect(products.create({ sku: original.sku, name: 'Outro', category: 'beverage' })).rejects.toThrow(/already exists/)
+      expect((await bySku(original.sku)).name).toBe('SKU original')
+    })
+
+    it('a refused registration (unknown category) does not burn a number', async () => {
+      const [{ last_value: before }] = await prisma.$queryRaw<{ last_value: number }[]>`SELECT last_value FROM sku_sequence WHERE id = 1`
+      await expect(products.create({ name: 'Sem categoria válida', category: 'inexistente' as never })).rejects.toThrow()
+      const [{ last_value: after }] = await prisma.$queryRaw<{ last_value: number }[]>`SELECT last_value FROM sku_sequence WHERE id = 1`
+
+      expect(after).toBe(before)
+    })
+
+    it('the import gives a row without SKU the next automatic SKU, keeps a row\'s own free SKU, and moves the counter above it', async () => {
+      const [{ last_value }] = await prisma.$queryRaw<{ last_value: number }[]>`SELECT last_value FROM sku_sequence WHERE id = 1`
+      const own = String(last_value + 300)
+      const applied = await importer.apply(
+        [
+          { row: 2, sku: '', name: 'Importado sem SKU', category: 'Bebida' },
+          { row: 3, sku: own, name: 'Importado com SKU', category: 'Bebida' },
+        ] as never,
+        {},
+        'teste',
+      )
+      applied.results.forEach(result => result.sku && track(result.sku))
+
+      expect(applied.results.every(result => result.ok)).toBe(true)
+      expect(applied.results[0].sku).toMatch(/^\d{6}$/)
+      expect(applied.results[1].sku).toBe(own)
+      const next = await products.create({ name: 'Depois da importação', category: 'beverage' })
+      track(next.sku)
+      expect(Number(next.sku)).toBeGreaterThan(Number(own))
+    })
+  })
 })

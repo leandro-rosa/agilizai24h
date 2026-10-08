@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { PrismaClientService } from '../db-client/prisma-client.service'
 import { ProductsClient } from '../sources/products.client'
 import { PricingRunsService } from './pricing-runs.service'
-import type { PricingReport } from './pricing.service'
+import { PricingService, type PricingReport } from './pricing.service'
 import { assertPrice, InvalidPriceError } from './simulate'
 
 export interface RecordDecisionInput {
@@ -15,6 +15,8 @@ export interface RecordDecisionInput {
   reason?: unknown
   /** The run the user was looking at when approving; the latest completed run of the scope when absent. */
   runId?: unknown
+  /** `current`: the recommendation is the one of the CURRENT basis (cost and price in force today), computed here — not read from a stored run. */
+  basis?: unknown
   period?: unknown
   storeId?: unknown
   /** Set by the gateway from the session; never typed by the person it is about. */
@@ -96,6 +98,7 @@ export class PricingDecisionsService {
     private readonly prisma: PrismaClientService,
     private readonly products: ProductsClient,
     private readonly runs: PricingRunsService,
+    private readonly pricing: PricingService,
   ) {}
 
   /** Records a pending decision. The same idempotency key returns the decision already recorded. */
@@ -197,6 +200,14 @@ export class PricingDecisionsService {
 
   private async recommendationFor(sku: string, input: RecordDecisionInput): Promise<{ priceCents: number | null; confidence: string | null; runId: string | null; parameterVersion: number | null }> {
     const none = { priceCents: null, confidence: null, runId: null, parameterVersion: null }
+
+    // The person decided looking at the current basis: the reference is today's recommendation, never an older stored run's.
+    if (input.basis === 'current') {
+      const current = await this.pricing.report({ skus: [sku], storeId: typeof input.storeId === 'number' ? input.storeId : undefined, asOf: new Date().toISOString().slice(0, 10) }, input.correlationId)
+      const found = current.products.find(candidate => candidate.sku === sku)
+
+      return found ? { priceCents: found.recommendedPriceCents, confidence: found.confidence, runId: null, parameterVersion: current.meta.parameterVersion } : none
+    }
 
     let report: PricingReport | null = null
     let runId: string | null = null

@@ -53,9 +53,9 @@ describe('classifyImport — new products', () => {
 })
 
 describe('classifyImport — rows that are wrong', () => {
-  it('a row without SKU, a SKU repeated in the file, a repeated EAN, a bad EAN and a bad category are conflicts', () => {
+  it('a SKU repeated in the file, a repeated EAN, a bad EAN and a bad category are conflicts', () => {
     const results = classify([
-      row({ row: 2, sku: '' }),
+      row({ row: 2, sku: '110009' }),
       row({ row: 3, sku: '110010', ean: '7891000000777' }),
       row({ row: 4, sku: '110010' }),
       row({ row: 5, sku: '110011', ean: '7891000000777' }),
@@ -64,13 +64,43 @@ describe('classifyImport — rows that are wrong', () => {
       row({ row: 8, sku: '110014', unitsPerPackage: 'abc' }),
     ])
 
-    expect(results.map(r => r.action)).toEqual(['conflict', 'create', 'conflict', 'conflict', 'conflict', 'conflict', 'conflict'])
-    expect(results[0].problems).toEqual(['Linha sem SKU'])
+    expect(results.map(r => r.action)).toEqual(['create', 'create', 'conflict', 'conflict', 'conflict', 'conflict', 'conflict'])
     expect(results[2].problems[0]).toContain('SKU repetido na planilha (já na linha 3)')
     expect(results[3].problems[0]).toContain('aparece em outra linha (3)')
     expect(results[4].problems[0]).toContain('EAN inválido')
     expect(results[5].problems[0]).toContain('Categoria desconhecida')
     expect(results[6].problems[0]).toContain('Unidades por embalagem inválidas')
+  })
+})
+
+describe('classifyImport — rows without SKU (automatic SKU)', () => {
+  it('a row without SKU creates a product: the SKU is left for the system to give on apply, and the row says so', () => {
+    const [result] = classify([row({ row: 2, sku: '', name: 'Suco de uva 300ml', category: 'Bebida' })])
+
+    expect(result.action).toBe('create')
+    expect(result.sku).toBeNull()
+    expect(result.values?.sku).toBe('')
+    expect(result.notes).toContain('Sem SKU na planilha: o sistema dá o próximo SKU automático ao importar')
+  })
+
+  it('two rows without SKU are two products, not a repeated SKU', () => {
+    const results = classify([row({ row: 2, sku: '', name: 'A' }), row({ row: 3, sku: '', name: 'B' })])
+
+    expect(results.map(r => r.action)).toEqual(['create', 'create'])
+  })
+
+  it('a row without SKU whose barcode already belongs to a product is a conflict that names that product, never a silent update', () => {
+    const [result] = classify([row({ row: 2, sku: '', name: 'Água', ean: '7891000000001' })])
+
+    expect(result.action).toBe('conflict')
+    expect(result.problems[0]).toContain('já pertence ao produto 110001')
+  })
+
+  it('a row that brings a free SKU keeps it', () => {
+    const [result] = classify([row({ row: 2, sku: '110555' })])
+
+    expect(result.action).toBe('create')
+    expect(result.values?.sku).toBe('110555')
   })
 })
 

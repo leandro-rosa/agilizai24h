@@ -35,7 +35,9 @@ function build(options: { recommended?: number | null; priceInForce?: number | n
     latest: async () => ({ report, run: { id: 'run-1', parameterVersion: 4 } }),
     getWithReport: async (id: string) => (id === 'run-old' ? { view: { id: 'run-old', parameterVersion: 2 }, report: { products: [{ sku: 'COCA', recommendedPriceCents: 640, confidence: 'medium' }] } } : null),
   }
-  const service = new PricingDecisionsService(prisma as never, products as never, runs as never)
+  // The current basis: today's recommendation (a different number from the stored run's, as a cost bought after the period would make it).
+  const pricing = { report: async () => ({ meta: { parameterVersion: 9 }, products: [{ sku: 'COCA', recommendedPriceCents: 700, confidence: 'medium' }] }) }
+  const service = new PricingDecisionsService(prisma as never, products as never, runs as never, pricing as never)
 
   return { service, rows }
 }
@@ -72,6 +74,15 @@ describe('PricingDecisionsService.record', () => {
     const { service } = build()
 
     await expect(service.record(apply())).resolves.toBeDefined()
+  })
+
+  it('on the current basis the reference is today\'s recommendation: approving it needs no reason, and the stored run\'s is not used', async () => {
+    const { service } = build()
+    const { decision } = await service.record(apply({ basis: 'current', newPriceCents: 700 }))
+
+    expect(decision).toMatchObject({ recommendedPriceCents: 700, confidence: 'medium', runId: null, parameterVersion: 9, reason: null })
+    // The stored run recommended 650: on the current basis that price is "another price" and needs a reason.
+    await expect(service.record(apply({ idempotencyKey: 'k2', basis: 'current', newPriceCents: 650 }))).rejects.toBeInstanceOf(BadRequestException)
   })
 
   it('uses the run the user was looking at, not the latest', async () => {

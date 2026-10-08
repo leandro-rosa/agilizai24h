@@ -32,6 +32,8 @@ export interface ProductView {
   shelf_life_days: number | null
   sale_unit: string
   brand: string | null
+  /** Net weight or volume as on the label ("269 ml"); free text. */
+  net_weight: string | null
   /** The unit the supplier sells in ("CX", "FD", "UN"); the box-to-unit factor is `units_per_package`. */
   purchase_unit: string | null
   subcategory: string | null
@@ -84,6 +86,7 @@ export function toProductView(product: {
   shelf_life_days: number | null
   sale_unit: string
   brand: string | null
+  net_weight: string | null
   purchase_unit: string | null
   subcategory: string | null
   status: string
@@ -109,6 +112,7 @@ export function toProductView(product: {
     supplier_id: product.supplier_id,
     sale_unit: product.sale_unit,
     brand: product.brand,
+    net_weight: product.net_weight,
     purchase_unit: product.purchase_unit,
     subcategory: product.subcategory,
     status: product.status,
