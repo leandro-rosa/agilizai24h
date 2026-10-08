@@ -16,6 +16,13 @@
 - [x] 3.1 Contribution-margin wording, the three numbers, the incomplete-calculation alert, the cost bases and the reconciliation
 - [x] 3.2 Class of each account in the rules, replacement quote in the simulator, Excel and PDF headers
 
+## 3b. Review round (fixed fee per unit, travel, preserved reports)
+
+- [x] 3b.1 Fixed payment fee per UNIT from tickets and units (sales-service reports `units`, `tickets`, `lines_without_coupon`); exact ticket distribution and the approximation named
+- [x] 3b.2 Average travel cost per restocking from the monthly spend and the restocking visits (supply-service `GET /visits/counts`), outside the price
+- [x] 3b.3 Run history and a run's report as it was computed; the report keeps its original metric name and definition
+- [x] 3b.4 A received line with zero units creates no cost (`skipped_not_received`)
+
 ## 4. Verification
 
 - [x] 4.1 Unit tests for every item, typecheck, lint, comparison old × new over the stored September report
