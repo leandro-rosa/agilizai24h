@@ -60,10 +60,10 @@ export function CategoryFields({
   return (
     <div className="flex flex-col gap-2">
       <div className="grid grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        <label className="flex flex-col gap-1.5 text-sm font-medium text-muted-foreground">
           {categoryLabel}
           <Select value={state.category || NONE} onValueChange={(value) => onChange(chooseCategory(state, value === NONE ? "" : value))}>
-            <SelectTrigger aria-label={categoryLabel}>
+            <SelectTrigger aria-label={categoryLabel} className="h-11 w-full">
               <SelectValue placeholder="Escolha" />
             </SelectTrigger>
             <SelectContent>
@@ -77,10 +77,10 @@ export function CategoryFields({
             </SelectContent>
           </Select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        <label className="flex flex-col gap-1.5 text-sm font-medium text-muted-foreground">
           {subcategoryLabel}
           <Select value={state.subcategory || NONE} onValueChange={(value) => onChange(chooseSubcategory(state, value === NONE ? "" : value))} disabled={!state.category}>
-            <SelectTrigger aria-label={subcategoryLabel}>
+            <SelectTrigger aria-label={subcategoryLabel} className="h-11 w-full">
               <SelectValue placeholder={state.category ? "Sem subcategoria" : "Escolha a categoria"} />
             </SelectTrigger>
             <SelectContent>

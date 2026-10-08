@@ -9,6 +9,8 @@ const OLD_ENGINE_TEXT =
 
 export interface SetupNote {
   text: string;
+  /** Observação sobre como o número foi construído (aproximação, média de planos): não impede nada, só explica. */
+  informational?: boolean;
   /** Onde corrigir. */
   action?: { label: string; href?: string; onClick?: () => void };
 }
@@ -17,7 +19,7 @@ export interface SetupNote {
  * O que falta para os números valerem: taxa sem cadastro, alíquota sem valor e qualquer outra lacuna do relatório.
  * A tela nunca mostra produto "saudável" só porque um insumo faltou — o aviso existe sempre, e o que impede uma recomendação aparece no próprio produto.
  */
-export function setupNotes(latest: LatestPricingReport): SetupNote[] {
+export function setupNotes(latest: Pick<LatestPricingReport, "report">): SetupNote[] {
   const notes: SetupNote[] = [];
   const report = latest.report;
   if (!report) return notes;
@@ -29,7 +31,7 @@ export function setupNotes(latest: LatestPricingReport): SetupNote[] {
     else notes.push({ text });
   }
 
-  for (const text of report.meta.payment?.notes ?? []) notes.push({ text });
+  for (const text of report.meta.payment?.notes ?? []) notes.push({ text, informational: true });
 
   return notes;
 }

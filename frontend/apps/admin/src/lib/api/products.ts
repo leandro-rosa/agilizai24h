@@ -47,7 +47,7 @@ export interface ProductEan {
 
 /** O que a tela manda ao cadastrar um produto a partir de uma linha de NF-e. Origem e usuário são do servidor, nunca daqui. */
 export interface NewProductFromInvoice {
-  sku: string;
+  sku?: string;
   name: string;
   category: string;
   subcategory?: string;
@@ -220,10 +220,12 @@ export interface ImportApplied extends ImportPreview {
 }
 
 export interface NextSku {
-  /** O número depois do maior SKU de seis dígitos; uma SUGESTÃO (nada é reservado). Nulo quando não há de onde contar. */
+  /** O número que o próximo cadastro provavelmente receberá: uma PREVISÃO, nada é reservado até salvar. Nulo quando a faixa de 6 dígitos acabou. */
   suggested: string | null;
+  /** O último número que a sequência entregou ou viu. */
   highest: string | null;
   suggestion: true;
+  forecast?: true;
 }
 
 export interface ResolvedCost {
@@ -231,6 +233,9 @@ export interface ResolvedCost {
   product_id: number;
   cost_cents: number;
   effective_from: string;
+  /** De onde vem o custo em vigor (nota, manual, planilha…) e o número da nota, quando foi uma. Ausente em serviços antigos. */
+  source?: string;
+  invoice_number?: string | null;
 }
 
 export interface UnresolvedCost {
@@ -353,7 +358,7 @@ export const productsApi = createApi({
     }),
     createProduct: builder.mutation<
       Product,
-      { sku: string; name: string; category: string; ean?: string; supplierId?: number; subcategory?: string; classificationConfirmed?: boolean; brand?: string; saleUnit?: string; purchaseUnit?: string; packageType?: string; unitsPerPackage?: number; fractionable?: boolean }
+      { sku?: string; name: string; category: string; ean?: string; supplierId?: number; subcategory?: string; classificationConfirmed?: boolean; brand?: string; netWeight?: string; saleUnit?: string; purchaseUnit?: string; packageType?: string; unitsPerPackage?: number; fractionable?: boolean }
     >({
       query: (body) => ({ url: "/products", method: "POST", body }),
       invalidatesTags: ["Product"],
@@ -444,7 +449,7 @@ export const productsApi = createApi({
     }),
     updateProduct: builder.mutation<
       Product,
-      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number | null; packageType?: string | null; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; classificationConfirmed?: boolean; status?: "active" | "discontinued"; saleUnit?: string; brand?: string | null; purchaseUnit?: string | null } }
+      { id: number; changes: { name?: string; category?: Product["category"]; unitsPerPackage?: number | null; packageType?: string | null; fractionable?: boolean; supplierId?: number | null; subcategory?: string | null; classificationConfirmed?: boolean; status?: "active" | "discontinued"; saleUnit?: string; brand?: string | null; netWeight?: string | null; purchaseUnit?: string | null } }
     >({
       query: ({ id, changes }) => ({ url: `/products/${id}`, method: "PATCH", body: changes }),
       invalidatesTags: ["Product"],

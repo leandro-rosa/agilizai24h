@@ -36,17 +36,17 @@ export function NewProductDialog({
   onCreated: (product: Product) => void;
 }) {
   const [create, { isLoading }] = useCreateProductMutation();
-  const [sku, setSku] = useState(initial?.sku ?? "");
   const [name, setName] = useState(initial?.name ?? "");
   const [ean, setEan] = useState(initial?.ean ?? "");
   const [category, setCategory] = useState<Product["category"]>("snack");
 
   async function submit() {
-    if (!sku.trim() || !name.trim()) return void toast.error("Informe o código (SKU) e o nome do produto.");
+    if (!name.trim()) return void toast.error("Informe o nome do produto.");
     if (ean.trim() && !/^\d{8,14}$/.test(ean.trim())) return void toast.error("O código de barras deve ter de 8 a 14 dígitos.");
 
     try {
-      const product = await create({ sku: sku.trim(), name: name.trim(), category, ean: ean.trim() || undefined, supplierId }).unwrap();
+      // Sem SKU o servidor dá o próximo automático (a mesma sequência do cadastro, da planilha e da nota). Um SKU que veio da linha é validado e preservado.
+      const product = await create({ sku: initial?.sku?.trim() || undefined, name: name.trim(), category, ean: ean.trim() || undefined, supplierId }).unwrap();
       toast.success(`Produto ${product.name} cadastrado.`);
       onCreated(product);
       onOpenChange(false);
@@ -63,10 +63,9 @@ export function NewProductDialog({
           <DialogDescription>O produto passa a existir no cadastro e já pode ser escolhido na compra.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Código (SKU)
-            <Input value={sku} onChange={(e) => setSku(e.target.value)} aria-label="SKU do produto novo" placeholder="Ex.: 100200" />
-          </label>
+          <p className="text-xs text-muted-foreground" data-testid="sku-automatic">
+            {initial?.sku ? <>SKU {initial.sku} (da linha; é conferido ao salvar)</> : "SKU automático: o sistema dá o próximo código ao salvar."}
+          </p>
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             Nome
             <Input value={name} onChange={(e) => setName(e.target.value)} aria-label="Nome do produto novo" />

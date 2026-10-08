@@ -17,6 +17,7 @@ const categories = [
   { id: 3, key: "congelados", name: "Congelados", keywords: [], status: "inactive", products: 0, subcategories: [] },
 ];
 
+jest.doMock("next/link", () => ({ __esModule: true, default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 jest.doMock("../../lib/api/products", () => ({
   useGetCategoriesQuery: () => ({ data: categories, isLoading: false, isError: false }),
   useCreateCategoryMutation: () => [createCategory, { isLoading: false }],
@@ -40,7 +41,8 @@ describe("CategoriesView — manutenção de categorias e subcategorias", () => 
     render(<CategoriesView canWrite />);
 
     const list = screen.getByRole("list", { name: "Categorias" });
-    expect(within(list).getByText("Bebida").closest("li")).toHaveTextContent("57 produtos · 2 subcategorias");
+    expect(within(list).getByText("Bebida").closest("li")).toHaveTextContent("2 subcategorias");
+    expect(within(list).getByText("Bebida").closest("li")).toHaveTextContent("57");
     expect(within(list).getByText("Congelados").closest("li")).toHaveTextContent("Inativa");
     const detail = screen.getByRole("region", { name: "Categoria Bebida" });
     expect(detail).toHaveTextContent("57 produtos vinculados");
@@ -87,7 +89,7 @@ describe("CategoriesView — manutenção de categorias e subcategorias", () => 
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(createSubcategory).toHaveBeenCalledWith({ categoryId: 1, name: "Refrigerantes", keywords: ["guarana", "coca"] }));
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[1]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]);
     expect(screen.getByLabelText("Nome da subcategoria")).toHaveValue("Energéticos");
     fireEvent.change(screen.getByLabelText("Palavras-chave da subcategoria"), { target: { value: "monster, energy, red bull" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
@@ -111,7 +113,29 @@ describe("CategoriesView — manutenção de categorias e subcategorias", () => 
 
     expect(screen.queryByRole("button", { name: "+ Nova categoria" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar categoria" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Inativar" })).not.toBeInTheDocument();
+  });
+
+  it("cabeçalho, busca de categoria e o selo de situação, como no desenho", () => {
+    render(<CategoriesView canWrite />);
+
+    expect(screen.getByRole("heading", { name: "Categorias" })).toBeInTheDocument();
+    expect(screen.getByText("Organize categorias e subcategorias dos produtos.")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Categoria Bebida" })).toHaveTextContent("Ativa");
+    fireEvent.change(screen.getByLabelText("Buscar categoria"), { target: { value: "lanc" } });
+    const list = screen.getByRole("list", { name: "Categorias" });
+    expect(within(list).getByText("Lanche")).toBeInTheDocument();
+    expect(within(list).queryByText("Bebida")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Buscar categoria"), { target: { value: "zzz" } });
+    expect(screen.getByText("Nenhuma categoria com esse nome.")).toBeInTheDocument();
+  });
+
+  it("consultar os produtos vinculados leva à lista de produtos já filtrada", () => {
+    render(<CategoriesView canWrite />);
+
+    expect(screen.getByRole("link", { name: "57 produtos vinculados" })).toHaveAttribute("href", "/products?category=beverage");
+    expect(screen.getByRole("link", { name: "2 produtos" })).toHaveAttribute("href", "/products?category=beverage&subcategory=Energ%C3%A9ticos");
   });
 });
 

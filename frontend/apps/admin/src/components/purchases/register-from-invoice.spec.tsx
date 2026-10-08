@@ -63,13 +63,13 @@ describe("RegisterFromInvoiceDialog — cadastro a partir da nota", () => {
     classifier = { confidence: "none", best: null, alternatives: [] };
   });
 
-  it("vem preenchido com o que a nota traz e pede só o que falta; o SKU é uma sugestão, não uma regra", () => {
+  it("vem preenchido com o que a nota traz e pede só o que falta; o SKU é automático, com previsão", () => {
     open();
 
     expect(screen.getByLabelText("Nome do produto novo")).toHaveValue("Novo sabor de marmita");
     expect(screen.getByLabelText("Código de barras do produto novo")).toHaveValue("7891000100103");
-    expect(screen.getByLabelText("SKU do produto novo")).toHaveValue("110024");
-    expect(screen.getByText(/Sugestão do sistema/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("SKU do produto novo")).not.toBeInTheDocument();
+    expect(screen.getByTestId("sku-automatic")).toHaveTextContent("SKU automático · previsão 110024 (o número definitivo é dado ao salvar)");
     expect(screen.getByText(/NF-e/)).toHaveTextContent("13021");
     expect(screen.getByText(/R\$\s8,50/)).toBeInTheDocument();
     expect(screen.getByText(/quando a compra for recebida/)).toBeInTheDocument();
@@ -77,20 +77,20 @@ describe("RegisterFromInvoiceDialog — cadastro a partir da nota", () => {
     expect(screen.queryByText(/custo de referência/i)).not.toBeInTheDocument();
   });
 
-  it("sem SKU de seis dígitos para contar, não inventa: pede para digitar", () => {
+  it("sem previsão de SKU (faixa de seis dígitos esgotada) o cadastro continua possível: o SKU é dado ao salvar", () => {
     nextSku = { suggested: null };
     open();
 
-    expect(screen.getByLabelText("SKU do produto novo")).toHaveValue("");
-    expect(screen.getByText(/Não há SKU de 6 dígitos/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cadastrar produto" })).toBeDisabled();
+    expect(screen.getByTestId("sku-automatic")).toHaveTextContent("SKU automático");
+    expect(screen.getByTestId("sku-automatic")).not.toHaveTextContent("previsão");
+    expect(screen.getByRole("button", { name: "Cadastrar produto" })).toBeEnabled();
   });
 
   it("categoria é obrigatória", async () => {
     open();
     fireEvent.click(screen.getByRole("button", { name: "Cadastrar produto" }));
 
-    expect(await screen.findByText(/Informe o código \(SKU\), o nome e a categoria/)).toBeInTheDocument();
+    expect(await screen.findByText(/Informe o nome e a categoria/)).toBeInTheDocument();
     expect(createFromInvoice).not.toHaveBeenCalled();
   });
 
@@ -101,7 +101,8 @@ describe("RegisterFromInvoiceDialog — cadastro a partir da nota", () => {
 
     await waitFor(() => expect(createFromInvoice).toHaveBeenCalledTimes(1));
     const sent = createFromInvoice.mock.calls[0][0] as Record<string, unknown>;
-    expect(sent).toMatchObject({ sku: "110024", name: "Novo sabor de marmita", category: "meal", classificationConfirmed: true, saleUnit: "un", ean: "7891000100103", supplierId: 5, invoiceNumber: "13021", originOn: "2026-10-10" });
+    expect(sent).not.toHaveProperty("sku");
+    expect(sent).toMatchObject({ name: "Novo sabor de marmita", category: "meal", classificationConfirmed: true, saleUnit: "un", ean: "7891000100103", supplierId: 5, invoiceNumber: "13021", originOn: "2026-10-10" });
     expect(sent).not.toHaveProperty("origin");
     expect(sent).not.toHaveProperty("actor");
     expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ sku: "110024" }));
@@ -119,7 +120,7 @@ describe("RegisterFromInvoiceDialog — cadastro a partir da nota", () => {
     expect(onCreated).not.toHaveBeenCalled();
   });
 
-  it("SKU repetido é recusado com a mensagem do servidor e nada é criado", async () => {
+  it("um SKU que o servidor recusa (já existe) é recusado com a mensagem do servidor e nada é criado", async () => {
     createFromInvoice.mockReturnValueOnce({ unwrap: async () => Promise.reject({ data: { message: "A product with SKU 110024 already exists" } }) } as never);
     open();
     pickCategory("Bebida");

@@ -68,7 +68,7 @@ describe("ProductDrawer — visão geral", () => {
     expect(screen.getByText("Marmitas")).toBeInTheDocument();
     expect(screen.getByText("12 un. por caixa")).toBeInTheDocument();
     expect(screen.getByText("Crystal")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Abrir na Precificação" })).toHaveAttribute("href", "/products?view=pricing&sku=110024");
+    expect(screen.getByRole("link", { name: "Revisar preço" })).toHaveAttribute("href", "/products?sku=110024");
     expect(screen.getByTestId("origin")).toHaveTextContent("Cadastro originado de NF-e 13021 em 10/10/2026 por ana@agiliz.ai");
   });
 

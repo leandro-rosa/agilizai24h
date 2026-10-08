@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentProps } from "react";
 
 import { RequestState } from "@/components/request-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -18,6 +18,7 @@ import {
   useSimulatePriceMutation,
   type PricingProduct,
   type PricingRunView,
+  type ProductStores,
   type Simulation,
 } from "@/lib/api/pricing";
 import { count, date, money, period as formatPeriod } from "@/lib/format";
@@ -45,7 +46,7 @@ function Fact({ label, value, hint }: { label: string; value: string; hint?: str
 }
 
 /** Como este número nasceu, para quem for conferir: o custo (método e origem), o que entrou na estrutura, que margem é essa, a meta e a premissa do impacto. */
-function CalculationDetails({ product, run, scope }: { product: PricingProduct; run: PricingRunView | null; scope: DrawerScope }) {
+export function CalculationDetails({ product, run, scope }: { product: PricingProduct; run: Pick<PricingRunView, "parameterVersion" | "computedAt"> | null; scope: DrawerScope & { basis?: "period" | "current"; asOf?: string } }) {
   const structure = product.structure;
   const metric = marginMetric(product.engineVersion);
   const origin = costOriginText(product.costOrigin);
@@ -57,7 +58,7 @@ function CalculationDetails({ product, run, scope }: { product: PricingProduct; 
         <div>
           <dt className="text-xs text-muted-foreground">Custo: método e origem</dt>
           <dd>
-            {structure ? money(structure.productCostCents) : "Sem custo utilizável"} · custo vigente no último dia de {formatPeriod(scope.period)} (a mesma regra do CMV do financeiro){origin ? ` · origem: ${origin}` : ""}
+            {structure ? money(structure.productCostCents) : "Sem custo utilizável"} · {scope.basis === "current" ? `custo vigente hoje${scope.asOf ? ` (${date(scope.asOf)})` : ""}; vendas, perdas e despesas de ${formatPeriod(scope.period)}` : `custo vigente no último dia de ${formatPeriod(scope.period)} (a mesma regra do CMV do financeiro)`}{origin ? ` · origem: ${origin}` : ""}
             {product.newerCost && (
               <span className="block text-warning">
                 O cadastro tem um custo mais novo ({money(product.newerCost.costCents)}, desde {date(product.newerCost.effectiveFrom)}, {product.newerCost.basis === "registry_or_manual" ? "cadastral ou manual, sem compra recebida" : "de compra recebida"}). Este período é histórico: o custo novo não entra nele; a sugestão atual, abaixo, mostra o efeito.
@@ -387,11 +388,16 @@ function History({ sku, period }: { sku: string; period: string }) {
   );
 }
 
-function Stores({ sku, period }: { sku: string; period: string }) {
+export function Stores({ sku, period }: { sku: string; period: string }) {
   const { data, isLoading, error, refetch } = useGetProductStoresQuery({ sku, period });
 
+  return <StoresView data={data} isLoading={isLoading} error={error} onRetry={refetch} />;
+}
+
+/** A tabela por loja, sem saber de onde veio o dado (cálculo guardado ou base de hoje). */
+export function StoresView({ data, isLoading, error, onRetry }: { data: ProductStores | undefined; isLoading: boolean; error: ComponentProps<typeof RequestState>["error"]; onRetry: () => void }) {
   return (
-    <RequestState isLoading={isLoading} error={error} isEmpty={data?.stores.length === 0 && data.missingStores.length === 0} onRetry={refetch} emptyMessage="Sem dados de lojas para este produto.">
+    <RequestState isLoading={isLoading} error={error} isEmpty={data?.stores.length === 0 && data.missingStores.length === 0} onRetry={onRetry} emptyMessage="Sem dados de lojas para este produto.">
       <div className="flex flex-col gap-2">
         <p className="text-xs text-muted-foreground">{data?.note}</p>
         <Table>

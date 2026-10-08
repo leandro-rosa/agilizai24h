@@ -390,6 +390,11 @@ export interface NewProductSuggestion {
   dataUsed: { code: string; label: string; value: string; origin: string }[];
   reasons: string[];
   insufficientReasons: string[];
+  /** Por que não há preço, quando não há: falta informação (`missing_data`) ou a meta não é alcançável pela fórmula (`unreachable`). */
+  blocker?: "missing_data" | "unreachable" | null;
+  /** Falso quando há despesa relevante sem classificação: a sugestão aparece, nunca como validada. */
+  validated?: boolean;
+  validationNotes?: string[];
 }
 
 export type NewProductChoiceKind = "suggested_accepted" | "changed_by_hand" | "left_without_price";
@@ -397,8 +402,26 @@ export type NewProductChoiceKind = "suggested_accepted" | "changed_by_hand" | "l
 export const pricingApi = createApi({
   reducerPath: "pricingApi",
   baseQuery: gatewayBaseQuery,
-  tagTypes: ["Report", "Parameters", "Decisions"],
+  tagTypes: ["Report", "Parameters", "Decisions", "Current"],
   endpoints: (builder) => ({
+    /** A decisão de preço de HOJE: custo e preço vigentes hoje, calculados na hora (nada é guardado). `meta.basis` é "current". */
+    getCurrentPricing: builder.query<PricingReport, { storeId: number | null }>({
+      query: ({ storeId }) => `/pricing/current${storeId === null ? "" : `?storeId=${storeId}`}`,
+      providesTags: ["Current"],
+      keepUnusedDataFor: 60,
+    }),
+    /** O preço digitado simulado sobre a base de hoje de UM produto (estimativa; não grava nada e não precisa de relatório guardado). */
+    simulateCurrentPrice: builder.mutation<Simulation, { sku: string; priceCents: number; replacementCostCents?: number | null; storeId: number | null }>({
+      query: ({ sku, priceCents, replacementCostCents, storeId }) => ({
+        url: `/pricing/current/${encodeURIComponent(sku)}/simulate`,
+        method: "POST",
+        body: { priceCents, ...(replacementCostCents ? { replacementCostCents } : {}), storeId },
+      }),
+    }),
+    /** Volume, perda e margem estimada de cada loja para um produto, sobre a base de hoje. */
+    getCurrentProductStores: builder.query<ProductStores, string>({
+      query: (sku) => `/pricing/current/${encodeURIComponent(sku)}/stores`,
+    }),
     getLatestPricingReport: builder.query<LatestPricingReport, ScopeArgs>({
       query: (scope) => `/pricing/runs/latest?${scopeQuery(scope)}`,
       providesTags: ["Report"],
@@ -442,10 +465,10 @@ export const pricingApi = createApi({
     }),
     applyPrice: builder.mutation<
       ApplyPriceResult,
-      { idempotencyKey: string; sku: string; newPriceCents: number; reason?: string; runId?: string; effectiveFrom?: string }
+      { idempotencyKey: string; sku: string; newPriceCents: number; reason?: string; runId?: string; effectiveFrom?: string; /** `current`: a recomendação de referência é a de hoje, não a de um cálculo guardado. */ basis?: "current" }
     >({
       query: (body) => ({ url: "/pricing/decisions/apply", method: "POST", body }),
-      invalidatesTags: ["Decisions"],
+      invalidatesTags: ["Decisions", "Current"],
     }),
     getNewProductSuggestion: builder.query<{ meta: { parameterVersion: number; asOf: string }; suggestion: NewProductSuggestion }, { sku: string; costCents?: number; costOrigin?: string; costNotReceived?: boolean }>({
       query: ({ sku, costCents, costOrigin, costNotReceived }) => {
@@ -468,7 +491,7 @@ export const pricingApi = createApi({
       { sku: string; idempotencyKey: string; choice: NewProductChoiceKind; chosenPriceCents?: number; reason?: string; costCents?: number; costOrigin?: string; costNotReceived?: boolean; effectiveFrom?: string }
     >({
       query: ({ sku, ...body }) => ({ url: `/pricing/new-product/${encodeURIComponent(sku)}/choice`, method: "POST", body }),
-      invalidatesTags: ["Decisions", "Report"],
+      invalidatesTags: ["Decisions", "Report", "Current"],
     }),
     getPricingParameters: builder.query<PricingParameterVersion, void>({
       query: () => "/pricing/parameters/current",
@@ -489,6 +512,9 @@ export const pricingApi = createApi({
 });
 
 export const {
+  useGetCurrentPricingQuery,
+  useSimulateCurrentPriceMutation,
+  useGetCurrentProductStoresQuery,
   useGetLatestPricingReportQuery,
   useStartPricingRunMutation,
   useGetPricingRunHistoryQuery,

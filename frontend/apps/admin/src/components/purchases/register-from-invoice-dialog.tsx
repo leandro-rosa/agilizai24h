@@ -54,7 +54,6 @@ export function RegisterFromInvoiceDialog({
   const next = useGetNextSkuQuery();
   const [createFromInvoice, { isLoading }] = useCreateProductFromInvoiceMutation();
   const categories = useGetCategoriesQuery().data;
-  const [sku, setSku] = useState<string | null>(null);
   const [name, setName] = useState(line.description);
   const [brand, setBrand] = useState("");
   const [purchaseUnit, setPurchaseUnit] = useState(line.purchaseUnit ?? "");
@@ -71,19 +70,18 @@ export function RegisterFromInvoiceDialog({
   const subcategory = classification.subcategory;
   useNameClassification(name, setClassification, created === null);
 
-  const suggested = next.data?.suggested ?? null;
-  const skuValue = sku ?? suggested ?? "";
+  // O SKU é automático: o servidor dá o próximo ao salvar. O número mostrado antes é só uma previsão.
+  const forecast = next.data?.suggested ?? null;
 
   async function submit() {
     setProblem(null);
-    if (!skuValue.trim() || !name.trim() || !category) return setProblem({ message: "Informe o código (SKU), o nome e a categoria do produto." });
+    if (!name.trim() || !category) return setProblem({ message: "Informe o nome e a categoria do produto." });
     if (ean.trim() && !/^\d{8,14}$/.test(ean.trim())) return setProblem({ message: "O código de barras deve ter de 8 a 14 dígitos." });
     const perPackage = unitsPerPackage.trim() ? Number(unitsPerPackage) : undefined;
     if (perPackage !== undefined && (!Number.isInteger(perPackage) || perPackage < 1)) return setProblem({ message: "Unidades por embalagem: use um número inteiro." });
 
     try {
       const common = {
-        sku: skuValue.trim(),
         name: name.trim(),
         category,
         subcategory: subcategory.trim() || undefined,
@@ -141,12 +139,9 @@ export function RegisterFromInvoiceDialog({
             </div>
 
             <div className="grid gap-3">
-              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                Código (SKU)
-                <Input value={skuValue} onChange={(e) => setSku(e.target.value)} aria-label="SKU do produto novo" inputMode="numeric" />
-                {suggested !== null && sku === null && <span>Sugestão do sistema (o próximo depois do maior SKU de 6 dígitos): confirme ou troque. Um código que já existe é recusado.</span>}
-                {next.isSuccess && suggested === null && <span>Não há SKU de 6 dígitos para contar a partir dele: digite o código.</span>}
-              </label>
+              <p className="text-xs text-muted-foreground" data-testid="sku-automatic">
+                SKU automático{forecast !== null ? <> · previsão <span className="tabular">{forecast}</span> (o número definitivo é dado ao salvar)</> : null}
+              </p>
               <label className="flex flex-col gap-1 text-xs text-muted-foreground">
                 Nome
                 <Input value={name} onChange={(e) => setName(e.target.value)} aria-label="Nome do produto novo" />
@@ -212,7 +207,7 @@ export function RegisterFromInvoiceDialog({
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
               Cancelar
             </Button>
-            <Button onClick={submit} disabled={isLoading || !skuValue.trim()}>
+            <Button onClick={submit} disabled={isLoading}>
               {isLoading ? "Cadastrando..." : "Cadastrar produto"}
             </Button>
           </DialogFooter>

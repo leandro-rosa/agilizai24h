@@ -113,7 +113,7 @@ function OverviewTab({ product, supplierName, canWrite, onEdit }: { product: Pro
           <h3 className="text-sm font-semibold">Identificação</h3>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" asChild>
-              <Link href={`/products?view=pricing&sku=${encodeURIComponent(product.sku)}`}>Abrir na Precificação</Link>
+              <Link href={`/products?sku=${encodeURIComponent(product.sku)}`}>Revisar preço</Link>
             </Button>
             {canWrite && (
               <Button size="sm" variant="outline" onClick={onEdit}>
