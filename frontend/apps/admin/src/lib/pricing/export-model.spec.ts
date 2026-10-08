@@ -69,9 +69,19 @@ describe("planilha", () => {
 
     expect(coca["Preço atual (R$)"]).toBe(5.9);
     expect(coca["Preço recomendado (R$)"]).toBe(6.1);
-    expect(coca["Margem de contribuição"]).toBe(0.321);
+    // The fixture is a pricing-1 report: its margin keeps the name and meaning it was computed with.
+    expect(coca["Margem econômica"]).toBe(0.321);
     expect(coca["Impacto potencial estimado (R$/mês)"]).toBe(420);
     expect(typeof coca["Custo médio (R$)"]).toBe("number");
+  });
+
+  it("um relatório do motor atual exporta a margem de contribuição, e um do anterior a econômica, sem renomear", () => {
+    const current = buildExportModel({ latest: { ...latest(), run: { ...latest().run!, engineVersion: "pricing-4" }, report: { ...latest().report!, meta: { ...latest().report!.meta, engineVersion: "pricing-4" } } }, products: [product({ engineVersion: "pricing-4" })], scopeLabel: "x", filtersLabel: "x", categories: [] })!;
+    const sheetOf = (m: typeof current) => XLSX.utils.sheet_to_json<Record<string, unknown>>(buildWorkbook(m).Sheets["Produtos"]);
+
+    expect(sheetOf(current)[0]["Margem de contribuição"]).toBe(0.321);
+    expect(sheetOf(current)[0]["Margem econômica"]).toBeUndefined();
+    expect(rows("Produtos")[0]["Margem econômica"]).toBe(0.321);
   });
 
   it("deixa vazia a célula de um valor ausente, nunca zero", () => {
@@ -79,7 +89,7 @@ describe("planilha", () => {
 
     expect(marmita["Preço recomendado (R$)"]).toBeUndefined();
     expect(marmita["Impacto potencial estimado (R$/mês)"]).toBeUndefined();
-    expect(marmita["Margem atual"]).toBeUndefined();
+    expect(marmita["Margem econômica"]).toBeUndefined();
     expect(marmita["Situação"]).toBe("Dados insuficientes");
   });
 

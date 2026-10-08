@@ -34,7 +34,7 @@ export function ProductMarginTab({ product }: { product: Product }) {
     <div className="flex flex-col gap-3">
       <p className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
         Base do CMV: o custo vigente no último dia de cada mês vale para o mês inteiro (aproximação do financeiro). A margem é a do produto, <strong>(receita − custo do vendido) ÷ receita</strong>, só sobre as vendas
-        que têm custo; ela não inclui impostos, taxas, perda nem rateio (isso é a margem econômica da Precificação Inteligente).
+        que têm custo; ela não inclui impostos, taxas, perda nem rateio (isso é a margem de contribuição da Precificação Inteligente, que desconta também perda, imposto, taxas e despesas proporcionais à venda).
       </p>
       <Table>
         <TableHeader>

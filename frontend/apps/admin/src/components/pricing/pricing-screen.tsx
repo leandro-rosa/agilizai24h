@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { Button } from "@/components/ui/button";
-import { useGetLatestPricingReportQuery, useStartPricingRunMutation } from "@/lib/api/pricing";
+import { useGetLatestPricingReportQuery, useGetPricingRunHistoryQuery, useGetPricingRunReportQuery, useStartPricingRunMutation } from "@/lib/api/pricing";
 import { useGetCatalogueLastChangeQuery } from "@/lib/api/products";
 import { useGetStoresQuery } from "@/lib/api/stores";
 import { useHasPermission } from "@/lib/auth/use-permission";
@@ -18,7 +18,9 @@ import { buildExportModel } from "@/lib/pricing/export-model";
 import { applyFilters, costChanges, filterOptions, MARGIN_BAND_LABEL, NO_FILTERS, paginate, sortProducts, topOpportunities, type Filters, type SortKey } from "@/lib/pricing/view";
 import { STATUS_LABEL } from "@/lib/pricing/labels";
 
+import { CalculationSheet } from "./calculation-sheet";
 import { ExportButtons } from "./export-buttons";
+import { TravelCard } from "./travel-card";
 import { FiltersBar } from "./filters-bar";
 import { ProductDrawer } from "./product-drawer";
 import { PendingProducts } from "./pending-products";
@@ -28,6 +30,8 @@ import { ScopeBar } from "./scope-bar";
 import { setupNotes, SetupBanner, ValidationAlert } from "./setup-banner";
 import { CategoriesSection, CostChangesSection, OpportunitiesSection } from "./support-sections";
 import { SummaryCards } from "./summary-cards";
+import { marginMetric } from "@/lib/pricing/metric";
+import { isClassified } from "@/lib/pricing/operating";
 
 const POLL_MS = 3000;
 
@@ -54,12 +58,29 @@ export function PricingScreen({ embedded = false }: { embedded?: boolean }) {
   const [pageState, setPageState] = useState<{ key: string; page: number }>({ key: "", page: 1 });
   const [pageSize, setPageSize] = useState(10);
   // `?sku=` abre o detalhe do produto direto: é o link "Abrir na Precificação" do cadastro.
-  const [selected, setSelected] = useState<string | null>(useSearchParams().get("sku"));
+  const searchParams = useSearchParams();
+  const [selected, setSelected] = useState<string | null>(searchParams.get("sku"));
   const [rulesOpen, setRulesOpen] = useState(false);
 
   const canWrite = useHasPermission("products:write");
   const scope = { period, storeId };
-  const { data: latest, isLoading, isFetching, error, refetch } = useGetLatestPricingReportQuery(scope);
+  const { data: latestRaw, isLoading, isFetching, error, refetch } = useGetLatestPricingReportQuery(scope);
+  // Um cálculo mais antigo da mesma lista pode ser lido como foi calculado (recalcular nunca apaga o anterior); nele não se aplica preço nem se simula.
+  const { data: runHistory } = useGetPricingRunHistoryQuery(scope);
+  // `?run=` abre direto um cálculo anterior (um link guardado continua apontando para ele).
+  const [viewingRun, setViewingRun] = useState<{ key: string; id: string } | null>(() => {
+    const id = searchParams.get("run");
+
+    return id ? { key: `${period}|${storeId}`, id } : null;
+  });
+  const scopeKey = `${period}|${storeId}`;
+  const viewingId = viewingRun?.key === scopeKey ? viewingRun.id : null;
+  const { data: olderRun } = useGetPricingRunReportQuery(viewingId ?? "", { skip: viewingId === null });
+  const viewingOlder = viewingId !== null && olderRun !== undefined && olderRun.run.id !== latestRaw?.run?.id;
+  const latest = useMemo(
+    () => (latestRaw && viewingOlder && olderRun ? { ...latestRaw, run: olderRun.run, report: olderRun.report, state: "ready" as const, parametersStale: olderRun.run.parameterVersion !== latestRaw.currentParameterVersion } : latestRaw),
+    [latestRaw, viewingOlder, olderRun],
+  );
   const [startRun, { isLoading: starting }] = useStartPricingRunMutation();
   const { data: stores } = useGetStoresQuery();
   // O relatório guardado não se recalcula a cada custo novo: a tela compara o horário do cálculo com a última alteração do cadastro.
@@ -95,6 +116,7 @@ export function PricingScreen({ embedded = false }: { embedded?: boolean }) {
   // Todos com a mesma meta: ela vai no cabeçalho e a coluna some. Com exceções por produto, a coluna volta.
   const targets = useMemo(() => [...new Set(products.map((product) => product.targetMargin))], [products]);
   const defaultTarget = report?.summary.targetMargin ?? null;
+  const metric = marginMetric(report?.meta.engineVersion);
 
   const exportModel = useMemo(
     () => (latest ? buildExportModel({ latest, products: filtered, scopeLabel, filtersLabel: describeFilters(filters, options), categories }) : null),
@@ -193,15 +215,17 @@ export function PricingScreen({ embedded = false }: { embedded?: boolean }) {
                     </p>
                   )}
 
+                  <CalculationSheet report={report} run={latest.run} history={runHistory ?? []} viewingOlder={viewingOlder} onView={(id) => setViewingRun(id === null ? null : { key: scopeKey, id })} />
                   <ValidationAlert latest={latest ?? null} onOpenRules={() => setRulesOpen(true)} />
                   <SetupBanner notes={notes} onOpenRules={() => setRulesOpen(true)} />
-                  <SummaryCards summary={report.summary} />
+                  <SummaryCards summary={report.summary} metric={metric} />
+                  {isClassified(report.meta.operating) && <TravelCard travel={report.meta.operating.travel} />}
                   <PendingProducts groups={report.summary.pending ?? []} products={products} onOpen={setSelected} />
 
                   <FiltersBar filters={filters} onChange={setFilters} sort={sort} onSortChange={setSort} categories={options.categories} suppliers={options.suppliers} />
 
                   <RequestState isLoading={false} isEmpty={filtered.length === 0} emptyMessage="Nenhum produto com esses filtros.">
-                    <ProductsTable rows={paged.rows} total={filtered.length} page={paged.page} pages={paged.pages} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} onOpen={setSelected} showTarget={targets.length > 1} />
+                    <ProductsTable rows={paged.rows} total={filtered.length} page={paged.page} pages={paged.pages} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} onOpen={setSelected} showTarget={targets.length > 1} metric={metric} />
                   </RequestState>
 
                   <div className="grid gap-4 xl:grid-cols-3">
@@ -220,7 +244,8 @@ export function PricingScreen({ embedded = false }: { embedded?: boolean }) {
         product={selectedProduct}
         scope={scope}
         run={latest?.run ?? null}
-        canWrite={canWrite}
+        canWrite={canWrite && !viewingOlder}
+        historical={viewingOlder}
         onClose={() => setSelected(null)}
         onApplied={() => {
           // O preço mudou: o relatório guardado ficou velho. Recalcula e a tela segue o andamento sozinha.

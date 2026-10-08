@@ -3,11 +3,11 @@ import { CircleAlert, TrendingUp, Wallet } from "lucide-react";
 import { SummaryCard } from "@/components/summary-card";
 import type { PricingSummary } from "@/lib/api/pricing";
 import { count } from "@/lib/format";
+import { CONTRIBUTION_DEFINITION, CONTRIBUTION_METRIC, type MarginMetric } from "@/lib/pricing/metric";
 import { percent, points, signedMoney } from "@/lib/pricing/labels";
 
-/** O que a "margem atual" é, dito uma vez e igual na tabela, nos cartões e no detalhe. */
-export const MARGIN_DEFINITION =
-  "Margem de contribuição: o que sobra do preço depois do custo, das perdas, dos impostos, das taxas de pagamento e das despesas que acompanham a venda. A meta vale para ela. Custos fixos e deslocamento aparecem à parte, na viabilidade da operação; o resultado após rateio é uma estimativa complementar, não o lucro líquido.";
+/** O que a margem da tela é, dito uma vez e igual na tabela, nos cartões e no detalhe. Um relatório do motor anterior diz a SUA definição (`marginMetric`). */
+export const MARGIN_DEFINITION = CONTRIBUTION_DEFINITION;
 
 /** A premissa do impacto estimado: é uma estimativa, não uma promessa de que as vendas se mantêm. */
 export const IMPACT_PREMISE = "Estimativa que supõe o mesmo volume de vendas de hoje. Um preço maior pode vender menos: não é lucro garantido.";
@@ -16,7 +16,7 @@ export const IMPACT_PREMISE = "Estimativa que supõe o mesmo volume de vendas de
  * Três cartões, sobre os produtos que TÊM dados para a análise (o escopo inteiro, não o filtrado). Quantos produtos a análise cobre vem dito logo abaixo:
  * produto sem dados suficientes nunca entra como margem zero. Um número que o backend não deu é "Indisponível", nunca zero.
  */
-export function SummaryCards({ summary }: { summary: PricingSummary | null }) {
+export function SummaryCards({ summary, metric = CONTRIBUTION_METRIC }: { summary: PricingSummary | null; metric?: MarginMetric }) {
   if (!summary) {
     return (
       <div className="grid gap-3 sm:grid-cols-3">
@@ -52,7 +52,7 @@ export function SummaryCards({ summary }: { summary: PricingSummary | null }) {
       </div>
       <p className="text-xs text-muted-foreground" data-testid="coverage">
         A análise cobre <strong>{count(coverage.analysable)} de {count(coverage.total)}</strong> produtos
-        {coverage.withoutEnoughData > 0 ? `; ${count(coverage.withoutEnoughData)} ficaram sem dados suficientes e não entram nas médias.` : "."} {MARGIN_DEFINITION} {IMPACT_PREMISE}
+        {coverage.withoutEnoughData > 0 ? `; ${count(coverage.withoutEnoughData)} ficaram sem dados suficientes e não entram nas médias.` : "."} {metric.definition} {IMPACT_PREMISE}
       </p>
     </div>
   );

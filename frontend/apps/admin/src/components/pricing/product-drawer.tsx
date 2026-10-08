@@ -26,7 +26,8 @@ import { CONFIDENCE_LABEL, CONFIDENCE_TONE, costOriginText, parsePriceToCents, p
 
 import { ApplyPriceDialog, errorMessage } from "./apply-price-dialog";
 import { CostBasesSection, ReconciliationSection } from "./cost-bases";
-import { IMPACT_PREMISE, MARGIN_DEFINITION } from "./summary-cards";
+import { marginMetric } from "@/lib/pricing/metric";
+import { IMPACT_PREMISE } from "./summary-cards";
 
 export interface DrawerScope {
   period: string;
@@ -46,6 +47,7 @@ function Fact({ label, value, hint }: { label: string; value: string; hint?: str
 /** Como este número nasceu, para quem for conferir: o custo (método e origem), o que entrou na estrutura, que margem é essa, a meta e a premissa do impacto. */
 function CalculationDetails({ product, run, scope }: { product: PricingProduct; run: PricingRunView | null; scope: DrawerScope }) {
   const structure = product.structure;
+  const metric = marginMetric(product.engineVersion);
   const origin = costOriginText(product.costOrigin);
 
   return (
@@ -68,14 +70,16 @@ function CalculationDetails({ product, run, scope }: { product: PricingProduct; 
             <dt className="text-xs text-muted-foreground">Impostos, taxas e demais despesas consideradas</dt>
             <dd>
               Imposto {pct2(structure.taxRate)} · taxas de pagamento {pct2(structure.paymentRate)}
-              {structure.paymentFixedCents > 0 ? ` + ${money(Math.round(structure.paymentFixedCents))} por unidade` : ""} · perda {percent(structure.lossRate)} ({LOSS_LEVEL_TEXT[structure.lossLevel] ?? structure.lossLevel}) · despesas proporcionais à venda {pct2(structure.operatingShare)}
+              {structure.paymentFixedCents > 0 ? ` + ${money(Math.round(structure.paymentFixedCents))} por unidade (taxa fixa repartida pelas unidades)` : ""} · perda {percent(structure.lossRate)} ({LOSS_LEVEL_TEXT[structure.lossLevel] ?? structure.lossLevel}) · despesas proporcionais à venda {pct2(structure.operatingShare)}
               {(structure.perTransactionCents ?? 0) > 0 ? ` · custo por transação ${money(Math.round(structure.perTransactionCents as number))} por unidade` : ""}
+              {structure.paymentFixed && structure.paymentFixed.basis !== "coupon" && <span className="block text-xs text-warning">Aproximação: {structure.paymentFixed.note}</span>}
+              {structure.paymentFixed && structure.paymentFixed.basis === "coupon" && <span className="block text-xs text-muted-foreground">{structure.paymentFixed.note}</span>}
             </dd>
           </div>
         )}
         <div>
           <dt className="text-xs text-muted-foreground">Tipo de margem</dt>
-          <dd>{MARGIN_DEFINITION}</dd>
+          <dd>{metric.definition}</dd>
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">Meta aplicada</dt>
@@ -106,8 +110,9 @@ const pct2 = (fraction: number) => `${(fraction * 100).toFixed(2).replace(".", "
 
 const LOSS_LEVEL_TEXT: Record<string, string> = { product: "do produto", category: "da categoria", store: "da loja", network: "da rede" };
 
-function Overview({ product, run, scope, onApply, onSimulate, canWrite }: { product: PricingProduct; run: PricingRunView | null; scope: DrawerScope; onApply: () => void; onSimulate: () => void; canWrite: boolean }) {
+function Overview({ product, run, scope, onApply, onSimulate, canWrite, historical }: { product: PricingProduct; run: PricingRunView | null; scope: DrawerScope; onApply: () => void; onSimulate: () => void; canWrite: boolean; historical: boolean }) {
   const breakdown = useMemo(() => costBreakdown(product), [product]);
+  const metric = marginMetric(product.engineVersion);
   const { data: decisions } = useGetPricingDecisionsQuery({ sku: product.sku, limit: 10 });
 
   return (
@@ -130,13 +135,15 @@ function Overview({ product, run, scope, onApply, onSimulate, canWrite }: { prod
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Fact label="Custo médio" value={money(product.structure?.productCostCents ?? null)} hint={costOriginText(product.costOrigin) ?? undefined} />
           <Fact label="Preço atual" value={money(product.currentPriceCents)} />
-          <Fact label="Margem de contribuição" value={percent(product.currentMargin)} hint={`Meta ${percent(product.targetMargin, 0)}`} />
-          <Fact label="Contribuição por unidade" value={product.unitContributionCents === null || product.unitContributionCents === undefined ? "—" : money(Math.round(product.unitContributionCents))} hint="o que cada venda deixa para cobrir a operação" />
-          <Fact
-            label="Resultado após rateio (estimativa)"
-            value={percent(product.estimatedResultAfterAllocation?.margin)}
-            hint={product.estimatedResultAfterAllocation ? "depende do critério de rateio; não é lucro líquido" : undefined}
-          />
+          <Fact label={metric.name} value={percent(product.currentMargin)} hint={`Meta ${percent(product.targetMargin, 0)}`} />
+          {metric.key === "contribution" && <Fact label="Contribuição por unidade" value={product.unitContributionCents === null || product.unitContributionCents === undefined ? "—" : money(Math.round(product.unitContributionCents))} hint="o que cada venda deixa para cobrir a operação" />}
+          {metric.key === "contribution" && (
+            <Fact
+              label="Resultado após rateio (estimativa)"
+              value={percent(product.estimatedResultAfterAllocation?.margin)}
+              hint={product.estimatedResultAfterAllocation ? "depende do critério de rateio; não é lucro líquido" : undefined}
+            />
+          )}
           <Fact label="Markup atual" value={product.currentMarkup === null ? "—" : product.currentMarkup.toFixed(2).replace(".", ",")} />
           <Fact label="Vendas (mês)" value={`${count(Math.round(product.monthlyUnits))} un.`} />
           <Fact label="Faturamento (mês)" value={money(product.monthlyRevenueCents === null ? null : Math.round(product.monthlyRevenueCents))} />
@@ -252,9 +259,13 @@ function Overview({ product, run, scope, onApply, onSimulate, canWrite }: { prod
       </section>
 
       <div className="sticky bottom-0 flex gap-2 border-t bg-background py-3">
-        <Button variant="outline" className="flex-1" onClick={onSimulate}>
-          Simular outro preço
-        </Button>
+        {historical ? (
+          <p className="text-xs text-muted-foreground">Cálculo mais antigo, só para leitura: simular e aplicar preço valem para o cálculo mais recente.</p>
+        ) : (
+          <Button variant="outline" className="flex-1" onClick={onSimulate}>
+            Simular outro preço
+          </Button>
+        )}
         {canWrite && (
           <Button className="flex-1" onClick={onApply}>
             Aplicar novo preço
@@ -339,7 +350,7 @@ function History({ sku, period }: { sku: string; period: string }) {
   return (
     <RequestState isLoading={isLoading} error={error} isEmpty={data?.rows.length === 0} onRetry={refetch} emptyMessage="Sem histórico para este produto.">
       <div className="flex flex-col gap-2">
-        <p className="text-xs text-muted-foreground">Margem do produto: (preço − custo) ÷ preço, ao fim de cada mês. Não é a margem econômica da recomendação.</p>
+        <p className="text-xs text-muted-foreground">Margem do produto: (preço − custo) ÷ preço, ao fim de cada mês. Não é a margem da recomendação (contribuição ou econômica, conforme o motor do relatório).</p>
         <Table>
           <TableHeader>
             <TableRow>
@@ -418,12 +429,15 @@ function DrawerBody({
   scope,
   run,
   canWrite,
+  historical,
   onApplied,
 }: {
   product: PricingProduct;
   scope: DrawerScope;
   run: PricingRunView | null;
   canWrite: boolean;
+  /** Um cálculo mais antigo, só para leitura: sem simular nem aplicar, que agem sobre o cálculo mais recente. */
+  historical: boolean;
   onApplied: () => void;
 }) {
   const [tab, setTab] = useState("overview");
@@ -445,12 +459,12 @@ function DrawerBody({
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value="overview">Visão geral</TabsTrigger>
-            <TabsTrigger value="simulator">Simulador</TabsTrigger>
+            {!historical && <TabsTrigger value="simulator">Simulador</TabsTrigger>}
             <TabsTrigger value="history">Histórico</TabsTrigger>
             <TabsTrigger value="stores">Lojas</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" className="pt-4">
-            <Overview product={product} run={run} scope={scope} canWrite={canWrite} onSimulate={() => setTab("simulator")} onApply={() => setApplying({ priceCents: product.recommendedPriceCents })} />
+            <Overview product={product} run={run} scope={scope} canWrite={canWrite} onSimulate={() => setTab("simulator")} historical={historical} onApply={() => setApplying({ priceCents: product.recommendedPriceCents })} />
           </TabsContent>
           <TabsContent value="simulator" className="pt-4">
             <Simulator product={product} scope={scope} canWrite={canWrite} onApply={(cents) => setApplying({ priceCents: cents })} />
@@ -482,6 +496,7 @@ export function ProductDrawer({
   scope,
   run,
   canWrite,
+  historical = false,
   onClose,
   onApplied,
 }: {
@@ -489,6 +504,7 @@ export function ProductDrawer({
   scope: DrawerScope;
   run: PricingRunView | null;
   canWrite: boolean;
+  historical?: boolean;
   onClose: () => void;
   /** Depois de um preço aplicado: o relatório precisa ser recalculado. */
   onApplied: () => void;
@@ -496,7 +512,7 @@ export function ProductDrawer({
   return (
     <Sheet open={product !== null} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
-        {product && <DrawerBody key={product.sku} product={product} scope={scope} run={run} canWrite={canWrite} onApplied={onApplied} />}
+        {product && <DrawerBody key={product.sku} product={product} scope={scope} run={run} canWrite={canWrite} historical={historical} onApplied={onApplied} />}
       </SheetContent>
     </Sheet>
   );

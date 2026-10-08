@@ -6,6 +6,8 @@ import type { PricingProduct } from "../../lib/api/pricing";
 
 const startRun = jest.fn((_arg: unknown) => ({ unwrap: async () => ({ started: true }) }));
 let latest: Record<string, unknown> = {};
+let runHistory: unknown[] = [];
+let olderRun: unknown;
 let lastChange: { latest: string | null } | undefined;
 let searchParams = new URLSearchParams();
 const excel = jest.fn();
@@ -16,6 +18,8 @@ jest.doMock("../../lib/api/pricing", () => ({
   useGetLatestPricingReportQuery: () => ({ data: latest, isLoading: false, isFetching: false, error: undefined, refetch: jest.fn() }),
   useStartPricingRunMutation: () => [startRun, { isLoading: false }],
   useGetPricingDecisionsQuery: () => ({ data: [] }),
+  useGetPricingRunHistoryQuery: () => ({ data: runHistory }),
+  useGetPricingRunReportQuery: (id: string) => ({ data: id === "OLD" ? olderRun : undefined }),
   useSimulatePriceMutation: () => [jest.fn(), { isLoading: false }],
   useGetProductHistoryQuery: () => ({ data: undefined, isLoading: true }),
   useGetProductStoresQuery: () => ({ data: undefined, isLoading: true }),
@@ -36,11 +40,11 @@ const product = (over: Partial<PricingProduct> = {}): PricingProduct =>
     minimumPriceCents: 560, targetPriceCents: 610, recommendedPriceCents: 650, currentPriceCents: 590, currentMargin: 0.321, currentMarkup: 1.9, targetMargin: 0.35, minimumMargin: 0.3, marginFromCategory: false,
     structure: { productCostCents: 309, lossAdjustedCostCents: 315, taxRate: 0.0707, lossRate: 0.02, lossLevel: "product", paymentRate: 0.02, paymentFixedCents: 0, voucherShare: 0.22, voucherBasis: "sales_weighted", operatingShare: 0.04, statement: "Rateio operacional utilizado exclusivamente para análise de preço. Não representa novo lançamento financeiro." },
     costVariation: null, marginAtPreviousCost: null, marginChangeFromCost: null, monthlyUnits: 325, monthlyRevenueCents: 191750, monthlyMarginCents: 80000, impactCentsPerMonth: 42000, impactLabel: "Impacto potencial estimado",
-    recommendedMargin: 0.35, reasons: [], insufficientReasons: [], engineVersion: "pricing-3", costOrigin: { source: "invoice", effectiveFrom: "2026-08-15", invoiceNumber: "13021" }, newerCost: null, ...over,
+    recommendedMargin: 0.35, reasons: [], insufficientReasons: [], engineVersion: "pricing-4", costOrigin: { source: "invoice", effectiveFrom: "2026-08-15", invoiceNumber: "13021" }, newerCost: null, ...over,
   }) as PricingProduct;
 
 const report = (products: PricingProduct[], over: Record<string, unknown> = {}) => ({
-  meta: { engineVersion: "pricing-3", parameterVersion: 7, months: ["2026-07", "2026-08", "2026-09"], asOf: "2026-09-30", storeId: null, payment: null, paymentMixMonthsWithoutTransactions: [], operating: null, notes: [] },
+  meta: { engineVersion: "pricing-4", parameterVersion: 7, months: ["2026-07", "2026-08", "2026-09"], asOf: "2026-09-30", storeId: null, payment: null, paymentMixMonthsWithoutTransactions: [], operating: null, notes: [] },
   summary: { analysed: products.length, averageMargin: 0.321, targetMargin: 0.35, withinTarget: 0, belowTarget: 1, opportunities: 0, insufficientData: 1, review: 0, potentialImpactCentsPerMonth: 42000, impactLabel: "Impacto potencial estimado", coverage: { total: 2, analysable: 1, withoutEnoughData: 1 }, pending: [{ code: "stale_cost", label: "Custo desatualizado (sem compra no período)", skus: ["MARM"] }], shares: { withinTarget: 0, belowTarget: 1, opportunities: 0, insufficientData: 0 } },
   categories: [],
   products,
@@ -61,9 +65,11 @@ const { ExportButtons }: { ExportButtons: ComponentType<Record<string, unknown>>
 beforeEach(() => {
   jest.clearAllMocks();
   searchParams = new URLSearchParams();
+  runHistory = [];
+  olderRun = undefined;
   // O cadastro mudou em 09/10, depois do cálculo de 05/10.
   lastChange = { latest: "2026-10-09T00:00:00.000Z" };
-  latest = { scope: { period: "2026-09", storeId: null }, state: "ready", run: { id: "r1", period: "2026-09", storeId: null, status: "completed", engineVersion: "pricing-3", parameterVersion: 7, computedAt: "2026-10-05T10:00:00.000Z", createdAt: "2026-10-05T09:59:00.000Z", error: null }, report: report([product(), marmita()]), inProgress: null, lastFailure: null, currentParameterVersion: 7, parametersStale: false };
+  latest = { scope: { period: "2026-09", storeId: null }, state: "ready", run: { id: "r1", period: "2026-09", storeId: null, status: "completed", engineVersion: "pricing-4", parameterVersion: 7, computedAt: "2026-10-05T10:00:00.000Z", createdAt: "2026-10-05T09:59:00.000Z", error: null }, report: report([product(), marmita()]), inProgress: null, lastFailure: null, currentParameterVersion: 7, parametersStale: false };
 });
 
 describe("PricingScreen — a tela de análise", () => {
@@ -82,11 +88,10 @@ describe("PricingScreen — a tela de análise", () => {
     expect(screen.getByText(/há exceções por produto\/categoria/)).toBeInTheDocument();
   });
 
-  it("não coloca o nome do motor nem a versão das regras no texto principal; é uma análise histórica do período", () => {
-    const { container } = render(<PricingScreen />);
+  it("a ficha do cálculo mostra o motor, as regras, o período e as bases; é uma análise histórica do período", () => {
+    render(<PricingScreen />);
 
-    expect(container).not.toHaveTextContent("pricing-3");
-    expect(container).not.toHaveTextContent("regras v7");
+    expect(screen.getByRole("region", { name: "Ficha do cálculo" })).toHaveTextContent("pricing-4 · regras v7");
     expect(screen.getByText(/Análise histórica de/)).toHaveTextContent("custo vigente no último dia do período");
   });
 
@@ -149,7 +154,7 @@ describe("Detalhe do produto — como o número foi calculado", () => {
     open(product());
 
     const details = screen.getByText("Detalhes técnicos (auditoria)").closest("details") as HTMLElement;
-    expect(details).toHaveTextContent("Motor pricing-3 · regras v7");
+    expect(details).toHaveTextContent("Motor pricing-4 · regras v7");
     expect(details).not.toHaveAttribute("open");
   });
 
@@ -361,5 +366,122 @@ describe("ExportButtons", () => {
     const button = screen.getByRole("button", { name: /Exportar/ });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("title", "Aguarde o relatório carregar.");
+  });
+});
+
+describe("Relatórios antigos continuam legíveis, com a métrica que tinham", () => {
+  const oldReport = () => {
+    const base = report([product({ engineVersion: "pricing-3", unitContributionCents: undefined, estimatedResultAfterAllocation: undefined, validated: undefined, validationNotes: undefined, costBases: undefined, reconciliation: undefined })]);
+    return { ...base, meta: { ...base.meta, engineVersion: "pricing-3", parameterVersion: 2, operating: { share: 0.2335, months: ["2026-07", "2026-08", "2026-09"], accounts: [] } } };
+  };
+  const useOld = () => {
+    latest = { ...latest, run: { ...(latest.run as object), engineVersion: "pricing-3", parameterVersion: 2 }, report: oldReport() };
+  };
+
+  it("a ficha diz a métrica ORIGINAL com a definição de então, o motor, as regras, o período e as bases, sem renomear a margem econômica", () => {
+    useOld();
+    render(<PricingScreen />);
+    const sheet = screen.getByRole("region", { name: "Ficha do cálculo" });
+
+    expect(sheet).toHaveTextContent("Cálculo anterior: margem econômica");
+    expect(sheet).toHaveTextContent("Margem econômica: o que sobra do preço depois do custo, das perdas, dos impostos, das taxas de pagamento e do rateio operacional.");
+    expect(sheet).toHaveTextContent("pricing-3 · regras v2");
+    expect(sheet).toHaveTextContent("jul/2026 a set/2026");
+    expect(sheet).toHaveTextContent("custo, preço e taxas vigentes em 30/09/2026");
+    expect(sheet).toHaveTextContent("não foram alterados");
+    expect(screen.getByRole("columnheader", { name: "Margem econômica" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Margem de contribuição" })).not.toBeInTheDocument();
+  });
+
+  it("no detalhe do produto antigo a margem é a econômica e não aparecem números que aquele cálculo não tinha", () => {
+    useOld();
+    searchParams = new URLSearchParams("sku=COCA");
+    render(<PricingScreen />);
+
+    expect(screen.getByText("Margem econômica", { selector: "p" })).toBeInTheDocument();
+    expect(screen.queryByText("Contribuição por unidade", { selector: "p" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Resultado após rateio (estimativa)", { selector: "p" })).not.toBeInTheDocument();
+  });
+
+  it("um cálculo mais antigo da lista abre como foi calculado, só para leitura: sem simular nem aplicar preço", () => {
+    const current = { id: "new", period: "2026-09", storeId: null, status: "completed", engineVersion: "pricing-4", parameterVersion: 3, computedAt: "2026-10-08T10:00:00.000Z", createdAt: "2026-10-08T09:59:00.000Z", error: null };
+    const older = { ...current, id: "OLD", engineVersion: "pricing-3", parameterVersion: 2, computedAt: "2026-10-05T10:00:00.000Z" };
+    runHistory = [current, older];
+    latest = { ...latest, run: current, currentParameterVersion: 3 };
+    const base = report([product({ engineVersion: "pricing-3" })]);
+    olderRun = { run: older, report: { ...base, meta: { ...base.meta, engineVersion: "pricing-3", parameterVersion: 2, operating: { share: 0.2335, months: ["2026-09"], accounts: [] } } } };
+
+    // The current one first: it can be simulated.
+    searchParams = new URLSearchParams("sku=COCA");
+    const first = render(<PricingScreen />);
+    expect(screen.getByRole("button", { name: "Simular outro preço" })).toBeInTheDocument();
+    first.unmount();
+
+    // The older one, opened by its link: read-only, with its own metric and versions.
+    searchParams = new URLSearchParams("sku=COCA&run=OLD");
+    render(<PricingScreen />);
+    expect(screen.queryByRole("button", { name: "Simular outro preço" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Simulador" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Aplicar novo preço" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Cálculo mais antigo, só para leitura/)).toBeInTheDocument();
+    expect(screen.getByText("Margem econômica", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText(/Motor pricing-3 · regras v2 · calculado em 05\/10\/2026/)).toBeInTheDocument();
+  });
+});
+
+describe("Deslocamento e taxa fixa: o que é média, aproximação e limite", () => {
+  const travel = {
+    scope: "rede",
+    unit: "um abastecimento = uma loja atendida em uma operação de reposição (uma viagem que atende várias lojas conta várias)",
+    perVisitCents: 12_500,
+    usedCostCents: 250_000,
+    usedVisits: 20,
+    months: [
+      { period: "2026-08", costCents: 150_000, visits: 12, perVisitCents: 12_500, status: "used" },
+      { period: "2026-09", costCents: 100_000, visits: 8, perVisitCents: 12_500, status: "used" },
+      { period: "2026-07", costCents: 90_000, visits: null, perVisitCents: null, status: "no_visits" },
+    ],
+    excludedMonths: [{ period: "2026-07", reason: "sem registro de abastecimentos no mês (desconhecido, não zero)" }],
+    stores: [{ storeId: 1, visits: 12, estimatedCents: 150_000 }, { storeId: 2, visits: 8, estimatedCents: 100_000 }],
+    limitations: ["Custo médio estimado por abastecimento (gasto de deslocamento ÷ abastecimentos do mesmo mês), não o custo real de uma rota ou de uma visita.", "A média não é exclusiva do minimercado.", "O valor por loja é um rateio estimado (média × abastecimentos da loja), não o custo real de chegar a ela."],
+  };
+  const classified = (over: Record<string, unknown> = {}) => ({ scope: "rede", months: ["2026-07", "2026-08", "2026-09"], revenueCents: 1, complete: true, unclassified: [], unclassifiedCents: 0, unclassifiedShare: 0, classes: {}, percentOfSalesShare: 0.01, perTransaction: null, travel, legacy: { share: 0.2, costCents: 1, accounts: [] }, ...over });
+
+  it("mostra o custo médio estimado por abastecimento com o período, os valores usados, as exclusões e os limites", () => {
+    const base = report([product(), marmita()]);
+    latest = { ...latest, report: { ...base, meta: { ...base.meta, operating: classified() } } };
+    render(<PricingScreen />);
+
+    const card = screen.getByText(/Deslocamento: custo médio estimado por abastecimento/).closest("details") as HTMLElement;
+    expect(card).toHaveTextContent("R$ 125,00");
+    expect(card).toHaveTextContent("Gasto de deslocamento do mês ÷ abastecimentos realizados no mesmo mês (rede)");
+    expect(card).toHaveTextContent("uma loja atendida em uma operação de reposição");
+    expect(card).toHaveTextContent("jul/2026 fora da média: sem registro de abastecimentos no mês (desconhecido, não zero)");
+    expect(card).toHaveTextContent("Meses usados");
+    expect(card).toHaveTextContent("20");
+    expect(card).toHaveTextContent("não é exclusiva do minimercado");
+    expect(card).toHaveTextContent("não o custo real de uma rota ou de uma visita");
+    expect(card).toHaveTextContent("Rateio estimado por loja");
+  });
+
+  it("sem abastecimentos não há média: o cartão diz indisponível, nunca custo zero", () => {
+    const base = report([product(), marmita()]);
+    latest = { ...latest, report: { ...base, meta: { ...base.meta, operating: classified({ travel: { ...travel, perVisitCents: null, usedCostCents: 0, usedVisits: 0, stores: [] } }) } } };
+    render(<PricingScreen />);
+
+    expect(screen.getByText(/Deslocamento: custo médio estimado por abastecimento/)).toHaveTextContent("indisponível");
+  });
+
+  it("a taxa fixa por unidade traz a aproximação dos tickets contados um por linha no detalhe do produto", () => {
+    searchParams = new URLSearchParams("sku=COCA");
+    const p = product();
+    const structure = { ...(p.structure as object), paymentFixedCents: 17.8, paymentFixed: { basis: "line_approximation", note: "Total estimado: tarifa cadastrada × tickets (400), repartido pelas 500 unidades vendidas; não é o valor cobrado pelas adquirentes. Nenhuma linha traz o cupom: cada linha foi contada como um ticket (aproximação)." } };
+    latest = { ...latest, report: report([{ ...p, structure } as PricingProduct]) };
+    render(<PricingScreen />);
+
+    const section = screen.getByRole("heading", { name: "Como este número foi calculado" }).closest("section") as HTMLElement;
+    expect(section).toHaveTextContent("R$ 0,18 por unidade (taxa fixa repartida pelas unidades)");
+    expect(section).toHaveTextContent("Aproximação: Total estimado");
+    expect(section).toHaveTextContent("não é o valor cobrado pelas adquirentes");
   });
 });

@@ -3,6 +3,7 @@ import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/render
 import { date, period as fmtPeriod } from "@/lib/format";
 
 import type { ExportModel } from "../export-model";
+import { marginMetric } from "../metric";
 import { CONFIDENCE_LABEL, STATUS_LABEL } from "../labels";
 
 export interface PricingReportMeta {
@@ -133,7 +134,7 @@ export function PricingReport({ model, meta }: { model: ExportModel; meta: Prici
         <Header model={model} meta={meta} />
 
         <Text style={s.h2}>Produtos abaixo da meta</Text>
-        <Cols header widths={[30, 14, 14, 14, 14, 14]} cells={["Produto", "Margem de contribuição", "Preço atual", "Recomendado", "Impacto (mês)", "Confiança"]} />
+        <Cols header widths={[30, 14, 14, 14, 14, 14]} cells={["Produto", marginMetric(model.engineVersion).name, "Preço atual", "Recomendado", "Impacto (mês)", "Confiança"]} />
         {model.belowTarget.slice(0, 15).map((product) => (
           <Cols key={product.sku} widths={[30, 14, 14, 14, 14, 14]} cells={[product.name ?? product.sku, pct(product.currentMargin), brl(product.currentPriceCents), brl(product.recommendedPriceCents), signedBrl(product.impactCentsPerMonth), CONFIDENCE_LABEL[product.confidence]]} />
         ))}

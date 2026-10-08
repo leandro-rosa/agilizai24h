@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 
+import { marginMetric } from "./metric";
 import type { ExportModel } from "./export-model";
 import { CONFIDENCE_LABEL, STATUS_LABEL } from "./labels";
 
@@ -32,7 +33,7 @@ export function buildWorkbook(model: ExportModel): XLSX.WorkBook {
   XLSX.utils.book_append_sheet(
     workbook,
     sheet(
-      ["Código", "Produto", "Categoria", "Fornecedor", "Custo médio (R$)", "Preço atual (R$)", "Margem de contribuição", "Contribuição por unidade (R$)", "Resultado estimado após rateio (margem; não é lucro líquido)", "Meta", "Preço mínimo (R$)", "Preço-meta (R$)", "Preço recomendado (R$)", "Impacto potencial estimado (R$/mês)", "Situação", "Confiança", "Validado"],
+      ["Código", "Produto", "Categoria", "Fornecedor", "Custo médio (R$)", "Preço atual (R$)", marginMetric(model.engineVersion).name, "Contribuição por unidade (R$)", "Resultado estimado após rateio (margem; não é lucro líquido)", "Meta", "Preço mínimo (R$)", "Preço-meta (R$)", "Preço recomendado (R$)", "Impacto potencial estimado (R$/mês)", "Situação", "Confiança", "Validado"],
       model.products.map((product): Cell[] => [
         product.sku,
         product.name,

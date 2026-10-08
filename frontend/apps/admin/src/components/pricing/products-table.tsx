@@ -11,7 +11,8 @@ import { count, date, money } from "@/lib/format";
 import { costOriginText, percent, signedMoney, STATUS_LABEL, STATUS_TONE } from "@/lib/pricing/labels";
 import { noRecommendationReason } from "@/lib/pricing/view";
 
-import { IMPACT_PREMISE, MARGIN_DEFINITION } from "./summary-cards";
+import { CONTRIBUTION_METRIC, type MarginMetric } from "@/lib/pricing/metric";
+import { IMPACT_PREMISE } from "./summary-cards";
 
 export const PAGE_SIZES = [10, 25, 50] as const;
 
@@ -38,6 +39,7 @@ export function ProductsTable({
   onPageSizeChange,
   onOpen,
   showTarget = false,
+  metric = CONTRIBUTION_METRIC,
 }: {
   rows: PricingProduct[];
   total: number;
@@ -49,6 +51,8 @@ export function ProductsTable({
   onOpen: (sku: string) => void;
   /** A coluna Meta só existe quando os produtos têm metas diferentes; com a mesma meta para todos ela vai no cabeçalho da tela. */
   showTarget?: boolean;
+  /** The margin the report was computed with (a report of the previous engine is the economic margin, under its own name). */
+  metric?: MarginMetric;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -59,8 +63,8 @@ export function ProductsTable({
               <TableHead>Produto</TableHead>
               <TableHead className="text-right">Custo utilizado</TableHead>
               <TableHead className="text-right">Preço vigente</TableHead>
-              <TableHead className="text-right" title={MARGIN_DEFINITION}>
-                Margem de contribuição
+              <TableHead className="text-right" title={metric.definition}>
+                {metric.name}
               </TableHead>
               {showTarget && <TableHead className="text-right">Meta</TableHead>}
               <TableHead className="text-right">Preço sugerido</TableHead>

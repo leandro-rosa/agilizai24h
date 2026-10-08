@@ -20,6 +20,8 @@ export interface CostStructure {
   paymentRate: number;
   /** Taxas fixas por unidade vendida, em centavos (ex.: Ticket R$ 0,89 por venda). */
   paymentFixedCents: number;
+  /** Como a taxa fixa por unidade foi montada: tickets observados ou contados um por linha (aproximação); o total é sempre estimado. Ausente antes do `pricing-4`. */
+  paymentFixed?: { basis: string; note: string };
   voucherShare: number;
   voucherBasis: "sales_weighted" | "simple_average" | "none";
   /** Despesas que acompanham o valor da venda (percentual da venda), como fração do preço. Custo fixo e deslocamento não entram aqui. */
@@ -46,6 +48,28 @@ export interface OperatingAccount {
   amountCents: number;
 }
 
+export interface TravelMonth {
+  period: string;
+  costCents: number | null;
+  visits: number | null;
+  perVisitCents: number | null;
+  status: "used" | "no_cost" | "no_visits" | "zero_visits";
+}
+
+/** O custo médio estimado por abastecimento (gasto de deslocamento ÷ abastecimentos do mesmo mês): média, nunca o custo real de uma rota. */
+export interface TravelEstimate {
+  scope: string;
+  unit: string;
+  perVisitCents: number | null;
+  usedCostCents: number;
+  usedVisits: number;
+  months: TravelMonth[];
+  excludedMonths: { period: string; reason: string }[];
+  /** Rateio estimado por loja (média × abastecimentos da loja); só na rede e só com contagem real por loja. */
+  stores: { storeId: number; visits: number; estimatedCents: number }[];
+  limitations: string[];
+}
+
 export interface OperatingReport {
   scope: string;
   months: string[];
@@ -56,7 +80,9 @@ export interface OperatingReport {
   unclassifiedShare: number;
   classes: Record<OperatingClass, { costCents: number; share: number; accounts: OperatingAccount[] }>;
   percentOfSalesShare: number;
-  perTransaction: { perUnitCents: number; assumption: string } | null;
+  perTransaction: { perUnitCents: number; assumption: string; basis?: string; approximated?: boolean } | null;
+  /** Nulo quando o serviço de abastecimento não pôde ser lido (e nos relatórios antigos). */
+  travel?: TravelEstimate | null;
   legacy: { share: number; costCents: number; accounts: OperatingAccount[] };
 }
 
@@ -381,6 +407,15 @@ export const pricingApi = createApi({
       query: ({ period, storeId }) => ({ url: "/pricing/runs", method: "POST", body: { period, storeId } }),
       invalidatesTags: ["Report"],
     }),
+    /** Os cálculos concluídos do escopo, do mais novo ao mais antigo, cada um com a versão do motor e das regras. Recalcular nunca apaga um anterior. */
+    getPricingRunHistory: builder.query<PricingRunView[], ScopeArgs>({
+      query: (scope) => `/pricing/runs?${scopeQuery(scope)}`,
+      providesTags: ["Report"],
+    }),
+    /** Um cálculo anterior, exatamente como foi calculado. */
+    getPricingRunReport: builder.query<{ run: PricingRunView; report: PricingReport }, string>({
+      query: (id) => `/pricing/runs/${encodeURIComponent(id)}/report`,
+    }),
     getProductHistory: builder.query<ProductHistory, { sku: string; period: string }>({
       query: ({ sku, period }) => `/pricing/products/${encodeURIComponent(sku)}/history?period=${period}`,
     }),
@@ -456,6 +491,8 @@ export const pricingApi = createApi({
 export const {
   useGetLatestPricingReportQuery,
   useStartPricingRunMutation,
+  useGetPricingRunHistoryQuery,
+  useGetPricingRunReportQuery,
   useGetProductHistoryQuery,
   useGetProductStoresQuery,
   useSimulatePriceMutation,
