@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import type { SalesTransactionRow } from '@app/ingestion-contracts'
+import { Prisma } from '../../../../generated/prisma/client'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 
 export interface SalesTransactionView {
@@ -150,12 +151,21 @@ export class SalesTransactionsService {
     const months = monthsOfWindow(`${from}-01`, `${to}-01`)
     const scope = storeId === undefined ? {} : { store_id: storeId }
 
-    const grouped = await this.prisma.salesTransaction.groupBy({
-      by: ['method', 'acquirer', 'card_brand'],
-      where: { ...scope, result: 'OK', period: { in: months } },
-      _sum: { amount_paid_cents: true },
-      _count: { _all: true },
-    })
+    // One pass for lines, units and tickets. A ticket is one purchase: the distinct coupons of a store and month plus every line that has no coupon
+    // (a line without one cannot be grouped, so it counts as a ticket of its own and `lines_without_coupon` says how many were counted that way).
+    const grouped = await this.prisma.$queryRaw<
+      { method: string | null; acquirer: string | null; card_brand: string | null; lines: bigint; units: bigint | null; amount: bigint | null; coupons: bigint; lines_without_coupon: bigint }[]
+    >(Prisma.sql`
+      SELECT method, acquirer, card_brand,
+             COUNT(*) AS lines,
+             COALESCE(SUM(quantity), 0) AS units,
+             COALESCE(SUM(amount_paid_cents), 0) AS amount,
+             COUNT(DISTINCT (store_id, period, coupon)) FILTER (WHERE coupon IS NOT NULL) AS coupons,
+             COUNT(*) FILTER (WHERE coupon IS NULL) AS lines_without_coupon
+      FROM sales_transaction
+      WHERE result = 'OK' AND period IN (${Prisma.join(months)}) ${storeId === undefined ? Prisma.empty : Prisma.sql`AND store_id = ${storeId}`}
+      GROUP BY method, acquirer, card_brand
+    `)
 
     const present = await this.prisma.salesTransaction.findMany({
       where: { ...scope, period: { in: months } },
@@ -164,13 +174,20 @@ export class SalesTransactionsService {
     })
     const withData = new Set(present.map(row => row.period))
 
-    const rows = grouped.map(row => ({
-      method: row.method,
-      acquirer: row.acquirer,
-      card_brand: row.card_brand,
-      receipt_lines: row._count._all,
-      amount_paid_cents: row._sum.amount_paid_cents ?? 0,
-    }))
+    const rows = grouped.map(row => {
+      const withoutCoupon = Number(row.lines_without_coupon)
+
+      return {
+        method: row.method,
+        acquirer: row.acquirer,
+        card_brand: row.card_brand,
+        receipt_lines: Number(row.lines),
+        units: Number(row.units ?? 0),
+        tickets: Number(row.coupons) + withoutCoupon,
+        lines_without_coupon: withoutCoupon,
+        amount_paid_cents: Number(row.amount ?? 0),
+      }
+    })
 
     return {
       from,
@@ -188,6 +205,12 @@ export interface PaymentMixRow {
   acquirer: string | null
   card_brand: string | null
   receipt_lines: number
+  /** Units sold in those lines (a line of three units counts three). */
+  units: number
+  /** Distinct coupons plus the lines that carry no coupon (each of those counted as a ticket of its own). */
+  tickets: number
+  /** How many of the lines had no coupon and were counted as one ticket each: when it equals `receipt_lines`, the tickets are an approximation. */
+  lines_without_coupon: number
   amount_paid_cents: number
 }
 
