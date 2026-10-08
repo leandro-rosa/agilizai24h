@@ -33,6 +33,22 @@ export class SupplyController {
     return { from, to, store_ids: await this.supply.findVisitStoreIds(from, to) }
   }
 
+  @Get('visits/counts')
+  @ApiOperation({
+    summary: 'Restocking visits per store and month',
+    description:
+      'A visit that restocked at least one unit (restocking or combined operation); count-only visits are reported apart. One visit is one store served in one operation, deduplicated by store and end instant. A month with no visits has no row: unknown, not zero.',
+  })
+  @ApiQuery({ name: 'from', required: true, example: '2026-07' })
+  @ApiQuery({ name: 'to', required: true, example: '2026-09' })
+  findVisitCounts(@Query('from') from: string, @Query('to') to: string) {
+    if (!isValidPeriod(from) || !isValidPeriod(to) || from > to) {
+      throw new BadRequestException('from and to are required, as YYYY-MM, with from <= to')
+    }
+
+    return this.supply.findVisitCounts(from, to)
+  }
+
   @Get('supply/:storeId')
   @ApiOperation({
     summary: 'Restocks and per-reason removals for a store and period',

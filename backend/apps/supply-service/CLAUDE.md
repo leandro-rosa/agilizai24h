@@ -19,6 +19,7 @@ evento QUE ELE publica depois de derivar (ver
 | `GET /reasons` | Os seis motivos e sua classificação — a regra como dado |
 | `GET /supply/:storeId?period=` | Abastecimento, remoções, ajuste e fechamento registrado |
 | `GET /supply/:storeId/loss?period=` | Perda real: total, por motivo, por SKU |
+| `GET /visits/counts?from=&to=` | Abastecimentos por loja e mês: visita de operação `restocking`/`combined` com ao menos uma linha que repôs unidade (`restocking_visits`); contagem sem reposição (`inventory`) vai à parte (`count_only_visits`). Unidade = uma loja atendida em uma operação (uma viagem que atende várias lojas conta várias), deduplicada por loja e instante de término. Mês sem visita não tem linha: desconhecido, não zero |
 | `GET /supply/:storeId/visits?from=&to=` | As visitas (operações) da loja e suas linhas, por instante de término |
 | fila `ingestion.supply-rows` | Consome lote de um período |
 | fila `period.data-updated.inventory` | Publica quando o período muda |

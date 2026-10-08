@@ -347,6 +347,40 @@ export class SupplyService {
     return rows.map(row => row.store_id)
   }
 
+  /**
+   * Restocking visits per store and month: a visit of a restocking or combined operation with at least one line that actually restocked something. A
+   * count-only visit (`inventory`) restocks nothing and is reported apart. The unit is one store served in one operation (a trip that serves several
+   * stores counts several), and the same store and end instant is counted once, so a re-ingested sheet never doubles. A month with no visits has no row:
+   * unknown is not zero.
+   */
+  async findVisitCounts(from: string, to: string): Promise<VisitCounts> {
+    const visits = await this.prisma.supplyVisit.findMany({
+      where: { period: { gte: from, lte: to } },
+      select: { store_id: true, period: true, kind: true, ended_at: true, lines: { where: { restocked: { gt: 0 } }, select: { id: true }, take: 1 } },
+      orderBy: [{ store_id: 'asc' }, { ended_at: 'asc' }],
+    })
+
+    const seen = new Set<string>()
+    const counts = new Map<string, { store_id: number; period: string; restocking_visits: number; count_only_visits: number }>()
+    for (const visit of visits) {
+      const key = `${visit.store_id}|${visit.ended_at.toISOString()}`
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      const cell = counts.get(`${visit.store_id}|${visit.period}`) ?? { store_id: visit.store_id, period: visit.period, restocking_visits: 0, count_only_visits: 0 }
+      if (visit.kind !== 'inventory' && visit.lines.length > 0) cell.restocking_visits += 1
+      else cell.count_only_visits += 1
+      counts.set(`${visit.store_id}|${visit.period}`, cell)
+    }
+
+    return {
+      from,
+      to,
+      unit: 'one store served in one restocking operation (a trip that serves several stores counts several)',
+      rows: [...counts.values()].sort((a, b) => a.period.localeCompare(b.period) || a.store_id - b.store_id),
+    }
+  }
+
   async findLoss(storeId: number, period: string): Promise<DerivedLoss> {
     await this.assertIngested(storeId, period)
 
@@ -417,4 +451,12 @@ function toClassified(row: {
     countsAsLoss: row.reason.counts_as_loss,
     quantityRemoved: row.quantity_removed,
   }
+}
+
+export interface VisitCounts {
+  from: string
+  to: string
+  /** What one counted visit is, so a cost per visit is never read as a cost per trip. */
+  unit: string
+  rows: { store_id: number; period: string; restocking_visits: number; count_only_visits: number }[]
 }
