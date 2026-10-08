@@ -92,6 +92,8 @@ export function ProductsWorkspace({ onViewPeriod, onCategories }: { onViewPeriod
   const currentQuery = useGetCurrentPricingQuery({ storeId });
   const report = currentQuery.data ?? null;
   const calculating = currentQuery.isFetching;
+  // Se custo ou preço de hoje não puderam ser lidos, a lista NÃO finge que nenhum produto tem preço: diz que não leu.
+  const registryFailed = costsQuery.isError || pricesQuery.isError;
   const calculationFailed = currentQuery.isError && !currentQuery.isFetching;
   const reportRows = report ? report.products : null;
 
@@ -293,7 +295,7 @@ export function ProductsWorkspace({ onViewPeriod, onCategories }: { onViewPeriod
               className={cn("flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors", filters.quick === key ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}
             >
               {QUICK_FILTER_LABEL[key]}
-              <span className={cn("tabular rounded-md px-1.5 py-0.5 text-xs", filters.quick === key ? "bg-primary-foreground/20" : "bg-muted")}>{counts[key]}</span>
+              <span className={cn("tabular rounded-md px-1.5 py-0.5 text-xs", filters.quick === key ? "bg-primary-foreground/20" : "bg-muted")}>{registryFailed ? "—" : counts[key]}</span>
             </button>
           ))}
         </div>
@@ -358,7 +360,18 @@ export function ProductsWorkspace({ onViewPeriod, onCategories }: { onViewPeriod
       )}
 
       <RequestState isLoading={isLoading} error={error} onRetry={refetch} isEmpty={false}>
-        <div className="max-h-[calc(100vh-22rem)] min-h-64 overflow-auto rounded-lg border">
+        {registryFailed && (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm" data-testid="registry-failed">
+            <div>
+              <p className="font-medium text-destructive">Não foi possível ler {costsQuery.isError && pricesQuery.isError ? "o custo e o preço" : costsQuery.isError ? "o custo" : "o preço"} de hoje.</p>
+              <p className="text-muted-foreground">A lista não mostra custo, preço nem situação enquanto isso, para não parecer que os produtos estão sem preço. Se persistir, o serviço de produtos ou o gateway pode estar desatualizado: reconstrua os contêineres de dev.</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={refresh}>
+              <RefreshCw aria-hidden /> Tentar de novo
+            </Button>
+          </div>
+        )}
+        <div className={cn("max-h-[calc(100vh-22rem)] min-h-64 overflow-auto rounded-lg border", registryFailed && "hidden")}>
           <table className="w-full min-w-[56rem] border-separate border-spacing-0 text-sm" data-testid="products-table">
             <thead className="sticky top-0 z-10 bg-card text-xs text-muted-foreground">
               <tr>

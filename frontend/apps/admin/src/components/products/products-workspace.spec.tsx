@@ -9,6 +9,7 @@ const replace = jest.fn();
 const push = jest.fn();
 const refetchCurrent = jest.fn();
 let currentError = false;
+let pricesFail = false;
 let currentFetching = false;
 let search = new URLSearchParams();
 let current: Record<string, unknown> | undefined;
@@ -25,7 +26,7 @@ jest.doMock("../../lib/api/products", () => ({
   useGetProductsQuery: () => ({ data: productList, isLoading: false, error: undefined, refetch: jest.fn() }),
   useGetCategoriesQuery: () => ({ data: [{ id: 1, key: "beverage", name: "Bebida", status: "active", keywords: [], products: 2, subcategories: [{ id: 5, category_id: 1, name: "Energéticos", status: "active", keywords: [], products: 1 }] }, { id: 2, key: "snack", name: "Lanche", status: "active", keywords: [], products: 1, subcategories: [] }] }),
   useGetCostsAsOfQuery: () => ({ data: { resolved: costs, unresolved: [], complete: true }, isLoading: false, refetch: refetchCosts }),
-  useGetPricesAsOfQuery: () => ({ data: { resolved: prices, unresolved: [], complete: true }, isLoading: false, refetch: refetchPrices }),
+  useGetPricesAsOfQuery: () => ({ data: pricesFail ? undefined : { resolved: prices, unresolved: [], complete: true }, isLoading: false, isError: pricesFail, refetch: refetchPrices }),
 }));
 jest.doMock("../../lib/api/pricing", () => ({
   useGetCurrentPricingQuery: () => ({ data: current, isFetching: currentFetching, isError: currentError, refetch: refetchCurrent, fulfilledTimeStamp: 1760000000000 }),
@@ -76,6 +77,7 @@ beforeEach(() => {
     { sku: "100201", price_cents: 900, effective_from: "2026-09-01" },
   ];
   currentError = false;
+  pricesFail = false;
   currentFetching = false;
   current = report([
     analysis("100103"),
@@ -191,6 +193,20 @@ describe("ProductsWorkspace — uma lista só", () => {
     open();
 
     expect(screen.queryByTestId("pendency-summary")).not.toBeInTheDocument();
+  });
+});
+
+describe("ProductsWorkspace — leitura de custo e preço de hoje", () => {
+  it("se o preço de hoje não pôde ser lido, não finge que os produtos estão sem preço: avisa, esconde a tabela e deixa tentar de novo", () => {
+    pricesFail = true;
+    open();
+
+    expect(screen.getByTestId("registry-failed")).toHaveTextContent("Não foi possível ler o preço de hoje");
+    expect(screen.getByTestId("products-table").closest("div")).toHaveClass("hidden");
+    const group = screen.getByRole("group", { name: "Filtros rápidos" });
+    expect(within(group).getByRole("button", { name: /Sem preço/ })).toHaveTextContent("—");
+    fireEvent.click(within(screen.getByTestId("registry-failed")).getByRole("button", { name: /Tentar de novo/ }));
+    expect(refetchPrices).toHaveBeenCalledTimes(1);
   });
 });
 
