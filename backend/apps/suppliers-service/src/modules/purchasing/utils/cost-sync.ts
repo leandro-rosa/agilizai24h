@@ -1,5 +1,5 @@
 /** States of the outbox column `purchase_item.cost_sync`. NULL = not received yet (nothing to send). */
-export const COST_SYNC_STATES = ['pending', 'synced', 'unchanged', 'skipped_bonus', 'failed'] as const
+export const COST_SYNC_STATES = ['pending', 'synced', 'unchanged', 'skipped_bonus', 'skipped_not_received', 'failed'] as const
 export type CostSyncState = (typeof COST_SYNC_STATES)[number]
 
 /** After this many failed attempts the item stays `failed` until someone retries it (`POST /purchases/:id/cost-sync`). */

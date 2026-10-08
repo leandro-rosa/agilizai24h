@@ -14,6 +14,7 @@ const ALERT_TEXT = { large_variation: "Variação grande", closed_month: "Mês j
 function costText(sync: CostSync | undefined): string {
   if (!sync || sync.state === null) return "Quando a compra for recebida";
   if (sync.state === "skipped_bonus") return "Bonificação: não cria custo";
+  if (sync.state === "skipped_not_received") return "Nada recebido: não cria custo";
   if (sync.state === "pending") return "Enviando…";
   if (sync.state === "failed") return "Falhou ao enviar";
 

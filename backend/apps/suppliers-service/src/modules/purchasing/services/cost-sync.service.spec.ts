@@ -74,6 +74,24 @@ describe('CostSyncService', () => {
     expect(accounting.monthStatus).not.toHaveBeenCalled()
   })
 
+  it('a line that received no unit is not a purchase: no cost is created and the state says why', async () => {
+    const { service, rows, record } = make([pending({ received_quantity: 0 }), pending({ sku: 'COCA', received_quantity: 40 })])
+
+    expect(await service.drain(9)).toEqual({ sent: 2, failed: 0 })
+
+    expect(rows[0]).toMatchObject({ cost_sync: 'skipped_not_received', cost_sync_error: null, cost_alerts: [] })
+    expect(record).toHaveBeenCalledTimes(1) // only the line that received units
+    expect(record).toHaveBeenCalledWith('COCA', expect.objectContaining({ purchase_quantity: 40, purchase_total_cents: 40 * 620 }), undefined)
+    expect(rows[1].cost_sync).toBe('synced')
+  })
+
+  it('a partial receipt sends the received units, not the ordered ones', async () => {
+    const { service, record } = make([pending({ quantity: 150, received_quantity: 100 })])
+    await service.drain(9)
+
+    expect(record).toHaveBeenCalledWith('MONSTER', expect.objectContaining({ purchase_quantity: 100, purchase_total_cents: 100 * 620 }), undefined)
+  })
+
   it('a bonus is never sent', async () => {
     expect(CostSyncService.initialState('bonus')).toBe('skipped_bonus')
     const { service, rows, record } = make([pending({ condition: 'bonus', cost_sync: 'skipped_bonus' })])

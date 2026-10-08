@@ -26,6 +26,7 @@ const ALERT_TEXT = {
 function CostSyncCell({ sync, retrying, onRetry }: { sync: CostSync | undefined; retrying: boolean; onRetry: () => void }) {
   if (!sync || sync.state === null) return <span className="text-xs text-muted-foreground">Quando a compra for recebida</span>;
   if (sync.state === "skipped_bonus") return <span className="text-xs text-muted-foreground">Bonificação: não cria custo</span>;
+  if (sync.state === "skipped_not_received") return <span className="text-xs text-muted-foreground">Nada recebido: não cria custo</span>;
   if (sync.state === "pending") return <StatusBadge tone="attention">Enviando…</StatusBadge>;
   if (sync.state === "failed")
     return (

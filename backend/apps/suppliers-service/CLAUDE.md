@@ -87,7 +87,7 @@ para a compra e para o custo). Compra anterior fica com tudo nulo: **"original n
 ## Custo da NF para o produto (outbox, `add-product-cost-price-versioning`)
 
 Receber uma compra **grava o custo da NF no produto**, mas nunca dentro do recebimento. A mesma transação que recebe marca cada item em
-`purchase_item.cost_sync = pending` (bonificação = `skipped_bonus`: **brinde nunca cria custo**); o `CostSyncService` (laço a cada
+`purchase_item.cost_sync = pending` (bonificação = `skipped_bonus`: **brinde nunca cria custo**; linha recebida com **zero unidades** = `skipped_not_received`: não é compra, nenhum custo é criado); o `CostSyncService` (laço a cada
 `COST_SYNC_INTERVAL_MS`, padrão 30 s, 0 desliga; mais um envio imediato após o recebimento) chama `POST /products/:sku/costs` do
 products-service com `source: invoice`, vigência = `received_on`, fornecedor, compra, item, nº da nota, quantidade/total e o original da
 embalagem. Estados: `pending → synced | unchanged | failed`. `unchanged` = o custo em vigor já era igual (nenhuma versão criada). Chave

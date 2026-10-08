@@ -152,7 +152,7 @@ model PurchaseItem {
   /// Forma em que foi pago (boleto | transfer | other), quando registrada a baixa.
   paid_method    String?
   payment_note   String?
-  /// Saída para o custo do produto (outbox): pending | synced | unchanged | skipped_bonus | failed. NULL = compra ainda não recebida
+  /// Saída para o custo do produto (outbox): pending | synced | unchanged | skipped_bonus | skipped_not_received | failed. NULL = compra ainda não recebida
   /// (ou anterior a este registro: nada é enviado retroativamente sem decisão). Quem envia é o laço do `CostSyncService`.
   cost_sync          String?
   cost_sync_attempts Int       @default(0)

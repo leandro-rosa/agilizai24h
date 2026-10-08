@@ -109,6 +109,13 @@ export class CostSyncService implements OnModuleInit, OnModuleDestroy {
     if (!receivedOn) return this.fail(row, 'purchase has no receipt date')
 
     const units = row.received_quantity ?? row.quantity
+    // A line of a received purchase that received nothing is not a purchase: no cost is created. (The units come from the row as stored, so a partial
+    // receipt that left this line at zero, or an edit that did, is caught whichever path marked it.)
+    if (units <= 0) {
+      await this.prisma.purchaseItem.update({ where: { id: row.id }, data: { cost_sync: 'skipped_not_received', cost_sync_attempted_at: new Date(), cost_sync_error: null, cost_alerts: [] } })
+      this.logger.log(`cost sync of item ${row.id} (${row.sku}) skipped: no unit was received`)
+      return true
+    }
     try {
       const result = await this.products.recordInvoiceCost(
         row.sku,

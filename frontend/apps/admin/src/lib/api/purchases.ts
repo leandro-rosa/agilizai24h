@@ -34,7 +34,7 @@ export interface PurchaseItem {
 }
 
 export interface CostSync {
-  state: "pending" | "synced" | "unchanged" | "skipped_bonus" | "failed" | null;
+  state: "pending" | "synced" | "unchanged" | "skipped_bonus" | "skipped_not_received" | "failed" | null;
   attempts: number;
   synced_at: string | null;
   error: string | null;
