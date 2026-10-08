@@ -23,7 +23,17 @@ export interface PaymentMixDto {
   from: string
   to: string
   store_id: number | null
-  rows: { method: string | null; acquirer: string | null; card_brand: string | null; receipt_lines: number; amount_paid_cents: number }[]
+  rows: {
+    method: string | null
+    acquirer: string | null
+    card_brand: string | null
+    receipt_lines: number
+    amount_paid_cents: number
+    /** Units sold in those lines, distinct-coupon tickets plus coupon-less lines, and how many lines had no coupon. Absent from an older sales service. */
+    units?: number
+    tickets?: number
+    lines_without_coupon?: number
+  }[]
   total_amount_paid_cents: number
   /** Months with no receipts for the scope: the mix there is unknown, not zero. */
   periods_without_transactions: string[]

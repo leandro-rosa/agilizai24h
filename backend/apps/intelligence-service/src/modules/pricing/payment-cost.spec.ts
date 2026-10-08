@@ -1,3 +1,4 @@
+import { distributeTicketCosts, ticketsFromLines } from './transaction-cost'
 import { effectiveVoucherFee, methodOf, paymentCost, type FeeRate, type MixRow } from './payment-cost'
 
 const rate = (acquirer: string, method: FeeRate['method'], rateBps: number): FeeRate => ({ acquirer, method, rateBps })
@@ -99,19 +100,79 @@ describe('PagSeguro is PagBank, and a second plan is averaged and said so', () =
   })
 })
 
-describe('fixed fee per sale', () => {
+describe('fixed fee per sale — per ticket, spread over the UNITS sold', () => {
   const rates = [rate('PagBank', 'pix', 69), { ...rate('Ticket', 'voucher', 599), fixedCents: 89 }, rate('Alelo', 'voucher', 690)]
+  /** A mix row with the units, the tickets and how many lines had no coupon. */
+  const counted = (method: string, acquirer: string, brand: string | null, lines: number, cents: number, units: number, tickets: number, withoutCoupon: number): MixRow => ({ ...row(method, acquirer, brand, lines, cents), units, tickets, linesWithoutCoupon: withoutCoupon })
 
-  it('weights the voucher fixed fee by brand and spreads it over every sale', () => {
-    // 100 Ticket lines + 100 Alelo lines, equal revenue => voucher fixed = 44.5; voucher is 200 of 400 lines => 22.25 per sold line
-    const mix = [row('Voucher', 'PagSeguro', 'TICKET', 100, 5000), row('Voucher', 'PagSeguro', 'ALELO', 100, 5000), row('Pix', 'PagBank', null, 200, 10_000)]
+  it('weights the voucher fixed fee by brand, charges it per TICKET and divides by the units, not by the lines', () => {
+    // 100 Ticket + 100 Alelo voucher tickets of equal revenue => voucher fixed = 44,5 per ticket. Voucher tickets: 200, carrying 300 units; Pix: 200 tickets, 200 units.
+    const mix = [counted('Voucher', 'PagSeguro', 'TICKET', 100, 5000, 150, 100, 100), counted('Voucher', 'PagSeguro', 'ALELO', 100, 5000, 150, 100, 100), counted('Pix', 'PagBank', null, 200, 10_000, 200, 200, 200)]
     const cost = paymentCost(rates, mix, 50)!
 
-    expect(cost.fixedPerUnitCents).toBeCloseTo(22.25, 6)
+    // Estimated total = 44,5 x 200 tickets = 8.900 cents; over 500 units = 17,8 per unit (the old figure, 22,25, divided by lines and called it per unit).
+    expect(cost.fixed?.estimatedTotalCents).toBeCloseTo(8900, 6)
+    expect(cost.fixedPerUnitCents).toBeCloseTo(17.8, 6)
+    expect(cost.fixedPerUnitCents).not.toBeCloseTo(22.25, 2)
+    expect(cost.fixed).toMatchObject({ tickets: 400, units: 500, lines: 400, basis: 'line_approximation' })
+  })
+
+  it('a line of several units spreads the fee of its ticket: more units per ticket, a smaller fee per unit', () => {
+    const single = paymentCost(rates, [counted('Voucher', 'x', 'TICKET', 10, 1000, 10, 10, 10)], 1)!
+    const triple = paymentCost(rates, [counted('Voucher', 'x', 'TICKET', 10, 1000, 30, 10, 10)], 1)!
+
+    expect(single.fixedPerUnitCents).toBeCloseTo(89, 6)
+    expect(triple.fixedPerUnitCents).toBeCloseTo(89 / 3, 6)
+  })
+
+  it('with coupons the tickets are observed: several lines of one purchase pay ONE fee', () => {
+    // 10 voucher lines forming 4 coupons, 14 units: 4 x 89 = 356 over 14 units; as 10 lines it would have been 890.
+    const cost = paymentCost(rates, [counted('Voucher', 'x', 'TICKET', 10, 1000, 14, 4, 0)], 1)!
+
+    expect(cost.fixed).toMatchObject({ estimatedTotalCents: 356, tickets: 4, linesWithoutCoupon: 0, basis: 'coupon' })
+    expect(cost.fixedPerUnitCents).toBeCloseTo(356 / 14, 6)
+    expect(cost.notes.join(' ')).not.toContain('aproximação')
+  })
+
+  it('without a coupon each line is a ticket and the result says it is an estimate, not an observed charge', () => {
+    const cost = paymentCost(rates, [counted('Voucher', 'x', 'TICKET', 10, 1000, 14, 10, 10)], 1)!
+
+    expect(cost.fixed?.basis).toBe('line_approximation')
+    expect(cost.fixed?.note).toContain('Total estimado')
+    expect(cost.fixed?.note).toContain('não é o valor cobrado pelas adquirentes')
+    expect(cost.fixed?.note).toContain('Nenhuma linha traz o cupom')
+    expect(cost.notes.join(' ')).toContain('aproximação')
+  })
+
+  it('a mix of coupon and no-coupon lines is flagged as mixed with the counts', () => {
+    const cost = paymentCost(rates, [counted('Voucher', 'x', 'TICKET', 10, 1000, 14, 7, 4)], 1)!
+
+    expect(cost.fixed).toMatchObject({ basis: 'mixed', linesWithoutCoupon: 4, tickets: 7 })
+    expect(cost.fixed?.note).toContain('4 de 10 linhas sem cupom')
+  })
+
+  it('an older sales service without units cannot distribute the fee: nothing is invented and the cost is incomplete', () => {
+    const cost = paymentCost(rates, [row('Voucher', 'x', 'TICKET', 10, 1000)], 1)!
+
+    expect(cost.fixedPerUnitCents).toBe(0)
+    expect(cost.fixed?.basis).toBe('unknown_units')
+    expect(cost.complete).toBe(false)
+  })
+
+  it('agrees with the exact distribution of the same tickets: the aggregate per unit times the units is the sum of the distributed fees', () => {
+    // Six voucher lines without coupon (units 3,1,2,5,1,1) and two Pix lines that carry no fee.
+    const lines = [3, 1, 2, 5, 1, 1].map((quantity, index) => ({ sku: `S${index}`, quantity, coupon: null }))
+    const { tickets } = ticketsFromLines(lines)
+    const exact = distributeTicketCosts(tickets.map(ticket => ({ ...ticket, costCents: 89 })))
+    const units = lines.reduce((sum, line) => sum + line.quantity, 0)
+    const cost = paymentCost(rates, [counted('Voucher', 'x', 'TICKET', 6, 6000, units, 6, 6)], 1)!
+
+    expect(exact.distributedCents).toBe(6 * 89)
+    expect(cost.fixedPerUnitCents * units).toBeCloseTo(exact.distributedCents, 8)
   })
 
   it('is zero when no fee has a fixed part', () => {
-    expect(paymentCost([rate('PagBank', 'pix', 69)], [row('Pix', 'PagBank', null, 10, 1000)], 50)!.fixedPerUnitCents).toBe(0)
+    expect(paymentCost([rate('PagBank', 'pix', 69)], [counted('Pix', 'PagBank', null, 10, 1000, 12, 10, 10)], 50)!.fixedPerUnitCents).toBe(0)
   })
 })
 

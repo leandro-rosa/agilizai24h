@@ -77,12 +77,27 @@ export interface PaymentCostComponent {
   rateBps: number
 }
 
+/** How the fixed payment fee reached the per-unit figure. The total is ALWAYS an estimate (registered fee × counted tickets), never what the acquirers charged. */
+export interface PaymentFixedFee {
+  estimatedTotalCents: number
+  tickets: number
+  units: number
+  lines: number
+  /** Lines without a coupon, each counted as a ticket of its own. */
+  linesWithoutCoupon: number
+  /** `coupon`: tickets observed. `mixed` / `line_approximation`: some or all lines counted as a ticket each. `unknown_units`: the sales service gave no units, so nothing was distributed. */
+  basis: 'coupon' | 'mixed' | 'line_approximation' | 'unknown_units'
+  note: string
+}
+
 export interface PaymentCost {
   /** The mix-weighted fee as a fraction of the price. */
   rate: number
   components: PaymentCostComponent[]
-  /** Fixed fees per sold unit, in centavos (e.g. Ticket R$ 0,89 per sale, spread over the units sold). */
+  /** The fixed fee of each sale (e.g. Ticket R$ 0,89) spread over the UNITS sold, in centavos per unit: the share of one unit, not the whole fee of a ticket. */
   fixedPerUnitCents: number
+  /** How that figure was built and how firm it is. Absent in a report stored before pricing-4, which divided the fee by receipt lines. */
+  fixed?: PaymentFixedFee
   voucherShare: number
   voucherBasis: VoucherBasis
   /** Share of sales whose method or rate could not be resolved — priced at the average of the rest. */

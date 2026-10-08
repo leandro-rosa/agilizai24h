@@ -40,6 +40,20 @@ export class PricingController {
     return this.get('/pricing/runs/latest', query, request)
   }
 
+  @Get('runs')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'The completed runs of a scope, newest first, with their engine and rules versions' })
+  async runHistory(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    return this.get('/pricing/runs', query, request)
+  }
+
+  @Get('runs/:id/report')
+  @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
+  @ApiOperation({ summary: 'One completed run with its report, exactly as it was computed' })
+  async runReport(@Param('id') id: string, @Req() request: FastifyRequest) {
+    return this.get(`/pricing/runs/${encodeURIComponent(id)}/report`, {}, request)
+  }
+
   @Get('runs/:id')
   @RequiresPermission(PERMISSIONS.PRODUCTS_READ)
   @ApiOperation({ summary: 'Status of one run' })

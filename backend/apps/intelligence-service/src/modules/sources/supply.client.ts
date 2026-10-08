@@ -26,6 +26,13 @@ export interface SupplyVisitDto {
   lines: SupplyVisitLineDto[]
 }
 
+export interface VisitCountsDto {
+  from: string
+  to: string
+  unit: string
+  rows: { store_id: number; period: string; restocking_visits: number; count_only_visits: number }[]
+}
+
 export interface SupplyPeriodDto {
   store_id: number
   period: string
@@ -63,6 +70,13 @@ export class SupplyClient {
     )
 
     return body?.visits ?? []
+  }
+
+  /** Restocking visits per store and month (a visit that restocked at least one unit; one store served in one operation). Months with no visit have no row. */
+  async visitCounts(from: string, to: string, correlationId?: string): Promise<VisitCountsDto> {
+    const body = await httpGet<VisitCountsDto>(this.http, `${this.base()}/visits/counts?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { correlationId, timeout: 30000 })
+
+    return body ?? { from, to, unit: '', rows: [] }
   }
 
   /** Restocks and removals by reason for one store-month; `null` when that month was never ingested. */

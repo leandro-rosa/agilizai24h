@@ -41,6 +41,12 @@ function fake(parameterVersion = 1) {
         if (key) found.sort((a: any, b: any) => (b[key]?.getTime?.() ?? 0) - (a[key]?.getTime?.() ?? 0))
         return found[0] ?? null
       },
+      findMany: async ({ where, orderBy, take }: any) => {
+        const found = rows.filter(row => matches(row, where))
+        const key = Object.keys(orderBy ?? {})[0]
+        if (key) found.sort((a: any, b: any) => (b[key]?.getTime?.() ?? 0) - (a[key]?.getTime?.() ?? 0))
+        return found.slice(0, take)
+      },
       findUnique: async ({ where }: any) => rows.find(row => row.id === where.id) ?? null,
       updateMany: async ({ where, data }: any) => {
         const found = rows.filter(row => matches(row, where))
@@ -192,5 +198,43 @@ describe('PricingRunWorker', () => {
 
     await worker.process(job(run.id, 2, 3))
     expect(await service.get(run.id)).toMatchObject({ status: 'failed', error: 'timeout' })
+  })
+})
+
+describe('PricingRunsService — recalculating preserves the previous result', () => {
+  it('a new calculation is a new run: the earlier report stays exactly as it was, with its own engine and rules versions', async () => {
+    const { service, rows } = fake(1)
+    const first = (await service.start({ period: '2026-09' })).run.id
+    await service.complete(first, { meta: { parameterVersion: 1, engineVersion: 'pricing-3' }, products: [{ sku: 'A', currentMargin: 0.16 }] } as unknown as PricingReport)
+    const before = JSON.stringify(rows.find(row => row.id === first))
+
+    await new Promise(resolve => setTimeout(resolve, 5))
+    const second = (await service.start({ period: '2026-09' })).run.id
+    await service.complete(second, { meta: { parameterVersion: 2, engineVersion: 'pricing-4' }, products: [{ sku: 'A', currentMargin: 0.38 }] } as unknown as PricingReport)
+
+    expect(second).not.toBe(first)
+    expect(JSON.stringify(rows.find(row => row.id === first))).toBe(before)
+    const history = await service.history({ period: '2026-09' })
+    expect(history.map(run => [run.id, run.engineVersion, run.parameterVersion])).toEqual([[second, 'pricing-4', 2], [first, 'pricing-3', 1]])
+  })
+
+  it('reads an earlier run by id with its report, and a run with no completed report has none', async () => {
+    const { service } = fake(1)
+    const first = (await service.start({ period: '2026-09' })).run.id
+    await service.complete(first, { meta: { parameterVersion: 1, engineVersion: 'pricing-3' }, products: [{ sku: 'A', currentMargin: 0.16 }] } as unknown as PricingReport)
+    const queued = (await service.start({ period: '2026-10' })).run.id
+
+    expect((await service.getWithReport(first))?.report?.products).toEqual([{ sku: 'A', currentMargin: 0.16 }])
+    expect((await service.getWithReport(queued))?.report).toBeNull()
+  })
+
+  it('the history lists only completed runs of the scope', async () => {
+    const { service } = fake(1)
+    const done = (await service.start({ period: '2026-09' })).run.id
+    await service.complete(done, REPORT(1))
+    await service.start({ period: '2026-09' }) // queued, not completed
+    await service.start({ period: '2026-08' }) // another scope
+
+    expect((await service.history({ period: '2026-09' })).map(run => run.id)).toEqual([done])
   })
 })

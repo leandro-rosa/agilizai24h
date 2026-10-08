@@ -40,6 +40,8 @@ export interface OperatingCosts {
   unclassifiedShare: number
   /** False when the unclassified expenses are above the configured relevance: no recommendation may be shown as validated. */
   complete: boolean
+  /** The per-visit expenses (Deslocamento) month by month, for the cost per restocking: the same accounts, the same months, as the class total. */
+  perVisitByMonth: { period: string; costCents: number; accounts: OperatingAccount[] }[]
   /** What the OLD method (every variable and fixed expense but loss, over the same revenue) would have used, to reconcile with the new classification. */
   legacy: { share: number; costCents: number; accounts: OperatingAccount[] }
 }
@@ -64,6 +66,7 @@ export function operatingCosts(pnls: (PnlDto | null)[], behavior: Record<string,
   const unclassified = new Map<string, OperatingAccount>()
   const legacy = new Map<string, OperatingAccount>()
   const months: string[] = []
+  const perVisitByMonth: OperatingCosts['perVisitByMonth'] = []
   let revenue = 0
 
   for (const pnl of pnls) {
@@ -73,6 +76,7 @@ export function operatingCosts(pnls: (PnlDto | null)[], behavior: Record<string,
 
     revenue += revenueRoot.amount_cents
     months.push(pnl.period)
+    const visitMonth: OperatingAccount[] = []
 
     for (const section of pnl.sections) {
       const isDeduction = section.section === 'deductions'
@@ -85,8 +89,11 @@ export function operatingCosts(pnls: (PnlDto | null)[], behavior: Record<string,
         if (isDeduction || isLockedComponent(account.code)) add(byClass.get('already_component') as Map<string, OperatingAccount>, account)
         else if (given) add(byClass.get(given) as Map<string, OperatingAccount>, account)
         else add(unclassified, account)
+
+        if (!isDeduction && !isLockedComponent(account.code) && given === 'per_visit') visitMonth.push({ code: account.code, label: account.label, amountCents: account.amount_cents })
       }
     }
+    perVisitByMonth.push({ period: pnl.period, costCents: visitMonth.reduce((sum, account) => sum + account.amountCents, 0), accounts: visitMonth })
   }
 
   if (revenue <= 0) return null
@@ -114,6 +121,7 @@ export function operatingCosts(pnls: (PnlDto | null)[], behavior: Record<string,
     unclassifiedCents,
     unclassifiedShare: unclassifiedCents / revenue,
     complete: unclassifiedCents / revenue <= relevantBps / 10_000 + 1e-12,
+    perVisitByMonth,
     legacy: { share: legacyCents / revenue, costCents: legacyCents, accounts: legacyAccounts },
   }
 }

@@ -18,9 +18,14 @@ const pnl = (period: string, extra: ReturnType<typeof acct>[] = []): PnlDto => (
   ],
 })
 
-function build(taxRateBps: number | null, extraProducts: Record<string, unknown>[] = [], costsOverride?: (asOf: string, sources?: string[]) => unknown, options: { extraAccounts?: ReturnType<typeof acct>[]; patch?: Record<string, unknown> } = {}) {
+function build(taxRateBps: number | null, extraProducts: Record<string, unknown>[] = [], costsOverride?: (asOf: string, sources?: string[]) => unknown, options: { extraAccounts?: ReturnType<typeof acct>[]; patch?: Record<string, unknown>; visits?: { store_id: number; period: string; restocking_visits: number }[] | null } = {}) {
   const params = mergePricingParameters(DEFAULT_PRICING_PARAMETERS, { taxRateBps, ...options.patch } as never)
   const supply = {
+    // 4 restocking visits of store 1 in each month of the window, unless the test says otherwise (null = the supply service cannot be read).
+    visitCounts: async () => {
+      if (options.visits === null) throw new Error('supply down')
+      return { from: MONTHS[0], to: MONTHS[2], unit: 'x', rows: options.visits ?? MONTHS.map(period => ({ store_id: 1, period, restocking_visits: 4, count_only_visits: 1 })) }
+    },
     period: async () => ({ store_id: 1, period: 'x', restocks: [{ sku: 'COCA', quantity_restocked: 100 }], removals: [{ sku: 'COCA', reason: 'expired', counts_as_loss: true, quantity_removed: 2 }], adjustments: [] }),
   }
   const sales = {
@@ -30,10 +35,10 @@ function build(taxRateBps: number | null, extraProducts: Record<string, unknown>
       to: MONTHS[2],
       store_id: null,
       rows: [
-        { method: 'Voucher', acquirer: 'x', card_brand: 'Alelo', receipt_lines: 100, amount_paid_cents: 2200 },
-        { method: 'Pix', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, amount_paid_cents: 4000 },
-        { method: 'Débito', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, amount_paid_cents: 2000 },
-        { method: 'Crédito', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, amount_paid_cents: 1800 },
+        { method: 'Voucher', acquirer: 'x', card_brand: 'Alelo', receipt_lines: 100, units: 75, tickets: 100, lines_without_coupon: 100, amount_paid_cents: 2200 },
+        { method: 'Pix', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, units: 75, tickets: 100, lines_without_coupon: 100, amount_paid_cents: 4000 },
+        { method: 'Débito', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, units: 75, tickets: 100, lines_without_coupon: 100, amount_paid_cents: 2000 },
+        { method: 'Crédito', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, units: 75, tickets: 100, lines_without_coupon: 100, amount_paid_cents: 1800 },
       ],
       total_amount_paid_cents: 10_000,
       periods_without_transactions: [],
@@ -353,12 +358,12 @@ describe('PricingService — the operating costs are classified, not summed', ()
     const report = await build(707, [], undefined, { extraAccounts: [acct('4.2.08', 'Custo por transação', 4_000)], patch }).report({ period: '2026-09' })
     const coca = report.products.find(p => p.sku === 'COCA')!
 
-    // 3 months x 4.000 = 12.000 over 400 receipt lines (tickets) of 300 units sold in the window (100 per month): 1,33 line per unit.
-    const perUnit = (12_000 / 400) * (400 / 300)
+    // 3 months x 4.000 = 12.000 over the 300 units sold in the window (400 lines, each counted as a ticket: no coupon in the fixture).
+    const perUnit = 12_000 / 300
     expect(coca.structure?.perTransactionCents).toBeCloseTo(perUnit, 8)
     expect(report.meta.operating?.perTransaction?.perUnitCents).toBeCloseTo(perUnit, 8)
-    expect(report.meta.operating?.perTransaction?.assumption).toContain('Cada linha de venda conta como um ticket')
-    expect(coca.validationNotes.join(' ')).toContain('Cada linha de venda conta como um ticket')
+    expect(report.meta.operating?.perTransaction?.assumption).toContain('cada linha de venda foi contada como um ticket')
+    expect(coca.validationNotes.join(' ')).toContain('cada linha de venda foi contada como um ticket')
     // Added to the numerator as money, never multiplied by the loss and never a share of the price.
     expect(coca.structure?.operatingShare).toBeCloseTo(0.02, 10)
     expect(coca.structure?.lossAdjustedCostCents).toBeCloseTo(309 / 0.98, 8)
@@ -419,5 +424,83 @@ describe('PricingService — three cost bases kept apart', () => {
     expect(coca.costBases.registry).toMatchObject({ costCents: 309, source: 'manual' })
     expect(coca.costBases.historical?.basis).toBe('registry_or_manual')
     expect(coca.atLastPurchaseCost).toBeNull()
+  })
+})
+
+describe('PricingService — average travel cost per restocking', () => {
+  // The fixture DRE has Deslocamento at 10.000 cents a month (per_visit) and store 1 with 4 restocking visits a month.
+  it('divides each month spend by the restocking visits of the same month and shows the figures, the unit and the limits', async () => {
+    const travel = (await build(707).report({ period: '2026-09' })).meta.operating?.travel
+
+    expect(travel?.perVisitCents).toBeCloseTo(30_000 / 12, 8) // 3 months x 10.000 over 3 x 4 visits
+    expect(travel?.months.map(month => [month.period, month.costCents, month.visits, month.perVisitCents])).toEqual([['2026-07', 10_000, 4, 2500], ['2026-08', 10_000, 4, 2500], ['2026-09', 10_000, 4, 2500]])
+    expect(travel?.unit).toContain('uma loja atendida')
+    expect(travel?.limitations.join(' ')).toContain('não é exclusiva do minimercado')
+    expect(travel?.limitations.join(' ')).toContain('não o custo real de uma rota')
+  })
+
+  it('apportions to a store only from its real visits, as an estimate that adds up to the pooled spend', async () => {
+    const travel = (await build(707).report({ period: '2026-09' })).meta.operating?.travel
+
+    expect(travel?.stores).toEqual([{ storeId: 1, visits: 12, estimatedCents: 30_000 }])
+    expect(travel?.limitations.join(' ')).toContain('rateio estimado')
+  })
+
+  it('a month with no visit record is excluded with its reason, not divided and not treated as zero cost', async () => {
+    const visits = [{ store_id: 1, period: '2026-08', restocking_visits: 4 }, { store_id: 1, period: '2026-09', restocking_visits: 4 }]
+    const travel = (await build(707, [], undefined, { visits }).report({ period: '2026-09' })).meta.operating?.travel
+
+    expect(travel?.excludedMonths).toEqual([{ period: '2026-07', reason: 'sem registro de abastecimentos no mês (desconhecido, não zero)' }])
+    // The July spend is NOT in the numerator while its visits are missing from the denominator.
+    expect(travel?.usedCostCents).toBe(20_000)
+    expect(travel?.perVisitCents).toBeCloseTo(20_000 / 8, 8)
+  })
+
+  it('with no visits at all there is no average and no apportionment', async () => {
+    const travel = (await build(707, [], undefined, { visits: [] }).report({ period: '2026-09' })).meta.operating?.travel
+
+    expect(travel?.perVisitCents).toBeNull()
+    expect(travel?.stores).toEqual([])
+    expect(travel?.excludedMonths).toHaveLength(3)
+  })
+
+  it('without the supply service the report still works and the average is simply unavailable', async () => {
+    const report = await build(707, [], undefined, { visits: null }).report({ period: '2026-09' })
+
+    expect(report.meta.operating?.travel).toBeNull()
+    expect(report.products.find(p => p.sku === 'COCA')?.status).not.toBe('insufficient_data')
+  })
+
+  it('a single store reads only its own visits', async () => {
+    const visits = [{ store_id: 1, period: '2026-09', restocking_visits: 5 }, { store_id: 2, period: '2026-09', restocking_visits: 50 }]
+    const travel = (await build(707, [], undefined, { visits }).report({ period: '2026-09', storeId: 1 })).meta.operating?.travel
+
+    expect(travel?.scope).toBe('loja 1')
+    expect(travel?.months.find(month => month.period === '2026-09')?.visits).toBe(5)
+    expect(travel?.stores).toEqual([]) // no per-store split inside a store scope
+  })
+
+  it('travel stays out of the price and appears once, in the result after allocation', async () => {
+    const coca = (await build(707).report({ period: '2026-09' })).products.find(p => p.sku === 'COCA')!
+
+    expect(coca.structure?.operatingShare).toBeCloseTo(0.02, 10) // repasse only
+    expect(coca.estimatedResultAfterAllocation?.margin).toBeCloseTo((coca.currentMargin as number) - 0.05, 8) // deslocamento 1% + fixed 4%
+  })
+})
+
+describe('PricingService — the fixed payment fee reaches the price per unit', () => {
+  it('reports how the fee was built, and that the total is an estimate over tickets counted one per line', async () => {
+    const payment = (await build(707).report({ period: '2026-09' })).meta.payment
+
+    expect(payment?.fixed).toMatchObject({ basis: 'line_approximation', tickets: 400, units: 300, lines: 400, linesWithoutCoupon: 400 })
+    expect(payment?.fixed?.note).toContain('Total estimado')
+    expect(payment?.fixed?.note).toContain('não é o valor cobrado pelas adquirentes')
+  })
+
+  it('carries the basis into each product structure so the screen can say it', async () => {
+    const coca = (await build(707).report({ period: '2026-09' })).products.find(p => p.sku === 'COCA')!
+
+    expect(coca.structure?.paymentFixed?.basis).toBe('line_approximation')
+    expect(coca.structure?.paymentFixed?.note).toContain('aproximação')
   })
 })

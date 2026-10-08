@@ -94,8 +94,10 @@ export interface CostStructure {
   lossRate: number
   lossLevel: LossLevel
   paymentRate: number
-  /** Fixed payment fees per sold unit, in centavos, added on top of the percentage fees. */
+  /** The fixed fee of a sale spread over the UNITS sold, in centavos per unit, added on top of the percentage fees (never the whole fee of a ticket). */
   paymentFixedCents: number
+  /** How that per-unit fee was built (tickets observed, or counted one per line) and that its total is an estimate; absent in a report stored before pricing-4. */
+  paymentFixed?: { basis: string; note: string }
   voucherShare: number
   voucherBasis: string
   /** Expenses that follow sales value, as a fraction of the price (the CONTRIBUTION margin removes them like tax and fees). */
@@ -311,6 +313,7 @@ export function solveStructure(
     lossLevel: input.loss.level,
     paymentRate: input.payment.rate,
     paymentFixedCents: fixedPerUnit,
+    ...(input.payment.fixed ? { paymentFixed: { basis: input.payment.fixed.basis, note: input.payment.fixed.note } } : {}),
     voucherShare: input.payment.voucherShare,
     voucherBasis: input.payment.voucherBasis,
     operatingShare: input.operatingShare,

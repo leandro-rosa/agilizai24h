@@ -541,6 +541,66 @@ describe('products integration', () => {
     })
   })
 
+  describe('the last received purchase by source (real SQL)', () => {
+    const received = (item: number, invoiceNumber: string | null) => ({ source: 'invoice', supplierId: 5, purchaseId: 70 + item, purchaseItemId: item, sourceRef: `it-last-purchase:${unique(String(item))}`, ...(invoiceNumber ? { invoiceNumber } : {}), purchaseQuantity: 10, purchaseTotalCents: 10 * 600 })
+    const manual = { source: 'manual', actor: 'teste', reason: 'Correção de teste' }
+    const asOf = new Date('2026-10-31')
+
+    it('a received purchase with an invoice and one without are both purchases: the last one, by the day it was received, wins', async () => {
+      const product = await createProduct(unique('Produto'))
+      await costs.recordCost(product.sku, new Date('2026-09-01'), 500, received(1, '13021'))
+      await costs.recordCost(product.sku, new Date('2026-10-05'), 600, received(2, null))
+
+      const purchase = (await costs.bulkCostAsOf([product.sku], asOf, ['invoice'])).resolved[0]
+
+      expect(purchase).toMatchObject({ cost_cents: 600, effective_from: '2026-10-05', source: 'invoice', invoice_number: null })
+    })
+
+    it('a manual cost without a purchase is the cost in force, but never the last purchase', async () => {
+      const product = await createProduct(unique('Produto'))
+      await costs.recordCost(product.sku, new Date('2026-09-01'), 500, received(3, '13022'))
+      await costs.recordCost(product.sku, new Date('2026-10-10'), 700, manual)
+
+      const inForce = (await costs.bulkCostAsOf([product.sku], asOf)).resolved[0]
+      const purchase = (await costs.bulkCostAsOf([product.sku], asOf, ['invoice'])).resolved[0]
+
+      expect(inForce).toMatchObject({ cost_cents: 700, source: 'manual' })
+      expect(purchase).toMatchObject({ cost_cents: 500, effective_from: '2026-09-01', source: 'invoice' })
+    })
+
+    it('a product that only has a manual cost has no last purchase: no fall back to the manual one', async () => {
+      const product = await createProduct(unique('Produto'))
+      await costs.recordCost(product.sku, new Date('2026-09-01'), 700, manual)
+
+      const result = await costs.bulkCostAsOf([product.sku], asOf, ['invoice'])
+
+      expect(result.resolved).toEqual([])
+      expect(result.unresolved).toEqual([{ sku: product.sku, reason: 'no_cost_for_date' }])
+    })
+
+    it('an old purchase registered later does not become the last purchase: the day it was received decides', async () => {
+      const product = await createProduct(unique('Produto'))
+      await costs.recordCost(product.sku, new Date('2026-10-05'), 600, received(4, '13030'))
+      // Registered afterwards, but received in August.
+      await costs.recordCost(product.sku, new Date('2026-08-10'), 450, received(5, '13031'))
+
+      const purchase = (await costs.bulkCostAsOf([product.sku], asOf, ['invoice'])).resolved[0]
+      const august = (await costs.bulkCostAsOf([product.sku], new Date('2026-08-31'), ['invoice'])).resolved[0]
+
+      expect(purchase).toMatchObject({ cost_cents: 600, effective_from: '2026-10-05' })
+      expect(august).toMatchObject({ cost_cents: 450, effective_from: '2026-08-10' })
+    })
+
+    it('without sources the answer is the same as before: every origin competes', async () => {
+      const product = await createProduct(unique('Produto'))
+      await costs.recordCost(product.sku, new Date('2026-09-01'), 500, received(6, '13040'))
+      await costs.recordCost(product.sku, new Date('2026-10-10'), 700, manual)
+
+      expect((await costs.bulkCostAsOf([product.sku], asOf)).resolved[0].cost_cents).toBe(700)
+      expect((await costs.bulkCostAsOf([product.sku], asOf, [])).resolved[0].cost_cents).toBe(700)
+    })
+  })
+
   describe('invoice costs (real SQL)', () => {
     const invoiceMeta = (item: number) => ({ source: 'invoice', supplierId: 5, purchaseId: 9, purchaseItemId: item, sourceRef: `it-purchase-item:${unique(String(item))}`, invoiceNumber: '13021', purchaseQuantity: 150, purchaseTotalCents: 93000 })
 

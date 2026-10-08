@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common'
+import { BadRequestException, NotFoundException, Body, Controller, Get, Headers, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { NewProductChoiceService } from './new-product-choice.service'
 import { PricingParametersInvalidError } from './pricing.parameters'
@@ -54,6 +54,29 @@ export class PricingController {
     const parsed = query(period, storeId)
 
     return this.runs.latest({ period: parsed.period, storeId: parsed.storeId })
+  }
+
+  @Get('runs')
+  @ApiOperation({
+    summary: 'The completed runs of a scope, newest first',
+    description: 'Each with its engine and rules versions. A new calculation never replaces an earlier one, so any of them can still be read.',
+  })
+  @ApiQuery({ name: 'period', required: false, example: '2026-09' })
+  @ApiQuery({ name: 'storeId', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  runHistory(@Query('period') period?: string, @Query('storeId') storeId?: string, @Query('limit') limit?: string) {
+    const parsed = query(period, storeId)
+
+    return this.runs.history({ period: parsed.period, storeId: parsed.storeId, limit: limit === undefined ? undefined : Number(limit) })
+  }
+
+  @Get('runs/:id/report')
+  @ApiOperation({ summary: 'One completed run with its report, exactly as it was computed' })
+  async runReport(@Param('id') id: string) {
+    const found = await this.runs.getWithReport(id)
+    if (!found || !found.report) throw new NotFoundException(`Pricing run ${id} has no completed report`)
+
+    return { run: found.view, report: found.report }
   }
 
   @Get('runs/:id')

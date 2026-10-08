@@ -1,4 +1,5 @@
-import type { PaymentCost, PaymentCostComponent, PaymentMethod, VoucherBasis } from './pricing.types'
+import type { PaymentCost, PaymentCostComponent, PaymentFixedFee, PaymentMethod, VoucherBasis } from './pricing.types'
+import { ticketBasisOf } from './transaction-cost'
 
 export interface FeeRate {
   acquirer: string
@@ -15,6 +16,11 @@ export interface MixRow {
   cardBrand: string | null
   receiptLines: number
   amountCents: number
+  /** Units sold in those lines (a line of three units counts three). Absent from an older sales service. */
+  units?: number
+  /** Distinct coupons plus the lines without one (each counted as a ticket of its own). Absent from an older sales service. */
+  tickets?: number
+  linesWithoutCoupon?: number
 }
 
 const fold = (value: string | null | undefined): string =>
@@ -117,6 +123,10 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
   const notes: string[] = []
   const voucher = effectiveVoucherFee(rates, mix, minVoucherReceiptLines, aliases)
   const totalLines = mix.reduce((sum, row) => sum + row.receiptLines, 0)
+  const unitsKnown = mix.length > 0 && mix.every(row => row.units !== undefined)
+  const totalUnits = mix.reduce((sum, row) => sum + (row.units ?? 0), 0)
+  const totalTickets = mix.reduce((sum, row) => sum + (row.tickets ?? row.receiptLines), 0)
+  const linesWithoutCoupon = mix.reduce((sum, row) => sum + (row.linesWithoutCoupon ?? row.receiptLines), 0)
   const fixedOf = new Map(rates.map(rate => [`${fold(rate.acquirer)}|${rate.method}`, rate.fixedCents ?? 0]))
   // fixedOf is keyed by the registered name; row lookups go through the same alias map as the rates.
   let fixedCentsTotal = 0
@@ -172,9 +182,9 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
     }
     amount[method] += row.amountCents
     weightedBps += rate * row.amountCents
-    // A fixed fee is charged per sale, so it follows the share of receipt lines, not of revenue.
+    // A fixed fee is charged per sale (per ticket), so the total is the fee times the tickets of the method, not times its lines or its revenue.
     const fixed = method === 'voucher' ? voucher.fixedCents : (fixedOf.get(`${canonical(row.acquirer)}|${method}`) ?? 0)
-    fixedCentsTotal += fixed * row.receiptLines
+    fixedCentsTotal += fixed * (row.tickets ?? row.receiptLines)
     const entry = methodRate.get(method) ?? { weight: 0, bps: 0 }
     methodRate.set(method, { weight: entry.weight + row.amountCents, bps: entry.bps + rate * row.amountCents })
   }
@@ -184,18 +194,35 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
   if (voucher.missingRateBrands.length > 0) notes.push(`Bandeira sem taxa: ${voucher.missingRateBrands.join(', ')}`)
   if (voucher.basis === 'simple_average') notes.push('VR/VA pela média simples das bandeiras (volume insuficiente para ponderar)')
 
+  // The fee per sold unit is the estimated total over the units that carry it. Without units (an older sales service) it cannot be distributed and says so.
+  const basis = ticketBasisOf(totalLines, Math.min(linesWithoutCoupon, totalLines))
+  const fixed: PaymentFixedFee = {
+    estimatedTotalCents: fixedCentsTotal,
+    tickets: totalTickets,
+    units: totalUnits,
+    lines: totalLines,
+    linesWithoutCoupon: Math.min(linesWithoutCoupon, totalLines),
+    basis: unitsKnown ? basis : 'unknown_units',
+    note: unitsKnown
+      ? `Total estimado: tarifa cadastrada × tickets (${totalTickets.toLocaleString('pt-BR')}), repartido pelas ${totalUnits.toLocaleString('pt-BR')} unidades vendidas; não é o valor cobrado pelas adquirentes.${basis === 'coupon' ? '' : basis === 'mixed' ? ` ${Math.min(linesWithoutCoupon, totalLines)} de ${totalLines} linhas sem cupom foram contadas como um ticket cada (aproximação).` : ' Nenhuma linha traz o cupom: cada linha foi contada como um ticket (aproximação).'}`
+      : 'A venda não informou as unidades por linha: a taxa fixa não pôde ser repartida por unidade e não foi incluída.',
+  }
+  if (!unitsKnown && fixedCentsTotal > 0) notes.push(fixed.note)
+  if (unitsKnown && basis !== 'coupon' && fixedCentsTotal > 0) notes.push(fixed.note)
+
   const components: PaymentCostComponent[] = (Object.keys(amount) as PaymentMethod[])
     .filter(method => amount[method] > 0)
     .map(method => ({ method, share: amount[method] / total, rateBps: rateOf[method] ?? 0 }))
 
   return {
     rate: weightedBps / resolved / 10_000,
-    fixedPerUnitCents: totalLines > 0 ? fixedCentsTotal / totalLines : 0,
+    fixedPerUnitCents: unitsKnown && totalUnits > 0 ? fixedCentsTotal / totalUnits : 0,
+    fixed,
     components,
     voucherShare: amount.voucher / total,
     voucherBasis: amount.voucher > 0 || voucher.basis !== 'none' ? voucher.basis : 'none',
     unresolvedShare: unresolved / total,
-    complete: unresolved === 0 && voucher.missingRateBrands.length === 0,
+    complete: unresolved === 0 && voucher.missingRateBrands.length === 0 && (unitsKnown || fixedCentsTotal === 0),
     notes,
   }
 }

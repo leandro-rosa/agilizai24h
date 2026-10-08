@@ -1,4 +1,4 @@
-import { distributeTransactionCost, perUnitTransactionCost, type Ticket } from './transaction-cost'
+import { distributeTicketCosts, distributeTransactionCost, perUnitFromAggregates, ticketBasisOf, ticketsFromLines, type Ticket } from './transaction-cost'
 
 const sum = (values: Iterable<number>) => [...values].reduce((total, value) => total + value, 0)
 
@@ -66,9 +66,105 @@ describe('distributeTransactionCost — ticket, line and unit are three differen
   })
 })
 
-describe('perUnitTransactionCost — the aggregate estimate, tied to the exact distribution', () => {
-  it('equals the exact distribution when every ticket is one line, so the units of a line share one ticket', () => {
-    // 4 tickets of one line each: A,A,A sold 1,1,2 units; B once with 4 units. Total R$ 4,00 = R$ 1,00 per ticket.
+describe('distributeTicketCosts — a fee that each ticket carries on its own (the fixed payment fee)', () => {
+  it('a line of three units: the fee of its ticket is shared by the units, not charged to the line as if it were one', () => {
+    // One Ticket-voucher sale of R$ 0,89 with a line of 3 units of A.
+    const result = distributeTicketCosts([{ costCents: 89, lines: [{ sku: 'A', quantity: 3 }] }])
+
+    expect(result.bySku.get('A')).toBe(89)
+    expect((result.bySku.get('A') as number) / (result.unitsBySku.get('A') as number)).toBeCloseTo(29.67, 2)
+    expect(result.distributedCents).toBe(89)
+  })
+
+  it('a ticket with several products shares its one fee by quantity, and a Pix ticket with no fee costs nothing', () => {
+    const result = distributeTicketCosts([
+      { costCents: 89, lines: [{ sku: 'A', quantity: 2 }, { sku: 'B', quantity: 1 }, { sku: 'C', quantity: 1 }] },
+      { costCents: 0, lines: [{ sku: 'A', quantity: 5 }] },
+    ])
+
+    // 89 over 4 units: A 2/4, B 1/4, C 1/4 -> 44,5 / 22,25 / 22,25 -> whole cents by largest remainder.
+    expect([result.bySku.get('A'), result.bySku.get('B'), result.bySku.get('C')]).toEqual([45, 22, 22])
+    expect(result.distributedCents).toBe(89)
+  })
+
+  it('rounding remainders never lose or invent a cent: the distributed amounts reproduce the known total of the fees', () => {
+    const tickets: Ticket[] = [
+      { costCents: 89, lines: [{ sku: 'A', quantity: 1 }, { sku: 'B', quantity: 1 }, { sku: 'C', quantity: 1 }] },
+      { costCents: 89, lines: [{ sku: 'B', quantity: 7 }] },
+      { costCents: 50, lines: [{ sku: 'A', quantity: 3 }, { sku: 'C', quantity: 2 }] },
+      { costCents: 1, lines: [{ sku: 'D', quantity: 3 }] },
+    ]
+    const total = tickets.reduce((sum, ticket) => sum + (ticket.costCents as number), 0)
+    const result = distributeTicketCosts(tickets)
+
+    expect(result.distributedCents).toBe(total)
+    expect([...result.bySku.values()].reduce((a, b) => a + b, 0)).toBe(total)
+    expect([...result.bySku.values()].every(Number.isInteger)).toBe(true)
+    expect(result.unplacedCents).toBe(0)
+    // Deterministic.
+    expect([...distributeTicketCosts(tickets).bySku]).toEqual([...result.bySku])
+  })
+
+  it('a ticket with no unit cannot carry its fee: it is reported as unplaced, never dropped', () => {
+    const result = distributeTicketCosts([{ costCents: 89, lines: [{ sku: 'A', quantity: 0 }] }, { costCents: 10, lines: [{ sku: 'B', quantity: 2 }] }])
+
+    expect(result.unplacedCents).toBe(89)
+    expect(result.distributedCents).toBe(10)
+  })
+
+  it('refuses a fee that is not a whole number of centavos', () => {
+    expect(() => distributeTicketCosts([{ costCents: 0.5, lines: [{ sku: 'A', quantity: 1 }] }])).toThrow(RangeError)
+  })
+})
+
+describe('ticketsFromLines — no identifier, no invented grouping', () => {
+  const line = (sku: string, quantity: number, coupon: string | null) => ({ sku, quantity, coupon })
+
+  it('groups lines by their coupon into one ticket', () => {
+    const result = ticketsFromLines([line('A', 2, 'C1'), line('B', 1, 'C1'), line('A', 1, 'C2')])
+
+    expect(result.tickets).toHaveLength(2)
+    expect(result.tickets[0].lines).toEqual([{ sku: 'A', quantity: 2 }, { sku: 'B', quantity: 1 }])
+    expect(result.basis).toBe('coupon')
+    expect(result.linesWithoutCoupon).toBe(0)
+  })
+
+  it('lines without a coupon stand alone and are counted as an approximation, never merged by guess', () => {
+    const result = ticketsFromLines([line('A', 1, null), line('B', 1, null), line('A', 3, null)])
+
+    expect(result.tickets).toHaveLength(3)
+    expect(result.linesWithoutCoupon).toBe(3)
+    expect(result.basis).toBe('line_approximation')
+  })
+
+  it('a mix of both keeps the coupon groups and flags the rest', () => {
+    const result = ticketsFromLines([line('A', 1, 'C1'), line('B', 1, 'C1'), line('C', 2, null)])
+
+    expect(result.tickets).toHaveLength(2)
+    expect(result.basis).toBe('mixed')
+    expect(result.linesWithoutCoupon).toBe(1)
+  })
+
+  it('without a coupon the whole fee of a line falls on the units of that line, by quantity', () => {
+    const { tickets } = ticketsFromLines([line('A', 3, null), line('B', 1, null)])
+    const result = distributeTicketCosts(tickets.map(ticket => ({ ...ticket, costCents: 89 })))
+
+    // Each line is its own ticket, so A's 3 units share R$ 0,89 and B's single unit carries all of it.
+    expect(result.bySku.get('A')).toBe(89)
+    expect(result.bySku.get('B')).toBe(89)
+    expect(result.distributedCents).toBe(178)
+  })
+
+  it('names the basis of any count', () => {
+    expect(ticketBasisOf(0, 0)).toBe('coupon')
+    expect(ticketBasisOf(10, 0)).toBe('coupon')
+    expect(ticketBasisOf(10, 4)).toBe('mixed')
+    expect(ticketBasisOf(10, 10)).toBe('line_approximation')
+  })
+})
+
+describe('perUnitFromAggregates — the aggregate estimate, tied to the exact distribution', () => {
+  it('equals the exact distribution averaged over the units', () => {
     const tickets: Ticket[] = [
       { lines: [{ sku: 'A', quantity: 1 }] },
       { lines: [{ sku: 'A', quantity: 1 }] },
@@ -76,32 +172,36 @@ describe('perUnitTransactionCost — the aggregate estimate, tied to the exact d
       { lines: [{ sku: 'B', quantity: 4 }] },
     ]
     const exact = distributeTransactionCost(400, tickets)
-    const units = 8
-    const estimate = perUnitTransactionCost(400, 4, 4 / units, 'rede')!
+    const estimate = perUnitFromAggregates({ totalCents: 400, units: 8, lines: 4, linesWithoutCoupon: 4, scope: 'rede' })!
 
-    // The network average per unit is the aggregate figure: 400 cents over 8 units.
-    expect(estimate.perUnitCents * units).toBeCloseTo(400, 8)
-    expect(sum(exact.bySku.values())).toBe(400)
-    // A product's own ratio (A: 3 lines over 4 units) gives its exact per-unit cost: 3 tickets x 100 / 4 units = 75.
-    expect(perUnitTransactionCost(400, 4, 3 / 4, 'produto')!.perUnitCents).toBeCloseTo((exact.bySku.get('A') as number) / (exact.unitsBySku.get('A') as number), 8)
-    expect(perUnitTransactionCost(400, 4, 1 / 4, 'produto')!.perUnitCents).toBeCloseTo((exact.bySku.get('B') as number) / (exact.unitsBySku.get('B') as number), 8)
+    expect(estimate.perUnitCents * 8).toBeCloseTo(sum(exact.bySku.values()), 8)
+    expect(estimate.perUnitCents).toBe(50)
   })
 
   it('is not the total divided by the number of lines read as a cost per unit', () => {
-    // 2 lines, 6 units (a line of 5 and a line of 1), R$ 1,20: per line 60, but per unit it is 60 / (6/2) = 20.
-    const estimate = perUnitTransactionCost(120, 2, 2 / 6, 'rede')!
+    // 2 lines, 6 units (a line of 5 and a line of 1), R$ 1,20: 60 per line, but 20 per unit.
+    const estimate = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 2, linesWithoutCoupon: 2, scope: 'rede' })!
 
     expect(estimate.perUnitCents).toBeCloseTo(20, 8)
     expect(estimate.perUnitCents).not.toBeCloseTo(120 / 2, 8)
   })
 
-  it('states its hypothesis in words and is zero with no transaction cost', () => {
-    expect(perUnitTransactionCost(120, 2, 0.5, 'rede')!.assumption).toMatch(/Cada linha de venda conta como um ticket.*média rede de 0,50 linha por unidade/)
-    expect(perUnitTransactionCost(0, 0, 0, 'rede')).toEqual({ perUnitCents: 0, assumption: 'Sem custo por transação no período' })
+  it('says whether the tickets are observed or an approximation, in words', () => {
+    const observed = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 4, linesWithoutCoupon: 0, scope: 'rede' })!
+    const mixed = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 4, linesWithoutCoupon: 1, scope: 'rede' })!
+    const none = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 4, linesWithoutCoupon: 4, scope: 'rede' })!
+
+    expect(observed).toMatchObject({ basis: 'coupon', approximated: false })
+    expect(observed.assumption).toContain('Tickets pelo cupom')
+    expect(mixed).toMatchObject({ basis: 'mixed', approximated: true })
+    expect(mixed.assumption).toContain('1 de 4 linhas (25,0%) sem cupom')
+    expect(none).toMatchObject({ basis: 'line_approximation', approximated: true })
+    expect(none.assumption).toContain('Nenhuma linha traz o cupom')
+    expect(none.assumption).toContain('não é um valor observado')
   })
 
-  it('has no number when there is a cost but no tickets or units to base it on', () => {
-    expect(perUnitTransactionCost(120, 0, 0.5, 'rede')).toBeNull()
-    expect(perUnitTransactionCost(120, 2, 0, 'rede')).toBeNull()
+  it('is zero with no transaction cost, and has no number when there is a cost but no unit to carry it', () => {
+    expect(perUnitFromAggregates({ totalCents: 0, units: 0, lines: 0, linesWithoutCoupon: 0, scope: 'rede' })).toMatchObject({ perUnitCents: 0, assumption: 'Sem custo por transação no período' })
+    expect(perUnitFromAggregates({ totalCents: 120, units: 0, lines: 2, linesWithoutCoupon: 2, scope: 'rede' })).toBeNull()
   })
 })

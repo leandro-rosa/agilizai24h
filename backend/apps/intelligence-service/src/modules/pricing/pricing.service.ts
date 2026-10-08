@@ -12,7 +12,8 @@ import { SupplyClient } from '../sources/supply.client'
 import { TreasuryClient } from '../sources/treasury.client'
 import { chooseLoss, type LossObservation } from './loss'
 import { legacyShifts, operatingCosts, type OperatingCosts } from './operating-costs'
-import { perUnitTransactionCost } from './transaction-cost'
+import { perUnitFromAggregates } from './transaction-cost'
+import { travelEstimate, type TravelEstimate } from './travel'
 import { paymentCost, type FeeRate, type MixRow } from './payment-cost'
 import { computePrice, costBasisOf, type OperatingContext, type PriceInput, type PriceResult } from './price'
 import { PricingParametersService } from './pricing-parameters.service'
@@ -36,7 +37,7 @@ export interface PricingReport {
     asOf: string
     storeId: number | null
     /** Explains how the shared components were built, so no number is read as more certain than it is. */
-    payment: Pick<PaymentCost, 'voucherShare' | 'voucherBasis' | 'unresolvedShare' | 'complete' | 'notes' | 'components'> & { rate: number } | null
+    payment: Pick<PaymentCost, 'voucherShare' | 'voucherBasis' | 'unresolvedShare' | 'complete' | 'notes' | 'components' | 'fixed'> & { rate: number; fixedPerUnitCents: number } | null
     paymentMixMonthsWithoutTransactions: string[]
     /** How every DRE expense was treated (the classes), what is still unclassified, and whether the classification is complete. */
     operating: OperatingReport | null
@@ -61,7 +62,9 @@ export interface OperatingReport {
   classes: OperatingCosts['classes']
   /** The share of revenue that enters the price as a percentage, and the per-transaction cost per sold unit (centavos) with its hypothesis. */
   percentOfSalesShare: number
-  perTransaction: { perUnitCents: number; assumption: string } | null
+  perTransaction: { perUnitCents: number; assumption: string; basis: 'coupon' | 'mixed' | 'line_approximation'; approximated: boolean } | null
+  /** The average travel cost per restocking and where it comes from; null when the supply service could not be read. Outside the price, inside the result after allocation. */
+  travel: TravelEstimate | null
   legacy: OperatingCosts['legacy']
 }
 
@@ -89,7 +92,7 @@ export class PricingService {
   private readonly loader: FactsLoader
 
   constructor(
-    supply: SupplyClient,
+    private readonly supply: SupplyClient,
     private readonly sales: SalesClient,
     private readonly products: ProductsClient,
     private readonly stores: StoresClient,
@@ -124,7 +127,7 @@ export class PricingService {
         months,
         asOf,
         storeId: query.storeId ?? null,
-        payment: payment ? { rate: payment.rate, voucherShare: payment.voucherShare, voucherBasis: payment.voucherBasis, unresolvedShare: payment.unresolvedShare, complete: payment.complete, notes: payment.notes, components: payment.components } : null,
+        payment: payment ? { rate: payment.rate, voucherShare: payment.voucherShare, voucherBasis: payment.voucherBasis, unresolvedShare: payment.unresolvedShare, complete: payment.complete, notes: payment.notes, components: payment.components, fixed: payment.fixed, fixedPerUnitCents: payment.fixedPerUnitCents } : null,
         paymentMixMonthsWithoutTransactions: mix.periods_without_transactions,
         operating: c.operatingReport,
         validated: operating !== null && operating.complete,
@@ -222,7 +225,7 @@ export class PricingService {
     const noPrices = (asOfDate: string) => Promise.resolve({ resolved: [], unresolved: [], complete: true, asOf: asOfDate })
     const noSkus = skus.length === 0
     const today = new Date().toISOString().slice(0, 10)
-    const [facts, costsNow, costsLatest, costsPurchases, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased, categoryRows] = await Promise.all([
+    const [facts, costsNow, costsLatest, costsPurchases, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased, categoryRows, visitCounts] = await Promise.all([
       Promise.all(months.map(month => this.loader.month(month, stores, correlationId))),
       noSkus ? none(asOf) : this.products.costsAsOf(skus, asOf, correlationId),
       // The cost in force TODAY, only to tell a cost newer than the period apart from the period's own cost.
@@ -238,6 +241,8 @@ export class PricingService {
       this.boughtSkus(skus, months),
       // Category names come from the registry (managed data); if it cannot be read the built-in labels still work.
       this.products.categories(correlationId).catch(() => []),
+      // Restocking visits per store and month, for the average travel cost per restocking. If it cannot be read the average is simply unavailable.
+      this.supply.visitCounts(months[0], end, correlationId).catch(() => null),
     ])
     const categoryNames = new Map(categoryRows.map(row => [row.key, row.name]))
 
@@ -272,16 +277,29 @@ export class PricingService {
     })
 
     const rates: FeeRate[] = fees.rates.map(rate => ({ acquirer: rate.acquirer, method: rate.payment_method, rateBps: rate.rate_bps, fixedCents: rate.fixed_cents ?? 0 }))
-    const mixRows: MixRow[] = mix.rows.map(row => ({ method: row.method, acquirer: row.acquirer, cardBrand: row.card_brand, receiptLines: row.receipt_lines, amountCents: row.amount_paid_cents }))
+    const mixRows: MixRow[] = mix.rows.map(row => ({
+      method: row.method,
+      acquirer: row.acquirer,
+      cardBrand: row.card_brand,
+      receiptLines: row.receipt_lines,
+      amountCents: row.amount_paid_cents,
+      units: row.units,
+      tickets: row.tickets,
+      linesWithoutCoupon: row.lines_without_coupon,
+    }))
     const payment = paymentCost(rates, mixRows, params.data.voucherMinReceiptLines, params.payment.brandAliases)
     const operating = operatingCosts(pnls, params.operating.accountBehavior, params.operating.unclassifiedRelevantBps)
     const scopeLabel = query.storeId === undefined ? 'rede' : `loja ${query.storeId}`
 
     // Per-transaction expenses reach a product through the units it sells (ticket → units), not as a share of revenue.
-    const units = [...bySku.values()].reduce((sum, entry) => sum + entry.sold, 0)
-    const tickets = mixRows.reduce((sum, row) => sum + row.receiptLines, 0)
+    const units = mixRows.reduce((sum, row) => sum + (row.units ?? 0), 0)
+    const lines = mixRows.reduce((sum, row) => sum + row.receiptLines, 0)
+    const withoutCoupon = mixRows.reduce((sum, row) => sum + (row.linesWithoutCoupon ?? row.receiptLines), 0)
     const perTransactionTotal = operating?.classes.per_transaction.costCents ?? 0
-    const perTransaction = operating ? perUnitTransactionCost(perTransactionTotal, tickets, units > 0 ? tickets / units : 0, scopeLabel) : null
+    const perTransaction = operating ? perUnitFromAggregates({ totalCents: perTransactionTotal, units, lines, linesWithoutCoupon: Math.min(withoutCoupon, lines), scope: scopeLabel }) : null
+
+    // The average travel cost per restocking: the same months and the same scope on both sides of the division.
+    const travel = operating ? this.travelOf(operating.perVisitByMonth, months, visitCounts, allStores.map(store => store.id), query.storeId, scopeLabel) : null
     const shifted = operating ? legacyShifts(operating) : null
     const operatingContext: OperatingContext | null = operating
       ? {
@@ -311,6 +329,7 @@ export class PricingService {
           classes: operating.classes,
           percentOfSalesShare: operating.classes.percent_of_sales.share,
           perTransaction: perTransactionTotal > 0 && perTransaction ? perTransaction : null,
+          travel,
           legacy: operating.legacy,
         }
       : null
@@ -392,6 +411,32 @@ export class PricingService {
       chooseLoss({ product: null, category: categoryKey ? byCat.get(categoryKey) : null, store: query.storeId !== undefined ? scope : null, network: query.storeId === undefined ? scope : null }, params.data.lossMinUnits)
 
     return { version, params, months, asOf, fees, mix, payment, operating: operatingContext, operatingCosts: operating, operatingReport, perTransactionPerUnitCents: perTransaction?.perUnitCents ?? 0, inputs, revenueBySku, lossFor, categoryNames }
+  }
+
+  /** The per-visit spend of each month against the restocking visits of the same month and scope. */
+  private travelOf(
+    spend: { period: string; costCents: number }[],
+    months: string[],
+    visitCounts: { rows: { store_id: number; period: string; restocking_visits: number }[] } | null,
+    storeIds: number[],
+    storeId: number | undefined,
+    scope: string,
+  ): TravelEstimate | null {
+    if (!visitCounts) return null
+    const known = new Set(storeIds)
+    const rows = visitCounts.rows.filter(row => known.has(row.store_id) && (storeId === undefined || row.store_id === storeId))
+    const cost = new Map(spend.map(entry => [entry.period, entry.costCents]))
+
+    const inputs = months.map(period => {
+      const ofMonth = rows.filter(row => row.period === period)
+      return { period, costCents: cost.get(period) ?? null, visits: ofMonth.length === 0 ? null : ofMonth.reduce((sum, row) => sum + row.restocking_visits, 0) }
+    })
+    // Per-store apportionment only over the months the average uses, so the shares add up to the pooled spend.
+    const usable = new Set(inputs.filter(input => input.costCents !== null && (input.visits ?? 0) > 0).map(input => input.period))
+    const visitsByStore = new Map<number, number>()
+    if (storeId === undefined) for (const row of rows) if (usable.has(row.period)) visitsByStore.set(row.store_id, (visitsByStore.get(row.store_id) ?? 0) + row.restocking_visits)
+
+    return travelEstimate({ scope, months: inputs, visitsByStore })
   }
 
   /** One product, computed from the same inputs as the report. */

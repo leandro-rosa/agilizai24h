@@ -141,6 +141,21 @@ export class PricingRunsService {
     }
   }
 
+  /**
+   * The completed runs of a scope, newest first, each with the engine version and the rules version it was computed with. A new calculation is a NEW
+   * run: nothing here edits an earlier one, so an old report stays readable exactly as it was.
+   */
+  async history(input: { period?: string; storeId?: number | null; limit?: number }): Promise<PricingRunView[]> {
+    const scope = this.scope(input.period, input.storeId)
+    const rows = await this.prisma.pricingRun.findMany({
+      where: { period: scope.period, store_id: scope.storeId, status: 'completed' },
+      orderBy: { finished_at: 'desc' },
+      take: Math.min(Math.max(input.limit ?? 20, 1), 100),
+    })
+
+    return rows.map(row => toView(row as RunRow))
+  }
+
   async get(id: string): Promise<PricingRunView> {
     const row = await this.prisma.pricingRun.findUnique({ where: { id } })
     if (!row) throw new NotFoundException(`Pricing run ${id} not found`)
