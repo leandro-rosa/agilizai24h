@@ -29,13 +29,22 @@ export interface PaymentMixDto {
     card_brand: string | null
     receipt_lines: number
     amount_paid_cents: number
-    /** Units sold in those lines, distinct-coupon tickets plus coupon-less lines, and how many lines had no coupon. Absent from an older sales service. */
+    /** Units sold in those lines, the tickets (distinct coupon / transaction code / acquirer code plus each unidentified line once) and how many lines had no identifier at all. Absent from an older sales service. */
     units?: number
     tickets?: number
-    lines_without_coupon?: number
+    lines_without_ticket_id?: number
   }[]
   total_amount_paid_cents: number
   /** Months with no receipts for the scope: the mix there is unknown, not zero. */
+  periods_without_transactions: string[]
+}
+
+/** The payment mix split per product: what a product's own, its category's and the network's mix are built from. */
+export interface PaymentMixBySkuDto {
+  from: string
+  to: string
+  store_id: number | null
+  rows: { sku: string; method: string | null; acquirer: string | null; card_brand: string | null; receipt_lines: number; units: number; amount_paid_cents: number }[]
   periods_without_transactions: string[]
 }
 
@@ -74,5 +83,16 @@ export class SalesClient {
     )
 
     return body as PaymentMixDto
+  }
+
+  /** The payment mix of each product over a window of months; `null` from an older sales service that does not have the route. */
+  async paymentMixBySku(from: string, to: string, storeId?: number, correlationId?: string): Promise<PaymentMixBySkuDto | null> {
+    const store = storeId === undefined ? '' : `&storeId=${storeId}`
+
+    return httpGet<PaymentMixBySkuDto>(
+      this.http,
+      `${this.config.getOrThrow<string>('SALES_SERVICE_URL')}/sales/network/payment-mix-by-sku?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${store}`,
+      { correlationId, timeout: 60000, notFoundIsNull: true },
+    )
   }
 }

@@ -2,7 +2,7 @@ import { chooseLoss } from './loss'
 
 describe('chooseLoss', () => {
   it('uses the product own history when it has the volume', () => {
-    expect(chooseLoss({ product: { lostUnits: 2, suppliedUnits: 100 }, category: { lostUnits: 10, suppliedUnits: 100 } }, 100)).toEqual({ rate: 0.02, level: 'product', suppliedUnits: 100 })
+    expect(chooseLoss({ product: { lostUnits: 2, suppliedUnits: 100 }, category: { lostUnits: 10, suppliedUnits: 100 } }, 100)).toEqual({ rate: 0.02, level: 'product', suppliedUnits: 100, lostUnits: 2, soldUnits: null })
   })
 
   it('falls back to the category when the product has too little history', () => {

@@ -1,7 +1,7 @@
 import { categoryLabel } from './categories'
 import { PER_TRANSACTION_SHIFT_LABEL, type LegacyShift } from './operating-costs'
 import { marginsFor } from './pricing.parameters'
-import { ANALYSIS_ONLY_STATEMENT, ENGINE_VERSION, type Confidence, type LossLevel, type PaymentCost, type PricingParameters, type PricingStatus } from './pricing.types'
+import { ANALYSIS_ONLY_STATEMENT, ENGINE_VERSION, type Confidence, type LossLevel, type MixLevel, type PaymentCost, type PricingParameters, type PricingStatus } from './pricing.types'
 
 export interface PriceInput {
   sku: string
@@ -42,7 +42,7 @@ export interface PriceInput {
   monthlyRevenueCents?: number | null
   /** True when units fell clearly after the latest price increase. */
   volumeDroppedAfterPriceChange: boolean
-  loss: { rate: number; level: LossLevel } | null
+  loss: { rate: number; level: LossLevel; lostUnits?: number; suppliedUnits?: number; soldUnits?: number | null } | null
   payment: PaymentCost | null
   /** Expenses that follow the sales value (percentage of sales), as a fraction of revenue, from accounting. `null` = unavailable. */
   operatingShare: number | null
@@ -104,9 +104,16 @@ export interface CostStructure {
   operatingShare: number
   /** Per-transaction expenses per sold unit, in centavos; absent on a report stored before `pricing-4` (read it as zero). */
   perTransactionCents?: number
+  /** Whose payment mix weighed the percentage fees (the product's own, its category's or the network's) and how many receipt lines were behind it. */
+  paymentLevel?: MixLevel
+  paymentMixLines?: number
+  /** The units behind the loss rate, so the denominator is visible: rate = lost ÷ supplied, and what is left of supplied after sold and lost. */
+  lossBasis?: { lostUnits: number; suppliedUnits: number; soldUnits: number | null; unaccountedUnits: number | null; definition: string }
   /** What the prices below are solved against. */
   statement: string
 }
+
+export const LOSS_DEFINITION = 'Perda = unidades removidas como perda ÷ unidades abastecidas às lojas na janela (do supply-service). O custo de cada unidade vendida é o custo ÷ (1 − perda): o custo das unidades perdidas é diluído nas vendidas'
 
 export interface CostBases {
   historical: { costCents: number; effectiveFrom: string; source: string | null; basis: CostBasis } | null
@@ -193,10 +200,30 @@ export interface PriceResult {
   impactCentsPerMonth: number | null
   impactLabel: 'Impacto potencial estimado'
   recommendedMargin: number | null
+  /**
+   * Set when the maximum-increase limit stopped the price short of the target: the price reached, the margin it gives and the plain statement. Null otherwise.
+   * The recommended price is then the limited one, and its margin stays below the target on purpose.
+   */
+  increaseCap: IncreaseCap | null
   reasons: Reason[]
   insufficientReasons: string[]
   engineVersion: string
 }
+
+export interface IncreaseCap {
+  /** The price that reaches the target margin, before the limit. */
+  targetPriceCents: number
+  /** The highest price the limit allows (the current price raised by the maximum increase, rounded up to the price step). */
+  ceilingCents: number
+  /** The recommended (limited) price and the margin it gives. */
+  limitedPriceCents: number
+  resultingMargin: number
+  targetMargin: number
+  maxIncreaseBps: number
+  message: string
+}
+
+export const INCREASE_CAP_MESSAGE = 'Margem abaixo da meta devido ao limite máximo de aumento configurado.'
 
 const CONFIDENCE_RANK: Record<Exclude<Confidence, 'insufficient_data'>, number> = { low: 0, medium: 1, high: 2 }
 
@@ -274,6 +301,7 @@ function insufficient(input: PriceInput, reasons: string[], margins: ReturnType<
     impactCentsPerMonth: null,
     impactLabel: 'Impacto potencial estimado',
     recommendedMargin: null,
+    increaseCap: null,
     reasons: [],
     insufficientReasons: reasons,
     engineVersion: ENGINE_VERSION,
@@ -294,7 +322,7 @@ const money = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace('.', ','
  * 100% or more the target cannot be reached by this formula, and `unreachable` says so instead of returning a price.
  */
 export function solveStructure(
-  input: { costCents: number; taxRateBps: number; payment: PaymentCost; loss: { rate: number; level: LossLevel }; operatingShare: number; perTransactionPerUnitCents?: number },
+  input: { costCents: number; taxRateBps: number; payment: PaymentCost; loss: { rate: number; level: LossLevel; lostUnits?: number; suppliedUnits?: number; soldUnits?: number | null }; operatingShare: number; perTransactionPerUnitCents?: number },
   margins: ReturnType<typeof marginsFor>,
 ) {
   const cost = input.costCents
@@ -316,6 +344,18 @@ export function solveStructure(
     ...(input.payment.fixed ? { paymentFixed: { basis: input.payment.fixed.basis, note: input.payment.fixed.note } } : {}),
     voucherShare: input.payment.voucherShare,
     voucherBasis: input.payment.voucherBasis,
+    ...(input.payment.level ? { paymentLevel: input.payment.level, paymentMixLines: input.payment.mixLines } : {}),
+    ...(input.loss.suppliedUnits !== undefined && input.loss.lostUnits !== undefined
+      ? {
+          lossBasis: {
+            lostUnits: input.loss.lostUnits,
+            suppliedUnits: input.loss.suppliedUnits,
+            soldUnits: input.loss.soldUnits ?? null,
+            unaccountedUnits: input.loss.soldUnits === null || input.loss.soldUnits === undefined ? null : input.loss.suppliedUnits - input.loss.lostUnits - input.loss.soldUnits,
+            definition: LOSS_DEFINITION,
+          },
+        }
+      : {}),
     operatingShare: input.operatingShare,
     perTransactionCents: perTransaction,
     statement: ANALYSIS_ONLY_STATEMENT,
@@ -351,7 +391,7 @@ export function computePrice(input: PriceInput): PriceResult {
   // cost with no purchase in the window is too old to trust.
   else if (!input.costFromPurchase && input.costAgeDays !== null && input.costAgeDays > params.data.costMaxAgeDays) missing.push(`Custo desatualizado (${input.costAgeDays} dias, sem compra no período)`)
   if (params.taxRateBps === null) missing.push('Alíquota de imposto não configurada')
-  if (!input.payment) missing.push('Sem vendas para calcular o custo de pagamento')
+  if (!input.payment) missing.push('Sem mix de pagamento confiável (nem do produto, nem da categoria, nem da rede): faltam vendas com meio de pagamento')
   if (!input.loss) missing.push('Sem histórico de perda')
   if (input.operatingShare === null) missing.push('Rateio operacional indisponível')
   if (input.currentPriceCents === null || input.currentPriceCents <= 0) missing.push('Sem preço atual')
@@ -363,7 +403,7 @@ export function computePrice(input: PriceInput): PriceResult {
       costCents: input.costCents as number,
       taxRateBps: params.taxRateBps as number,
       payment: input.payment as PaymentCost,
-      loss: input.loss as { rate: number; level: LossLevel },
+      loss: input.loss as NonNullable<PriceInput['loss']>,
       operatingShare: input.operatingShare as number,
       perTransactionPerUnitCents: input.perTransactionPerUnitCents ?? 0,
     },
@@ -371,7 +411,7 @@ export function computePrice(input: PriceInput): PriceResult {
   )
   const { cost, structure, variableShare, unitProfit, marginAt, rawMinimum, rawTarget, unreachable } = solved
   const payment = input.payment as PaymentCost
-  const loss = input.loss as { rate: number; level: LossLevel }
+  const loss = input.loss as NonNullable<PriceInput['loss']>
   const fixedPerUnit = payment.fixedPerUnitCents
   const perTransaction = input.perTransactionPerUnitCents ?? 0
 
@@ -390,12 +430,16 @@ export function computePrice(input: PriceInput): PriceResult {
   const belowTarget = currentMargin < margins.target - 1e-9
 
   let recommended = current
+  let increaseCap: IncreaseCap | null = null
   let status: PricingStatus = 'healthy'
 
   if (belowTarget) {
     const ceiling = roundUp(current * (1 + params.guards.maxIncreaseBps / 10_000), params.rounding.stepCents)
     const capped = targetPrice > ceiling
     recommended = Math.max(Math.min(targetPrice, ceiling), current)
+    if (capped && !input.volumeDroppedAfterPriceChange) {
+      increaseCap = { targetPriceCents: targetPrice, ceilingCents: ceiling, limitedPriceCents: recommended, resultingMargin: marginAt(recommended), targetMargin: margins.target, maxIncreaseBps: params.guards.maxIncreaseBps, message: INCREASE_CAP_MESSAGE }
+    }
 
     if (input.volumeDroppedAfterPriceChange) {
       status = 'review'
@@ -404,7 +448,7 @@ export function computePrice(input: PriceInput): PriceResult {
     } else {
       status = 'adjust'
       reasons.push({ code: 'below_target', text: `Margem atual de ${pct(currentMargin)}, abaixo da meta de ${pct(margins.target)}` })
-      if (capped) reasons.push({ code: 'increase_capped', text: `O aumento até a meta passa de ${pct(params.guards.maxIncreaseBps / 10_000)}; recomendado em etapas` })
+      if (capped) reasons.push({ code: 'increase_capped', text: `O aumento até a meta (${money(targetPrice)}) passa do limite de ${pct(params.guards.maxIncreaseBps / 10_000)}: o preço recomendado fica em ${money(recommended)}, com margem de ${pct(marginAt(recommended))}. ${INCREASE_CAP_MESSAGE}` })
       else reasons.push({ code: 'price_recovers_margin', text: 'O preço recomendado recupera a margem' })
     }
   } else if (currentMargin < margins.target + params.guards.opportunityBandBps / 10_000 && input.monthlyUnits >= params.data.minUnitsPerMonth && !input.volumeDroppedAfterPriceChange) {
@@ -455,10 +499,10 @@ export function computePrice(input: PriceInput): PriceResult {
 
   const operating = input.operating ?? null
   const validationNotes: string[] = []
-  if (!operating) validationNotes.push('Classificação das despesas indisponível: o cálculo não foi validado')
+  if (!operating) validationNotes.push('Precificação não validada: a classificação das despesas da DRE está indisponível (sem DRE com receita de lojas no período)')
   else if (!operating.complete) {
     validationNotes.push(
-      `Cálculo incompleto: ${money(operating.unclassifiedCents)} em despesas sem classificação (${pct(operating.unclassifiedShare)} da receita de vendas das lojas, ${operating.scope}, ${operating.months.join(', ')}): ${operating.unclassified.map(account => `${account.code} ${account.label}`).join('; ')}`,
+      `Precificação não validada: faltam classificar ${money(operating.unclassifiedCents)} em despesas (${pct(operating.unclassifiedShare)} da receita de vendas das lojas, ${operating.scope}, ${operating.months.join(', ')}): ${operating.unclassified.map(account => `${account.code} ${account.label}`).join('; ')}`,
     )
   }
   if (operating?.perTransactionAssumption) validationNotes.push(operating.perTransactionAssumption)
@@ -529,6 +573,7 @@ export function computePrice(input: PriceInput): PriceResult {
     impactCentsPerMonth: impact,
     impactLabel: 'Impacto potencial estimado',
     recommendedMargin: shown === null ? null : marginAt(shown),
+    increaseCap: shown === null ? null : increaseCap,
     reasons,
     insufficientReasons: [],
     engineVersion: ENGINE_VERSION,

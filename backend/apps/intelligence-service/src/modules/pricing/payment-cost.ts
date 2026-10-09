@@ -1,5 +1,5 @@
 import type { PaymentCost, PaymentCostComponent, PaymentFixedFee, PaymentMethod, VoucherBasis } from './pricing.types'
-import { ticketBasisOf } from './transaction-cost'
+import { countTickets } from './transaction-cost'
 
 export interface FeeRate {
   acquirer: string
@@ -18,9 +18,17 @@ export interface MixRow {
   amountCents: number
   /** Units sold in those lines (a line of three units counts three). Absent from an older sales service. */
   units?: number
-  /** Distinct coupons plus the lines without one (each counted as a ticket of its own). Absent from an older sales service. */
+  /** Distinct purchase identifiers (coupon, transaction code or acquirer code) plus each line without one counted once. Absent from an older sales service and from a per-product mix. */
   tickets?: number
-  linesWithoutCoupon?: number
+  /** Lines with no purchase identifier at all. Absent: the sales service did not say, so every line is treated as unidentified. */
+  linesWithoutTicketId?: number
+}
+
+export interface PaymentCostOptions {
+  /** Share (0-1) of the lines that must carry a purchase identifier for the others to be estimated. Default 0.5. */
+  minIdentifiedTicketShare?: number
+  /** `skip`: the fixed fee is not computed here (a per-product mix has no tickets; the network's figure is used instead). */
+  fixedFee?: 'compute' | 'skip'
 }
 
 const fold = (value: string | null | undefined): string =>
@@ -116,7 +124,7 @@ export function effectiveVoucherFee(rates: FeeRate[], mix: MixRow[], minReceiptL
  * be resolved are reported, and priced at the average of the resolved ones so
  * the result stays usable, but `complete` is false and confidence drops.
  */
-export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLines: number, aliases: Record<string, string> = {}): PaymentCost | null {
+export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLines: number, aliases: Record<string, string> = {}, options: PaymentCostOptions = {}): PaymentCost | null {
   const total = mix.reduce((sum, row) => sum + row.amountCents, 0)
   if (total <= 0) return null
 
@@ -125,11 +133,25 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
   const totalLines = mix.reduce((sum, row) => sum + row.receiptLines, 0)
   const unitsKnown = mix.length > 0 && mix.every(row => row.units !== undefined)
   const totalUnits = mix.reduce((sum, row) => sum + (row.units ?? 0), 0)
-  const totalTickets = mix.reduce((sum, row) => sum + (row.tickets ?? row.receiptLines), 0)
-  const linesWithoutCoupon = mix.reduce((sum, row) => sum + (row.linesWithoutCoupon ?? row.receiptLines), 0)
+  const skipFixed = options.fixedFee === 'skip'
+  // Tickets: observed by their identifier, ESTIMATED for the lines without one (from the identified ones' tickets-per-line), or unknown. Never one per line.
+  const without = (row: MixRow) => Math.min(row.linesWithoutTicketId ?? row.receiptLines, row.receiptLines)
+  const reported = (row: MixRow) => row.tickets ?? row.receiptLines
+  const count = countTickets({
+    lines: totalLines,
+    reportedTickets: mix.reduce((sum, row) => sum + reported(row), 0),
+    linesWithoutTicketId: mix.reduce((sum, row) => sum + without(row), 0),
+    minIdentifiedShare: options.minIdentifiedTicketShare ?? 0.5,
+  })
+  const identifiedLines = totalLines - (count.linesWithoutTicketId ?? 0)
+  const ratioIdentified = identifiedLines > 0 ? (mix.reduce((sum, row) => sum + (reported(row) - without(row)), 0)) / identifiedLines : 0
+  // The tickets of ONE row: its identified tickets plus its unidentified lines at the ratio measured on the identified ones.
+  const ticketsOf = (row: MixRow): number => reported(row) - without(row) + without(row) * ratioIdentified
   const fixedOf = new Map(rates.map(rate => [`${fold(rate.acquirer)}|${rate.method}`, rate.fixedCents ?? 0]))
   // fixedOf is keyed by the registered name; row lookups go through the same alias map as the rates.
   let fixedCentsTotal = 0
+  // Whether any sale of the mix carries a fixed fee at all: without one there is nothing to distribute, so unknown tickets or units do not make the cost incomplete.
+  let hasFixedFee = false
   const amount: Record<PaymentMethod, number> = { pix: 0, debit: 0, credit: 0, voucher: 0 }
   const rateOf: Partial<Record<PaymentMethod, number>> = {}
   let unresolved = 0
@@ -184,7 +206,8 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
     weightedBps += rate * row.amountCents
     // A fixed fee is charged per sale (per ticket), so the total is the fee times the tickets of the method, not times its lines or its revenue.
     const fixed = method === 'voucher' ? voucher.fixedCents : (fixedOf.get(`${canonical(row.acquirer)}|${method}`) ?? 0)
-    fixedCentsTotal += fixed * (row.tickets ?? row.receiptLines)
+    if (fixed > 0) hasFixedFee = true
+    if (!skipFixed && count.tickets !== null) fixedCentsTotal += fixed * ticketsOf(row)
     const entry = methodRate.get(method) ?? { weight: 0, bps: 0 }
     methodRate.set(method, { weight: entry.weight + row.amountCents, bps: entry.bps + rate * row.amountCents })
   }
@@ -194,21 +217,26 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
   if (voucher.missingRateBrands.length > 0) notes.push(`Bandeira sem taxa: ${voucher.missingRateBrands.join(', ')}`)
   if (voucher.basis === 'simple_average') notes.push('VR/VA pela média simples das bandeiras (volume insuficiente para ponderar)')
 
-  // The fee per sold unit is the estimated total over the units that carry it. Without units (an older sales service) it cannot be distributed and says so.
-  const basis = ticketBasisOf(totalLines, Math.min(linesWithoutCoupon, totalLines))
+  // The fee per sold unit is the estimated total over the units that carry it. Without units (an older sales service) or without known tickets it cannot be
+  // distributed and says so: it is never filled in by treating each line as a ticket.
+  const fixedBasis: PaymentFixedFee['basis'] = !unitsKnown ? 'unknown_units' : count.basis === 'unknown' ? 'unknown_tickets' : count.basis
+  const tickets = count.tickets ?? 0
+  const fixedDistributed = !skipFixed && fixedBasis !== 'unknown_units' && fixedBasis !== 'unknown_tickets'
   const fixed: PaymentFixedFee = {
-    estimatedTotalCents: fixedCentsTotal,
-    tickets: totalTickets,
+    estimatedTotalCents: fixedDistributed ? fixedCentsTotal : 0,
+    tickets,
     units: totalUnits,
     lines: totalLines,
-    linesWithoutCoupon: Math.min(linesWithoutCoupon, totalLines),
-    basis: unitsKnown ? basis : 'unknown_units',
-    note: unitsKnown
-      ? `Total estimado: tarifa cadastrada × tickets (${totalTickets.toLocaleString('pt-BR')}), repartido pelas ${totalUnits.toLocaleString('pt-BR')} unidades vendidas; não é o valor cobrado pelas adquirentes.${basis === 'coupon' ? '' : basis === 'mixed' ? ` ${Math.min(linesWithoutCoupon, totalLines)} de ${totalLines} linhas sem cupom foram contadas como um ticket cada (aproximação).` : ' Nenhuma linha traz o cupom: cada linha foi contada como um ticket (aproximação).'}`
-      : 'A venda não informou as unidades por linha: a taxa fixa não pôde ser repartida por unidade e não foi incluída.',
+    linesWithoutTicketId: count.linesWithoutTicketId,
+    basis: fixedBasis,
+    note:
+      fixedBasis === 'unknown_units'
+        ? 'A venda não informou as unidades por linha: a taxa fixa não pôde ser repartida por unidade e não foi incluída.'
+        : fixedBasis === 'unknown_tickets'
+          ? `Só ${identifiedLines.toLocaleString('pt-BR')} de ${totalLines.toLocaleString('pt-BR')} linhas trazem o identificador da compra: os tickets são desconhecidos e a taxa fixa não foi repartida por unidade (nenhuma linha foi suposta um ticket).`
+          : `Total estimado: tarifa cadastrada × tickets (${Math.round(tickets).toLocaleString('pt-BR')}), repartido pelas ${totalUnits.toLocaleString('pt-BR')} unidades vendidas; não é o valor cobrado pelas adquirentes.${fixedBasis === 'identified' ? ' Tickets identificados pelo código da compra.' : ` ${count.linesWithoutTicketId.toLocaleString('pt-BR')} de ${totalLines.toLocaleString('pt-BR')} linhas sem identificador tiveram os tickets estimados pela proporção das demais (aproximação).`}`,
   }
-  if (!unitsKnown && fixedCentsTotal > 0) notes.push(fixed.note)
-  if (unitsKnown && basis !== 'coupon' && fixedCentsTotal > 0) notes.push(fixed.note)
+  if (!skipFixed && hasFixedFee && fixedBasis !== 'identified') notes.push(fixed.note)
 
   const components: PaymentCostComponent[] = (Object.keys(amount) as PaymentMethod[])
     .filter(method => amount[method] > 0)
@@ -216,13 +244,13 @@ export function paymentCost(rates: FeeRate[], mix: MixRow[], minVoucherReceiptLi
 
   return {
     rate: weightedBps / resolved / 10_000,
-    fixedPerUnitCents: unitsKnown && totalUnits > 0 ? fixedCentsTotal / totalUnits : 0,
+    fixedPerUnitCents: fixedDistributed && totalUnits > 0 ? fixedCentsTotal / totalUnits : 0,
     fixed,
     components,
     voucherShare: amount.voucher / total,
     voucherBasis: amount.voucher > 0 || voucher.basis !== 'none' ? voucher.basis : 'none',
     unresolvedShare: unresolved / total,
-    complete: unresolved === 0 && voucher.missingRateBrands.length === 0 && (unitsKnown || fixedCentsTotal === 0),
+    complete: unresolved === 0 && voucher.missingRateBrands.length === 0 && (skipFixed || !hasFixedFee || fixedDistributed),
     notes,
   }
 }

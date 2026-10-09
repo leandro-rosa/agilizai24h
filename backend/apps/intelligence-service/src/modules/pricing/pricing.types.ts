@@ -62,6 +62,10 @@ export interface PricingParameters {
      * (owner decisions 2026-10-06).
      */
     brandAliases: Record<string, string>
+    /** Receipt lines a payment mix (of a product, of its category, of the network) needs before it is trusted to weigh the fees. Fewer: the next level is tried; none reliable: no recommendation. */
+    minMixReceiptLines: number
+    /** Share of the receipt lines (basis points) that must carry a purchase identifier for the missing ones to be ESTIMATED from them. Below it the tickets are unknown and the fixed fee is not distributed. */
+    minIdentifiedTicketShareBps: number
   }
   minConfidence: 'low' | 'medium' | 'high'
 }
@@ -83,14 +87,20 @@ export interface PaymentFixedFee {
   tickets: number
   units: number
   lines: number
-  /** Lines without a coupon, each counted as a ticket of its own. */
-  linesWithoutCoupon: number
-  /** `coupon`: tickets observed. `mixed` / `line_approximation`: some or all lines counted as a ticket each. `unknown_units`: the sales service gave no units, so nothing was distributed. */
-  basis: 'coupon' | 'mixed' | 'line_approximation' | 'unknown_units'
+  /** Lines with no purchase identifier at all (no coupon, transaction code or acquirer code): they cannot be grouped, so they are ESTIMATED, never taken as a ticket each. */
+  linesWithoutTicketId: number
+  /** `identified`: every ticket observed (by coupon, transaction code or acquirer code). `estimated`: the lines without an identifier were estimated from the ones that have it. `unknown_tickets`: too few lines carry an identifier to estimate, so the fixed fee was not distributed. `unknown_units`: the sales service gave no units. */
+  basis: 'identified' | 'estimated' | 'unknown_tickets' | 'unknown_units'
   note: string
 }
 
+export type MixLevel = 'product' | 'category' | 'network'
+
 export interface PaymentCost {
+  /** Whose payment mix weighed the fees: the product's own, its category's or the network's. Set by the engine when it chooses; absent in a report stored before pricing-4. */
+  level?: MixLevel
+  /** Receipt lines of the mix that was used (the evidence behind `level`). */
+  mixLines?: number
   /** The mix-weighted fee as a fraction of the price. */
   rate: number
   components: PaymentCostComponent[]

@@ -71,7 +71,7 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
   const missing: string[] = []
   if (input.costCents === null || input.costCents <= 0) missing.push('Sem custo: informe o custo da nota')
   if (params.taxRateBps === null) missing.push('Alíquota de imposto não configurada')
-  if (!input.payment) missing.push('Sem vendas na rede para calcular o custo de pagamento')
+  if (!input.payment) missing.push('Sem mix de pagamento confiável (nem da categoria, nem da rede): faltam vendas com meio de pagamento')
   if (!input.loss) missing.push('Sem histórico de perda para a categoria')
   if (input.operatingShare === null) missing.push('Rateio operacional indisponível')
   if (missing.length > 0) {
@@ -87,8 +87,8 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
 
   const operating = input.operating ?? null
   const validationNotes: string[] = []
-  if (!operating) validationNotes.push('Classificação das despesas indisponível: a sugestão não foi validada')
-  else if (!operating.complete) validationNotes.push(`Cálculo incompleto: ${money(operating.unclassifiedCents)} em despesas sem classificação (${pct(operating.unclassifiedShare)} da receita de vendas das lojas, ${operating.scope}): ${operating.unclassified.map(account => `${account.code} ${account.label}`).join('; ')}`)
+  if (!operating) validationNotes.push('Precificação não validada: a classificação das despesas da DRE está indisponível')
+  else if (!operating.complete) validationNotes.push(`Precificação não validada: faltam classificar ${money(operating.unclassifiedCents)} em despesas (${pct(operating.unclassifiedShare)} da receita de vendas das lojas, ${operating.scope}): ${operating.unclassified.map(account => `${account.code} ${account.label}`).join('; ')}`)
   if (operating?.perTransactionAssumption) validationNotes.push(operating.perTransactionAssumption)
 
   const suggested = shapePrice(solved.rawTarget, params)
@@ -101,9 +101,9 @@ export function suggestNewProduct(input: NewProductInput): NewProductSuggestion 
   const dataUsed: DataUsed[] = [
     { code: 'cost', label: 'Custo da unidade', value: money(input.costCents as number), origin: input.costLabel },
     { code: 'category', label: 'Categoria', value: categoryLabel(input.category, input.categoryName), origin: 'Cadastro do produto' },
-    { code: 'tax', label: 'Imposto', value: pct(solved.structure.taxRate), origin: 'Parâmetro de precificação' },
-    { code: 'payment', label: 'Taxas de pagamento', value: `${pct(payment.rate)}${payment.fixedPerUnitCents > 0 ? ` + ${money(Math.round(payment.fixedPerUnitCents))} por unidade` : ''}`, origin: 'Taxas cadastradas ponderadas pelo mix de vendas da rede' },
-    { code: 'loss', label: 'Perda', value: pct(loss.rate), origin: `Histórico de ${loss.level === 'category' ? 'a categoria' : loss.level === 'store' ? 'a loja' : 'a rede'} (sem histórico do produto)` },
+    { code: 'tax', label: 'Imposto', value: `${(solved.structure.taxRate * 100).toFixed(2).replace('.', ',')}%`, origin: 'Parâmetro de precificação' },
+    { code: 'payment', label: 'Taxas de pagamento', value: `${pct(payment.rate)}${payment.fixedPerUnitCents > 0 ? ` + ${money(Math.round(payment.fixedPerUnitCents))} por unidade` : ''}`, origin: `Taxas cadastradas ponderadas pelo mix de pagamento ${payment.level === 'product' ? 'do produto' : payment.level === 'category' ? 'da categoria' : 'da rede'}${payment.mixLines ? ` (${payment.mixLines.toLocaleString('pt-BR')} linhas de venda)` : ''}` },
+    { code: 'loss', label: 'Perda', value: pct(loss.rate), origin: `Histórico ${loss.level === 'category' ? 'da categoria' : loss.level === 'store' ? 'da loja' : 'da rede'}: ${loss.lostUnits === undefined || loss.suppliedUnits === undefined ? 'perdidas ÷ abastecidas' : `${loss.lostUnits.toLocaleString('pt-BR')} un. perdidas ÷ ${loss.suppliedUnits.toLocaleString('pt-BR')} un. abastecidas`} (sem histórico do produto)` },
     {
       code: 'operating',
       label: 'Despesas que acompanham a venda',

@@ -18,7 +18,7 @@ const pnl = (period: string, extra: ReturnType<typeof acct>[] = []): PnlDto => (
   ],
 })
 
-function build(taxRateBps: number | null, extraProducts: Record<string, unknown>[] = [], costsOverride?: (asOf: string, sources?: string[]) => unknown, options: { extraAccounts?: ReturnType<typeof acct>[]; patch?: Record<string, unknown>; visits?: { store_id: number; period: string; restocking_visits: number }[] | null } = {}) {
+function build(taxRateBps: number | null, extraProducts: Record<string, unknown>[] = [], costsOverride?: (asOf: string, sources?: string[]) => unknown, options: { extraAccounts?: ReturnType<typeof acct>[]; patch?: Record<string, unknown>; visits?: { store_id: number; period: string; restocking_visits: number }[] | null; mixBySku?: { sku: string; method: string | null; acquirer: string | null; card_brand: string | null; receipt_lines: number; units: number; amount_paid_cents: number }[] } = {}) {
   const params = mergePricingParameters(DEFAULT_PRICING_PARAMETERS, { taxRateBps, ...options.patch } as never)
   const supply = {
     // 4 restocking visits of store 1 in each month of the window, unless the test says otherwise (null = the supply service cannot be read).
@@ -28,22 +28,28 @@ function build(taxRateBps: number | null, extraProducts: Record<string, unknown>
     },
     period: async () => ({ store_id: 1, period: 'x', restocks: [{ sku: 'COCA', quantity_restocked: 100 }], removals: [{ sku: 'COCA', reason: 'expired', counts_as_loss: true, quantity_removed: 2 }], adjustments: [] }),
   }
-  const sales = {
+  const sales: Record<string, unknown> = {
     period: async () => [{ sku: 'COCA', quantity_sold: 100, revenue_cents: 59_000 }],
     paymentMix: async () => ({
       from: MONTHS[0],
       to: MONTHS[2],
       store_id: null,
       rows: [
-        { method: 'Voucher', acquirer: 'x', card_brand: 'Alelo', receipt_lines: 100, units: 75, tickets: 100, lines_without_coupon: 100, amount_paid_cents: 2200 },
-        { method: 'Pix', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, units: 75, tickets: 100, lines_without_coupon: 100, amount_paid_cents: 4000 },
-        { method: 'Débito', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, units: 75, tickets: 100, lines_without_coupon: 100, amount_paid_cents: 2000 },
-        { method: 'Crédito', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, units: 75, tickets: 100, lines_without_coupon: 100, amount_paid_cents: 1800 },
+        { method: 'Voucher', acquirer: 'x', card_brand: 'Alelo', receipt_lines: 100, units: 75, tickets: 100, lines_without_ticket_id: 0, amount_paid_cents: 2200 },
+        { method: 'Pix', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, units: 75, tickets: 100, lines_without_ticket_id: 0, amount_paid_cents: 4000 },
+        { method: 'Débito', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, units: 75, tickets: 100, lines_without_ticket_id: 0, amount_paid_cents: 2000 },
+        { method: 'Crédito', acquirer: 'PagBank', card_brand: null, receipt_lines: 100, units: 75, tickets: 100, lines_without_ticket_id: 0, amount_paid_cents: 1800 },
       ],
       total_amount_paid_cents: 10_000,
       periods_without_transactions: [],
     }),
   }
+  // The payment mix per product: COCA has plenty of sales of its own (its own mix is used); nothing is said about the others unless a test asks.
+  const mixBySku = options.mixBySku ?? [
+    { sku: 'COCA', method: 'Pix', acquirer: 'PagBank', card_brand: null, receipt_lines: 60, units: 70, amount_paid_cents: 30_000 },
+    { sku: 'COCA', method: 'Voucher', acquirer: 'x', card_brand: 'Alelo', receipt_lines: 40, units: 40, amount_paid_cents: 29_000 },
+  ]
+  sales.paymentMixBySku = async () => ({ from: MONTHS[0], to: MONTHS[2], store_id: null, rows: mixBySku, periods_without_transactions: [] })
   const products = {
     categories: async () => [{ key: 'beverage', name: 'Bebida', status: 'active' }, { key: 'congelados', name: 'Congelados', status: 'active' }],
     products: async () => [
@@ -98,8 +104,10 @@ describe('PricingService.report', () => {
     expect(report.meta.parameterVersion).toBe(7)
     expect(report.meta.asOf).toBe('2026-09-30')
     expect(coca.structure).toMatchObject({ taxRate: 0.0707, lossRate: 0.02, lossLevel: 'product', operatingShare: 0.02 })
-    expect(coca.structure?.paymentRate).toBeCloseTo(0.017486, 6)
-    expect(coca.structure?.voucherShare).toBeCloseTo(0.22, 6)
+    // COCA has 100 receipt lines of its own (Pix 60% / voucher 40% of its revenue): ITS mix weighs the fees, not the network's (voucher alone 0,22 of the network).
+    expect(coca.structure?.paymentRate).toBeCloseTo(0.019483, 6)
+    expect(coca.structure?.paymentLevel).toBe('product')
+    expect(coca.structure?.voucherShare).toBeCloseTo(29_000 / 59_000, 6)
     expect(coca.monthlyUnits).toBe(100)
     expect(coca.monthlyRevenueCents).toBe(59_000)
     // At R$ 5,90 the CONTRIBUTION margin is ~35.7%: just above the 35% target and with good volume, so it is a small-step opportunity (under the old
@@ -373,9 +381,9 @@ describe('PricingService — the operating costs are classified, not summed', ()
 
     expect(report.meta.validated).toBe(false)
     expect(report.meta.operating?.unclassified).toEqual([{ code: '4.2.07', label: 'Marketing', amountCents: 90_000 }])
-    expect(report.meta.notes.join(' ')).toContain('Cálculo incompleto')
+    expect(report.meta.notes.join(' ')).toContain('Precificação não validada')
     expect(coca.validated).toBe(false)
-    expect(coca.validationNotes.join(' ')).toMatch(/Cálculo incompleto: R\$ 900,00 .*rede.*2026-07, 2026-08, 2026-09.*4\.2\.07 Marketing/)
+    expect(coca.validationNotes.join(' ')).toMatch(/Precificação não validada: faltam classificar R\$ 900,00 .*rede.*2026-07, 2026-08, 2026-09.*4\.2\.07 Marketing/)
     // The number is still there; it is just not presented as validated.
     expect(coca.recommendedPriceCents).not.toBeNull()
   })
@@ -398,8 +406,8 @@ describe('PricingService — the operating costs are classified, not summed', ()
     const perUnit = 12_000 / 300
     expect(coca.structure?.perTransactionCents).toBeCloseTo(perUnit, 8)
     expect(report.meta.operating?.perTransaction?.perUnitCents).toBeCloseTo(perUnit, 8)
-    expect(report.meta.operating?.perTransaction?.assumption).toContain('cada linha de venda foi contada como um ticket')
-    expect(coca.validationNotes.join(' ')).toContain('cada linha de venda foi contada como um ticket')
+    expect(report.meta.operating?.perTransaction?.assumption).toContain('Tickets identificados pelo código da compra')
+    expect(coca.validationNotes.join(' ')).toContain('Tickets identificados pelo código da compra')
     // Added to the numerator as money, never multiplied by the loss and never a share of the price.
     expect(coca.structure?.operatingShare).toBeCloseTo(0.02, 10)
     expect(coca.structure?.lossAdjustedCostCents).toBeCloseTo(309 / 0.98, 8)
@@ -524,11 +532,97 @@ describe('PricingService — average travel cost per restocking', () => {
   })
 })
 
+describe('PricingService — whose payment mix weighs the fees (product, category, network, or no price)', () => {
+  const lines = (sku: string, count: number) => [{ sku, method: 'Pix', acquirer: 'PagBank', card_brand: null, receipt_lines: count, units: count, amount_paid_cents: count * 500 }]
+  const rateOf = (report: Awaited<ReturnType<ReturnType<typeof build>['report']>>, sku: string) => report.products.find(p => p.sku === sku)!.structure
+
+  it('a product with enough receipt lines of its own uses ITS mix', async () => {
+    const report = await build(707, [], undefined, { mixBySku: lines('COCA', 40) }).report({ period: '2026-09' })
+
+    expect(rateOf(report, 'COCA')).toMatchObject({ paymentLevel: 'product', paymentMixLines: 40 })
+    expect(rateOf(report, 'COCA')?.voucherShare).toBe(0) // all Pix: the product has no voucher sales
+  })
+
+  it('a product with too few lines falls back to its category, summed over the category products', async () => {
+    const extra = [{ id: 3, sku: 'SPRITE', name: 'Sprite', category: 'beverage' }]
+    const report = await build(707, extra, undefined, { mixBySku: [...lines('COCA', 20), ...lines('SPRITE', 20)] }).report({ period: '2026-09' })
+
+    // COCA (20 lines) and SPRITE (20 lines) are each below the minimum of 30, but together the beverage category has 40.
+    expect(rateOf(report, 'COCA')).toMatchObject({ paymentLevel: 'category', paymentMixLines: 40 })
+  })
+
+  it('with nothing reliable at product or category, the network mix is used and is named as such', async () => {
+    const report = await build(707, [], undefined, { mixBySku: lines('COCA', 5) }).report({ period: '2026-09' })
+
+    expect(rateOf(report, 'COCA')).toMatchObject({ paymentLevel: 'network', paymentMixLines: 400 })
+  })
+
+  it('without a reliable mix at ANY level there is no recommendation, and it says which data is missing', async () => {
+    const service = build(707, [], undefined, { mixBySku: lines('COCA', 5), patch: { payment: { minMixReceiptLines: 1000 } } })
+    const coca = (await service.report({ period: '2026-09' })).products.find(p => p.sku === 'COCA')!
+
+    expect(coca.status).toBe('insufficient_data')
+    expect(coca.recommendedPriceCents).toBeNull()
+    expect(coca.insufficientReasons.join(' ')).toContain('Sem mix de pagamento confiável')
+  })
+
+  it('an older sales service without the per-product route still prices, from the network mix', async () => {
+    const service = build(707)
+    ;(service as unknown as { sales: Record<string, unknown> }).sales.paymentMixBySku = async () => {
+      throw new Error('404')
+    }
+    const coca = (await service.report({ period: '2026-09' })).products.find(p => p.sku === 'COCA')!
+
+    expect(coca.structure?.paymentLevel).toBe('network')
+  })
+
+  it('the fixed fee per unit is the NETWORK\'s whatever the level (a per-product split has no tickets)', async () => {
+    const withProductMix = await build(707, [], undefined, { mixBySku: lines('COCA', 40) }).report({ period: '2026-09' })
+    const networkOnly = await build(707, [], undefined, { mixBySku: [] }).report({ period: '2026-09' })
+
+    expect(rateOf(withProductMix, 'COCA')?.paymentFixedCents).toBeCloseTo(rateOf(networkOnly, 'COCA')?.paymentFixedCents as number, 10)
+  })
+
+  it('a draft (no history) uses the category mix when reliable, else the network\'s, else says what is missing', async () => {
+    const service = build(707, [], undefined, { mixBySku: lines('COCA', 40) })
+    const fromCategory = await service.draftSuggestion({ category: 'beverage', unitCostCents: 300 })
+    const fromNetwork = await service.draftSuggestion({ category: 'congelados', unitCostCents: 300 })
+
+    expect(fromCategory.suggestion.status).toBe('suggested')
+    expect(fromCategory.suggestion.dataUsed.find(row => row.code === 'payment')?.origin).toBeDefined()
+    expect(fromNetwork.suggestion.status).toBe('suggested')
+
+    const none = build(707, [], undefined, { mixBySku: [], patch: { payment: { minMixReceiptLines: 100_000 } } })
+    const missing = await none.draftSuggestion({ category: 'beverage', unitCostCents: 300 })
+    expect(missing.suggestion.status).toBe('insufficient_data')
+    expect(missing.suggestion.insufficientReasons.join(' ')).toContain('Sem mix de pagamento confiável')
+  })
+})
+
+describe('PricingService — the loss rate and its denominator', () => {
+  it('shows the units behind the rate: lost ÷ supplied, and what is left of the supplied after sold and lost', async () => {
+    const coca = (await build(707).report({ period: '2026-09' })).products.find(p => p.sku === 'COCA')!
+    const basis = coca.structure?.lossBasis
+
+    // The fake supply restocks 100 and removes 2 as loss per store-month; sales say 100 sold. 2 ÷ 100 = 2%.
+    expect(basis).toMatchObject({ lostUnits: 6, suppliedUnits: 300, soldUnits: 300 })
+    expect(coca.structure?.lossRate).toBeCloseTo(6 / 300, 10)
+    expect(basis?.unaccountedUnits).toBe(300 - 6 - 300)
+    expect(basis?.definition).toContain('unidades removidas como perda ÷ unidades abastecidas')
+  })
+
+  it('the cost per sold unit is cost ÷ (1 − loss), with that loss', async () => {
+    const coca = (await build(707).report({ period: '2026-09' })).products.find(p => p.sku === 'COCA')!
+
+    expect(coca.structure?.lossAdjustedCostCents).toBeCloseTo(309 / (1 - 0.02), 6)
+  })
+})
+
 describe('PricingService — the fixed payment fee reaches the price per unit', () => {
-  it('reports how the fee was built, and that the total is an estimate over tickets counted one per line', async () => {
+  it('reports how the fee was built: tickets identified by the purchase code, and the total is an estimate', async () => {
     const payment = (await build(707).report({ period: '2026-09' })).meta.payment
 
-    expect(payment?.fixed).toMatchObject({ basis: 'line_approximation', tickets: 400, units: 300, lines: 400, linesWithoutCoupon: 400 })
+    expect(payment?.fixed).toMatchObject({ basis: 'identified', tickets: 400, units: 300, lines: 400, linesWithoutTicketId: 0 })
     expect(payment?.fixed?.note).toContain('Total estimado')
     expect(payment?.fixed?.note).toContain('não é o valor cobrado pelas adquirentes')
   })
@@ -536,7 +630,7 @@ describe('PricingService — the fixed payment fee reaches the price per unit', 
   it('carries the basis into each product structure so the screen can say it', async () => {
     const coca = (await build(707).report({ period: '2026-09' })).products.find(p => p.sku === 'COCA')!
 
-    expect(coca.structure?.paymentFixed?.basis).toBe('line_approximation')
-    expect(coca.structure?.paymentFixed?.note).toContain('aproximação')
+    expect(coca.structure?.paymentFixed?.basis).toBe('identified')
+    expect(coca.structure?.paymentFixed?.note).toContain('Tickets identificados pelo código da compra')
   })
 })

@@ -75,7 +75,7 @@ describe('suggestNewProduct — classification and the unreachable target', () =
 
     const incomplete = suggestNewProduct(input({ operating: { ...context, complete: false, unclassifiedCents: 90_000, unclassifiedShare: 0.03, unclassified: [{ code: '4.2.07', label: 'Marketing', amountCents: 90_000 }] } }))
     expect(incomplete.validated).toBe(false)
-    expect(incomplete.validationNotes.join(' ')).toContain('Cálculo incompleto: R$ 900,00')
+    expect(incomplete.validationNotes.join(' ')).toContain('Precificação não validada: faltam classificar R$ 900,00')
     expect(incomplete.suggestedPriceCents).toBe(610) // still shown, never as validated
   })
 

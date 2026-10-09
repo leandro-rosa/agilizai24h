@@ -97,6 +97,46 @@ describe('computePrice', () => {
     expect(result.reasons.map(reason => reason.code)).toContain('increase_capped')
   })
 
+  it('when the maximum-increase limit stops the price short of the target, it shows the limited price, the margin it gives and the plain statement', () => {
+    const result = computePrice(base({ currentPriceCents: 400, params: mergePricingParameters(PARAMS, { guards: { maxIncreaseBps: 1000 } }) }))
+
+    expect(result.increaseCap).toMatchObject({
+      targetPriceCents: 610,
+      ceilingCents: 440,
+      limitedPriceCents: 440,
+      maxIncreaseBps: 1000,
+      message: 'Margem abaixo da meta devido ao limite máximo de aumento configurado.',
+    })
+    expect(result.increaseCap?.resultingMargin).toBeCloseTo(result.recommendedMargin as number, 10)
+    expect(result.recommendedMargin as number).toBeLessThan(result.targetMargin)
+    expect(result.reasons.find(reason => reason.code === 'increase_capped')?.text).toContain('Margem abaixo da meta devido ao limite máximo de aumento configurado.')
+  })
+
+  it('without the limit getting in the way there is no cap notice', () => {
+    expect(computePrice(base()).increaseCap).toBeNull()
+    expect(computePrice(base({ currentPriceCents: 700 })).increaseCap).toBeNull()
+  })
+
+  it('the cap is not announced when no price is shown (below the minimum confidence)', () => {
+    const result = computePrice(base({ currentPriceCents: 400, monthlyUnits: 1, params: mergePricingParameters(PARAMS, { guards: { maxIncreaseBps: 1000 }, minConfidence: 'high' }) }))
+
+    expect(result.recommendedPriceCents).toBeNull()
+    expect(result.increaseCap).toBeNull()
+  })
+
+  it('shows what stands behind the loss rate and the payment mix', () => {
+    const result = computePrice(
+      base({
+        loss: { rate: 0.02, level: 'product', lostUnits: 6, suppliedUnits: 300, soldUnits: 280 },
+        payment: payment({ level: 'category', mixLines: 120 }),
+      }),
+    )
+
+    expect(result.structure).toMatchObject({ paymentLevel: 'category', paymentMixLines: 120 })
+    expect(result.structure?.lossBasis).toMatchObject({ lostUnits: 6, suppliedUnits: 300, soldUnits: 280, unaccountedUnits: 14 })
+    expect(result.structure?.lossBasis?.definition).toContain('unidades removidas como perda ÷ unidades abastecidas')
+  })
+
   it('compares margin in R$ per month, not only the percentage', () => {
     const a = computePrice(base({ currentPriceCents: 471, monthlyUnits: 1000 }))
     const b = computePrice(base({ costCents: 100, currentPriceCents: 603, monthlyUnits: 10, previousCostCents: null }))
@@ -165,7 +205,7 @@ describe('insufficient data', () => {
     ['unreliable cost', { costFlaggedUnreliable: true }, 'Custo marcado como não confiável'],
     ['stale cost', { costAgeDays: 400, costFromPurchase: false }, 'Custo desatualizado'],
     ['no loss history', { loss: null }, 'Sem histórico de perda'],
-    ['no payment mix', { payment: null }, 'Sem vendas'],
+    ['no payment mix', { payment: null }, 'Sem mix de pagamento confiável'],
     ['no operating share', { operatingShare: null }, 'Rateio operacional'],
   ])('%s gives no recommendation', (_name, override, reason) => {
     const result = computePrice(base(override as Partial<PriceInput>))
@@ -359,7 +399,7 @@ describe('computePrice — the three numbers and the validation', () => {
     const incomplete = computePrice(base({ operating: context({ complete: false, unclassifiedCents: 90_000, unclassifiedShare: 0.03, unclassified: [{ code: '4.2.07', label: 'Marketing', amountCents: 90_000 }] }) }))
 
     expect(incomplete.validated).toBe(false)
-    expect(incomplete.validationNotes.join(' ')).toContain('Cálculo incompleto: R$ 900,00')
+    expect(incomplete.validationNotes.join(' ')).toContain('Precificação não validada: faltam classificar R$ 900,00')
     expect(incomplete.validationNotes.join(' ')).toContain('4.2.07 Marketing')
     expect(incomplete.recommendedPriceCents).not.toBeNull()
   })

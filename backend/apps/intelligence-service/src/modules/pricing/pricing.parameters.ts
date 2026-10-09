@@ -28,7 +28,7 @@ export const DEFAULT_PRICING_PARAMETERS: PricingParameters = {
   guards: { maxIncreaseBps: 1500, opportunityBandBps: 300 },
   data: { lookbackMonths: 3, minUnitsPerMonth: 10, voucherMinReceiptLines: 50, lossMinUnits: 100, costMaxAgeDays: 120, stableCostBps: 500 },
   operating: { accountBehavior: DEFAULT_ACCOUNT_BEHAVIOR, unclassifiedRelevantBps: 50 },
-  payment: { brandAliases: { sodexo: 'pluxee', pagseguro: 'pagbank' } },
+  payment: { brandAliases: { sodexo: 'pluxee', pagseguro: 'pagbank' }, minMixReceiptLines: 30, minIdentifiedTicketShareBps: 5000 },
   minConfidence: 'low',
 }
 
@@ -101,6 +101,8 @@ export function validatePricingParameters(p: PricingParameters): string[] {
   for (const [from, to] of Object.entries(p.payment.brandAliases)) {
     check(typeof to === 'string' && to.length > 0 && from.length > 0, `payment.brandAliases.${from} must map to a non-empty brand`)
   }
+  check(isInt(p.payment.minMixReceiptLines) && p.payment.minMixReceiptLines >= 1, 'payment.minMixReceiptLines must be a whole number of at least 1')
+  bps(p.payment.minIdentifiedTicketShareBps, 'payment.minIdentifiedTicketShareBps')
   check(['low', 'medium', 'high'].includes(p.minConfidence), 'minConfidence must be low, medium or high')
 
   return problems

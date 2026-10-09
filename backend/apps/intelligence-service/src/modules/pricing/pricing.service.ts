@@ -12,14 +12,14 @@ import { SupplyClient } from '../sources/supply.client'
 import { TreasuryClient } from '../sources/treasury.client'
 import { chooseLoss, type LossObservation } from './loss'
 import { legacyShifts, operatingCosts, type OperatingCosts } from './operating-costs'
-import { perUnitFromAggregates } from './transaction-cost'
+import { countTickets, perUnitFromAggregates, type TicketBasis } from './transaction-cost'
 import { travelEstimate, type TravelEstimate } from './travel'
 import { paymentCost, type FeeRate, type MixRow } from './payment-cost'
 import { computePrice, costBasisOf, type OperatingContext, type PriceInput, type PriceResult } from './price'
 import { PricingParametersService } from './pricing-parameters.service'
 import { suggestNewProduct, type NewProductSuggestion } from './new-product'
 import { assertPrice, simulate, type NotSimulable, type Simulation } from './simulate'
-import { ENGINE_VERSION, type PaymentCost } from './pricing.types'
+import { ENGINE_VERSION, type MixLevel, type PaymentCost } from './pricing.types'
 import { byCategory, summarise, type CategorySummary, type PricingSummary } from './summary'
 
 export interface PricingQuery {
@@ -70,7 +70,7 @@ export interface OperatingReport {
   classes: OperatingCosts['classes']
   /** The share of revenue that enters the price as a percentage, and the per-transaction cost per sold unit (centavos) with its hypothesis. */
   percentOfSalesShare: number
-  perTransaction: { perUnitCents: number; assumption: string; basis: 'coupon' | 'mixed' | 'line_approximation'; approximated: boolean } | null
+  perTransaction: { perUnitCents: number; assumption: string; basis: TicketBasis; approximated: boolean } | null
   /** The average travel cost per restocking and where it comes from; null when the supply service could not be read. Outside the price, inside the result after allocation. */
   travel: TravelEstimate | null
   legacy: OperatingCosts['legacy']
@@ -125,7 +125,7 @@ export class PricingService {
     if (fees.methods_without_rate.length > 0 && fees.rates.length > 0) notes.push(`Métodos sem taxa cadastrada: ${fees.methods_without_rate.join(', ')}.`)
     if (mix.periods_without_transactions.length > 0) notes.push(`Meses sem detalhe de vendas por meio de pagamento: ${mix.periods_without_transactions.join(', ')}.`)
     if (!operating) notes.push('Sem DRE com receita de lojas no período: despesas operacionais indisponíveis.')
-    else if (!operating.complete) notes.push(`Cálculo incompleto: ${operating.unclassified.length} despesa(s) sem classificação somam ${(operating.unclassifiedCents / 100).toFixed(2).replace('.', ',')} (${(operating.unclassifiedShare * 100).toFixed(2).replace('.', ',')}% da receita de vendas das lojas). Nenhuma recomendação está validada até serem classificadas em Regras de negócio.`)
+    else if (!operating.complete) notes.push(`Precificação não validada: ${operating.unclassified.length} despesa(s) sem classificação somam ${(operating.unclassifiedCents / 100).toFixed(2).replace('.', ',')} (${(operating.unclassifiedShare * 100).toFixed(2).replace('.', ',')}% da receita de vendas das lojas). Nenhuma recomendação está validada até serem classificadas em Regras de negócio.`)
     if (c.operatingReport?.perTransaction) notes.push(c.operatingReport.perTransaction.assumption)
 
     return {
@@ -209,7 +209,8 @@ export class PricingService {
       costFlaggedUnreliable: false,
       monthlyUnits: 0,
       loss: c.lossFor(category),
-      payment: c.payment,
+      // A product that does not exist yet has no mix of its own: its category's when there is enough behind it, else the network's, else no price.
+      payment: c.paymentOf(null, category),
       operatingShare: c.operatingCosts?.classes.percent_of_sales.share ?? null,
       perTransactionPerUnitCents: c.perTransactionPerUnitCents,
       operating: c.operating,
@@ -249,7 +250,7 @@ export class PricingService {
     const noPrices = (asOfDate: string) => Promise.resolve({ resolved: [], unresolved: [], complete: true, asOf: asOfDate })
     const noSkus = skus.length === 0
     const today = new Date().toISOString().slice(0, 10)
-    const [facts, costsNow, costsLatest, costsPurchases, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased, categoryRows, visitCounts] = await Promise.all([
+    const [facts, costsNow, costsLatest, costsPurchases, costsBefore, pricesNow, pricesBefore, fees, mix, pnls, purchased, categoryRows, visitCounts, mixBySku] = await Promise.all([
       Promise.all(months.map(month => this.loader.month(month, stores, correlationId))),
       noSkus ? none(asOf) : this.products.costsAsOf(skus, asOf, correlationId),
       // The cost in force TODAY, only to tell a cost newer than the period apart from the period's own cost.
@@ -267,13 +268,15 @@ export class PricingService {
       this.products.categories(correlationId).catch(() => []),
       // Restocking visits per store and month, for the average travel cost per restocking. If it cannot be read the average is simply unavailable.
       this.supply.visitCounts(months[0], end, correlationId).catch(() => null),
+      // The payment mix per product, for the product's own and its category's mix. If it cannot be read the network mix is the only level.
+      this.sales.paymentMixBySku(months[0], end, query.storeId, correlationId).catch(() => null),
     ])
     const categoryNames = new Map(categoryRows.map(row => [row.key, row.name]))
 
     const category = new Map(catalogue.map(product => [product.sku, product.category ?? null]))
     const bySku = new Map<string, SkuFacts>()
     const byCat = new Map<string, LossObservation>()
-    const scope: LossObservation = { lostUnits: 0, suppliedUnits: 0 }
+    const scope: LossObservation = { lostUnits: 0, suppliedUnits: 0, soldUnits: 0 }
     const monthsWithSales = facts.filter(month => month.storesMissingSales.length < Math.max(month.storeCount, 1)).length || 1
 
     facts.forEach((month, index) => {
@@ -289,13 +292,15 @@ export class PricingService {
 
           const group = category.get(sku)
           if (group) {
-            const observed = byCat.get(group) ?? { lostUnits: 0, suppliedUnits: 0 }
+            const observed = byCat.get(group) ?? { lostUnits: 0, suppliedUnits: 0, soldUnits: 0 }
             observed.lostUnits += cell.lost
             observed.suppliedUnits += cell.restocked
+            observed.soldUnits = (observed.soldUnits ?? 0) + cell.sold
             byCat.set(group, observed)
           }
           scope.lostUnits += cell.lost
           scope.suppliedUnits += cell.restocked
+          scope.soldUnits = (scope.soldUnits ?? 0) + cell.sold
         }
       }
     })
@@ -309,18 +314,60 @@ export class PricingService {
       amountCents: row.amount_paid_cents,
       units: row.units,
       tickets: row.tickets,
-      linesWithoutCoupon: row.lines_without_coupon,
+      linesWithoutTicketId: row.lines_without_ticket_id,
     }))
-    const payment = paymentCost(rates, mixRows, params.data.voucherMinReceiptLines, params.payment.brandAliases)
+    const paymentOptions = { minIdentifiedTicketShare: params.payment.minIdentifiedTicketShareBps / 10_000 }
+    const network = paymentCost(rates, mixRows, params.data.voucherMinReceiptLines, params.payment.brandAliases, paymentOptions)
+    const minMixLines = params.payment.minMixReceiptLines
+    const networkLines = mixRows.reduce((sum, row) => sum + row.receiptLines, 0)
+    // The network's mix is only trusted with enough sales behind it; the fixed fee per unit always comes from the NETWORK (it needs tickets, which a per-product
+    // split does not have): each level weighs the percentage fees by its own mix, and the fixed fee per unit is the network's.
+    const payment = network && networkLines >= minMixLines ? { ...network, level: 'network' as MixLevel, mixLines: networkLines } : null
+    const mixOfRows = (rows: MixRow[]): { cost: PaymentCost; lines: number } | null => {
+      const lines = rows.reduce((sum, row) => sum + row.receiptLines, 0)
+      if (!network || lines < minMixLines) return null
+      const built = paymentCost(rates, rows, params.data.voucherMinReceiptLines, params.payment.brandAliases, { ...paymentOptions, fixedFee: 'skip' })
+      if (!built) return null
+
+      return { cost: { ...built, fixedPerUnitCents: network.fixedPerUnitCents, fixed: network.fixed, complete: built.complete && network.complete }, lines }
+    }
+    const rowsBySku = new Map<string, MixRow[]>()
+    const rowsByCategory = new Map<string, Map<string, MixRow>>()
+    for (const row of mixBySku?.rows ?? []) {
+      const mixRow: MixRow = { method: row.method, acquirer: row.acquirer, cardBrand: row.card_brand, receiptLines: row.receipt_lines, amountCents: row.amount_paid_cents, units: row.units }
+      rowsBySku.set(row.sku, [...(rowsBySku.get(row.sku) ?? []), mixRow])
+      const group = category.get(row.sku)
+      if (group) {
+        const merged = rowsByCategory.get(group) ?? new Map<string, MixRow>()
+        const key = `${row.method}|${row.acquirer}|${row.card_brand}`
+        const current = merged.get(key)
+        merged.set(key, current ? { ...current, receiptLines: current.receiptLines + mixRow.receiptLines, amountCents: current.amountCents + mixRow.amountCents, units: (current.units ?? 0) + (mixRow.units ?? 0) } : mixRow)
+        rowsByCategory.set(group, merged)
+      }
+    }
+    /** The payment mix of a product: its own when it has enough receipt lines, else its category's, else the network's, else none (no recommendation). */
+    const paymentOf = (sku: string | null, categoryKey: string | null): PaymentCost | null => {
+      const own = sku ? mixOfRows(rowsBySku.get(sku) ?? []) : null
+      if (own) return { ...own.cost, level: 'product', mixLines: own.lines }
+      const shared = categoryKey ? mixOfRows([...(rowsByCategory.get(categoryKey)?.values() ?? [])]) : null
+      if (shared) return { ...shared.cost, level: 'category', mixLines: shared.lines }
+
+      return payment
+    }
     const operating = operatingCosts(pnls, params.operating.accountBehavior, params.operating.unclassifiedRelevantBps)
     const scopeLabel = query.storeId === undefined ? 'rede' : `loja ${query.storeId}`
 
     // Per-transaction expenses reach a product through the units it sells (ticket → units), not as a share of revenue.
     const units = mixRows.reduce((sum, row) => sum + (row.units ?? 0), 0)
-    const lines = mixRows.reduce((sum, row) => sum + row.receiptLines, 0)
-    const withoutCoupon = mixRows.reduce((sum, row) => sum + (row.linesWithoutCoupon ?? row.receiptLines), 0)
+    const lines = networkLines
+    const tickets = countTickets({
+      lines,
+      reportedTickets: mixRows.reduce((sum, row) => sum + (row.tickets ?? row.receiptLines), 0),
+      linesWithoutTicketId: mixRows.reduce((sum, row) => sum + (row.linesWithoutTicketId ?? row.receiptLines), 0),
+      minIdentifiedShare: paymentOptions.minIdentifiedTicketShare,
+    })
     const perTransactionTotal = operating?.classes.per_transaction.costCents ?? 0
-    const perTransaction = operating ? perUnitFromAggregates({ totalCents: perTransactionTotal, units, lines, linesWithoutCoupon: Math.min(withoutCoupon, lines), scope: scopeLabel }) : null
+    const perTransaction = operating ? perUnitFromAggregates({ totalCents: perTransactionTotal, units, lines, tickets, scope: scopeLabel }) : null
 
     // The average travel cost per restocking: the same months and the same scope on both sides of the division.
     const travel = operating ? this.travelOf(operating.perVisitByMonth, months, visitCounts, allStores.map(store => store.id), query.storeId, scopeLabel) : null
@@ -411,14 +458,14 @@ export class PricingService {
         volumeDroppedAfterPriceChange: priceRose && first > 0 && last < first * 0.8,
         loss: chooseLoss(
           {
-            product: own ? { lostUnits: own.lost, suppliedUnits: own.restocked } : null,
+            product: own ? { lostUnits: own.lost, suppliedUnits: own.restocked, soldUnits: own.sold } : null,
             category: product.category ? byCat.get(product.category) : null,
             store: query.storeId !== undefined ? scope : null,
             network: query.storeId === undefined ? scope : null,
           },
           params.data.lossMinUnits,
         ),
-        payment,
+        payment: paymentOf(sku, product.category ?? null),
         operatingShare: operating?.classes.percent_of_sales.share ?? null,
         perTransactionPerUnitCents: perTransaction?.perUnitCents ?? 0,
         operating: operatingContext,
@@ -434,7 +481,7 @@ export class PricingService {
     const lossFor = (categoryKey: string | null) =>
       chooseLoss({ product: null, category: categoryKey ? byCat.get(categoryKey) : null, store: query.storeId !== undefined ? scope : null, network: query.storeId === undefined ? scope : null }, params.data.lossMinUnits)
 
-    return { version, params, months, asOf, fees, mix, payment, operating: operatingContext, operatingCosts: operating, operatingReport, perTransactionPerUnitCents: perTransaction?.perUnitCents ?? 0, inputs, revenueBySku, lossFor, categoryNames }
+    return { version, params, months, asOf, fees, mix, payment, paymentOf, operating: operatingContext, operatingCosts: operating, operatingReport, perTransactionPerUnitCents: perTransaction?.perUnitCents ?? 0, inputs, revenueBySku, lossFor, categoryNames }
   }
 
   /** The per-visit spend of each month against the restocking visits of the same month and scope. */

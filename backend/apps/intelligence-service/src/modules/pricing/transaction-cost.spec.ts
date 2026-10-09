@@ -1,4 +1,4 @@
-import { distributeTicketCosts, distributeTransactionCost, perUnitFromAggregates, ticketBasisOf, ticketsFromLines, type Ticket } from './transaction-cost'
+import { distributeTicketCosts, distributeTransactionCost, perUnitFromAggregates, countTickets, ticketsFromLines, type Ticket } from './transaction-cost'
 
 const sum = (values: Iterable<number>) => [...values].reduce((total, value) => total + value, 0)
 
@@ -118,48 +118,64 @@ describe('distributeTicketCosts — a fee that each ticket carries on its own (t
 })
 
 describe('ticketsFromLines — no identifier, no invented grouping', () => {
-  const line = (sku: string, quantity: number, coupon: string | null) => ({ sku, quantity, coupon })
+  const line = (sku: string, quantity: number, ticketId: string | null) => ({ sku, quantity, ticketId })
 
-  it('groups lines by their coupon into one ticket', () => {
-    const result = ticketsFromLines([line('A', 2, 'C1'), line('B', 1, 'C1'), line('A', 1, 'C2')])
+  it('groups lines by their purchase identifier into one ticket', () => {
+    const result = ticketsFromLines([line('A', 2, 'T1'), line('B', 1, 'T1'), line('A', 1, 'T2')])
 
     expect(result.tickets).toHaveLength(2)
     expect(result.tickets[0].lines).toEqual([{ sku: 'A', quantity: 2 }, { sku: 'B', quantity: 1 }])
-    expect(result.basis).toBe('coupon')
-    expect(result.linesWithoutCoupon).toBe(0)
+    expect(result.basis).toBe('identified')
+    expect(result.linesWithoutTicketId).toBe(0)
   })
 
-  it('lines without a coupon stand alone and are counted as an approximation, never merged by guess', () => {
+  it('lines without an identifier stand alone and are counted as an approximation, never merged by guess', () => {
     const result = ticketsFromLines([line('A', 1, null), line('B', 1, null), line('A', 3, null)])
 
     expect(result.tickets).toHaveLength(3)
-    expect(result.linesWithoutCoupon).toBe(3)
-    expect(result.basis).toBe('line_approximation')
+    expect(result.linesWithoutTicketId).toBe(3)
+    expect(result.basis).toBe('partial')
   })
 
-  it('a mix of both keeps the coupon groups and flags the rest', () => {
-    const result = ticketsFromLines([line('A', 1, 'C1'), line('B', 1, 'C1'), line('C', 2, null)])
+  it('a mix of both keeps the identified groups and flags the rest', () => {
+    const result = ticketsFromLines([line('A', 1, 'T1'), line('B', 1, 'T1'), line('C', 2, null)])
 
     expect(result.tickets).toHaveLength(2)
-    expect(result.basis).toBe('mixed')
-    expect(result.linesWithoutCoupon).toBe(1)
+    expect(result.basis).toBe('partial')
+    expect(result.linesWithoutTicketId).toBe(1)
+  })
+})
+
+describe('countTickets — observed, estimated from the identified ones, or unknown (never one per line)', () => {
+  const count = (lines: number, reportedTickets: number, linesWithoutTicketId: number, minIdentifiedShare = 0.5) => countTickets({ lines, reportedTickets, linesWithoutTicketId, minIdentifiedShare })
+
+  it('every line identified: the tickets are the observed ones', () => {
+    expect(count(100, 80, 0)).toEqual({ tickets: 80, basis: 'identified', linesWithoutTicketId: 0, estimatedTickets: 0 })
   })
 
-  it('without a coupon the whole fee of a line falls on the units of that line, by quantity', () => {
-    const { tickets } = ticketsFromLines([line('A', 3, null), line('B', 1, null)])
-    const result = distributeTicketCosts(tickets.map(ticket => ({ ...ticket, costCents: 89 })))
+  it('some lines unidentified: they are estimated with the tickets-per-line ratio of the identified ones, not counted one each', () => {
+    // 100 lines; 80 identified forming 64 tickets (0,8 per line); 20 unidentified reported once each (so 84 reported). Estimate: 64 + 20 x 0,8 = 80.
+    const result = count(100, 84, 20)
 
-    // Each line is its own ticket, so A's 3 units share R$ 0,89 and B's single unit carries all of it.
-    expect(result.bySku.get('A')).toBe(89)
-    expect(result.bySku.get('B')).toBe(89)
-    expect(result.distributedCents).toBe(178)
+    expect(result.basis).toBe('estimated')
+    expect(result.tickets).toBeCloseTo(80, 8)
+    expect(result.estimatedTickets).toBeCloseTo(16, 8)
+    expect(result.tickets).not.toBe(84)
   })
 
-  it('names the basis of any count', () => {
-    expect(ticketBasisOf(0, 0)).toBe('coupon')
-    expect(ticketBasisOf(10, 0)).toBe('coupon')
-    expect(ticketBasisOf(10, 4)).toBe('mixed')
-    expect(ticketBasisOf(10, 10)).toBe('line_approximation')
+  it('too few identified lines: the tickets are unknown and nothing is supposed', () => {
+    expect(count(100, 95, 90)).toEqual({ tickets: null, basis: 'unknown', linesWithoutTicketId: 90, estimatedTickets: 0 })
+    // None identified: the old behaviour (a ticket per line) is exactly what must NOT happen.
+    expect(count(100, 100, 100).tickets).toBeNull()
+  })
+
+  it('the minimum identified share is a parameter, not a constant', () => {
+    expect(count(100, 95, 90, 0.05).basis).toBe('estimated')
+    expect(count(100, 95, 90, 0.5).basis).toBe('unknown')
+  })
+
+  it('no lines is zero tickets, observed', () => {
+    expect(count(0, 0, 0)).toMatchObject({ tickets: 0, basis: 'identified' })
   })
 })
 
@@ -172,7 +188,7 @@ describe('perUnitFromAggregates — the aggregate estimate, tied to the exact di
       { lines: [{ sku: 'B', quantity: 4 }] },
     ]
     const exact = distributeTransactionCost(400, tickets)
-    const estimate = perUnitFromAggregates({ totalCents: 400, units: 8, lines: 4, linesWithoutCoupon: 4, scope: 'rede' })!
+    const estimate = perUnitFromAggregates({ totalCents: 400, units: 8, lines: 4, tickets: countTickets({ lines: 4, reportedTickets: 4, linesWithoutTicketId: 0, minIdentifiedShare: 0.5 }), scope: 'rede' })!
 
     expect(estimate.perUnitCents * 8).toBeCloseTo(sum(exact.bySku.values()), 8)
     expect(estimate.perUnitCents).toBe(50)
@@ -180,28 +196,28 @@ describe('perUnitFromAggregates — the aggregate estimate, tied to the exact di
 
   it('is not the total divided by the number of lines read as a cost per unit', () => {
     // 2 lines, 6 units (a line of 5 and a line of 1), R$ 1,20: 60 per line, but 20 per unit.
-    const estimate = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 2, linesWithoutCoupon: 2, scope: 'rede' })!
+    const estimate = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 2, tickets: countTickets({ lines: 2, reportedTickets: 2, linesWithoutTicketId: 0, minIdentifiedShare: 0.5 }), scope: 'rede' })!
 
     expect(estimate.perUnitCents).toBeCloseTo(20, 8)
     expect(estimate.perUnitCents).not.toBeCloseTo(120 / 2, 8)
   })
 
-  it('says whether the tickets are observed or an approximation, in words', () => {
-    const observed = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 4, linesWithoutCoupon: 0, scope: 'rede' })!
-    const mixed = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 4, linesWithoutCoupon: 1, scope: 'rede' })!
-    const none = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 4, linesWithoutCoupon: 4, scope: 'rede' })!
+  it('says whether the tickets are observed, estimated or unknown, in words', () => {
+    const tickets = (reported: number, without: number) => countTickets({ lines: 4, reportedTickets: reported, linesWithoutTicketId: without, minIdentifiedShare: 0.5 })
+    const observed = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 4, tickets: tickets(3, 0), scope: 'rede' })!
+    const estimated = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 4, tickets: tickets(3, 1), scope: 'rede' })!
+    const unknown = perUnitFromAggregates({ totalCents: 120, units: 6, lines: 4, tickets: tickets(4, 4), scope: 'rede' })!
 
-    expect(observed).toMatchObject({ basis: 'coupon', approximated: false })
-    expect(observed.assumption).toContain('Tickets pelo cupom')
-    expect(mixed).toMatchObject({ basis: 'mixed', approximated: true })
-    expect(mixed.assumption).toContain('1 de 4 linhas (25,0%) sem cupom')
-    expect(none).toMatchObject({ basis: 'line_approximation', approximated: true })
-    expect(none.assumption).toContain('Nenhuma linha traz o cupom')
-    expect(none.assumption).toContain('não é um valor observado')
+    expect(observed).toMatchObject({ basis: 'identified', approximated: false })
+    expect(observed.assumption).toContain('Tickets identificados pelo código da compra')
+    expect(estimated).toMatchObject({ basis: 'estimated', approximated: true })
+    expect(estimated.assumption).toContain('1 de 4 linhas (25,0%) sem identificador de compra tiveram os tickets ESTIMADOS')
+    expect(unknown).toMatchObject({ basis: 'unknown', approximated: true })
+    expect(unknown.assumption).toContain('os tickets são desconhecidos e não foram supostos')
   })
 
   it('is zero with no transaction cost, and has no number when there is a cost but no unit to carry it', () => {
-    expect(perUnitFromAggregates({ totalCents: 0, units: 0, lines: 0, linesWithoutCoupon: 0, scope: 'rede' })).toMatchObject({ perUnitCents: 0, assumption: 'Sem custo por transação no período' })
-    expect(perUnitFromAggregates({ totalCents: 120, units: 0, lines: 2, linesWithoutCoupon: 2, scope: 'rede' })).toBeNull()
+    expect(perUnitFromAggregates({ totalCents: 0, units: 0, lines: 0, tickets: countTickets({ lines: 0, reportedTickets: 0, linesWithoutTicketId: 0, minIdentifiedShare: 0.5 }), scope: 'rede' })).toMatchObject({ perUnitCents: 0, assumption: 'Sem custo por transação no período' })
+    expect(perUnitFromAggregates({ totalCents: 120, units: 0, lines: 2, tickets: countTickets({ lines: 2, reportedTickets: 2, linesWithoutTicketId: 0, minIdentifiedShare: 0.5 }), scope: 'rede' })).toBeNull()
   })
 })
