@@ -25,7 +25,7 @@ export function setupNotes(latest: Pick<LatestPricingReport, "report">): SetupNo
   if (!report) return notes;
 
   for (const text of report.meta.notes) {
-    if (text.startsWith("Cálculo incompleto")) continue; // vai no alerta fixo (ValidationAlert), com os valores, e não num resumo recolhido
+    if (text.startsWith("Cálculo incompleto") || text.startsWith("Precificação não validada")) continue; // vai no alerta fixo (ValidationAlert), com os valores, e não num resumo recolhido
     if (text.includes("alíquota")) notes.push({ text, action: { label: "Abrir regras de negócio" } });
     else if (text.toLowerCase().includes("taxa")) notes.push({ text, action: { label: "Cadastrar taxas", href: "/treasury/fees" } });
     else notes.push({ text });

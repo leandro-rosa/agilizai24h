@@ -231,17 +231,17 @@ describe("Detalhe do produto — os três números, as três bases de custo e a 
   });
 
   it("não validado: o número aparece, com o selo e as notas de valor, período e escopo", () => {
-    open(product({ ...(contribution as Partial<PricingProduct>), validated: false, validationNotes: ["Cálculo incompleto: R$ 900,00 em despesas sem classificação (0,30% da receita de vendas das lojas, rede, 2026-07, 2026-08, 2026-09): 4.2.07 Marketing"] }));
+    open(product({ ...(contribution as Partial<PricingProduct>), validated: false, validationNotes: ["Precificação não validada: faltam classificar R$ 900,00 em despesas (0,30% da receita de vendas das lojas, rede, 2026-07, 2026-08, 2026-09): 4.2.07 Marketing"] }));
 
-    expect(screen.getByText("Não validado: despesas sem classificação")).toBeInTheDocument();
-    expect(screen.getByText(/Cálculo incompleto: R\$ 900,00/)).toBeInTheDocument();
+    expect(screen.getByText("Precificação não validada")).toBeInTheDocument();
+    expect(screen.getByText(/Precificação não validada: faltam classificar R\$ 900,00/)).toBeInTheDocument();
     expect(screen.getByText("R$ 6,50", { selector: "p" })).toBeInTheDocument(); // the recommendation is still there
   });
 
   it("validado não mostra selo nem notas de incompletude", () => {
     open(product(contribution as Partial<PricingProduct>));
 
-    expect(screen.queryByText("Não validado: despesas sem classificação")).not.toBeInTheDocument();
+    expect(screen.queryByText("Precificação não validada")).not.toBeInTheDocument();
   });
 
   it("a comparação com o cálculo anterior lista cada diferença e o que não fecha", () => {
@@ -267,7 +267,7 @@ describe("Aviso de cálculo incompleto na tela", () => {
     render(<PricingScreen />);
 
     const alert = screen.getByRole("alert");
-    expect(alert).toHaveTextContent("Cálculo incompleto: R$ 900,00 em despesas sem classificação");
+    expect(alert).toHaveTextContent("Precificação não validada: faltam classificar R$ 900,00 em despesas");
     expect(alert).toHaveTextContent("escopo: rede");
     expect(alert).toHaveTextContent("2026-07, 2026-08, 2026-09");
     expect(alert).toHaveTextContent("Nenhuma recomendação está validada");

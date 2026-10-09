@@ -72,7 +72,7 @@ describe("PriceReviewPanel — a decisão de preço de um produto", () => {
     expect(screen.getByRole("heading", { name: "Revisar preço" })).toBeInTheDocument();
     expect(screen.getByText("Quiche Lorraine")).toBeInTheDocument();
     expect(screen.getByText(/SKU 100109 · Lanche \/ Salgados/)).toBeInTheDocument();
-    expect(screen.getByText("R$ 8,37")).toBeInTheDocument();
+    expect(screen.getAllByText("R$ 8,37").length).toBeGreaterThan(0);
     expect(screen.getByText(/Nota fiscal 13021 · desde 01\/09\/2026/)).toBeInTheDocument();
     expect(screen.getByLabelText("Novo preço de venda")).toHaveValue("17,30");
     await waitFor(() => expect(screen.getByTestId("panel-margin")).toHaveTextContent("35,2%"));
@@ -189,6 +189,46 @@ describe("PriceReviewPanel — produto sem cálculo em dia", () => {
 
     expect(screen.queryByRole("button", { name: "Salvar preço" })).not.toBeInTheDocument();
     expect(screen.getByText(/Você pode ver, mas não alterar preços/)).toBeInTheDocument();
+  });
+});
+
+describe("PriceReviewPanel — teto de aumento, validação, piso e composição", () => {
+  const cap = { targetPriceCents: 1990, ceilingCents: 1730, limitedPriceCents: 1730, resultingMargin: 0.33, targetMargin: 0.35, maxIncreaseBps: 1500, message: "Margem abaixo da meta devido ao limite máximo de aumento configurado." };
+  const structure = { productCostCents: 837, lossAdjustedCostCents: 920, taxRate: 0.0707, lossRate: 0.09, lossLevel: "category", paymentRate: 0.031, paymentFixedCents: 6, voucherShare: 0.2, voucherBasis: "sales_weighted", operatingShare: 0.012, perTransactionCents: 0, statement: "x" };
+
+  it("quando o limite de aumento impede a meta, mostra o preço limitado, a margem e a frase combinada", () => {
+    open(rowFor({ report: [stored({ increaseCap: cap as never })] }));
+
+    expect(screen.getByTestId("increase-cap")).toHaveTextContent("Margem abaixo da meta devido ao limite máximo de aumento configurado.");
+    expect(screen.getByTestId("increase-cap")).toHaveTextContent("margem de contribuição de 33,0%");
+  });
+
+  it("sem o limite no caminho não há aviso de teto", () => {
+    open();
+
+    expect(screen.queryByTestId("increase-cap")).not.toBeInTheDocument();
+  });
+
+  it("despesa sem classificação: o cálculo aparece, marcado 'Precificação não validada', com o que falta", () => {
+    open(rowFor({ report: [stored({ validated: false, validationNotes: ["Precificação não validada: faltam classificar R$ 900,00 em despesas (3,0% da receita de vendas das lojas, rede): 4.2.07 Marketing"] })] }));
+
+    expect(screen.getByTestId("validation-notice")).toHaveTextContent("4.2.07 Marketing");
+    expect(screen.getByTestId("panel-pending")).toHaveTextContent("Precificação não validada");
+    expect(screen.getByLabelText("Novo preço de venda")).toHaveValue("17,30");
+  });
+
+  it("mostra o preço de piso (preço necessário para a margem mínima), não 'preço mínimo'", () => {
+    open(rowFor({ report: [stored({ minimumPriceCents: 1500, minimumMargin: 0.3 })] }));
+
+    expect(screen.getByTitle("Preço necessário para atingir a margem mínima")).toHaveTextContent(/Piso R\$\s15,00 · margem mínima 30%/);
+    expect(document.body).not.toHaveTextContent(/preço mínimo/i);
+  });
+
+  it("a composição do cálculo traz a estrutura de custos do preço, componente a componente", () => {
+    open(rowFor({ report: [stored({ structure: structure as never, currentPriceCents: 1490 })] }));
+
+    expect(screen.getByText("Estrutura de custos considerada")).toBeInTheDocument();
+    expect(screen.getByText(/Custos que o preço cobre/)).toBeInTheDocument();
   });
 });
 

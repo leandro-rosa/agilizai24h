@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ComponentProps } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 
 import { RequestState } from "@/components/request-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -22,10 +22,11 @@ import {
   type Simulation,
 } from "@/lib/api/pricing";
 import { count, date, money, period as formatPeriod } from "@/lib/format";
-import { costBreakdown } from "@/lib/pricing/breakdown";
 import { CONFIDENCE_LABEL, CONFIDENCE_TONE, costOriginText, parsePriceToCents, percent, points, signedMoney, STATUS_LABEL, STATUS_TONE } from "@/lib/pricing/labels";
 
 import { ApplyPriceDialog, errorMessage } from "./apply-price-dialog";
+import { IncreaseCapNotice } from "./cap-notice";
+import { StructureTable } from "./structure-table";
 import { CostBasesSection, ReconciliationSection } from "./cost-bases";
 import { marginMetric } from "@/lib/pricing/metric";
 import { IMPACT_PREMISE } from "./summary-cards";
@@ -73,8 +74,21 @@ export function CalculationDetails({ product, run, scope }: { product: PricingPr
               Imposto {pct2(structure.taxRate)} · taxas de pagamento {pct2(structure.paymentRate)}
               {structure.paymentFixedCents > 0 ? ` + ${money(Math.round(structure.paymentFixedCents))} por unidade (taxa fixa repartida pelas unidades)` : ""} · perda {percent(structure.lossRate)} ({LOSS_LEVEL_TEXT[structure.lossLevel] ?? structure.lossLevel}) · despesas proporcionais à venda {pct2(structure.operatingShare)}
               {(structure.perTransactionCents ?? 0) > 0 ? ` · custo por transação ${money(Math.round(structure.perTransactionCents as number))} por unidade` : ""}
-              {structure.paymentFixed && structure.paymentFixed.basis !== "coupon" && <span className="block text-xs text-warning">Aproximação: {structure.paymentFixed.note}</span>}
-              {structure.paymentFixed && structure.paymentFixed.basis === "coupon" && <span className="block text-xs text-muted-foreground">{structure.paymentFixed.note}</span>}
+              {structure.paymentFixed && structure.paymentFixed.basis !== "identified" && <span className="block text-xs text-warning">Aproximação: {structure.paymentFixed.note}</span>}
+              {structure.paymentFixed && structure.paymentFixed.basis === "identified" && <span className="block text-xs text-muted-foreground">{structure.paymentFixed.note}</span>}
+              {structure.paymentLevel && (
+                <span className="block text-xs text-muted-foreground">
+                  Mix de pagamento {PAYMENT_LEVEL_TEXT[structure.paymentLevel]}
+                  {structure.paymentMixLines !== undefined ? ` (${count(structure.paymentMixLines)} linhas de venda)` : ""}.
+                </span>
+              )}
+              {structure.lossBasis && (
+                <span className="block text-xs text-muted-foreground">
+                  Perda = {count(Math.round(structure.lossBasis.lostUnits))} un. removidas como perda ÷ {count(Math.round(structure.lossBasis.suppliedUnits))} un. abastecidas = {percent(structure.lossRate)}.
+                  {structure.lossBasis.soldUnits !== null ? ` Vendidas na janela: ${count(Math.round(structure.lossBasis.soldUnits))} un.` : ""}
+                  {structure.lossBasis.unaccountedUnits !== null ? ` Abastecido que não virou venda nem perda: ${count(Math.round(structure.lossBasis.unaccountedUnits))} un. (estoque acumulado ou perda não classificada).` : ""}
+                </span>
+              )}
             </dd>
           </div>
         )}
@@ -109,10 +123,11 @@ export function CalculationDetails({ product, run, scope }: { product: PricingPr
 /** Taxas e impostos em duas casas (7,07%): arredondar para uma esconderia o número que o dono cadastrou. */
 const pct2 = (fraction: number) => `${(fraction * 100).toFixed(2).replace(".", ",")}%`;
 
+const PAYMENT_LEVEL_TEXT: Record<string, string> = { product: "do próprio produto", category: "da categoria (o produto tem poucas vendas)", network: "da rede (o produto e a categoria têm poucas vendas)" };
+
 const LOSS_LEVEL_TEXT: Record<string, string> = { product: "do produto", category: "da categoria", store: "da loja", network: "da rede" };
 
 function Overview({ product, run, scope, onApply, onSimulate, canWrite, historical }: { product: PricingProduct; run: PricingRunView | null; scope: DrawerScope; onApply: () => void; onSimulate: () => void; canWrite: boolean; historical: boolean }) {
-  const breakdown = useMemo(() => costBreakdown(product), [product]);
   const metric = marginMetric(product.engineVersion);
   const { data: decisions } = useGetPricingDecisionsQuery({ sku: product.sku, limit: 10 });
 
@@ -121,8 +136,9 @@ function Overview({ product, run, scope, onApply, onSimulate, canWrite, historic
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge tone={STATUS_TONE[product.status]}>{STATUS_LABEL[product.status]}</StatusBadge>
         <StatusBadge tone={CONFIDENCE_TONE[product.confidence]}>Confiança {CONFIDENCE_LABEL[product.confidence].toLowerCase()}</StatusBadge>
-        {product.validated === false && product.status !== "insufficient_data" && <StatusBadge tone="attention">Não validado: despesas sem classificação</StatusBadge>}
+        {product.validated === false && product.status !== "insufficient_data" && <StatusBadge tone="attention">Precificação não validada</StatusBadge>}
       </div>
+      {product.increaseCap && <IncreaseCapNotice cap={product.increaseCap} />}
       {(product.validationNotes ?? []).length > 0 && product.status !== "insufficient_data" && (
         <ul className="flex list-disc flex-col gap-1 rounded-lg border border-warning/30 bg-warning/12 p-3 pl-7 text-xs text-warning">
           {(product.validationNotes ?? []).map((note) => (
@@ -154,7 +170,7 @@ function Overview({ product, run, scope, onApply, onSimulate, canWrite, historic
       <section aria-labelledby="prices" className="flex flex-col gap-2">
         <h3 id="prices" className="text-sm font-semibold">Preços sugeridos pela IA</h3>
         <div className="grid grid-cols-3 gap-2">
-          <Fact label="Preço mínimo" value={money(product.minimumPriceCents)} hint={`Margem ${percent(product.minimumMargin, 0)}`} />
+          <Fact label="Preço de piso" value={money(product.minimumPriceCents)} hint={`Preço necessário para a margem mínima de ${percent(product.minimumMargin, 0)}`} />
           <Fact label="Preço-meta" value={money(product.targetPriceCents)} hint={`Margem ${percent(product.targetMargin, 0)}`} />
           <div className="rounded-lg border border-primary/50 bg-primary/10 p-3">
             <p className="text-xs text-muted-foreground">Preço recomendado</p>
@@ -192,42 +208,7 @@ function Overview({ product, run, scope, onApply, onSimulate, canWrite, historic
         {product.monthlyMarginCents !== null && <p className="text-xs text-muted-foreground">Margem potencial hoje: {money(Math.round(product.monthlyMarginCents))} por mês.</p>}
       </section>
 
-      <section aria-labelledby="structure" className="flex flex-col gap-2">
-        <h3 id="structure" className="text-sm font-semibold">Estrutura de custos considerada</h3>
-        {breakdown === null ? (
-          <p className="text-sm text-muted-foreground">Sem estrutura de custos calculada: faltam dados para este produto.</p>
-        ) : (
-          <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Componente</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
-                  <TableHead className="text-right">% sobre o preço</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {breakdown.rows.map((row) => (
-                  <TableRow key={row.key}>
-                    <TableCell className="whitespace-normal">
-                      {row.label}
-                      {row.detail && <div className="max-w-sm whitespace-normal text-xs text-muted-foreground">{row.detail}</div>}
-                    </TableCell>
-                    <TableCell className="tabular text-right">{row.key === "voucher" ? "—" : money(Math.round(row.cents))}</TableCell>
-                    <TableCell className="tabular text-right">{row.key === "voucher" ? "—" : percent(row.shareOfPrice)}</TableCell>
-                  </TableRow>
-                ))}
-                <TableRow className="font-semibold">
-                  <TableCell>Custos que o preço cobre (a diferença para o preço é a contribuição)</TableCell>
-                  <TableCell className="tabular text-right">{money(Math.round(breakdown.economicCostCents))}</TableCell>
-                  <TableCell className="tabular text-right">{percent(breakdown.economicCostShare)}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-            <p className="text-xs text-muted-foreground">{breakdown.statement}</p>
-          </>
-        )}
-      </section>
+      <StructureTable product={product} />
 
       <CalculationDetails product={product} run={run} scope={scope} />
 

@@ -76,7 +76,7 @@ export function buildRows({ products, costs, prices, report }: WorkspaceInput): 
     const pending: string[] = [];
     if (cost === null) pending.push("Sem custo cadastrado");
     if (analysis?.status === "insufficient_data") pending.push(...(analysis.insufficientReasons.length > 0 ? analysis.insufficientReasons : ["Dados insuficientes para o cálculo"]));
-    if (analysis && analysis.status !== "insufficient_data" && analysis.validated === false) pending.push("Despesas sem classificação: cálculo não validado");
+    if (analysis && analysis.status !== "insufficient_data" && analysis.validated === false) pending.push(...(analysis.validationNotes && analysis.validationNotes.length > 0 ? analysis.validationNotes : ["Precificação não validada: há despesas da DRE sem classificação"]));
 
     let situation: Situation;
     if (price === null) situation = "no_price";

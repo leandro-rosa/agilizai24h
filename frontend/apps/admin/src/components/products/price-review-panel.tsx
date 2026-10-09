@@ -5,7 +5,9 @@ import { RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { IncreaseCapNotice, ValidationNotice } from "@/components/pricing/cap-notice";
 import { CalculationDetails, StoresView } from "@/components/pricing/product-drawer";
+import { StructureTable } from "@/components/pricing/structure-table";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -125,6 +127,9 @@ function PanelBody({ row, scope, canWrite, onClose, onSaved, onEdit, onOpenRecor
           </div>
         )}
 
+        {row.analysis?.increaseCap && <IncreaseCapNotice cap={row.analysis.increaseCap} />}
+        {row.analysis && <ValidationNotice product={row.analysis} />}
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="rounded-lg border p-4">
             <p className="text-xs text-muted-foreground">Custo da mercadoria (por unidade)</p>
@@ -147,6 +152,11 @@ function PanelBody({ row, scope, canWrite, onClose, onSaved, onEdit, onOpenRecor
               <p className="text-xs text-muted-foreground">Preço sugerido</p>
               <p className="tabular text-xl font-semibold">{projection.suggestedCents !== null ? money(projection.suggestedCents) : "—"}</p>
               <p className="text-xs text-muted-foreground">{projection.mode === "calculation" ? "cálculo de hoje" : "sugestão inicial"}</p>
+              {row.analysis?.minimumPriceCents ? (
+                <p className="text-xs text-muted-foreground" title="Preço necessário para atingir a margem mínima">
+                  Piso {money(row.analysis.minimumPriceCents)} · margem mínima {percent(row.analysis.minimumMargin, 0)}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>
@@ -203,11 +213,14 @@ function PanelBody({ row, scope, canWrite, onClose, onSaved, onEdit, onOpenRecor
 
         <Expandable title="Composição do cálculo">
           {row.analysis && scope.report ? (
+            <>
+            <StructureTable product={row.analysis} />
             <CalculationDetails
               product={row.analysis}
               run={{ parameterVersion: scope.report.meta.parameterVersion, computedAt: scope.computedAt }}
               scope={{ period: scope.report.meta.months[scope.report.meta.months.length - 1] ?? "", storeId: scope.storeId, basis: "current", asOf: scope.report.meta.asOf }}
             />
+            </>
           ) : (
             <p className="text-muted-foreground">Sem cálculo guardado em dia para este produto: a sugestão é a inicial do motor, calculada com o custo de hoje. Recalcule a precificação para ver a composição completa.</p>
           )}

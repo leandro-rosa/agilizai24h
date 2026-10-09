@@ -21,9 +21,14 @@ export interface CostStructure {
   /** Taxas fixas por unidade vendida, em centavos (ex.: Ticket R$ 0,89 por venda). */
   paymentFixedCents: number;
   /** Como a taxa fixa por unidade foi montada: tickets observados ou contados um por linha (aproximação); o total é sempre estimado. Ausente antes do `pricing-4`. */
-  paymentFixed?: { basis: string; note: string };
+  paymentFixed?: { basis: "identified" | "estimated" | "unknown_tickets" | "unknown_units" | string; note: string };
   voucherShare: number;
   voucherBasis: "sales_weighted" | "simple_average" | "none";
+  /** De quem é o mix de pagamento que ponderou as taxas percentuais (o do produto, o da categoria ou o da rede) e quantas linhas de venda o sustentam. */
+  paymentLevel?: "product" | "category" | "network";
+  paymentMixLines?: number;
+  /** As unidades por trás da taxa de perda: perda = perdidas ÷ abastecidas, e o que sobra do abastecido depois de vendido e perdido. */
+  lossBasis?: { lostUnits: number; suppliedUnits: number; soldUnits: number | null; unaccountedUnits: number | null; definition: string };
   /** Despesas que acompanham o valor da venda (percentual da venda), como fração do preço. Custo fixo e deslocamento não entram aqui. */
   operatingShare: number;
   /** Custo por transação por unidade vendida, em centavos (valor, não percentual). Ausente em relatório guardado antes do `pricing-4`. */
@@ -141,9 +146,21 @@ export interface PricingProduct {
   impactCentsPerMonth: number | null;
   impactLabel: "Impacto potencial estimado";
   recommendedMargin: number | null;
+  /** Preenchido quando o limite máximo de aumento parou o preço antes da meta: o preço limitado, a margem que ele dá e a frase pronta. */
+  increaseCap?: IncreaseCap | null;
   reasons: Reason[];
   insufficientReasons: string[];
   engineVersion: string;
+}
+
+export interface IncreaseCap {
+  targetPriceCents: number;
+  ceilingCents: number;
+  limitedPriceCents: number;
+  resultingMargin: number;
+  targetMargin: number;
+  maxIncreaseBps: number;
+  message: string;
 }
 
 export interface PendingGroup {

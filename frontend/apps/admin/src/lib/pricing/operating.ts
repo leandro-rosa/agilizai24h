@@ -29,10 +29,10 @@ const reais = (cents: number) => `R$ ${(cents / 100).toLocaleString("pt-BR", { m
 /** O aviso de "cálculo incompleto": o valor, o período e o escopo das despesas sem tratamento, nunca só a frase. */
 export function incompleteSummary(operating: PricingReportMeta["operating"]): string | null {
   if (!isClassified(operating) || operating.complete) return null;
-  if (operating.unclassified.length === 0) return "Cálculo incompleto: o custo por transação não pôde ser distribuído por unidade (sem tickets ou unidades no período).";
+  if (operating.unclassified.length === 0) return "Precificação não validada: o custo por transação não pôde ser distribuído por unidade (sem tickets ou unidades no período).";
 
   const months = operating.months.join(", ");
   const list = operating.unclassified.map((account) => `${account.code} ${account.label} (${reais(account.amountCents)})`).join("; ");
 
-  return `Cálculo incompleto: ${reais(operating.unclassifiedCents)} em despesas sem classificação (${(operating.unclassifiedShare * 100).toFixed(2).replace(".", ",")}% da receita de vendas das lojas; escopo: ${operating.scope}; meses: ${months}): ${list}. Nenhuma recomendação está validada até elas serem classificadas.`;
+  return `Precificação não validada: faltam classificar ${reais(operating.unclassifiedCents)} em despesas (${(operating.unclassifiedShare * 100).toFixed(2).replace(".", ",")}% da receita de vendas das lojas; escopo: ${operating.scope}; meses: ${months}): ${list}. Nenhuma recomendação está validada até elas serem classificadas.`;
 }
