@@ -151,17 +151,19 @@ export class SalesTransactionsService {
     const months = monthsOfWindow(`${from}-01`, `${to}-01`)
     const scope = storeId === undefined ? {} : { store_id: storeId }
 
-    // One pass for lines, units and tickets. A ticket is one purchase: the distinct coupons of a store and month plus every line that has no coupon
-    // (a line without one cannot be grouped, so it counts as a ticket of its own and `lines_without_coupon` says how many were counted that way).
+    // One pass for lines, units and tickets. A ticket is one purchase and is identified by what the report really carries: the coupon when there is one,
+    // else the transaction code (`internal_code`, shared by every line of the same purchase: checked on the real data, no code crosses a store, a method or a
+    // time), else the acquirer's code. Lines with none of them cannot be grouped: they are counted in `lines_without_ticket_id` and the CALLER decides how to
+    // estimate them (they are never silently taken as one ticket each).
     const grouped = await this.prisma.$queryRaw<
-      { method: string | null; acquirer: string | null; card_brand: string | null; lines: bigint; units: bigint | null; amount: bigint | null; coupons: bigint; lines_without_coupon: bigint }[]
+      { method: string | null; acquirer: string | null; card_brand: string | null; lines: bigint; units: bigint | null; amount: bigint | null; ticket_ids: bigint; lines_without_ticket_id: bigint }[]
     >(Prisma.sql`
       SELECT method, acquirer, card_brand,
              COUNT(*) AS lines,
              COALESCE(SUM(quantity), 0) AS units,
              COALESCE(SUM(amount_paid_cents), 0) AS amount,
-             COUNT(DISTINCT (store_id, period, coupon)) FILTER (WHERE coupon IS NOT NULL) AS coupons,
-             COUNT(*) FILTER (WHERE coupon IS NULL) AS lines_without_coupon
+             COUNT(DISTINCT (store_id, period, COALESCE(coupon, internal_code, acquirer_code))) FILTER (WHERE COALESCE(coupon, internal_code, acquirer_code) IS NOT NULL) AS ticket_ids,
+             COUNT(*) FILTER (WHERE COALESCE(coupon, internal_code, acquirer_code) IS NULL) AS lines_without_ticket_id
       FROM sales_transaction
       WHERE result = 'OK' AND period IN (${Prisma.join(months)}) ${storeId === undefined ? Prisma.empty : Prisma.sql`AND store_id = ${storeId}`}
       GROUP BY method, acquirer, card_brand
@@ -175,7 +177,7 @@ export class SalesTransactionsService {
     const withData = new Set(present.map(row => row.period))
 
     const rows = grouped.map(row => {
-      const withoutCoupon = Number(row.lines_without_coupon)
+      const withoutTicketId = Number(row.lines_without_ticket_id)
 
       return {
         method: row.method,
@@ -183,8 +185,8 @@ export class SalesTransactionsService {
         card_brand: row.card_brand,
         receipt_lines: Number(row.lines),
         units: Number(row.units ?? 0),
-        tickets: Number(row.coupons) + withoutCoupon,
-        lines_without_coupon: withoutCoupon,
+        tickets: Number(row.ticket_ids) + withoutTicketId,
+        lines_without_ticket_id: withoutTicketId,
         amount_paid_cents: Number(row.amount ?? 0),
       }
     })
@@ -198,6 +200,52 @@ export class SalesTransactionsService {
       periods_without_transactions: months.filter(month => !withData.has(month)),
     }
   }
+
+  /**
+   * The same revenue split, but per product: the payment mix of each SKU (lines, units, revenue by method, acquirer and brand). The pricing engine
+   * weighs a product's fees by ITS OWN mix when it has enough sales, else by its category's (summed from these rows), else by the network's.
+   */
+  async paymentMixBySku(from: string, to: string, storeId?: number): Promise<PaymentMixBySku> {
+    const months = monthsOfWindow(`${from}-01`, `${to}-01`)
+    const scope = storeId === undefined ? {} : { store_id: storeId }
+    const grouped = await this.prisma.$queryRaw<{ sku: string; method: string | null; acquirer: string | null; card_brand: string | null; lines: bigint; units: bigint | null; amount: bigint | null }[]>(Prisma.sql`
+      SELECT sku, method, acquirer, card_brand,
+             COUNT(*) AS lines,
+             COALESCE(SUM(quantity), 0) AS units,
+             COALESCE(SUM(amount_paid_cents), 0) AS amount
+      FROM sales_transaction
+      WHERE result = 'OK' AND period IN (${Prisma.join(months)}) ${storeId === undefined ? Prisma.empty : Prisma.sql`AND store_id = ${storeId}`}
+      GROUP BY sku, method, acquirer, card_brand
+    `)
+    const present = await this.prisma.salesTransaction.findMany({ where: { ...scope, period: { in: months } }, distinct: ['period'], select: { period: true } })
+    const withData = new Set(present.map(row => row.period))
+
+    return {
+      from,
+      to,
+      store_id: storeId ?? null,
+      rows: grouped.map(row => ({ sku: row.sku, method: row.method, acquirer: row.acquirer, card_brand: row.card_brand, receipt_lines: Number(row.lines), units: Number(row.units ?? 0), amount_paid_cents: Number(row.amount ?? 0) })),
+      periods_without_transactions: months.filter(month => !withData.has(month)),
+    }
+  }
+}
+
+export interface PaymentMixBySkuRow {
+  sku: string
+  method: string | null
+  acquirer: string | null
+  card_brand: string | null
+  receipt_lines: number
+  units: number
+  amount_paid_cents: number
+}
+
+export interface PaymentMixBySku {
+  from: string
+  to: string
+  store_id: number | null
+  rows: PaymentMixBySkuRow[]
+  periods_without_transactions: string[]
 }
 
 export interface PaymentMixRow {
@@ -207,10 +255,10 @@ export interface PaymentMixRow {
   receipt_lines: number
   /** Units sold in those lines (a line of three units counts three). */
   units: number
-  /** Distinct coupons plus the lines that carry no coupon (each of those counted as a ticket of its own). */
+  /** Distinct ticket identifiers (coupon, else transaction code, else acquirer code) plus the lines that carry none (each counted once here; the caller estimates them). */
   tickets: number
-  /** How many of the lines had no coupon and were counted as one ticket each: when it equals `receipt_lines`, the tickets are an approximation. */
-  lines_without_coupon: number
+  /** Lines with no identifier of a purchase at all: they cannot be grouped, so `tickets` counts them one by one and a consumer must treat that part as an estimate. */
+  lines_without_ticket_id: number
   amount_paid_cents: number
 }
 
