@@ -23,7 +23,8 @@ const answer = (arg: Arg) =>
       : {
           status: "suggested", blocker: null, initial: true, validated: true, validationNotes: [], suggestedPriceCents: Math.round((arg.unitCostCents as number) * 2.5), suggestedMargin: 0.352, minimumPriceCents: 400, targetMargin: 0.35, minimumMargin: 0.2,
           reasons: ["Sem vendas: a sugestão se apoia só na estrutura de custos"], insufficientReasons: [], dataUsed: [{ code: "cost", label: "Custo da unidade", value: "x", origin: "Custo informado no cadastro" }],
-          typedPrice: arg.typedPriceCents ? { priceCents: arg.typedPriceCents, margin: 0.41 } : null,
+          typedPrice: arg.typedPriceCents ? { priceCents: arg.typedPriceCents, margin: 0.41 } : null, confidence: "low",
+          structure: { productCostCents: arg.unitCostCents, lossAdjustedCostCents: 0, taxRate: 0.0707, lossRate: 0.09, lossLevel: "category", paymentRate: 0.0325, paymentFixedCents: 5, voucherShare: 0, voucherBasis: "none", operatingShare: 0.0115, statement: "x", paymentLevel: "category", paymentMixLines: 11220, lossBasis: { lostUnits: 1814, suppliedUnits: 20190, soldUnits: 17465, unaccountedUnits: 911, definition: "d" } },
         };
 
 const draft = jest.fn((arg: Arg) => ({
@@ -292,6 +293,19 @@ describe("NewProductPanel — o preço sugerido enquanto se preenche", () => {
     fireEvent.click(screen.getByRole("button", { name: /Tentar de novo/ }));
     await waitFor(() => expect(screen.getByLabelText("Preço sugerido")).toHaveValue("15,00"));
     expect(screen.queryByTestId("failed")).not.toBeInTheDocument();
+  });
+
+  it("produto novo: a perda vem da categoria, com a fonte e a frase 'sem histórico', e a sugestão é inicial com confiança baixa", async () => {
+    open();
+    fill("6,00");
+    await waitFor(() => expect(screen.getByTestId("chosen-margin")).toHaveTextContent("35,2%"));
+    const block = screen.getByTestId("new-product-sources");
+
+    expect(block).toHaveTextContent("Sugestão inicial · confiança baixa");
+    expect(block).toHaveTextContent("Perda utilizada: 9,0%");
+    expect(block).toHaveTextContent("Fonte: Categoria — Lanche");
+    expect(block).toHaveTextContent("Produto sem histórico. Utilizada perda da categoria.");
+    expect(block).toHaveTextContent("Mix de pagamento da categoria — 11.220 linhas de venda");
   });
 
   it("uma sugestão inicial diz que é inicial e nunca mostra volume nem impacto mensal", async () => {

@@ -1,7 +1,7 @@
 import { categoryLabel } from './categories'
 import { PER_TRANSACTION_SHIFT_LABEL, type LegacyShift } from './operating-costs'
 import { marginsFor } from './pricing.parameters'
-import { ANALYSIS_ONLY_STATEMENT, ENGINE_VERSION, type Confidence, type LossLevel, type MixLevel, type PaymentCost, type PricingParameters, type PricingStatus } from './pricing.types'
+import { ANALYSIS_ONLY_STATEMENT, ENGINE_VERSION, type Confidence, type LossLevel, type MixLevel, type PaymentCost, type PricingParameters, type PricingStatus, type VoucherDetail } from './pricing.types'
 
 export interface PriceInput {
   sku: string
@@ -107,6 +107,8 @@ export interface CostStructure {
   /** Whose payment mix weighed the percentage fees (the product's own, its category's or the network's) and how many receipt lines were behind it. */
   paymentLevel?: MixLevel
   paymentMixLines?: number
+  /** The VR/VA fee in detail: effective rate, method (weighted by sales or simple average), brands considered and the volume behind it. */
+  paymentVoucher?: VoucherDetail
   /** The units behind the loss rate, so the denominator is visible: rate = lost ÷ supplied, and what is left of supplied after sold and lost. */
   lossBasis?: { lostUnits: number; suppliedUnits: number; soldUnits: number | null; unaccountedUnits: number | null; definition: string }
   /** What the prices below are solved against. */
@@ -345,6 +347,7 @@ export function solveStructure(
     voucherShare: input.payment.voucherShare,
     voucherBasis: input.payment.voucherBasis,
     ...(input.payment.level ? { paymentLevel: input.payment.level, paymentMixLines: input.payment.mixLines } : {}),
+    ...(input.payment.voucher ? { paymentVoucher: input.payment.voucher } : {}),
     ...(input.loss.suppliedUnits !== undefined && input.loss.lostUnits !== undefined
       ? {
           lossBasis: {

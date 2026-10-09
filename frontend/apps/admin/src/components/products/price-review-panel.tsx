@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { IncreaseCapNotice, ValidationNotice } from "@/components/pricing/cap-notice";
+import { CostSources } from "@/components/pricing/cost-sources";
 import { CalculationDetails, StoresView } from "@/components/pricing/product-drawer";
 import { StructureTable } from "@/components/pricing/structure-table";
 import { StatusBadge } from "@/components/status-badge";
@@ -37,6 +38,8 @@ export const SITUATION_TONE: Record<Situation, "positive" | "attention" | "neutr
 /** O cálculo de HOJE em que o painel se apoia: o relatório da base atual, a loja do escopo e o instante em que foi calculado. */
 export interface PanelScope {
   storeId: number | null;
+  /** O nome da loja do escopo, para dizer de onde vem uma perda de loja. */
+  storeName?: string | null;
   report: PricingReport | null;
   computedAt: string | null;
 }
@@ -210,6 +213,17 @@ function PanelBody({ row, scope, canWrite, onClose, onSaved, onEdit, onOpenRecor
           </label>
           <p className="text-xs text-muted-foreground">Escopo: todas as lojas. O cadastro guarda um preço único para a rede, não um por loja. Aprovar registra você, a data e o preço anterior; não publica nada no PDV.</p>
         </section>
+
+        {projection.structure && (
+          <Expandable title="De onde vêm a perda e as taxas" defaultOpen>
+            <CostSources structure={projection.structure} names={{ product: product.name, category: categoryName(product.category, categories), store: scope.storeName ?? null }} newProduct={projection.mode === "initial"} />
+            {projection.mode === "initial" && (
+              <p className="text-xs text-muted-foreground">
+                <StatusBadge tone="attention">Sugestão inicial · confiança baixa</StatusBadge> Sem histórico de vendas do produto, a sugestão se apoia só na estrutura de custos.
+              </p>
+            )}
+          </Expandable>
+        )}
 
         <Expandable title="Composição do cálculo">
           {row.analysis && scope.report ? (

@@ -4,6 +4,7 @@ import { RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { CostSources } from "@/components/pricing/cost-sources";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,6 +75,7 @@ export function NewProductPanel({ open, onOpenChange, onCreated }: { open: boole
   const contributionCents = chosenCents !== null && margin !== null ? Math.round(chosenCents * margin) : null;
   const marginPending = chosenCents !== null && margin === null && (loading || view.kind === "ready");
 
+  const categoryNameOf = (key: string) => categories?.find((row) => row.key === key)?.name ?? null;
   const typedEans = eans.map((e) => e.trim()).filter(Boolean);
   const baseProblem = useMemo(() => {
     if (!name.trim()) return "Informe o nome do produto.";
@@ -317,6 +319,15 @@ export function NewProductPanel({ open, onOpenChange, onCreated }: { open: boole
                 <p className="text-right text-xs text-muted-foreground">Simulação ilustrativa</p>
               </div>
             </div>
+
+            {suggestion?.structure && (
+              <div className="flex flex-col gap-2 rounded-lg border p-4" data-testid="new-product-sources">
+                <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                  De onde vêm a perda e as taxas <StatusBadge tone="attention">Sugestão inicial · confiança {suggestion.confidence === "low" ? "baixa" : suggestion.confidence}</StatusBadge>
+                </p>
+                <CostSources structure={suggestion.structure} names={{ category: categoryNameOf(classification.category) }} newProduct />
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <label className="flex flex-col gap-1.5 font-medium">

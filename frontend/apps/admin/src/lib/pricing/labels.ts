@@ -96,3 +96,12 @@ export function costOriginText(origin: { source: string; effectiveFrom: string; 
 
   return `${label}${origin.invoiceNumber ? ` ${origin.invoiceNumber}` : ""} · desde ${day}`;
 }
+
+/** De onde vem a taxa de perda, por extenso: "Categoria — Bebidas", "Produto — Monster…", "Loja — Centro", "Rede — todas as lojas". Nunca só "perda: 4%". */
+export function lossSourceText(level: "product" | "category" | "store" | "network", names: { product?: string | null; category?: string | null; store?: string | null }): string {
+  if (level === "product") return `Produto — ${names.product ?? "o próprio produto"}`;
+  if (level === "category") return `Categoria — ${names.category ?? "a categoria do produto"}`;
+  if (level === "store") return `Loja — ${names.store ?? "a loja do escopo"}`;
+
+  return "Rede — todas as lojas";
+}

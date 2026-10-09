@@ -239,3 +239,35 @@ describe('paymentCost', () => {
     expect(paymentCost(RATES, [], 50)).toBeNull()
   })
 })
+
+
+describe('paymentCost — the VR/VA calculation in detail', () => {
+  const rates = [rate('Pluxee', 'voucher', 690), rate('Ticket', 'voucher', 599), rate('Alelo', 'voucher', 690), rate('PagBank', 'pix', 69)]
+
+  it('weighted by sales: effective rate, brands with their share and rate, and the volume behind it', () => {
+    const mix = [row('Voucher', 'x', 'TICKET', 60, 6000), row('Voucher', 'x', 'ALELO', 40, 4000), row('Pix', 'PagBank', null, 100, 10_000)]
+    const detail = paymentCost(rates, mix, 50)!.voucher!
+
+    expect(detail.basis).toBe('sales_weighted')
+    expect(detail.receiptLines).toBe(100)
+    expect(detail.minReceiptLines).toBe(50)
+    expect(detail.rateBps).toBeCloseTo(0.6 * 599 + 0.4 * 690, 6)
+    expect(detail.brands.map(brand => brand.brand).sort()).toEqual(['Alelo', 'Ticket'])
+    expect(detail.brands.find(brand => brand.brand === 'Ticket')).toMatchObject({ rateBps: 599, share: 0.6 })
+  })
+
+  it('simple average when there are too few voucher lines to weight, and says how many there were', () => {
+    const detail = paymentCost(rates, [row('Voucher', 'x', 'TICKET', 10, 1000), row('Pix', 'PagBank', null, 100, 10_000)], 50)!.voucher!
+
+    expect(detail.basis).toBe('simple_average')
+    expect(detail.receiptLines).toBe(10)
+    expect(detail.rateBps).toBeCloseTo((690 + 599 + 690) / 3, 6)
+    expect(detail.brands).toHaveLength(3)
+  })
+
+  it('a brand with sales and no registered rate is listed as missing, never priced as 0%', () => {
+    const detail = paymentCost(rates, [row('Voucher', 'x', 'NOVABANDEIRA', 80, 8000), row('Voucher', 'x', 'ALELO', 40, 4000)], 50)!.voucher!
+
+    expect(detail.missingRateBrands).toEqual(['NOVABANDEIRA'])
+  })
+})

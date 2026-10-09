@@ -27,6 +27,8 @@ export interface CostStructure {
   /** De quem é o mix de pagamento que ponderou as taxas percentuais (o do produto, o da categoria ou o da rede) e quantas linhas de venda o sustentam. */
   paymentLevel?: "product" | "category" | "network";
   paymentMixLines?: number;
+  /** O cálculo do VR/VA em detalhe: taxa efetiva, método (ponderada por vendas ou média simples), bandeiras consideradas e o volume por trás. */
+  paymentVoucher?: VoucherDetail;
   /** As unidades por trás da taxa de perda: perda = perdidas ÷ abastecidas, e o que sobra do abastecido depois de vendido e perdido. */
   lossBasis?: { lostUnits: number; suppliedUnits: number; soldUnits: number | null; unaccountedUnits: number | null; definition: string };
   /** Despesas que acompanham o valor da venda (percentual da venda), como fração do preço. Custo fixo e deslocamento não entram aqui. */
@@ -35,6 +37,16 @@ export interface CostStructure {
   perTransactionCents?: number;
   /** "Rateio operacional utilizado exclusivamente para análise de preço…" */
   statement: string;
+}
+
+export interface VoucherDetail {
+  rateBps: number | null;
+  fixedCents: number;
+  basis: "sales_weighted" | "simple_average" | "none";
+  receiptLines: number;
+  minReceiptLines: number;
+  brands: { brand: string; rateBps: number; fixedCents: number; share: number }[];
+  missingRateBrands: string[];
 }
 
 export type CostBasis = "received_purchase" | "registry_or_manual";
@@ -407,6 +419,8 @@ export interface NewProductSuggestion {
   dataUsed: { code: string; label: string; value: string; origin: string }[];
   reasons: string[];
   insufficientReasons: string[];
+  /** A estrutura de custos em que a sugestão se apoia (perda e sua origem, mix de pagamento, VR/VA…); nula quando não houve cálculo. */
+  structure?: CostStructure | null;
   /** Por que não há preço, quando não há: falta informação (`missing_data`) ou a meta não é alcançável pela fórmula (`unreachable`). */
   blocker?: "missing_data" | "unreachable" | null;
   /** Falso quando há despesa relevante sem classificação: a sugestão aparece, nunca como validada. */

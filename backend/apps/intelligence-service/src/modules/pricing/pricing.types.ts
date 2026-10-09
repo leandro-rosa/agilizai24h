@@ -96,6 +96,22 @@ export interface PaymentFixedFee {
 
 export type MixLevel = 'product' | 'category' | 'network'
 
+/** How the VR/VA fee was reached: which brands, at which rates and shares, over how many receipt lines, and by which method. */
+export interface VoucherDetail {
+  /** The effective VR/VA rate, in basis points (fractional: it is an average); null when no voucher brand has a registered rate. */
+  rateBps: number | null
+  /** The same average over the brands' fixed fee per sale, in centavos. */
+  fixedCents: number
+  /** `sales_weighted`: brands weighted by their share of the voucher sales. `simple_average`: plain average (too few voucher lines to weight). `none`: no voucher rate registered. */
+  basis: VoucherBasis
+  /** Receipt lines of voucher sales behind the calculation (the volume the choice between weighted and simple depends on), and the minimum needed to weight. */
+  receiptLines: number
+  minReceiptLines: number
+  brands: { brand: string; rateBps: number; fixedCents: number; share: number }[]
+  /** Brands with voucher sales and no registered rate: reported, never priced as 0%. */
+  missingRateBrands: string[]
+}
+
 export interface PaymentCost {
   /** Whose payment mix weighed the fees: the product's own, its category's or the network's. Set by the engine when it chooses; absent in a report stored before pricing-4. */
   level?: MixLevel
@@ -110,6 +126,8 @@ export interface PaymentCost {
   fixed?: PaymentFixedFee
   voucherShare: number
   voucherBasis: VoucherBasis
+  /** The VR/VA calculation in detail (brands, effective rate, method, volume). Absent in a report stored before this field. */
+  voucher?: VoucherDetail
   /** Share of sales whose method or rate could not be resolved — priced at the average of the rest. */
   unresolvedShare: number
   complete: boolean

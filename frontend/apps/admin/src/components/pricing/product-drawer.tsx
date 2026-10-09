@@ -26,6 +26,7 @@ import { CONFIDENCE_LABEL, CONFIDENCE_TONE, costOriginText, parsePriceToCents, p
 
 import { ApplyPriceDialog, errorMessage } from "./apply-price-dialog";
 import { IncreaseCapNotice } from "./cap-notice";
+import { CostSources } from "./cost-sources";
 import { StructureTable } from "./structure-table";
 import { CostBasesSection, ReconciliationSection } from "./cost-bases";
 import { marginMetric } from "@/lib/pricing/metric";
@@ -89,6 +90,14 @@ export function CalculationDetails({ product, run, scope }: { product: PricingPr
                   {structure.lossBasis.unaccountedUnits !== null ? ` Abastecido que não virou venda nem perda: ${count(Math.round(structure.lossBasis.unaccountedUnits))} un. (estoque acumulado ou perda não classificada).` : ""}
                 </span>
               )}
+            </dd>
+          </div>
+        )}
+        {structure && (
+          <div>
+            <dt className="text-xs text-muted-foreground">De onde vêm a perda e as taxas de pagamento</dt>
+            <dd>
+              <CostSources structure={structure} names={{ product: product.name, category: product.categoryLabel, store: scope.storeId === null ? null : `loja ${scope.storeId}` }} newProduct={Boolean(product.newProduct?.noSalesHistory)} />
             </dd>
           </div>
         )}

@@ -224,6 +224,14 @@ describe("PriceReviewPanel — teto de aumento, validação, piso e composição
     expect(document.body).not.toHaveTextContent(/preço mínimo/i);
   });
 
+  it("mostra de onde vêm a perda e as taxas, com a fonte por extenso", () => {
+    open(rowFor({ report: [stored({ structure: { ...structure, lossBasis: { lostUnits: 1814, suppliedUnits: 20190, soldUnits: 17465, unaccountedUnits: 911, definition: "d" }, paymentLevel: "category", paymentMixLines: 11220 } as never })] }));
+
+    expect(screen.getByTestId("loss-source")).toHaveTextContent("Perda utilizada: 9,0%");
+    expect(screen.getByTestId("loss-source")).toHaveTextContent("Fonte: Categoria — Lanche");
+    expect(screen.getByTestId("payment-source")).toHaveTextContent("Mix de pagamento da categoria — 11.220 linhas de venda");
+  });
+
   it("a composição do cálculo traz a estrutura de custos do preço, componente a componente", () => {
     open(rowFor({ report: [stored({ structure: structure as never, currentPriceCents: 1490 })] }));
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useSimulateCurrentPriceMutation, type Simulation } from "@/lib/api/pricing";
+import { useSimulateCurrentPriceMutation, type CostStructure, type Simulation } from "@/lib/api/pricing";
 import { describeFailure, type SuggestionView } from "./suggestion";
 import { useDraftSuggestion } from "./use-draft-suggestion";
 import type { WorkspaceRow } from "./workspace";
@@ -16,6 +16,10 @@ export interface PriceProjection {
   margin: number | null;
   contributionCents: number | null;
   loading: boolean;
+  /** A estrutura de custos em que a sugestão se apoia (perda e sua fonte, mix de pagamento, VR/VA); nula enquanto não há cálculo. */
+  structure: CostStructure | null;
+  /** Confiança da sugestão inicial do motor (nunca acima de baixa); nula quando a sugestão vem de um cálculo com histórico. */
+  initialConfidence: string | null;
   /** O estado da sugestão em palavras (falta de dado, meta inviável, ressalva, falha). */
   view: SuggestionView;
   retry: () => void;
@@ -86,6 +90,8 @@ export function usePriceProjection(row: WorkspaceRow, scope: { storeId: number |
       targetMargin: stored.targetMargin,
       margin: simulated ? simulated.margin : null,
       contributionCents: simulated ? Math.round(simulated.unitProfitCents) : null,
+      structure: stored.structure,
+      initialConfidence: null,
       loading: sim.loading,
       view,
       retry: sim.retry,
@@ -102,6 +108,8 @@ export function usePriceProjection(row: WorkspaceRow, scope: { storeId: number |
     targetMargin: suggestion?.targetMargin ?? null,
     margin,
     contributionCents: chosen !== null && margin !== null ? Math.round(chosen * margin) : null,
+    structure: suggestion?.structure ?? null,
+    initialConfidence: suggestion?.confidence ?? null,
     loading: draft.loading,
     view: draft.view,
     retry: draft.retry,

@@ -500,7 +500,7 @@ export function ProductsWorkspace({ onViewPeriod, onCategories }: { onViewPeriod
       {openRow && recordTab === null && (
         <PriceReviewPanel
           row={openRow}
-          scope={{ storeId, report, computedAt: currentQuery.fulfilledTimeStamp ? new Date(currentQuery.fulfilledTimeStamp).toISOString() : null }}
+          scope={{ storeId, storeName: storeId === null ? null : scopeLabel, report, computedAt: currentQuery.fulfilledTimeStamp ? new Date(currentQuery.fulfilledTimeStamp).toISOString() : null }}
           canWrite={canWrite}
           onClose={closeOpen}
           onSaved={afterPriceSaved}
