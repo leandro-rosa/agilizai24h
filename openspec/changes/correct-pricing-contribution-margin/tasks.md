@@ -23,6 +23,14 @@
 - [x] 3b.3 Run history and a run's report as it was computed; the report keeps its original metric name and definition
 - [x] 3b.4 A received line with zero units creates no cost (`skipped_not_received`)
 
+## 3c. Corrections before approving pricing-4
+
+- [x] 3c.1 Tickets by evidence (coupon, transaction code, acquirer code); unidentified lines estimated or unknown, never one ticket per line
+- [x] 3c.2 Payment mix of the product, the category or the network, else no price
+- [x] 3c.3 Loss denominator confirmed (lost ÷ supplied, from supply; finance defines no loss rate) and shown with the units behind it
+- [x] 3c.4 Floor price label; maximum-increase statement; "Precificação não validada" with what is missing
+- [x] 3c.5 Historical margin never recomputed with today's cost (checked on a copy with a changed cost)
+
 ## 4. Verification
 
 - [x] 4.1 Unit tests for every item, typecheck, lint, comparison old × new over the stored September report

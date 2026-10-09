@@ -111,3 +111,56 @@ A line of a received purchase whose received quantity is zero SHALL NOT create a
 - **GIVEN** an order of two lines, one received 40 of 100 and one received 0 of 50
 - **WHEN** the costs are synchronised
 - **THEN** the first creates a cost over 40 units and the second creates none
+
+### Requirement: A ticket is a purchase, identified by evidence
+
+The fixed payment fee SHALL be counted once per ticket, where a ticket is identified by the coupon, else the transaction code, else the acquirer code. A line carrying none of them SHALL NOT be assumed to be a ticket of its own: its tickets SHALL be estimated from the tickets-per-line ratio of the identified lines, and labelled an approximation, or SHALL be unknown (and the fixed fee not distributed, with the cost marked incomplete) when too few lines are identified.
+
+#### Scenario: Real sales
+- **GIVEN** 21.403 lines whose transaction codes form 17.370 purchases
+- **WHEN** the fixed fee is distributed
+- **THEN** it is charged on 17.370 tickets, not on 21.403 lines
+
+#### Scenario: Almost no line is identified
+- **WHEN** fewer lines than the configured share carry an identifier
+- **THEN** the tickets are unknown, the fixed fee is not distributed and the reason is stated
+
+### Requirement: The payment mix is the product's, the category's or the network's, else no price
+
+The percentage payment fees and the voucher share SHALL be weighted by the product's own payment mix when it has at least the configured receipt lines, else by its category's, else by the network's with the same minimum. With no reliable mix at any level the system SHALL NOT recommend a price and SHALL name the missing data. A product without history SHALL start at the category level. The result SHALL say which level was used.
+
+#### Scenario: A product with little data of its own
+- **GIVEN** a product with fewer lines than the minimum and a category with more
+- **THEN** the category's mix weighs its fees and the result says "category"
+
+### Requirement: The loss rate states its denominator
+
+The loss rate SHALL be the units removed as loss divided by the units supplied to the stores in the window, and the result SHALL show the lost, supplied and sold units and the supplied units that were neither sold nor lost. The unit cost SHALL be the cost divided by one minus that rate.
+
+#### Scenario: The units behind a rate
+- **GIVEN** 1814 units removed as loss and 20190 supplied
+- **THEN** the rate is 9,0% and the result lists the sold units and the supplied units that were neither sold nor lost
+
+### Requirement: A maximum-increase limit is stated, never silent
+
+When the maximum-increase limit stops the price short of the target margin, the result SHALL show the limited price, the margin it gives and the statement "Margem abaixo da meta devido ao limite máximo de aumento configurado.". The minimum-margin price SHALL be labelled the floor price (the price needed for the minimum margin).
+
+#### Scenario: Target out of reach under the limit
+- **GIVEN** a target price of R$ 17,30 and a ceiling of R$ 17,20
+- **THEN** the recommended price is R$ 17,20, the margin it gives is shown and the statement is displayed
+
+### Requirement: An incomplete classification is shown as not validated, with what is missing
+
+When a relevant expense of the income statement has no class, the calculation SHALL be shown marked "Precificação não validada" and SHALL list exactly which accounts are missing, with value, months and scope.
+
+#### Scenario: Marketing without a class
+- **WHEN** account 4.2.07 has no class and exceeds the relevance limit
+- **THEN** every price is shown, marked as not validated, naming 4.2.07 and its value
+
+### Requirement: The historical margin keeps its cost
+
+A period report SHALL NOT be recomputed with today's cost: a newer cost SHALL be shown apart and the margin of the period SHALL stay as computed.
+
+#### Scenario: A cost bought after the period
+- **GIVEN** a September report at a cost of R$ 5,70 and a cost of R$ 6,20 registered on 05/10
+- **THEN** the report keeps R$ 5,70 and 38,6%, and shows R$ 6,20 apart as a newer cost
