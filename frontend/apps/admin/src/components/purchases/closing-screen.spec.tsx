@@ -16,7 +16,6 @@ const STATUS: Record<number, unknown> = {
   76: { last: null, configured_skus: 0, period_days: null, suggested: null, suggestion_reason: "no_history" },
 };
 
-const head = { supplier_id: 75, supplier_name: "Quinoa Indústria de Alimentos", period_from: "2026-09-30", period_to: "2026-10-12", config_missing: [], conflict: null, removals: REMOVALS };
 const REMOVALS = {
   basis: "month", months: ["2026-09", "2026-10"], months_without_data: [],
   scope: [
@@ -34,6 +33,7 @@ const STOCK = [
   { sku: "100083", name: "Cone trufado", in_stores: 1, stores: 21, last_visit: "2026-10-12", oldest_store_visit: "2026-10-12", sold_units: 0, per_day: null, coverage_days: null },
   { sku: "9992", name: "Pizza marguerita", in_stores: null, stores: 0, last_visit: null, oldest_store_visit: null, sold_units: 2, per_day: 0.15, coverage_days: null },
 ];
+const head = { supplier_id: 75, supplier_name: "Quinoa Indústria de Alimentos", period_from: "2026-09-30", period_to: "2026-10-12", config_missing: [], conflict: null, removals: REMOVALS };
 const READY: Preview = {
   ...head, status: "ready", stock: STOCK, total_units: 100, total_cents: 74250, configured_skus: 19, skus_without_sales: 16, issues: [], confirmable: true,
   lines: [{ sku: "110022", name: "Pão de mel", sold_units: 50, unit_cost_cents: 730, total_cents: 36500 }, { sku: "100083", name: "Cone trufado", sold_units: 50, unit_cost_cents: 595, total_cents: 29750 }],
@@ -44,6 +44,8 @@ const preview = jest.fn((args: Record<string, string>) => ({
   unwrap: () => new Promise<Preview>((resolve, reject) => previewCalls.push({ args, resolve, reject })),
 }));
 const confirmClosing = jest.fn((_arg: unknown) => ({ unwrap: async () => ({ ...LEGACY, id: 2, kind: "closing", state: "confirmed", paid_on: null, owed_cents: 74250, period_from: "2026-09-30", period_to: "2026-10-12", evidence: { ...LEGACY.evidence, legacy_lines: undefined, closing_lines: READY.lines } }) }));
+const payMock = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
+const cancelMock = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
 const addCost = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
 let settlements: unknown[] = [LEGACY];
 
@@ -55,7 +57,8 @@ jest.doMock("../../lib/api/purchases", () => ({
   useConfirmClosingMutation: () => [confirmClosing, { isLoading: false }],
   useGetConsignmentCostsQuery: () => ({ data: { agreement: null, costs: [] } }),
   useAddConsignmentCostMutation: () => [addCost, { isLoading: false }],
-  usePaySettlementMutation: () => [jest.fn(), { isLoading: false }],
+  usePaySettlementMutation: () => [payMock, { isLoading: false }],
+  useCancelSettlementMutation: () => [cancelMock, { isLoading: false }],
 }));
 jest.doMock("../../lib/api/suppliers", () => ({
   useGetSuppliersQuery: () => ({ data: [{ id: 75, name: "Quinoa Indústria de Alimentos", status: "active" }, { id: 76, name: "Fornecedor novo", status: "active" }] }),
@@ -256,7 +259,7 @@ describe("Fechamentos de fornecedores — novo fechamento", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar fechamento" }));
 
-    await waitFor(() => expect(confirmClosing).toHaveBeenCalledWith({ supplier_id: 75, period_from: "2026-09-30", period_to: "2026-10-12", accept_incomplete: false, extras: [] }));
+    await waitFor(() => expect(confirmClosing).toHaveBeenCalledWith({ supplier_id: 75, period_from: "2026-09-30", period_to: "2026-10-12", accept_incomplete: false, extras: [], home_stock: [] }));
   });
 });
 
@@ -345,7 +348,7 @@ describe("Fechamentos de fornecedores — vencidos e outro motivo, à parte", ()
 
     fireEvent.click(screen.getByRole("button", { name: "Confirmar fechamento" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirmar fechamento" }));
-    await waitFor(() => expect(confirmClosing).toHaveBeenCalledWith({ supplier_id: 75, period_from: "2026-09-30", period_to: "2026-10-12", accept_incomplete: false, extras: [{ sku: "100083", month: "2026-09", kind: "expired" }] }));
+    await waitFor(() => expect(confirmClosing).toHaveBeenCalledWith({ supplier_id: 75, period_from: "2026-09-30", period_to: "2026-10-12", accept_incomplete: false, extras: [{ sku: "100083", month: "2026-09", kind: "expired" }], home_stock: [] }));
   });
 
   it("sem leitura do abastecimento diz isso, em vez de mostrar zero", async () => {
@@ -432,6 +435,57 @@ describe("Fechamentos de fornecedores — vencidos por mês e por fechamento", (
     expect(screen.getByTestId("removals-scope")).toHaveTextContent("não pode ser marcado");
     expect(screen.getByLabelText("Pagar vencidas de Cone trufado em outubro/2026")).toBeDisabled();
     expect(screen.getByLabelText("Pagar vencidas de Cone trufado em setembro/2026")).toBeEnabled();
+  });
+});
+
+describe("Fechamentos de fornecedores — pagar, cancelar e rolar a janela de detalhes", () => {
+  const CLOSING = { ...LEGACY, id: 2, kind: "closing", state: "confirmed", paid_on: null, owed_cents: 225355, evidence: { ...LEGACY.evidence, legacy_lines: undefined, closing_lines: READY.lines } };
+  const open = (rows: unknown[]) => {
+    settlements = rows;
+    render(<ClosingScreen />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Histórico" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getAllByRole("button", { name: "Ver detalhes" })[0]);
+  };
+
+  it("a janela rola (cabe na tela) e o fechamento confirmado oferece Marcar como pago", async () => {
+    open([CLOSING]);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.className).toContain("overflow-y-auto");
+    expect(dialog.className).toContain("max-h-[90vh]");
+
+    fireEvent.change(within(dialog).getByLabelText("Data do pagamento"), { target: { value: "2026-10-14" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Marcar como pago" }));
+    await waitFor(() => expect(payMock).toHaveBeenCalledWith({ id: 2, paid_on: "2026-10-14", note: undefined }));
+  });
+
+  it("cancelar pede o motivo (mínimo 3 letras), cancela e explica que o período fica livre", async () => {
+    open([CLOSING]);
+    const dialog = screen.getByRole("dialog");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar fechamento" }));
+    const confirmButton = within(dialog).getByRole("button", { name: "Confirmar cancelamento" });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("Motivo do cancelamento"), { target: { value: "ok" } });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("Motivo do cancelamento"), { target: { value: "faltou marcar o outro motivo" } });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(cancelMock).toHaveBeenCalledWith({ id: 2, reason: "faltou marcar o outro motivo" }));
+  });
+
+  it("um fechamento já pago não pode ser cancelado, e o histórico de acerto antigo também não", () => {
+    open([{ ...CLOSING, state: "paid", paid_on: "2026-10-14" }, LEGACY]);
+
+    expect(screen.queryByRole("button", { name: "Cancelar fechamento" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Marcar como pago" })).not.toBeInTheDocument();
+  });
+
+  it("um fechamento cancelado mostra quem, quando e por quê, e não oferece pagar nem PDF", () => {
+    open([{ ...CLOSING, state: "cancelled", evidence: { ...CLOSING.evidence, cancelled: { at: "2026-10-14T12:00:00.000Z", by: "dono@agiliz", reason: "faltou marcar", original_week_start: "2026-09-30", owed_cents: 225355 } } }]);
+
+    expect(screen.getByTestId("cancelled-note")).toHaveTextContent("Cancelado em 14/10/2026 por dono@agiliz: faltou marcar. Valor que tinha: R$ 2.253,55");
+    expect(screen.queryByRole("button", { name: "Marcar como pago" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Baixar PDF para o fornecedor" })).not.toBeInTheDocument();
   });
 });
 

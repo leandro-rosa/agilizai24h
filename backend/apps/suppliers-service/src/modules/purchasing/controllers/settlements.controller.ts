@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { LegacySettlementDto } from '../dto/legacy-settlement.dto'
-import { ConfirmSettlementDto, ListSettlementsDto, PaySettlementDto, ProposeSettlementDto } from '../dto/settlement.dto'
+import { CancelSettlementDto, ConfirmSettlementDto, ListSettlementsDto, PaySettlementDto, ProposeSettlementDto } from '../dto/settlement.dto'
 import { SettlementService } from '../services/settlement.service'
 
 @ApiTags('settlements')
@@ -58,6 +58,13 @@ export class SettlementsController {
   @ApiOperation({ summary: 'Confirm a proposal. A partial week needs accept_partial.' })
   confirm(@Param('id', ParseIntPipe) id: number, @Body() dto: ConfirmSettlementDto) {
     return this.settlements.confirm(id, dto.accept_partial === true)
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Cancel a confirmed, unpaid closing made by the panel (kept in the history); frees its days' })
+  cancel(@Param('id', ParseIntPipe) id: number, @Body() dto: CancelSettlementDto) {
+    return this.settlements.cancel(id, dto.reason, dto.actor)
   }
 
   @Post(':id/pay')

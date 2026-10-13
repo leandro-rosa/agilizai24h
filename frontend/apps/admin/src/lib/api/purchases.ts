@@ -4,7 +4,7 @@ import { gatewayBaseQuery } from "./base-query";
 
 export type Condition = "paid" | "bonus" | "on_sale";
 export type PaymentStatus = "pending" | "paid";
-export type SettlementState = "proposal" | "confirmed" | "paid";
+export type SettlementState = "proposal" | "confirmed" | "paid" | "cancelled";
 export type Stage = "requisition" | "awaiting_invoice" | "invoiced" | "awaiting_receipt" | "received";
 export type PaymentTerm = "on_receipt" | "due_date";
 export type PaymentMethod = "boleto" | "transfer" | "credit_card" | "other";
@@ -386,6 +386,8 @@ export interface Settlement {
     stock?: StockLine[] | null;
     home_stock?: Array<HomeStockEntry & { name: string }>;
     removals_snapshot?: ClosingRemovals | null;
+    /** Só em fechamento cancelado. */
+    cancelled?: { at: string; by: string | null; reason: string; original_week_start: string | null; owed_cents: number };
   };
   confirmed_at: string | null;
   paid_on: string | null;
@@ -667,6 +669,11 @@ export const purchasesApi = createApi({
       query: ({ id, ...body }) => ({ url: `/settlements/${id}/confirm`, method: "POST", body }),
       invalidatesTags: ["Settlement"],
     }),
+    /** Desfaz um fechamento do painel confirmado e ainda não pago; fica no histórico como cancelado. */
+    cancelSettlement: builder.mutation<Settlement, { id: number; reason: string }>({
+      query: ({ id, ...body }) => ({ url: `/settlements/${id}/cancel`, method: "POST", body }),
+      invalidatesTags: ["Settlement", "Consignment"],
+    }),
     paySettlement: builder.mutation<Settlement, { id: number; paid_on?: string; note?: string }>({
       query: ({ id, ...body }) => ({ url: `/settlements/${id}/pay`, method: "POST", body }),
       invalidatesTags: ["Settlement"],
@@ -703,4 +710,5 @@ export const {
   useAddConsignmentCostMutation,
   useConfirmSettlementMutation,
   usePaySettlementMutation,
+  useCancelSettlementMutation,
 } = purchasesApi;

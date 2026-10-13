@@ -32,6 +32,8 @@ export interface SettlementEvidence {
   home_stock?: Array<{ sku: string; name: string; units: number }>
   /** Vencidas, outro motivo e devolvidas por mês na hora da confirmação (foto). */
   removals_snapshot?: unknown
+  /** Só em fechamento cancelado: quando, por quem, por quê e quanto valia. */
+  cancelled?: { at: string; by: string | null; reason: string; original_week_start: string | null; owed_cents: number }
   /** Vencidas e outro motivo que a pessoa escolheu pagar neste fechamento; já estão em `owed_cents`. */
   extras?: Array<{ sku: string; name: string; month: string; kind: 'expired' | 'other_reason'; units: number; unit_cost_cents: number; total_cents: number }>
   legacy_lines?: Array<{ name: string; sku: string | null; unit_cost_cents: number; quantity: number; total_cents: number }>
@@ -204,6 +206,30 @@ export class SettlementService {
     const updated = await this.prisma.settlement.update({
       where: { id },
       data: { state: 'paid', paid_on: new Date(`${paidOn ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`), payment_note: note },
+      include: { supplier: true },
+    })
+
+    return toView(updated)
+  }
+
+  /**
+   * Undoes a closing made by the panel that was not paid yet: it stays in the history as `cancelled` (with who and why), stops counting as owed and frees its
+   * days, so the period can be consulted and confirmed again with the corrections. A paid closing, a legacy one and a proposal cannot be cancelled here.
+   * The (supplier, week_start) key is unique, so the cancelled row gives its start day back by moving to a placeholder date; the real one stays in the evidence.
+   */
+  async cancel(id: number, reason: string, actor?: string): Promise<SettlementView> {
+    const row = await this.get(id)
+    if (row.kind !== 'closing') throw new ConflictException('Only a closing made by the panel can be cancelled here')
+    if (row.state === 'cancelled') throw new ConflictException(`Settlement ${id} is already cancelled`)
+    if (row.state !== 'confirmed') throw new ConflictException(row.state === 'paid' ? `Settlement ${id} is already paid: it cannot be cancelled` : 'Only a confirmed closing can be cancelled')
+
+    const updated = await this.prisma.settlement.update({
+      where: { id },
+      data: {
+        state: 'cancelled',
+        week_start: new Date(Date.UTC(1900, 0, 1 + id)),
+        evidence: { ...(row.evidence as object), cancelled: { at: new Date().toISOString(), by: actor ?? null, reason, original_week_start: day(row.week_start), owed_cents: row.owed_cents } } as never,
+      },
       include: { supplier: true },
     })
 

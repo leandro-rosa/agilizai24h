@@ -155,3 +155,26 @@ describe('SettlementService.propose — guards', () => {
     await expect(svc.propose({ supplier_id: 7, period_from: '2026-09-29' })).rejects.toThrow(BadRequestException)
   })
 })
+
+describe('SettlementService.cancel', () => {
+  const closing = (over: Row = {}) => ({ id: 5, supplier_id: 7, week_start: new Date('2026-09-30T00:00:00Z'), kind: 'closing', period_start: new Date('2026-09-30T00:00:00Z'), period_end: new Date('2026-10-13T00:00:00Z'), state: 'confirmed', owed_cents: 225355, partial: false, evidence: { kind: 'closing', lines: [] }, confirmed_at: new Date(), paid_on: null, payment_note: null, ...over })
+
+  it('cancels a confirmed closing, keeping who, why and how much it was worth, and gives its start day back', async () => {
+    const { svc, prisma } = service(fakePrisma([closing()]))
+    const view = await svc.cancel(5, 'Faltou marcar o outro motivo', 'dono@agiliz')
+
+    expect(view.state).toBe('cancelled')
+    expect(view.counts_as_owed).toBe(true) // the flag only says "not a proposal"; the open total ignores cancelled rows
+    expect((prisma.rows[0].evidence as Row).cancelled).toMatchObject({ by: 'dono@agiliz', reason: 'Faltou marcar o outro motivo', original_week_start: '2026-09-30', owed_cents: 225355 })
+    expect(prisma.rows[0].week_start.toISOString().slice(0, 10)).not.toBe('2026-09-30')
+  })
+
+  it('refuses a paid closing, a legacy settlement and one already cancelled', async () => {
+    const { svc } = service(fakePrisma([closing({ id: 6, state: 'paid' }), closing({ id: 7, kind: 'legacy', state: 'paid' }), closing({ id: 8, state: 'cancelled' })]))
+
+    await expect(svc.cancel(6, 'engano')).rejects.toThrow(ConflictException)
+    await expect(svc.cancel(7, 'engano')).rejects.toThrow(ConflictException)
+    await expect(svc.cancel(8, 'engano')).rejects.toThrow(ConflictException)
+    await expect(svc.cancel(99, 'engano')).rejects.toThrow(NotFoundException)
+  })
+})

@@ -230,6 +230,14 @@ export class SettlementsController {
     return (await this.domains.suppliers({ method: 'post', path: `/settlements/${encodeURIComponent(id)}/confirm`, payload: body ?? {}, correlationId: correlationOf(request) })).data
   }
 
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Cancel a confirmed, unpaid closing (kept in the history)' })
+  async cancel(@Param('id') id: string, @Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: `/settlements/${encodeURIComponent(id)}/cancel`, payload: asActor(body, caller), correlationId: correlationOf(request) })).data
+  }
+
   @Post(':id/pay')
   @HttpCode(200)
   @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)

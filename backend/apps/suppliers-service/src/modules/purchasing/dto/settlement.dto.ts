@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, Min, ValidateNested } from 'class-validator'
+import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, Min, MinLength, ValidateNested } from 'class-validator'
 import { SETTLEMENT_STATES, type SettlementState } from '../constants/purchase-vocabulary'
 
 export class WriteOffDto {
@@ -69,6 +69,19 @@ export class PaySettlementDto {
   @IsString()
   @MaxLength(300)
   note?: string
+}
+
+export class CancelSettlementDto {
+  @ApiProperty({ description: 'Por que o fechamento está sendo cancelado (fica registrado).', example: 'Faltou marcar o outro motivo do pão de mel' })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(300)
+  reason: string
+
+  @ApiPropertyOptional({ description: 'Quem cancelou (o gateway preenche com o usuário da sessão).' })
+  @IsOptional()
+  @IsString()
+  actor?: string
 }
 
 export class ListSettlementsDto {

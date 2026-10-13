@@ -23,6 +23,7 @@ import {
   useGetConsignmentCostsQuery,
   useGetOpenTotalQuery,
   useGetSettlementsQuery,
+  useCancelSettlementMutation,
   usePaySettlementMutation,
   usePreviewClosingMutation,
   type ClosingExtraPick,
@@ -36,8 +37,8 @@ import {
 import { coverageWithHome, issueText, nextAfter, overlapsLast, pickedTotal, pickKey, picksOf, rangeOfLength, verdictOf } from "@/lib/purchases/closing";
 import { formatCents, formatDate } from "@/lib/purchases/money";
 
-const STATE_LABEL: Record<SettlementState, string> = { proposal: "Proposta", confirmed: "Confirmado (a pagar)", paid: "Pago" };
-const STATE_TONE: Record<SettlementState, StatusTone> = { proposal: "attention", confirmed: "neutral", paid: "positive" };
+const STATE_LABEL: Record<SettlementState, string> = { proposal: "Proposta", confirmed: "Confirmado (a pagar)", paid: "Pago", cancelled: "Cancelado" };
+const STATE_TONE: Record<SettlementState, StatusTone> = { proposal: "attention", confirmed: "neutral", paid: "positive", cancelled: "critical" };
 const today = () => new Date().toISOString().slice(0, 10);
 const message = (failure: unknown, fallback: string) => (failure as { data?: { message?: string } })?.data?.message ?? fallback;
 
@@ -791,7 +792,7 @@ function CostsDialog({ supplierId, supplierName, open, onOpenChange, firstDay }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Produtos consignados e custos de repasse</DialogTitle>
           <DialogDescription>{supplierName}. Cada produto com custo vira consignado. Um custo não se edita: para corrigir, informe outro com a nova data de início.</DialogDescription>
@@ -903,6 +904,9 @@ function History({ onOpen }: { onOpen: (settlement: Settlement) => void }) {
 function DetailDialog({ settlement, onClose }: { settlement: Settlement | null; onClose: () => void }) {
   const [pay, { isLoading: paying }] = usePaySettlementMutation();
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [cancel, { isLoading: cancelling }] = useCancelSettlementMutation();
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [reason, setReason] = useState("");
   const [paidOn, setPaidOn] = useState(today());
   const [note, setNote] = useState("");
   // O estado vem sempre da lista atualizada, não da cópia que abriu o diálogo.
@@ -927,6 +931,18 @@ function DetailDialog({ settlement, onClose }: { settlement: Settlement | null; 
     }
   }
 
+  async function onCancel() {
+    if (!current) return;
+    try {
+      await cancel({ id: current.id, reason: reason.trim() }).unwrap();
+      setCancelOpen(false);
+      setReason("");
+      toast.success("Fechamento cancelado. O período está livre para consultar e confirmar de novo.");
+    } catch (failure) {
+      toast.error(message(failure, "Não foi possível cancelar o fechamento."));
+    }
+  }
+
   async function onPay() {
     if (!current) return;
     try {
@@ -942,7 +958,7 @@ function DetailDialog({ settlement, onClose }: { settlement: Settlement | null; 
 
   return (
     <Dialog open={current !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         {current && (
           <>
             <DialogHeader>
@@ -1008,7 +1024,7 @@ function DetailDialog({ settlement, onClose }: { settlement: Settlement | null; 
                 </Table>
               </div>
             )}
-            {current.kind === "closing" && (
+            {current.kind === "closing" && current.state !== "cancelled" && (
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="outline" onClick={() => onPdf(current)} disabled={pdfBusy}>
                   <FileDown className="size-4" />
@@ -1031,6 +1047,35 @@ function DetailDialog({ settlement, onClose }: { settlement: Settlement | null; 
                   {paying ? "Registrando..." : "Marcar como pago"}
                 </Button>
               </div>
+            )}
+            {current.kind === "closing" && current.state === "confirmed" && (
+              <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
+                <p className="text-sm text-muted-foreground">Errou a escolha de vencidas, outro motivo ou estoque? Cancele este fechamento (ele fica no histórico), consulte o período de novo e confirme com a correção.</p>
+                {!cancelOpen ? (
+                  <Button variant="outline" className="w-fit" onClick={() => setCancelOpen(true)}>
+                    Cancelar fechamento
+                  </Button>
+                ) : (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                      Motivo (fica registrado)
+                      <Input className="w-80" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Motivo do cancelamento" placeholder="Ex.: faltou marcar o outro motivo" />
+                    </label>
+                    <Button variant="destructive" onClick={onCancel} disabled={cancelling || reason.trim().length < 3}>
+                      {cancelling ? "Cancelando..." : "Confirmar cancelamento"}
+                    </Button>
+                    <Button variant="ghost" onClick={() => setCancelOpen(false)}>
+                      Voltar
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            {current.state === "cancelled" && current.evidence.cancelled && (
+              <p className="text-sm text-muted-foreground" data-testid="cancelled-note">
+                Cancelado em {formatDate(current.evidence.cancelled.at.slice(0, 10))}
+                {current.evidence.cancelled.by ? ` por ${current.evidence.cancelled.by}` : ""}: {current.evidence.cancelled.reason}. Valor que tinha: {formatCents(current.evidence.cancelled.owed_cents)}.
+              </p>
             )}
           </>
         )}

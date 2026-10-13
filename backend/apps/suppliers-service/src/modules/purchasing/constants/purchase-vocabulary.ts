@@ -8,7 +8,8 @@ export type Origin = (typeof ORIGINS)[number]
 export const PAYMENT_STATUSES = ['pending', 'paid'] as const
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number]
 
-export const SETTLEMENT_STATES = ['proposal', 'confirmed', 'paid'] as const
+/** `cancelled`: a closing the person undid before paying; it stays in the history but counts for nothing and frees its days. */
+export const SETTLEMENT_STATES = ['proposal', 'confirmed', 'paid', 'cancelled'] as const
 export type SettlementState = (typeof SETTLEMENT_STATES)[number]
 
 /** PT-BR labels for the screen; the codes above are what the API speaks. */
