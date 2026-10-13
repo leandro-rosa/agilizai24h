@@ -26,6 +26,8 @@ export interface SettlementEvidence {
   registered_by?: string | null
   /** Só no fechamento calculado pelo painel (`kind = 'closing'`). */
   closing_lines?: Array<{ sku: string; name: string; sold_units: number; unit_cost_cents: number; total_cents: number }>
+  /** Vencidas e outro motivo que a pessoa escolheu pagar neste fechamento; já estão em `owed_cents`. */
+  extras?: Array<{ sku: string; name: string; month: string; kind: 'expired' | 'other_reason'; units: number; unit_cost_cents: number; total_cents: number }>
   legacy_lines?: Array<{ name: string; sku: string | null; unit_cost_cents: number; quantity: number; total_cents: number }>
 }
 

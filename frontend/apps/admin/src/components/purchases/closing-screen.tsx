@@ -25,12 +25,14 @@ import {
   useGetSettlementsQuery,
   usePaySettlementMutation,
   usePreviewClosingMutation,
+  type ClosingExtraPick,
   type ClosingPreview,
+  type RemovalKind,
   type LegacyLine,
   type Settlement,
   type SettlementState,
 } from "@/lib/api/purchases";
-import { issueText, nextAfter, overlapsLast, rangeOfLength, verdictOf } from "@/lib/purchases/closing";
+import { issueText, nextAfter, overlapsLast, pickedTotal, pickKey, picksOf, rangeOfLength, verdictOf } from "@/lib/purchases/closing";
 import { formatCents, formatDate } from "@/lib/purchases/money";
 
 const STATE_LABEL: Record<SettlementState, string> = { proposal: "Proposta", confirmed: "Confirmado (a pagar)", paid: "Pago" };
@@ -93,6 +95,7 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [pendingExtras, setPendingExtras] = useState<ClosingExtraPick[]>([]);
   const [synced, setSynced] = useState(false);
   // Só a última consulta pode escrever o resultado: uma resposta atrasada de uma seleção anterior é descartada.
   const latest = useRef(0);
@@ -155,7 +158,7 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
 
   async function onConfirm(view: ClosingPreview) {
     try {
-      const settlement = await confirm({ supplier_id: view.supplier_id, period_from: view.period_from, period_to: view.period_to, accept_incomplete: acceptIncomplete }).unwrap();
+      const settlement = await confirm({ supplier_id: view.supplier_id, period_from: view.period_from, period_to: view.period_to, accept_incomplete: acceptIncomplete, extras: pendingExtras }).unwrap();
       setConfirmOpen(false);
       setResult(null);
       toast.success("Fechamento confirmado: agora conta como valor a pagar.");
@@ -281,7 +284,10 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
           view={view}
           acceptIncomplete={acceptIncomplete}
           onAccept={setAcceptIncomplete}
-          onConfirm={() => setConfirmOpen(true)}
+          onConfirm={(picks) => {
+            setPendingExtras(picks);
+            setConfirmOpen(true);
+          }}
           onUseFrom={(from) => changeRange({ from, to: range.to >= from ? range.to : from })}
           onSetup={() => setSetupOpen(true)}
           onSync={() => setSyncOpen(true)}
@@ -305,7 +311,8 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
           <DialogHeader>
             <DialogTitle>Confirmar fechamento?</DialogTitle>
             <DialogDescription>
-              {view ? `${view.supplier_name} · ${formatDate(view.period_from)} a ${formatDate(view.period_to)} · ${formatCents(view.total_cents)}. ` : ""}
+              {view ? `${view.supplier_name} · ${formatDate(view.period_from)} a ${formatDate(view.period_to)} · ${formatCents(view.total_cents + pickedTotal(view.removals?.lines ?? [], new Set(pendingExtras.map((p) => pickKey(p.sku, p.month, p.kind)))).cents)}` : ""}
+              {view && pendingExtras.length > 0 ? ` (vendido ${formatCents(view.total_cents)} + ${pendingExtras.length} retirada(s) escolhida(s))` : ""}. 
               Passa a contar como valor a pagar e esses dias não poderão ser repassados de novo. O sistema não paga: o “pago” é só o registro.
             </DialogDescription>
           </DialogHeader>
@@ -381,12 +388,15 @@ function ResultView({
   view: ClosingPreview;
   acceptIncomplete: boolean;
   onAccept: (value: boolean) => void;
-  onConfirm: () => void;
+  onConfirm: (picks: ClosingExtraPick[]) => void;
   onUseFrom: (from: string) => void;
   onSetup: () => void;
   onSync: () => void;
 }) {
   const verdict = verdictOf(view);
+  // O que a pessoa escolheu pagar além do vendido. Nasce vazio a cada consulta (este componente só existe enquanto há resultado).
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const extras = pickedTotal(view.removals?.lines ?? [], picked);
   const showNumbers = view.status === "ready" || view.status === "incomplete";
   const acceptable = view.issues.length > 0 && view.issues.every((i) => i.acceptable);
   const canConfirm = view.status === "ready" || (view.status === "incomplete" && acceptable && acceptIncomplete);
@@ -433,10 +443,14 @@ function ResultView({
         {showNumbers && (
           <>
             <div className="grid gap-3 sm:grid-cols-4">
-              <Figure label="Valor a repassar" value={formatCents(view.total_cents)} />
+              <Figure
+                label="Valor a repassar"
+                value={formatCents(view.total_cents + extras.cents)}
+                note={extras.units > 0 ? `Vendido ${formatCents(view.total_cents)} + ${formatCents(extras.cents)} escolhidos (${extras.units} un.)` : "Só o vendido. Escolha vencidas ou outro motivo na aba ao lado para somar."}
+              />
               <Figure label="Vendidas" value={`${view.total_units} un.`} />
-              <Figure label="Vencidas (à parte)" value={cellText(view.removals?.totals.expired)} note={view.removals ? "Por mês, a custo de repasse. Não entram no valor a repassar." : "Abastecimento não pôde ser lido."} />
-              <Figure label="Outro motivo (à parte)" value={cellText(view.removals?.totals.other_reason)} note={view.removals ? "Roubo: por conta do Agiliz. Não entra no valor a repassar." : "Abastecimento não pôde ser lido."} />
+              <Figure label="Vencidas (à parte)" value={cellText(view.removals?.totals.expired)} note={view.removals ? "Por mês, a custo de repasse. Entram só se você marcar." : "Abastecimento não pôde ser lido."} />
+              <Figure label="Outro motivo (à parte)" value={cellText(view.removals?.totals.other_reason)} note={view.removals ? "Roubo: por conta do Agiliz. Entra só se você marcar." : "Abastecimento não pôde ser lido."} />
             </div>
             <Tabs defaultValue="sales">
               <TabsList variant="line">
@@ -450,7 +464,7 @@ function ResultView({
                 <p className="mt-1 text-xs text-muted-foreground">Conta: vendas da rede inteira dos produtos configurados × custo de repasse combinado, vigente no primeiro dia do período (MÉTRICA DERIVADA).</p>
               </TabsContent>
               <TabsContent value="expiry">
-                <RemovalsTable removals={view.removals} />
+                <RemovalsTable removals={view.removals} picked={picked} onChange={setPicked} />
               </TabsContent>
               <TabsContent value="stock">
                 <p className="text-sm text-muted-foreground">A conciliação do estoque ainda não está disponível.</p>
@@ -463,7 +477,7 @@ function ResultView({
                   Confirmar mesmo incompleto (assumo o número)
                 </label>
               )}
-              <Button onClick={onConfirm} disabled={!canConfirm}>
+              <Button onClick={() => onConfirm(picksOf(picked))} disabled={!canConfirm}>
                 Confirmar fechamento
               </Button>
             </div>
@@ -485,14 +499,29 @@ const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
 const monthName = (month: string) => `${MONTH_NAMES[Number(month.slice(5, 7)) - 1]}/${month.slice(0, 4)}`;
 
 /** Vencidas, outro motivo (roubo) e devolvidas por produto e mês, valoradas ao custo de repasse. Só informação: nada aqui altera o valor a repassar. */
-function RemovalsTable({ removals }: { removals: ClosingPreview["removals"] }) {
+function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPreview["removals"]; picked: Set<string>; onChange: (next: Set<string>) => void }) {
+  const [filter, setFilter] = useState("");
   if (!removals) return <p className="text-sm text-muted-foreground">Não foi possível ler as retiradas do abastecimento agora. Consulte de novo.</p>;
-  const lines = removals.lines.filter((l) => l.expired.units + l.other_reason.units + l.returned.units > 0);
+  const all = removals.lines.filter((l) => l.expired.units + l.other_reason.units + l.returned.units > 0);
+  const needle = filter.trim().toLowerCase();
+  const lines = needle ? all.filter((l) => l.name.toLowerCase().includes(needle) || l.sku.includes(needle)) : all;
+  const toggle = (sku: string, month: string, kind: RemovalKind) => {
+    const next = new Set(picked);
+    const key = pickKey(sku, month, kind);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onChange(next);
+  };
+  const markExpiredOfFilter = () => {
+    const next = new Set(picked);
+    for (const l of lines) if (l.expired.units > 0 && l.expired.cents !== null) next.add(pickKey(l.sku, l.month, "expired"));
+    onChange(next);
+  };
 
   return (
     <div className="flex flex-col gap-3" data-testid="removals">
       <p className="text-sm text-muted-foreground">
-        O abastecimento guarda só o <strong>mês</strong> de cada retirada, não o dia: aparecem os meses inteiros que o período toca ({removals.months.map(monthName).join(", ")}). Valor = unidades × custo de repasse (ESTIMATIVA). Estes números ficam à parte: não entram no valor a repassar.
+        O abastecimento guarda só o <strong>mês</strong> de cada retirada, não o dia: aparecem os meses inteiros que o período toca ({removals.months.map(monthName).join(", ")}). Valor = unidades × custo de repasse (ESTIMATIVA). Só entram no valor a repassar as que você marcar.
       </p>
       {removals.months_without_data.length > 0 && (
         <p className="flex items-start gap-1 text-sm">
@@ -500,6 +529,16 @@ function RemovalsTable({ removals }: { removals: ClosingPreview["removals"] }) {
           Sem abastecimento importado em {removals.months_without_data.map(monthName).join(", ")}: nada foi contado nesse mês.
         </p>
       )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Input className="w-56" placeholder="Filtrar produto ou SKU" aria-label="Filtrar produto das retiradas" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <Button size="sm" variant="outline" onClick={markExpiredOfFilter} disabled={lines.every((l) => l.expired.units === 0)}>
+          Marcar vencidas {needle ? "do filtro" : "de todos"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => onChange(new Set())} disabled={picked.size === 0}>
+          Limpar escolha
+        </Button>
+        <span className="text-xs text-muted-foreground">Marque o que você quer pagar neste fechamento: o valor a repassar soma só o marcado.</span>
+      </div>
       {lines.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhuma retirada vencida, por outro motivo ou devolvida dos produtos desse fornecedor nesses meses.</p>
       ) : (
@@ -521,9 +560,35 @@ function RemovalsTable({ removals }: { removals: ClosingPreview["removals"] }) {
                 <TableCell>{line.name}</TableCell>
                 <TableCell>{monthName(line.month)}</TableCell>
                 <TableCell className="tabular text-right">{line.expired.units}</TableCell>
-                <TableCell className="tabular text-right">{line.expired.cents === null ? "sem custo" : formatCents(line.expired.cents)}</TableCell>
+                <TableCell className="tabular text-right">
+                  <label className="inline-flex items-center justify-end gap-1.5">
+                    {line.expired.units > 0 && (
+                      <input
+                        type="checkbox"
+                        aria-label={`Pagar vencidas de ${line.name} em ${monthName(line.month)}`}
+                        checked={picked.has(pickKey(line.sku, line.month, "expired"))}
+                        disabled={line.expired.cents === null}
+                        onChange={() => toggle(line.sku, line.month, "expired")}
+                      />
+                    )}
+                    {line.expired.cents === null ? "sem custo" : formatCents(line.expired.cents)}
+                  </label>
+                </TableCell>
                 <TableCell className="tabular text-right">{line.other_reason.units}</TableCell>
-                <TableCell className="tabular text-right">{line.other_reason.cents === null ? "sem custo" : formatCents(line.other_reason.cents)}</TableCell>
+                <TableCell className="tabular text-right">
+                  <label className="inline-flex items-center justify-end gap-1.5">
+                    {line.other_reason.units > 0 && (
+                      <input
+                        type="checkbox"
+                        aria-label={`Pagar outro motivo de ${line.name} em ${monthName(line.month)}`}
+                        checked={picked.has(pickKey(line.sku, line.month, "other_reason"))}
+                        disabled={line.other_reason.cents === null}
+                        onChange={() => toggle(line.sku, line.month, "other_reason")}
+                      />
+                    )}
+                    {line.other_reason.cents === null ? "sem custo" : formatCents(line.other_reason.cents)}
+                  </label>
+                </TableCell>
                 <TableCell className="tabular text-right">{line.returned.units}</TableCell>
               </TableRow>
             ))}
@@ -787,9 +852,36 @@ function DetailDialog({ settlement, onClose }: { settlement: Settlement | null; 
                   </TableBody>
                 </Table>
               ) : (
-                <ClosingLinesTable lines={closing} totals={{ units: closing.reduce((n, l) => n + l.sold_units, 0), cents: current.owed_cents }} />
+                <ClosingLinesTable lines={closing} totals={{ units: closing.reduce((n, l) => n + l.sold_units, 0), cents: closing.reduce((n, l) => n + l.total_cents, 0) }} />
               )}
             </div>
+            {(current.evidence.extras ?? []).length > 0 && (
+              <div className="flex flex-col gap-1" data-testid="detail-extras">
+                <p className="text-sm font-medium">Vencidas e outro motivo escolhidas para pagar neste fechamento</p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Produto</TableHead>
+                      <TableHead>Mês</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead className="text-right">Unidades</TableHead>
+                      <TableHead className="text-right">Valor</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(current.evidence.extras ?? []).map((e) => (
+                      <TableRow key={`${e.sku}-${e.month}-${e.kind}`}>
+                        <TableCell>{e.name}</TableCell>
+                        <TableCell>{monthName(e.month)}</TableCell>
+                        <TableCell>{e.kind === "expired" ? "Vencidas" : "Outro motivo"}</TableCell>
+                        <TableCell className="tabular text-right">{e.units}</TableCell>
+                        <TableCell className="tabular text-right">{formatCents(e.total_cents)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
             {current.state === "confirmed" && (
               <div className="flex flex-wrap items-end gap-3">
                 <label className="flex flex-col gap-1 text-xs text-muted-foreground">

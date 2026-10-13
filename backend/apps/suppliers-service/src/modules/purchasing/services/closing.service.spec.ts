@@ -123,6 +123,34 @@ describe('ClosingService.confirm', () => {
   })
 })
 
+describe('ClosingService.confirm — vencidas e outro motivo escolhidos', () => {
+  const sold = { rows: [{ sku: 'A', quantity: 50 }], months_without_dated_receipts: [], stores_missing: 0 }
+
+  it('the owed amount is the sales plus ONLY the removals the person picked, valued by the server', async () => {
+    const { service, created } = build({ costs: [cost], sold })
+    await service.confirm({ ...q, extras: [{ sku: 'A', month: '2026-09', kind: 'expired' }] })
+
+    expect(created[0].owed_cents).toBe(36500 + 2920)
+    expect(created[0].evidence.extras).toEqual([expect.objectContaining({ sku: 'A', month: '2026-09', kind: 'expired', units: 4, total_cents: 2920, unit_cost_cents: 730 })])
+  })
+
+  it('without a choice nothing extra is paid, even if there are removals', async () => {
+    const { service, created } = build({ costs: [cost], sold })
+    await service.confirm(q)
+
+    expect(created[0].owed_cents).toBe(36500)
+    expect(created[0].evidence.extras).toEqual([])
+  })
+
+  it('refuses a removal that does not exist, one chosen twice, and a kind with no units', async () => {
+    const { service } = build({ costs: [cost], sold })
+
+    await expect(service.confirm({ ...q, extras: [{ sku: 'A', month: '2026-08', kind: 'expired' }] })).rejects.toThrow(BadRequestException)
+    await expect(service.confirm({ ...q, extras: [{ sku: 'A', month: '2026-09', kind: 'other_reason' }] })).rejects.toThrow(BadRequestException)
+    await expect(service.confirm({ ...q, extras: [{ sku: 'A', month: '2026-09', kind: 'expired' }, { sku: 'A', month: '2026-09', kind: 'expired' }] })).rejects.toThrow(BadRequestException)
+  })
+})
+
 describe('ClosingService.status', () => {
   beforeEach(() => jest.useFakeTimers({ now: new Date('2026-10-20T15:00:00Z') }))
   afterEach(() => jest.useRealTimers())

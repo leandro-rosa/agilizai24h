@@ -380,6 +380,8 @@ export interface Settlement {
     legacy_lines?: LegacyLine[];
     /** Só no fechamento calculado pelo painel. */
     closing_lines?: ClosingLine[];
+    /** Vencidas e outro motivo que a pessoa escolheu pagar; já estão no valor do fechamento. */
+    extras?: ClosingExtra[];
   };
   confirmed_at: string | null;
   paid_on: string | null;
@@ -391,6 +393,22 @@ export interface ClosingLine {
   sku: string;
   name: string;
   sold_units: number;
+  unit_cost_cents: number;
+  total_cents: number;
+}
+
+export type RemovalKind = "expired" | "other_reason";
+
+/** Uma retirada que a pessoa escolheu pagar: produto + mês + tipo. O servidor recalcula o valor. */
+export interface ClosingExtraPick {
+  sku: string;
+  month: string;
+  kind: RemovalKind;
+}
+
+export interface ClosingExtra extends ClosingExtraPick {
+  name: string;
+  units: number;
   unit_cost_cents: number;
   total_cents: number;
 }
@@ -597,7 +615,7 @@ export const purchasesApi = createApi({
     previewClosing: builder.mutation<ClosingPreview, { supplier_id: number; period_from: string; period_to: string }>({
       query: (body) => ({ url: "/closings/preview", method: "POST", body }),
     }),
-    confirmClosing: builder.mutation<Settlement, { supplier_id: number; period_from: string; period_to: string; accept_incomplete?: boolean }>({
+    confirmClosing: builder.mutation<Settlement, { supplier_id: number; period_from: string; period_to: string; accept_incomplete?: boolean; extras?: ClosingExtraPick[] }>({
       query: (body) => ({ url: "/closings/confirm", method: "POST", body }),
       invalidatesTags: ["Settlement"],
     }),

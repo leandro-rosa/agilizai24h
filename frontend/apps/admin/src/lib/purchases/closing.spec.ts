@@ -1,6 +1,6 @@
 import type { ClosingPreview } from "@/lib/api/purchases";
 
-import { issueText, nextAfter, overlapsLast, rangeOfLength, verdictOf } from "./closing";
+import { issueText, nextAfter, overlapsLast, pickKey, pickedTotal, picksOf, rangeOfLength, verdictOf } from "./closing";
 
 const base: ClosingPreview = {
   supplier_id: 75, supplier_name: "Quinoa", period_from: "2026-09-30", period_to: "2026-10-12", status: "ready", config_missing: [], conflict: null,
@@ -46,5 +46,28 @@ describe("período", () => {
 
   it("duração de 14 dias a partir de 30/09 termina em 13/10", () => {
     expect(rangeOfLength("2026-09-30", 14)).toEqual({ from: "2026-09-30", to: "2026-10-13" });
+  });
+});
+
+describe("escolha de vencidas e outro motivo", () => {
+  const lines = [
+    { sku: "100083", name: "Cone", month: "2026-09", expired: { units: 109, cents: 64855 }, other_reason: { units: 2, cents: 1190 }, returned: { units: 0, cents: 0 } },
+    { sku: "100083", name: "Cone", month: "2026-10", expired: { units: 10, cents: 5950 }, other_reason: { units: 0, cents: 0 }, returned: { units: 0, cents: 0 } },
+    { sku: "9992", name: "Pizza", month: "2026-10", expired: { units: 10, cents: 7920 }, other_reason: { units: 0, cents: 0 }, returned: { units: 0, cents: 0 } },
+    { sku: "X", name: "Sem custo", month: "2026-10", expired: { units: 3, cents: null }, other_reason: { units: 0, cents: 0 }, returned: { units: 0, cents: 0 } },
+  ];
+
+  it("soma só o que foi marcado: os cones vencidos de setembro e outubro dão R$ 708,05", () => {
+    const keys = new Set([pickKey("100083", "2026-09", "expired"), pickKey("100083", "2026-10", "expired")]);
+    expect(pickedTotal(lines, keys)).toEqual({ units: 119, cents: 70805 });
+  });
+
+  it("nada marcado soma zero; sem custo ou sem unidades não soma", () => {
+    expect(pickedTotal(lines, new Set())).toEqual({ units: 0, cents: 0 });
+    expect(pickedTotal(lines, new Set([pickKey("X", "2026-10", "expired"), pickKey("100083", "2026-10", "other_reason")]))).toEqual({ units: 0, cents: 0 });
+  });
+
+  it("devolve a seleção na forma que o servidor recebe", () => {
+    expect(picksOf(new Set([pickKey("100083", "2026-09", "expired")]))).toEqual([{ sku: "100083", month: "2026-09", kind: "expired" }]);
   });
 });

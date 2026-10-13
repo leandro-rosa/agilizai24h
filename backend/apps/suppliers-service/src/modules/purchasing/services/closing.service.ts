@@ -132,6 +132,9 @@ export class ClosingService {
     if (view.status === 'no_sales') throw new BadRequestException('No sales in this period: there is nothing to settle')
     if (view.status === 'incomplete' && !(onlyAcceptable && dto.accept_incomplete === true)) throw new BadRequestException('The period is incomplete: ' + view.issues.map(i => i.code).join(', '))
 
+    const extras = this.pickExtras(view, dto.extras ?? [])
+    const extrasCents = extras.reduce((sum, e) => sum + e.total_cents, 0)
+
     const interval = { from: dto.period_from, until: addDays(dto.period_to, 1) }
     try {
       const saved = await this.prisma.settlement.create({
@@ -142,7 +145,7 @@ export class ClosingService {
           period_start: date(interval.from),
           period_end: date(interval.until),
           state: 'confirmed',
-          owed_cents: view.total_cents,
+          owed_cents: view.total_cents + extrasCents,
           partial: view.status === 'incomplete',
           confirmed_at: new Date(),
           evidence: {
@@ -150,10 +153,11 @@ export class ClosingService {
             lines: [],
             soldNotCovered: {},
             quality: { salesUnknown: false, monthsWithoutDatedReceipts: [], storesMissing: Number(view.issues.find(i => i.code === 'stores_missing')?.detail ?? 0) },
-            formula: 'devido = unidades vendidas × custo de repasse combinado com o fornecedor (vigente no primeiro dia do período)',
+            formula: 'devido = unidades vendidas × custo de repasse combinado com o fornecedor (vigente no primeiro dia do período) + as vencidas e outro motivo que a pessoa escolheu pagar',
             source: 'fechamento calculado pelo painel',
             registered_by: dto.actor ?? null,
             closing_lines: view.lines,
+            extras,
           } as never,
         },
         include: { supplier: true },
@@ -164,6 +168,24 @@ export class ClosingService {
       if ((error as { code?: string }).code === 'P2002') throw new ConflictException(`A settlement of this supplier already starts on ${interval.from}`)
       throw error
     }
+  }
+
+  /** The removals the person chose to pay, valued here from the supply data (never from the screen): each one must exist, have units and a cost, and appear once. */
+  private pickExtras(view: ClosingPreviewView, wanted: Array<{ sku: string; month: string; kind: 'expired' | 'other_reason' }>) {
+    const seen = new Set<string>()
+    const out: Array<{ sku: string; name: string; month: string; kind: 'expired' | 'other_reason'; units: number; unit_cost_cents: number; total_cents: number }> = []
+    for (const w of wanted) {
+      const key = `${w.sku}|${w.month}|${w.kind}`
+      if (seen.has(key)) throw new BadRequestException(`${w.sku} ${w.month} ${w.kind} was chosen twice`)
+      seen.add(key)
+      const line = view.removals?.lines.find(l => l.sku === w.sku && l.month === w.month)
+      const cell = line?.[w.kind]
+      if (!line || !cell || cell.units <= 0) throw new BadRequestException(`There are no ${w.kind} units of ${w.sku} in ${w.month} to pay`)
+      if (cell.cents === null) throw new BadRequestException(`${w.sku} has no agreed cost: its ${w.kind} units cannot be valued`)
+      out.push({ sku: w.sku, name: line.name, month: w.month, kind: w.kind, units: cell.units, unit_cost_cents: cell.cents / cell.units, total_cents: cell.cents })
+    }
+
+    return out
   }
 
   private validate(dto: ClosingQueryDto): DayInterval {

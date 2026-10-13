@@ -1,4 +1,4 @@
-import type { ClosingIssue, ClosingPreview } from "@/lib/api/purchases";
+import type { ClosingExtraPick, ClosingIssue, ClosingPreview, RemovalKind, RemovalLine } from "@/lib/api/purchases";
 
 import { addDays, formatDate } from "./money";
 
@@ -53,4 +53,29 @@ export function nextAfter(last: { period_to: string }): string {
 
 export function rangeOfLength(from: string, days: number): { from: string; to: string } {
   return { from, to: addDays(from, days - 1) };
+}
+
+export const pickKey = (sku: string, month: string, kind: RemovalKind) => `${sku}|${month}|${kind}`;
+
+/** O que a pessoa marcou, na forma que o servidor recebe. */
+export function picksOf(keys: Set<string>): ClosingExtraPick[] {
+  return [...keys].map((key) => {
+    const [sku, month, kind] = key.split("|");
+    return { sku, month, kind: kind as RemovalKind };
+  });
+}
+
+/** Soma só o que foi marcado e tem valor (a conta que vale é a do servidor; esta só mostra o resultado enquanto a pessoa escolhe). */
+export function pickedTotal(lines: RemovalLine[], keys: Set<string>): { units: number; cents: number } {
+  let units = 0;
+  let cents = 0;
+  for (const line of lines)
+    for (const kind of ["expired", "other_reason"] as const) {
+      const cell = line[kind];
+      if (keys.has(pickKey(line.sku, line.month, kind)) && cell.units > 0 && cell.cents !== null) {
+        units += cell.units;
+        cents += cell.cents;
+      }
+    }
+  return { units, cents };
 }

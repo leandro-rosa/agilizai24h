@@ -247,7 +247,7 @@ describe("Fechamentos de fornecedores — novo fechamento", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar fechamento" }));
 
-    await waitFor(() => expect(confirmClosing).toHaveBeenCalledWith({ supplier_id: 75, period_from: "2026-09-30", period_to: "2026-10-12", accept_incomplete: false }));
+    await waitFor(() => expect(confirmClosing).toHaveBeenCalledWith({ supplier_id: 75, period_from: "2026-09-30", period_to: "2026-10-12", accept_incomplete: false, extras: [] }));
   });
 });
 
@@ -261,7 +261,7 @@ describe("Fechamentos de fornecedores — vencidos e outro motivo, à parte", ()
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Vencidos e outro motivo" }), { button: 0, ctrlKey: false });
 
     const table = screen.getByTestId("removals");
-    expect(table).toHaveTextContent("não entram no valor a repassar");
+    expect(table).toHaveTextContent("Só entram no valor a repassar as que você marcar");
     expect(table).toHaveTextContent("setembro/2026");
     expect(table).toHaveTextContent("109");
     expect(table).toHaveTextContent("R$ 648,55");
@@ -269,6 +269,51 @@ describe("Fechamentos de fornecedores — vencidos e outro motivo, à parte", ()
     expect(table).toHaveTextContent("R$ 59,50");
     expect(table).toHaveTextContent("R$ 11,90");
     expect(screen.getByTestId("closing-result")).toHaveTextContent("R$ 742,50");
+  });
+
+  it("marcar os cones vencidos soma só eles ao valor a repassar; o que não foi marcado não entra", async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, READY);
+    expect(screen.getByTestId("closing-result")).toHaveTextContent("Só o vendido");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Vencidos e outro motivo" }), { button: 0, ctrlKey: false });
+
+    fireEvent.click(screen.getByLabelText("Pagar vencidas de Cone trufado em setembro/2026"));
+    fireEvent.click(screen.getByLabelText("Pagar vencidas de Cone trufado em outubro/2026"));
+
+    const result = screen.getByTestId("closing-result");
+    expect(result).toHaveTextContent("R$ 1.450,55");
+    expect(result).toHaveTextContent("Vendido R$ 742,50 + R$ 708,05 escolhidos (119 un.)");
+    expect(screen.getByLabelText("Pagar outro motivo de Cone trufado em setembro/2026")).not.toBeChecked();
+  });
+
+  it("o filtro acha o produto, 'Marcar vencidas do filtro' marca só os dele e 'Limpar escolha' volta ao só vendido", async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, READY);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Vencidos e outro motivo" }), { button: 0, ctrlKey: false });
+
+    fireEvent.change(screen.getByLabelText("Filtrar produto das retiradas"), { target: { value: "cone" } });
+    fireEvent.click(screen.getByRole("button", { name: "Marcar vencidas do filtro" }));
+    expect(screen.getByTestId("closing-result")).toHaveTextContent("R$ 1.450,55");
+
+    fireEvent.click(screen.getByRole("button", { name: "Limpar escolha" }));
+    expect(screen.getByTestId("closing-result")).toHaveTextContent("Só o vendido");
+  });
+
+  it("a escolha vai para o servidor ao confirmar, e uma nova consulta começa sem nada marcado", async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, READY);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Vencidos e outro motivo" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByLabelText("Pagar vencidas de Cone trufado em setembro/2026"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar fechamento" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirmar fechamento" }));
+    await waitFor(() => expect(confirmClosing).toHaveBeenCalledWith({ supplier_id: 75, period_from: "2026-09-30", period_to: "2026-10-12", accept_incomplete: false, extras: [{ sku: "100083", month: "2026-09", kind: "expired" }] }));
   });
 
   it("sem leitura do abastecimento diz isso, em vez de mostrar zero", async () => {
