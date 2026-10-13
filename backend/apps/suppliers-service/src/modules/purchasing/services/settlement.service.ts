@@ -90,7 +90,6 @@ function toView(row: Row): SettlementView {
   }
 }
 
-@Injectable()
 /** The days a proposal covers: the chosen first..last day (both included), or the Monday-to-Sunday week of `week_start`. */
 function proposalInterval(dto: ProposeSettlementDto): DayInterval {
   if (dto.period_from || dto.period_to) {
@@ -105,6 +104,7 @@ function proposalInterval(dto: ProposeSettlementDto): DayInterval {
   return weekInterval(weekStartOf(dto.week_start))
 }
 
+@Injectable()
 export class SettlementService {
   constructor(
     private readonly prisma: PrismaClientService,
