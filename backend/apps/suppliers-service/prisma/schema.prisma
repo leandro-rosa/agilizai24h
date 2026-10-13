@@ -34,6 +34,8 @@ model Supplier {
   aliases     SupplierAlias[]
   purchases   Purchase[]
   settlements Settlement[]
+  consignment_agreement ConsignmentAgreement?
+  consignment_costs     ConsignmentCost[]
 
   @@index([status])
   @@index([category])
@@ -196,8 +198,13 @@ model SupplierProductCode {
 model Settlement {
   id          Int      @id @default(autoincrement())
   supplier_id Int
-  /// Segunda-feira da semana ISO.
+  /// Primeiro dia coberto (segunda-feira da semana ISO nos acertos regulares).
   week_start  DateTime @db.Date
+  /// regular | legacy. Um acerto `legacy` veio de fora do sistema (planilha) e já está pago; nunca entra no saldo corrido dos regulares.
+  kind        String   @default("regular")
+  /// Dias de São Paulo cobertos: [period_start, period_end), fim exclusivo.
+  period_start DateTime @db.Date
+  period_end   DateTime @db.Date
   /// proposal | confirmed | paid
   state       String   @default("proposal")
   owed_cents  Int
@@ -215,7 +222,44 @@ model Settlement {
 
   @@unique([supplier_id, week_start])
   @@index([state])
+  @@index([supplier_id, period_end])
   @@map("settlement")
+}
+
+/// O acordo de consignação de um fornecedor: de quanto em quanto tempo se fecha e quando começou. O custo de repasse é sempre o vigente na
+/// data da venda (`ConsignmentCost`); não existe modo "custo do lote recebido" nesta entrega.
+model ConsignmentAgreement {
+  id          Int      @id @default(autoincrement())
+  supplier_id Int      @unique
+  /// 7, 10, 15 ou um número de dias personalizado.
+  period_days Int
+  /// Início do primeiro fechamento regular. Nulo até o saldo inicial ser confirmado.
+  first_closing_on DateTime? @db.Date
+  /// Único valor aceito hoje.
+  cost_basis  String   @default("sale_date")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  supplier Supplier @relation(fields: [supplier_id], references: [id])
+
+  @@map("consignment_agreement")
+}
+
+/// Custo de repasse de um SKU a partir de `valid_from`. Append-only: corrigir é lançar outra vigência, nunca editar a antiga.
+model ConsignmentCost {
+  id              Int      @id @default(autoincrement())
+  supplier_id     Int
+  sku             String
+  valid_from      DateTime @db.Date
+  unit_cost_cents Int
+  note            String?
+  created_at      DateTime @default(now())
+
+  supplier Supplier @relation(fields: [supplier_id], references: [id])
+
+  @@unique([supplier_id, sku, valid_from])
+  @@index([supplier_id, sku])
+  @@map("consignment_cost")
 }
 
 /// Histórico de etapas de um pedido: de/para, quem e quando. Nunca editado.

@@ -4,7 +4,7 @@ import { SalesClient } from '../clients/sales.client'
 import type { SettlementState } from '../constants/purchase-vocabulary'
 import type { ProposeSettlementDto } from '../dto/settlement.dto'
 import { computeSettlement, type OnSaleItem, type PriorLine, type SettlementLine, type WriteOff } from '../utils/settlement'
-import { isDay, weekRange, weekStartOf } from '../utils/week'
+import { addDays, isDay, weekRange, weekStartOf } from '../utils/week'
 
 export interface SettlementEvidence {
   lines: SettlementLine[]
@@ -129,9 +129,10 @@ export class SettlementService {
       formula: 'devido = unidades vendidas × custo unitário; vencidas, devolvidas e sem vender não são devidas',
     }
 
+    const periodEnd = new Date(`${addDays(weekStart, 7)}T00:00:00Z`)
     const saved = await this.prisma.settlement.upsert({
       where: { supplier_id_week_start: { supplier_id: dto.supplier_id, week_start: weekDate } },
-      create: { supplier_id: dto.supplier_id, week_start: weekDate, state: 'proposal', owed_cents: result.owedCents, partial, evidence: evidence as never },
+      create: { supplier_id: dto.supplier_id, week_start: weekDate, period_start: weekDate, period_end: periodEnd, state: 'proposal', owed_cents: result.owedCents, partial, evidence: evidence as never },
       update: { owed_cents: result.owedCents, partial, evidence: evidence as never },
       include: { supplier: true },
     })
