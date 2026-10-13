@@ -16,6 +16,9 @@ let settlement: Record<string, unknown> = {
   supplier_name: "Quinoa",
   week_start: "2026-10-05",
   week_end: "2026-10-11",
+  kind: "regular",
+  period_from: "2026-10-05",
+  period_to: "2026-10-11",
   state: "proposal",
   counts_as_owed: false,
   owed_cents: 31000,
@@ -25,6 +28,14 @@ let settlement: Record<string, unknown> = {
   paid_on: null,
   payment_note: null,
 };
+
+const legacySettlement = {
+  id: 9, supplier_id: 6, supplier_name: "Doces e congelados", week_start: "2026-09-22", week_end: "2026-09-29", kind: "legacy", period_from: "2026-09-22", period_to: "2026-09-29",
+  state: "paid", counts_as_owed: true, owed_cents: 69711, partial: false,
+  evidence: { lines: [], soldNotCovered: {}, quality: { salesUnknown: false, monthsWithoutDatedReceipts: [], storesMissing: 0 }, formula: "acerto histórico", kind: "legacy", source: "planilha", legacy_lines: [{ name: "Pão de mel", sku: "110022", unit_cost_cents: 730, quantity: 30, total_cents: 21900 }, { name: "Pudim", sku: null, unit_cost_cents: 693, quantity: 0, total_cents: 0 }] },
+  confirmed_at: "2026-09-30T00:00:00.000Z", paid_on: "2026-09-30", payment_note: null,
+};
+const lastSettlement: Record<number, unknown> = { 6: legacySettlement };
 
 const PRODUCTS = [{ id: 1, sku: "Q1", name: "Wrap de quinoa" }, { id: 2, sku: "Q2", name: "Barra" }, { id: 3, sku: "Q3", name: "Cookie" }];
 
@@ -42,7 +53,8 @@ jest.doMock("../../lib/api/purchases", () => ({
   useRetryCostSyncMutation: () => [retryCostSync, { isLoading: false }],
   useResolvePendingLineMutation: () => [resolveLine, { isLoading: false }],
   useGetPurchasesQuery: () => ({ data: [{ ...PURCHASE }] }),
-  useGetSettlementsQuery: () => ({ data: [settlement] }),
+  useGetSettlementsQuery: () => ({ data: [settlement, legacySettlement] }),
+  useGetLastSettlementQuery: (arg: { supplierId: number }) => ({ data: { settlement: lastSettlement[arg.supplierId] ?? null } }),
   useGetOpenTotalQuery: () => ({ data: { confirmed_cents: 12000, proposals: 1 } }),
   useProposeSettlementMutation: () => [propose, { isLoading: false }],
   useConfirmSettlementMutation: () => [confirmSettlement, { isLoading: false }],
@@ -291,5 +303,37 @@ describe("SettlementScreen — escolha do fornecedor", () => {
 
     expect(screen.queryByTestId("no-consigned-notice")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Calcular proposta|Recalcular proposta/ })).toBeEnabled();
+  });
+
+  it("mostra a data do último acerto do fornecedor escolhido", () => {
+    render(<SettlementScreen />);
+    fireEvent.change(screen.getByLabelText("Fornecedor do acerto"), { target: { value: "6" } });
+
+    const last = screen.getByTestId("last-settlement");
+    expect(last).toHaveTextContent("22/09/2026 a 29/09/2026");
+    expect(last).toHaveTextContent("pago em 30/09/2026");
+    expect(last).toHaveTextContent("R$ 697,11");
+  });
+
+  it("fornecedor sem acerto confirmado diz isso, sem inventar data", () => {
+    render(<SettlementScreen />);
+    fireEvent.change(screen.getByLabelText("Fornecedor do acerto"), { target: { value: "5" } });
+
+    expect(screen.getByTestId("last-settlement")).toHaveTextContent("Nenhum acerto confirmado ainda");
+  });
+});
+
+describe("SettlementScreen — acerto histórico", () => {
+  it("lista o acerto histórico com o período e abre as linhas da planilha, sem a tela de proposta", () => {
+    render(<SettlementScreen />);
+
+    expect(screen.getAllByText("22/09/2026 a 29/09/2026").length).toBeGreaterThan(0);
+    expect(screen.getByText("Histórico")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Abrir" })[1]);
+
+    expect(screen.getByText("Pão de mel")).toBeInTheDocument();
+    expect(screen.getByText("Acerto histórico (já pago)")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirmar acerto" })).not.toBeInTheDocument();
   });
 });

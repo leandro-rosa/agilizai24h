@@ -346,12 +346,25 @@ export interface SettlementLine {
   writeOffCapped: boolean;
 }
 
+/** Uma linha do acerto histórico (planilha, já pago). */
+export interface LegacyLine {
+  name: string;
+  sku: string | null;
+  unit_cost_cents: number;
+  quantity: number;
+  total_cents: number;
+}
+
 export interface Settlement {
   id: number;
   supplier_id: number;
   supplier_name: string | null;
   week_start: string;
   week_end: string;
+  kind: "regular" | "legacy";
+  /** Primeiro e último dia cobertos, ambos inclusos. */
+  period_from: string;
+  period_to: string;
   state: SettlementState;
   /** Uma proposta ainda não é devida: só conta depois de confirmada. */
   counts_as_owed: boolean;
@@ -362,6 +375,9 @@ export interface Settlement {
     soldNotCovered: Record<string, number>;
     quality: { salesUnknown: boolean; monthsWithoutDatedReceipts: string[]; storesMissing: number };
     formula: string;
+    /** Só no acerto histórico: de onde veio e as linhas da planilha (`lines` fica vazio nele). */
+    source?: string;
+    legacy_lines?: LegacyLine[];
   };
   confirmed_at: string | null;
   paid_on: string | null;
@@ -484,6 +500,10 @@ export const purchasesApi = createApi({
       query: () => "/settlements/open-total",
       providesTags: ["Settlement"],
     }),
+    getLastSettlement: builder.query<{ settlement: Settlement | null }, { supplierId: number }>({
+      query: ({ supplierId }) => `/settlements/last?supplier_id=${supplierId}`,
+      providesTags: ["Settlement"],
+    }),
     proposeSettlement: builder.mutation<Settlement, { supplier_id: number; week_start: string; write_offs?: WriteOff[] }>({
       query: (body) => ({ url: "/settlements/propose", method: "POST", body }),
       invalidatesTags: ["Settlement"],
@@ -519,6 +539,7 @@ export const {
   usePreviewInvoiceMutation,
   useGetSettlementsQuery,
   useGetOpenTotalQuery,
+  useGetLastSettlementQuery,
   useProposeSettlementMutation,
   useConfirmSettlementMutation,
   usePaySettlementMutation,

@@ -15,7 +15,7 @@ import { SupplyController } from './controllers/supply.controller'
 import { AccountingController } from './controllers/accounting.controller'
 import { BillingController } from './controllers/billing.controller'
 import { CapexController } from './controllers/capex.controller'
-import { PayablesController, PurchasesController, SettlementsController } from './controllers/purchases.controller'
+import { ConsignmentController, PayablesController, PurchasesController, SettlementsController } from './controllers/purchases.controller'
 import { SuppliersController } from './controllers/suppliers.controller'
 import { TreasuryController } from './controllers/treasury.controller'
 import { TreasuryDriveFilesController } from './controllers/treasury-drive-files.controller'
@@ -38,7 +38,7 @@ import { TreasuryImportsController } from './controllers/treasury-imports.contro
     FinanceController,
     SuppliersController,
     PurchasesController,
-    SettlementsController, PayablesController,
+    SettlementsController, PayablesController, ConsignmentController,
     TreasuryController,
     TreasuryImportsController,
     TreasuryDriveFilesController,

@@ -14,11 +14,13 @@ import { useGetProductsQuery } from "@/lib/api/products";
 import { useGetSuppliersQuery } from "@/lib/api/suppliers";
 import {
   useConfirmSettlementMutation,
+  useGetLastSettlementQuery,
   useGetOpenTotalQuery,
   useGetPurchasesQuery,
   useGetSettlementsQuery,
   usePaySettlementMutation,
   useProposeSettlementMutation,
+  type LegacyLine,
   type Settlement,
   type SettlementState,
 } from "@/lib/api/purchases";
@@ -29,6 +31,63 @@ const STATE_LABEL: Record<SettlementState, string> = { proposal: "Proposta (aind
 const STATE_TONE: Record<SettlementState, StatusTone> = { proposal: "attention", confirmed: "neutral", paid: "positive" };
 const today = () => new Date().toISOString().slice(0, 10);
 const message = (failure: unknown, fallback: string) => (failure as { data?: { message?: string } })?.data?.message ?? fallback;
+
+/** A data do último acerto confirmado ou pago do fornecedor: de onde parte o próximo. */
+function LastSettlementLine({ supplierId }: { supplierId: number }) {
+  const { data } = useGetLastSettlementQuery({ supplierId });
+  const last = data?.settlement;
+
+  return (
+    <p data-testid="last-settlement" className="text-sm text-muted-foreground">
+      {last
+        ? `Último acerto: ${formatDate(last.period_from)} a ${formatDate(last.period_to)} · ${last.state === "paid" ? `pago em ${formatDate(last.paid_on)}` : "confirmado, aguardando pagamento"} · ${formatCents(last.owed_cents)}${last.kind === "legacy" ? " · histórico" : ""}`
+        : "Nenhum acerto confirmado ainda para este fornecedor."}
+    </p>
+  );
+}
+
+/** Acerto feito fora do sistema (planilha): já pago, só consulta. */
+function LegacySettlementCard({ settlement }: { settlement: Settlement }) {
+  const lines: LegacyLine[] = settlement.evidence.legacy_lines ?? [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-base">
+            {settlement.supplier_name} · {formatDate(settlement.period_from)} a {formatDate(settlement.period_to)}
+          </CardTitle>
+          <StatusBadge tone="positive">Acerto histórico (já pago)</StatusBadge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Pago em {formatDate(settlement.paid_on)} · {formatCents(settlement.owed_cents)} · origem: {settlement.evidence.source ?? "planilha"}
+        </p>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Produto</TableHead>
+              <TableHead className="text-right">Custo</TableHead>
+              <TableHead className="text-right">Quantidade</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {lines.map((line) => (
+              <TableRow key={`${line.name}-${line.sku ?? ""}`}>
+                <TableCell>{line.name}</TableCell>
+                <TableCell className="tabular text-right">{formatCents(line.unit_cost_cents)}</TableCell>
+                <TableCell className="tabular text-right">{line.quantity}</TableCell>
+                <TableCell className="tabular text-right">{formatCents(line.total_cents)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
 
 /**
  * Acerto semanal do consignado: devido = unidades vendidas × custo; o que não vendeu, venceu ou voltou não se paga. O painel calcula uma
@@ -145,13 +204,16 @@ export function SettlementScreen() {
           </Button>
         </CardContent>
       </Card>
+      {chosen && <LastSettlementLine supplierId={chosen.id} />}
       {chosen && !chosen.consigned && (
         <p data-testid="no-consigned-notice" className="text-sm text-muted-foreground">
           {chosen.name} ainda não tem item consignado. Lance uma compra com o item na condição “Consignado” para calcular o acerto.
         </p>
       )}
 
-      {current && (
+      {current && current.kind === "legacy" && <LegacySettlementCard settlement={current} />}
+
+      {current && current.kind !== "legacy" && (
         <Card>
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -273,9 +335,10 @@ export function SettlementScreen() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Semana</TableHead>
+                  <TableHead>Período</TableHead>
                   <TableHead>Fornecedor</TableHead>
                   <TableHead>Estado</TableHead>
+                  <TableHead>Pago em</TableHead>
                   <TableHead className="text-right">Devido</TableHead>
                   <TableHead />
                 </TableRow>
@@ -283,12 +346,16 @@ export function SettlementScreen() {
               <TableBody>
                 {(history.data ?? []).map((settlement) => (
                   <TableRow key={settlement.id}>
-                    <TableCell className="tabular">{formatDate(settlement.week_start)}</TableCell>
+                    <TableCell className="tabular">
+                      {formatDate(settlement.period_from)} a {formatDate(settlement.period_to)}
+                    </TableCell>
                     <TableCell>{settlement.supplier_name}</TableCell>
                     <TableCell>
                       <StatusBadge tone={STATE_TONE[settlement.state]}>{STATE_LABEL[settlement.state]}</StatusBadge>
                       {settlement.partial && <span className="ml-2 text-xs text-warning">parcial</span>}
+                      {settlement.kind === "legacy" && <span className="ml-2 text-xs text-muted-foreground">Histórico</span>}
                     </TableCell>
+                    <TableCell className="tabular">{settlement.paid_on ? formatDate(settlement.paid_on) : "—"}</TableCell>
                     <TableCell className="tabular text-right">{formatCents(settlement.owed_cents)}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" onClick={() => open(settlement)}>

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Req } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query, Req } from '@nestjs/common'
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { S3Service } from '@app/aws'
 import { PERMISSIONS } from '@app/iam-contracts'
@@ -201,6 +201,20 @@ export class SettlementsController {
     return (await this.domains.suppliers({ method: 'post', path: '/settlements/propose', payload: body, correlationId: correlationOf(request) })).data
   }
 
+  @Get('last')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
+  @ApiOperation({ summary: 'The last confirmed or paid settlement of a supplier' })
+  async last(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'get', path: withQuery('/settlements/last', query), correlationId: correlationOf(request) })).data
+  }
+
+  @Post('legacy')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Register a settlement made outside the system, already paid' })
+  async registerLegacy(@Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: '/settlements/legacy', payload: asActor(body, caller), correlationId: correlationOf(request) })).data
+  }
+
   @Get(':id')
   @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
   @ApiOperation({ summary: 'One settlement with its evidence' })
@@ -252,5 +266,33 @@ export class PayablesController {
   @ApiOperation({ summary: 'Undo a recorded payment' })
   async undo(@Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
     return (await this.domains.suppliers({ method: 'post', path: '/payables/undo', payload: asActor(body, caller), correlationId: correlationOf(request) })).data
+  }
+}
+
+/** Consignment agreement and agreed costs (suppliers-service). Reading needs `suppliers:read`; changing, `suppliers:write`. */
+@ApiTags('consignment')
+@Controller('consignment/agreements')
+export class ConsignmentController {
+  constructor(private readonly domains: DomainClient) {}
+
+  @Get(':supplierId')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
+  @ApiOperation({ summary: 'The consignment agreement of a supplier and its costs' })
+  async get(@Param('supplierId') supplierId: string, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'get', path: `/consignment/agreements/${encodeURIComponent(supplierId)}`, correlationId: correlationOf(request) })).data
+  }
+
+  @Put(':supplierId')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Set the periodicity and first closing day' })
+  async put(@Param('supplierId') supplierId: string, @Body() body: unknown, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'put', path: `/consignment/agreements/${encodeURIComponent(supplierId)}`, payload: body, correlationId: correlationOf(request) })).data
+  }
+
+  @Post(':supplierId/costs')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Add a cost vigência' })
+  async addCost(@Param('supplierId') supplierId: string, @Body() body: unknown, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: `/consignment/agreements/${encodeURIComponent(supplierId)}/costs`, payload: body, correlationId: correlationOf(request) })).data
   }
 }

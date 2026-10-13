@@ -2,9 +2,12 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { SalesClient } from '../clients/sales.client'
 import type { SettlementState } from '../constants/purchase-vocabulary'
+import type { LegacySettlementDto } from '../dto/legacy-settlement.dto'
 import type { ProposeSettlementDto } from '../dto/settlement.dto'
+import { legacyEvidence, legacyInterval, validateLegacy } from '../utils/legacy-settlement'
 import { computeSettlement, type OnSaleItem, type PriorLine, type SettlementLine, type WriteOff } from '../utils/settlement'
-import { isDay, weekRange, weekStartOf } from '../utils/week'
+import { findOverlap, lastDay, weekInterval, type DayInterval } from '../utils/settlement-coverage'
+import { addDays, isDay, weekRange, weekStartOf } from '../utils/week'
 
 export interface SettlementEvidence {
   lines: SettlementLine[]
@@ -17,6 +20,11 @@ export interface SettlementEvidence {
   }
   /** `owed = sold × unit cost`, shown with the numbers so the amount can be checked. */
   formula: string
+  /** Só no acerto histórico (`kind = 'legacy'`): de onde veio e as linhas da planilha. `lines` fica vazio nele. */
+  kind?: 'legacy'
+  source?: string
+  registered_by?: string | null
+  legacy_lines?: Array<{ name: string; sku: string | null; unit_cost_cents: number; quantity: number; total_cents: number }>
 }
 
 export interface SettlementView {
@@ -25,6 +33,10 @@ export interface SettlementView {
   supplier_name: string | null
   week_start: string
   week_end: string
+  kind: 'regular' | 'legacy'
+  /** Primeiro e último dia cobertos, ambos inclusos (dias de São Paulo). */
+  period_from: string
+  period_to: string
   state: SettlementState
   /** A proposal is not owed yet: only a confirmed settlement counts. */
   counts_as_owed: boolean
@@ -42,6 +54,9 @@ type Row = {
   id: number
   supplier_id: number
   week_start: Date
+  kind: string
+  period_start: Date
+  period_end: Date
   state: string
   owed_cents: number
   partial: boolean
@@ -60,7 +75,10 @@ function toView(row: Row): SettlementView {
     supplier_id: row.supplier_id,
     supplier_name: row.supplier?.name ?? null,
     week_start: start,
-    week_end: weekRange(start).to,
+    week_end: lastDay({ from: day(row.period_start) as string, until: day(row.period_end) as string }),
+    kind: row.kind as 'regular' | 'legacy',
+    period_from: day(row.period_start) as string,
+    period_to: lastDay({ from: day(row.period_start) as string, until: day(row.period_end) as string }),
     state: row.state as SettlementState,
     counts_as_owed: row.state !== 'proposal',
     owed_cents: row.owed_cents,
@@ -96,6 +114,7 @@ export class SettlementService {
 
     const existing = await this.prisma.settlement.findUnique({ where: { supplier_id_week_start: { supplier_id: dto.supplier_id, week_start: weekDate } } })
     if (existing && existing.state !== 'proposal') throw new ConflictException(`The week of ${weekStart} is already ${existing.state}: it can no longer be recomputed`)
+    await this.assertNoCoveredOverlap(dto.supplier_id, weekInterval(weekStart))
 
     // Delivered means RECEIVED: an order still waiting for receipt is not part of any settlement, and what counts is the received quantity.
     const purchases = await this.prisma.purchase.findMany({
@@ -129,9 +148,10 @@ export class SettlementService {
       formula: 'devido = unidades vendidas × custo unitário; vencidas, devolvidas e sem vender não são devidas',
     }
 
+    const periodEnd = new Date(`${addDays(weekStart, 7)}T00:00:00Z`)
     const saved = await this.prisma.settlement.upsert({
       where: { supplier_id_week_start: { supplier_id: dto.supplier_id, week_start: weekDate } },
-      create: { supplier_id: dto.supplier_id, week_start: weekDate, state: 'proposal', owed_cents: result.owedCents, partial, evidence: evidence as never },
+      create: { supplier_id: dto.supplier_id, week_start: weekDate, period_start: weekDate, period_end: periodEnd, state: 'proposal', owed_cents: result.owedCents, partial, evidence: evidence as never },
       update: { owed_cents: result.owedCents, partial, evidence: evidence as never },
       include: { supplier: true },
     })
@@ -143,6 +163,8 @@ export class SettlementService {
     const row = await this.get(id)
     if (row.state !== 'proposal') throw new ConflictException(`Settlement ${id} is already ${row.state}`)
     if (row.partial && !acceptPartial) throw new ConflictException('This week is partial (missing dated receipts or stores): confirm only with accept_partial, taking the number as it is')
+
+    await this.assertNoCoveredOverlap(row.supplier_id, { from: day(row.period_start) as string, until: day(row.period_end) as string }, id)
 
     const updated = await this.prisma.settlement.update({ where: { id }, data: { state: 'confirmed', confirmed_at: new Date() }, include: { supplier: true } })
 
@@ -185,6 +207,68 @@ export class SettlementService {
     return { confirmed_cents: rows.filter(r => r.state === 'confirmed').reduce((s, r) => s + r.owed_cents, 0), proposals: rows.filter(r => r.state === 'proposal').length }
   }
 
+  /**
+   * Registers a settlement made outside the system (the spreadsheet): already paid, covering the selected days. It never enters the running balance
+   * of regular settlements; its days can never be covered again by another confirmed or paid settlement of the supplier.
+   */
+  async registerLegacy(dto: LegacySettlementDto): Promise<SettlementView> {
+    const problems = validateLegacy(dto)
+    if (problems.length > 0) throw new BadRequestException(problems.join('; '))
+
+    const supplier = await this.prisma.supplier.findUnique({ where: { id: dto.supplier_id } })
+    if (!supplier) throw new NotFoundException(`Supplier ${dto.supplier_id} not found`)
+
+    const interval = legacyInterval(dto)
+    await this.assertNoCoveredOverlap(dto.supplier_id, interval)
+
+    const date = (value: string) => new Date(`${value}T00:00:00Z`)
+    try {
+      const saved = await this.prisma.settlement.create({
+        data: {
+          supplier_id: dto.supplier_id,
+          week_start: date(interval.from),
+          period_start: date(interval.from),
+          period_end: date(interval.until),
+          kind: 'legacy',
+          state: 'paid',
+          owed_cents: dto.total_cents,
+          partial: false,
+          evidence: legacyEvidence(dto) as never,
+          confirmed_at: date(dto.paid_on),
+          paid_on: date(dto.paid_on),
+          payment_note: dto.note,
+        },
+        include: { supplier: true },
+      })
+
+      return toView(saved)
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') throw new ConflictException(`A settlement of this supplier already starts on ${interval.from}`)
+      throw error
+    }
+  }
+
+  /** The most recent confirmed or paid settlement (a proposal is not a settlement yet), by the last day it covers. */
+  async last(supplierId: number): Promise<SettlementView | null> {
+    const row = await this.prisma.settlement.findFirst({
+      where: { supplier_id: supplierId, state: { in: ['confirmed', 'paid'] } },
+      orderBy: [{ period_end: 'desc' }, { id: 'desc' }],
+      include: { supplier: true },
+    })
+
+    return row ? toView(row) : null
+  }
+
+  /** No new settlement may cover a day that another confirmed or paid settlement of the same supplier already covers. */
+  private async assertNoCoveredOverlap(supplierId: number, interval: DayInterval, exceptId?: number): Promise<void> {
+    const rows = await this.prisma.settlement.findMany({
+      where: { supplier_id: supplierId, state: { in: ['confirmed', 'paid'] }, ...(exceptId ? { id: { not: exceptId } } : {}) },
+      select: { id: true, period_start: true, period_end: true },
+    })
+    const hit = findOverlap(interval, rows.map(r => ({ id: r.id, from: day(r.period_start) as string, until: day(r.period_end) as string })))
+    if (hit !== null) throw new ConflictException(`Days from ${interval.from} are already covered by settlement ${hit}: the same sales cannot be settled twice`)
+  }
+
   private async get(id: number) {
     const row = await this.prisma.settlement.findUnique({ where: { id }, include: { supplier: true } })
     if (!row) throw new NotFoundException(`Settlement ${id} not found`)
@@ -195,7 +279,7 @@ export class SettlementService {
   /** Units already owed or written off by CONFIRMED (or paid) earlier weeks, per item. */
   private async priorLines(supplierId: number, before: Date): Promise<PriorLine[]> {
     const rows = await this.prisma.settlement.findMany({
-      where: { supplier_id: supplierId, state: { in: ['confirmed', 'paid'] }, week_start: { lt: before } },
+      where: { supplier_id: supplierId, kind: 'regular', state: { in: ['confirmed', 'paid'] }, week_start: { lt: before } },
       select: { evidence: true },
     })
     const byItem = new Map<number, PriorLine>()

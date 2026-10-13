@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
+import { LegacySettlementDto } from '../dto/legacy-settlement.dto'
 import { ConfirmSettlementDto, ListSettlementsDto, PaySettlementDto, ProposeSettlementDto } from '../dto/settlement.dto'
 import { SettlementService } from '../services/settlement.service'
 
@@ -28,6 +29,22 @@ export class SettlementsController {
   })
   propose(@Body() dto: ProposeSettlementDto, @Headers('x-correlation-id') correlationId?: string) {
     return this.settlements.propose(dto, correlationId)
+  }
+
+  @Get('last')
+  @ApiOperation({ summary: 'The last confirmed or paid settlement of a supplier, or null' })
+  async last(@Query('supplier_id', ParseIntPipe) supplierId: number) {
+    return { settlement: await this.settlements.last(supplierId) }
+  }
+
+  @Post('legacy')
+  @HttpCode(201)
+  @ApiOperation({
+    summary: 'Register a settlement made outside the system (spreadsheet), already paid',
+    description: 'Covers period_from..period_to (both included). Refused if those days are already covered by a confirmed or paid settlement of the supplier.',
+  })
+  registerLegacy(@Body() dto: LegacySettlementDto) {
+    return this.settlements.registerLegacy(dto)
   }
 
   @Get(':id')
