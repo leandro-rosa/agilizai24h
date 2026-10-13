@@ -93,7 +93,7 @@ export const navGroups: NavGroup[] = [
       { title: "Pedidos", href: "/purchases/orders", icon: ClipboardList, permission: "suppliers:read" },
       { title: "Notas fiscais de compra", href: "/purchases/invoices", icon: FileInput, permission: "suppliers:read" },
       { title: "A pagar", href: "/purchases/payments", icon: Wallet, permission: "suppliers:read" },
-      { title: "Acerto semanal", href: "/purchases/settlements", icon: Scale, permission: "suppliers:read" },
+      { title: "Fechamentos de fornecedores", href: "/purchases/settlements", icon: Scale, permission: "suppliers:read" },
     ],
   },
   {

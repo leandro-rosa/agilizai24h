@@ -361,7 +361,7 @@ export interface Settlement {
   supplier_name: string | null;
   week_start: string;
   week_end: string;
-  kind: "regular" | "legacy";
+  kind: "regular" | "legacy" | "closing";
   /** Primeiro e último dia cobertos, ambos inclusos. */
   period_from: string;
   period_to: string;
@@ -378,10 +378,67 @@ export interface Settlement {
     /** Só no acerto histórico: de onde veio e as linhas da planilha (`lines` fica vazio nele). */
     source?: string;
     legacy_lines?: LegacyLine[];
+    /** Só no fechamento calculado pelo painel. */
+    closing_lines?: ClosingLine[];
   };
   confirmed_at: string | null;
   paid_on: string | null;
   payment_note: string | null;
+}
+
+/** Uma linha do fechamento: unidades vendidas × custo de repasse combinado. */
+export interface ClosingLine {
+  sku: string;
+  name: string;
+  sold_units: number;
+  unit_cost_cents: number;
+  total_cents: number;
+}
+
+export type ClosingIssueCode = "cost_changes_in_period" | "sales_dates_missing" | "stores_missing";
+
+export interface ClosingIssue {
+  code: ClosingIssueCode;
+  /** Só uma pessoa decide seguir (loja sem importação); custo ou data faltando nunca passa. */
+  acceptable: boolean;
+  sku?: string;
+  detail?: string;
+}
+
+export type ClosingStatusCode = "ready" | "no_sales" | "incomplete" | "config_pending" | "conflict";
+
+/** O que o servidor calculou para ESTE fornecedor e ESTE período (os campos `supplier_*` e `period_*` são os efetivamente consultados). */
+export interface ClosingPreview {
+  supplier_id: number;
+  supplier_name: string;
+  period_from: string;
+  period_to: string;
+  status: ClosingStatusCode;
+  config_missing: "products"[];
+  conflict: { settlement_id: number; period_from: string; period_to: string; state: string; suggested_from: string } | null;
+  lines: ClosingLine[];
+  total_units: number;
+  total_cents: number;
+  configured_skus: number;
+  skus_without_sales: number;
+  issues: ClosingIssue[];
+  /** Retiradas por vencimento e devoluções pendentes: `null` = ainda não lidas por este cálculo, nunca zero. */
+  withdrawals: null;
+  confirmable: boolean;
+}
+
+export interface ClosingStatus {
+  last: Settlement | null;
+  configured_skus: number;
+  period_days: number | null;
+  suggested: { from: string; to: string } | null;
+  suggestion_reason: "ok" | "no_history" | "nothing_closed_yet";
+}
+
+export interface ConsignmentCost {
+  sku: string;
+  valid_from: string;
+  unit_cost_cents: number;
 }
 
 export interface WriteOff {
@@ -393,7 +450,7 @@ export interface WriteOff {
 export const purchasesApi = createApi({
   reducerPath: "purchasesApi",
   baseQuery: gatewayBaseQuery,
-  tagTypes: ["Purchase", "Settlement", "Payments"],
+  tagTypes: ["Purchase", "Settlement", "Payments", "Consignment"],
   endpoints: (builder) => ({
     getPurchases: builder.query<Purchase[], { supplierId?: number; from?: string; to?: string; invoicesOnly?: boolean; status?: Stage; openOnly?: boolean; sku?: string } | void>({
       query: (args) => {
@@ -508,6 +565,26 @@ export const purchasesApi = createApi({
       query: (body) => ({ url: "/settlements/propose", method: "POST", body }),
       invalidatesTags: ["Settlement"],
     }),
+    getClosingStatus: builder.query<ClosingStatus, { supplierId: number }>({
+      query: ({ supplierId }) => `/closings/status?supplier_id=${supplierId}`,
+      providesTags: ["Settlement", "Consignment"],
+    }),
+    /** Só consulta: não grava nada nem gera dívida. */
+    previewClosing: builder.mutation<ClosingPreview, { supplier_id: number; period_from: string; period_to: string }>({
+      query: (body) => ({ url: "/closings/preview", method: "POST", body }),
+    }),
+    confirmClosing: builder.mutation<Settlement, { supplier_id: number; period_from: string; period_to: string; accept_incomplete?: boolean }>({
+      query: (body) => ({ url: "/closings/confirm", method: "POST", body }),
+      invalidatesTags: ["Settlement"],
+    }),
+    getConsignmentCosts: builder.query<{ agreement: { period_days: number; first_closing_on: string | null } | null; costs: ConsignmentCost[] }, { supplierId: number }>({
+      query: ({ supplierId }) => `/consignment/agreements/${supplierId}`,
+      providesTags: ["Consignment"],
+    }),
+    addConsignmentCost: builder.mutation<ConsignmentCost, { supplierId: number; sku: string; valid_from: string; unit_cost_cents: number; note?: string }>({
+      query: ({ supplierId, ...body }) => ({ url: `/consignment/agreements/${supplierId}/costs`, method: "POST", body }),
+      invalidatesTags: ["Consignment"],
+    }),
     confirmSettlement: builder.mutation<Settlement, { id: number; accept_partial?: boolean }>({
       query: ({ id, ...body }) => ({ url: `/settlements/${id}/confirm`, method: "POST", body }),
       invalidatesTags: ["Settlement"],
@@ -541,6 +618,11 @@ export const {
   useGetOpenTotalQuery,
   useGetLastSettlementQuery,
   useProposeSettlementMutation,
+  useGetClosingStatusQuery,
+  usePreviewClosingMutation,
+  useConfirmClosingMutation,
+  useGetConsignmentCostsQuery,
+  useAddConsignmentCostMutation,
   useConfirmSettlementMutation,
   usePaySettlementMutation,
 } = purchasesApi;

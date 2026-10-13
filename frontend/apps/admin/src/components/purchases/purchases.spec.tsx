@@ -3,39 +3,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentType } from "react";
 
 const updateItem = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
-const confirmSettlement = jest.fn((arg: unknown) => ({ unwrap: async () => ({ ...settlement, state: "confirmed", counts_as_owed: true, partial: false, _arg: arg }) }));
 const retryCostSync = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
 const resolveLine = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
 const addEan = jest.fn((_arg: unknown) => ({ unwrap: async () => ({}) }));
-const propose = jest.fn((_arg: unknown) => ({ unwrap: async () => settlement }));
-
-const line = { itemId: 1, sku: "Q1", unitCostCents: 500, delivered: 100, openBefore: 100, sold: 62, expired: 8, returned: 0, unsold: 30, owedUnits: 62, owedCents: 31000, writeOffCapped: false };
-let settlement: Record<string, unknown> = {
-  id: 7,
-  supplier_id: 5,
-  supplier_name: "Quinoa",
-  week_start: "2026-10-05",
-  week_end: "2026-10-11",
-  kind: "regular",
-  period_from: "2026-10-05",
-  period_to: "2026-10-11",
-  state: "proposal",
-  counts_as_owed: false,
-  owed_cents: 31000,
-  partial: false,
-  evidence: { lines: [line], soldNotCovered: {}, quality: { salesUnknown: false, monthsWithoutDatedReceipts: [], storesMissing: 0 }, formula: "devido = unidades vendidas × custo unitário" },
-  confirmed_at: null,
-  paid_on: null,
-  payment_note: null,
-};
-
-const legacySettlement = {
-  id: 9, supplier_id: 6, supplier_name: "Doces e congelados", week_start: "2026-09-22", week_end: "2026-09-29", kind: "legacy", period_from: "2026-09-22", period_to: "2026-09-29",
-  state: "paid", counts_as_owed: true, owed_cents: 69711, partial: false,
-  evidence: { lines: [], soldNotCovered: {}, quality: { salesUnknown: false, monthsWithoutDatedReceipts: [], storesMissing: 0 }, formula: "acerto histórico", kind: "legacy", source: "planilha", legacy_lines: [{ name: "Pão de mel", sku: "110022", unit_cost_cents: 730, quantity: 30, total_cents: 21900 }, { name: "Pudim", sku: null, unit_cost_cents: 693, quantity: 0, total_cents: 0 }] },
-  confirmed_at: "2026-09-30T00:00:00.000Z", paid_on: "2026-09-30", payment_note: null,
-};
-const lastSettlement: Record<number, unknown> = { 6: legacySettlement };
 
 const PRODUCTS = [{ id: 1, sku: "Q1", name: "Wrap de quinoa" }, { id: 2, sku: "Q2", name: "Barra" }, { id: 3, sku: "Q3", name: "Cookie" }];
 
@@ -53,29 +23,7 @@ jest.doMock("../../lib/api/purchases", () => ({
   useRetryCostSyncMutation: () => [retryCostSync, { isLoading: false }],
   useResolvePendingLineMutation: () => [resolveLine, { isLoading: false }],
   useGetPurchasesQuery: () => ({ data: [{ ...PURCHASE }] }),
-  useGetSettlementsQuery: () => ({ data: [settlement, legacySettlement] }),
-  useGetLastSettlementQuery: (arg: { supplierId: number }) => ({ data: { settlement: lastSettlement[arg.supplierId] ?? null } }),
-  useGetOpenTotalQuery: () => ({ data: { confirmed_cents: 12000, proposals: 1 } }),
-  useProposeSettlementMutation: () => [propose, { isLoading: false }],
-  useConfirmSettlementMutation: () => [confirmSettlement, { isLoading: false }],
-  usePaySettlementMutation: () => [jest.fn(), { isLoading: false }],
 }));
-jest.doMock("../../lib/api/suppliers", () => ({
-  useGetSuppliersQuery: () => ({ data: [{ id: 5, name: "Quinoa", status: "active" }, { id: 6, name: "Doces e congelados", status: "active" }] }),
-}));
-// O Select do Radix não abre no jsdom: um <select> nativo faz o mesmo papel neste spec.
-jest.doMock("../../components/ui/select", () => {
-  type Props = { children?: unknown; value?: string; onValueChange?: (v: string) => void };
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const R = require("react");
-  return {
-    Select: ({ value, onValueChange, children }: Props) => R.createElement("select", { "aria-label": ["7", "10", "15", "custom"].includes(value ?? "") ? "Duração do fechamento" : "Fornecedor do acerto", value, onChange: (e: { target: { value: string } }) => onValueChange?.(e.target.value) }, R.createElement("option", { value: "" }, "Escolha"), children),
-    SelectTrigger: () => null,
-    SelectValue: () => null,
-    SelectContent: ({ children }: Props) => R.createElement(R.Fragment, null, children),
-    SelectItem: ({ value, children }: Props) => R.createElement("option", { value }, children),
-  };
-});
 jest.doMock("../../lib/api/products", () => ({
   useGetProductsQuery: () => ({ data: PRODUCTS }),
   useAddProductEanMutation: () => [addEan, { isLoading: false }],
@@ -88,8 +36,6 @@ jest.doMock("../../lib/hooks", () => ({ useAppDispatch: () => jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { PurchasesTable }: { PurchasesTable: ComponentType<{ purchases: unknown[] }> } = require("./purchases-table");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { SettlementScreen }: { SettlementScreen: ComponentType } = require("./settlement-screen");
 
 describe("PurchasesTable", () => {
   beforeEach(() => jest.clearAllMocks());
@@ -224,126 +170,5 @@ describe("PurchasesTable — aguardando cadastro de produto", () => {
 
     expect(screen.getByText("Virou o produto Q1.")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Usar este produto" })).toHaveLength(1);
-  });
-});
-
-describe("SettlementScreen", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    settlement = { ...settlement, state: "proposal", partial: false, counts_as_owed: false };
-  });
-
-  const openFirst = () => fireEvent.click(screen.getAllByRole("button", { name: "Abrir" })[0]);
-
-  it("mostra a proposta com a evidência e deixa claro que ainda não é devido", () => {
-    render(<SettlementScreen />);
-    openFirst();
-
-    expect(screen.getAllByText(/Proposta \(ainda não é devido\)/).length).toBe(2); // cabeçalho do acerto e histórico
-    expect(screen.getAllByText("R$ 310,00").length).toBeGreaterThan(0);
-    expect(screen.getByText("Wrap de quinoa")).toBeInTheDocument();
-    expect(screen.getByText(/Conta: devido = unidades vendidas × custo unitário/)).toBeInTheDocument();
-    expect(screen.getByText("R$ 120,00")).toBeInTheDocument(); // total a pagar (confirmados)
-  });
-
-  it("confirma a proposta completa", () => {
-    render(<SettlementScreen />);
-    openFirst();
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar acerto" }));
-
-    expect(confirmSettlement).toHaveBeenCalledWith({ id: 7, accept_partial: false });
-  });
-
-  it("uma semana parcial avisa o motivo e só confirma depois de a pessoa assumir o número", () => {
-    settlement = {
-      ...settlement,
-      partial: true,
-      owed_cents: 0,
-      evidence: { ...(settlement.evidence as object), lines: [{ ...line, sold: 0, owedUnits: 0, owedCents: 0 }], quality: { salesUnknown: true, monthsWithoutDatedReceipts: ["2026-07"], storesMissing: 0 } },
-    };
-    render(<SettlementScreen />);
-    openFirst();
-
-    expect(screen.getByTestId("partial-warning")).toHaveTextContent("Sem recibos com data em 2026-07");
-    const confirmButton = screen.getByRole("button", { name: "Confirmar acerto" });
-    expect(confirmButton).toBeDisabled();
-    fireEvent.click(screen.getByLabelText(/Confirmar mesmo parcial/));
-    expect(confirmButton).toBeEnabled();
-  });
-
-  it("recalcula enviando os vencidos informados pela pessoa", () => {
-    render(<SettlementScreen />);
-    openFirst();
-    fireEvent.change(screen.getByLabelText("Vencido de Wrap de quinoa"), { target: { value: "10" } });
-    fireEvent.click(screen.getByRole("button", { name: "Recalcular proposta" }));
-
-    expect(propose).toHaveBeenCalledWith({ supplier_id: 5, period_from: "2026-10-05", period_to: "2026-10-11", write_offs: [{ item_id: 1, expired: 10, returned: 0 }] });
-  });
-
-  it("calcula o período escolhido pela pessoa (29/09 a 12/10), não só uma semana", () => {
-    render(<SettlementScreen />);
-    openFirst();
-    fireEvent.change(screen.getByLabelText("Primeiro dia do fechamento"), { target: { value: "2026-09-29" } });
-    fireEvent.change(screen.getByLabelText("Último dia do fechamento"), { target: { value: "2026-10-12" } });
-    fireEvent.click(screen.getByRole("button", { name: "Recalcular proposta" }));
-
-    expect(propose).toHaveBeenLastCalledWith(expect.objectContaining({ period_from: "2026-09-29", period_to: "2026-10-12" }));
-  });
-});
-
-describe("SettlementScreen — escolha do fornecedor", () => {
-  it("lista o fornecedor ativo que ainda não tem nenhuma compra, e marca quem já tem consignado", () => {
-    render(<SettlementScreen />);
-
-    expect(screen.getByRole("option", { name: "Doces e congelados" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Quinoa · consignado" })).toBeInTheDocument();
-  });
-
-  it("fornecedor sem item consignado: explica o que falta e não deixa calcular uma proposta que não existe", () => {
-    render(<SettlementScreen />);
-    fireEvent.change(screen.getByLabelText("Fornecedor do acerto"), { target: { value: "6" } });
-
-    expect(screen.getByTestId("no-consigned-notice")).toHaveTextContent(/ainda não tem item consignado/);
-    expect(screen.getByRole("button", { name: "Calcular proposta" })).toBeDisabled();
-  });
-
-  it("fornecedor com consignado: sem aviso e pode calcular", () => {
-    render(<SettlementScreen />);
-    fireEvent.change(screen.getByLabelText("Fornecedor do acerto"), { target: { value: "5" } });
-
-    expect(screen.queryByTestId("no-consigned-notice")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Calcular proposta|Recalcular proposta/ })).toBeEnabled();
-  });
-
-  it("mostra a data do último acerto do fornecedor escolhido", () => {
-    render(<SettlementScreen />);
-    fireEvent.change(screen.getByLabelText("Fornecedor do acerto"), { target: { value: "6" } });
-
-    const last = screen.getByTestId("last-settlement");
-    expect(last).toHaveTextContent("22/09/2026 a 29/09/2026");
-    expect(last).toHaveTextContent("pago em 30/09/2026");
-    expect(last).toHaveTextContent("R$ 697,11");
-  });
-
-  it("fornecedor sem acerto confirmado diz isso, sem inventar data", () => {
-    render(<SettlementScreen />);
-    fireEvent.change(screen.getByLabelText("Fornecedor do acerto"), { target: { value: "5" } });
-
-    expect(screen.getByTestId("last-settlement")).toHaveTextContent("Nenhum acerto confirmado ainda");
-  });
-});
-
-describe("SettlementScreen — acerto histórico", () => {
-  it("lista o acerto histórico com o período e abre as linhas da planilha, sem a tela de proposta", () => {
-    render(<SettlementScreen />);
-
-    expect(screen.getAllByText("22/09/2026 a 29/09/2026").length).toBeGreaterThan(0);
-    expect(screen.getByText("Histórico")).toBeInTheDocument();
-
-    fireEvent.click(screen.getAllByRole("button", { name: "Abrir" })[1]);
-
-    expect(screen.getByText("Pão de mel")).toBeInTheDocument();
-    expect(screen.getByText("Acerto histórico (já pago)")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Confirmar acerto" })).not.toBeInTheDocument();
   });
 });

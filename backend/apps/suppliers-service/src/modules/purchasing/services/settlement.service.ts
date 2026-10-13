@@ -21,9 +21,11 @@ export interface SettlementEvidence {
   /** `owed = sold × unit cost`, shown with the numbers so the amount can be checked. */
   formula: string
   /** Só no acerto histórico (`kind = 'legacy'`): de onde veio e as linhas da planilha. `lines` fica vazio nele. */
-  kind?: 'legacy'
+  kind?: 'legacy' | 'closing'
   source?: string
   registered_by?: string | null
+  /** Só no fechamento calculado pelo painel (`kind = 'closing'`). */
+  closing_lines?: Array<{ sku: string; name: string; sold_units: number; unit_cost_cents: number; total_cents: number }>
   legacy_lines?: Array<{ name: string; sku: string | null; unit_cost_cents: number; quantity: number; total_cents: number }>
 }
 
@@ -33,7 +35,7 @@ export interface SettlementView {
   supplier_name: string | null
   week_start: string
   week_end: string
-  kind: 'regular' | 'legacy'
+  kind: 'regular' | 'legacy' | 'closing'
   /** Primeiro e último dia cobertos, ambos inclusos (dias de São Paulo). */
   period_from: string
   period_to: string
@@ -76,7 +78,7 @@ function toView(row: Row): SettlementView {
     supplier_name: row.supplier?.name ?? null,
     week_start: start,
     week_end: lastDay({ from: day(row.period_start) as string, until: day(row.period_end) as string }),
-    kind: row.kind as 'regular' | 'legacy',
+    kind: row.kind as 'regular' | 'legacy' | 'closing',
     period_from: day(row.period_start) as string,
     period_to: lastDay({ from: day(row.period_start) as string, until: day(row.period_end) as string }),
     state: row.state as SettlementState,

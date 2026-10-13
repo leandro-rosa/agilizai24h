@@ -296,3 +296,32 @@ export class ConsignmentController {
     return (await this.domains.suppliers({ method: 'post', path: `/consignment/agreements/${encodeURIComponent(supplierId)}/costs`, payload: body, correlationId: correlationOf(request) })).data
   }
 }
+
+/** Closing of a supplier's consignment for a chosen period. Consulting needs `suppliers:read` and stores nothing; confirming needs `suppliers:write`. */
+@ApiTags('closings')
+@Controller('closings')
+export class ClosingsController {
+  constructor(private readonly domains: DomainClient) {}
+
+  @Get('status')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
+  @ApiOperation({ summary: 'Last settlement, configured products and the next period to close' })
+  async status(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'get', path: withQuery('/closings/status', query), correlationId: correlationOf(request) })).data
+  }
+
+  @Post('preview')
+  @HttpCode(200)
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
+  @ApiOperation({ summary: 'Calculate the closing of a period. Read-only.' })
+  async preview(@Body() body: unknown, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: '/closings/preview', payload: body, correlationId: correlationOf(request) })).data
+  }
+
+  @Post('confirm')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Confirm the closing of a period' })
+  async confirm(@Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: '/closings/confirm', payload: asActor(body, caller), correlationId: correlationOf(request) })).data
+  }
+}

@@ -1,0 +1,705 @@
+"use client";
+
+import { useRef, useState } from "react";
+import { AlertTriangle, CalendarDays, Info, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+
+import { StatusBadge, type StatusTone } from "@/components/status-badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toCents } from "@/components/resource-form-dialog";
+import { useGetProductsQuery } from "@/lib/api/products";
+import { useGetSuppliersQuery } from "@/lib/api/suppliers";
+import {
+  useAddConsignmentCostMutation,
+  useConfirmClosingMutation,
+  useGetClosingStatusQuery,
+  useGetConsignmentCostsQuery,
+  useGetOpenTotalQuery,
+  useGetSettlementsQuery,
+  usePaySettlementMutation,
+  usePreviewClosingMutation,
+  type ClosingPreview,
+  type LegacyLine,
+  type Settlement,
+  type SettlementState,
+} from "@/lib/api/purchases";
+import { issueText, nextAfter, overlapsLast, rangeOfLength, verdictOf } from "@/lib/purchases/closing";
+import { formatCents, formatDate } from "@/lib/purchases/money";
+
+const STATE_LABEL: Record<SettlementState, string> = { proposal: "Proposta", confirmed: "Confirmado (a pagar)", paid: "Pago" };
+const STATE_TONE: Record<SettlementState, StatusTone> = { proposal: "attention", confirmed: "neutral", paid: "positive" };
+const today = () => new Date().toISOString().slice(0, 10);
+const message = (failure: unknown, fallback: string) => (failure as { data?: { message?: string } })?.data?.message ?? fallback;
+
+type Range = { from: string; to: string };
+type Result = { key: string; preview: ClosingPreview } | { key: string; error: string };
+
+/** Fechamentos de fornecedores: consulta explícita de um período (só lê), confirmação que gera a dívida, e o histórico. */
+export function ClosingScreen() {
+  const openTotal = useGetOpenTotalQuery();
+  const [tab, setTab] = useState("new");
+  const [detail, setDetail] = useState<Settlement | null>(null);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card size="sm" className="max-w-sm">
+        <CardHeader>
+          <CardTitle className="text-sm font-normal text-muted-foreground">A pagar (fechamentos confirmados)</CardTitle>
+        </CardHeader>
+        <CardContent className="tabular text-2xl font-semibold">{openTotal.data ? formatCents(openTotal.data.confirmed_cents) : "—"}</CardContent>
+      </Card>
+
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList variant="line">
+          <TabsTrigger value="new">Novo fechamento</TabsTrigger>
+          <TabsTrigger value="history">Histórico</TabsTrigger>
+        </TabsList>
+        <TabsContent value="new">
+          <NewClosing
+            onConfirmed={(settlement) => {
+              setTab("history");
+              setDetail(settlement);
+            }}
+          />
+        </TabsContent>
+        <TabsContent value="history">
+          <History onOpen={setDetail} />
+        </TabsContent>
+      </Tabs>
+
+      <DetailDialog settlement={detail} onClose={() => setDetail(null)} />
+    </div>
+  );
+}
+
+function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => void }) {
+  const suppliers = (useGetSuppliersQuery().data ?? []).filter((s) => s.status === "active").sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const [preview] = usePreviewClosingMutation();
+  const [confirm, { isLoading: confirming }] = useConfirmClosingMutation();
+
+  const [supplierId, setSupplierId] = useState("");
+  const [edited, setEdited] = useState<Range | null>(null);
+  const [length, setLength] = useState("custom");
+  const [result, setResult] = useState<Result | null>(null);
+  const [isLoading, setLoading] = useState(false);
+  const [acceptIncomplete, setAcceptIncomplete] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  // Só a última consulta pode escrever o resultado: uma resposta atrasada de uma seleção anterior é descartada.
+  const latest = useRef(0);
+
+  const id = Number(supplierId) || 0;
+  const status = useGetClosingStatusQuery({ supplierId: id }, { skip: !id });
+  const suggested = status.data?.suggested ?? null;
+  const range: Range = edited ?? suggested ?? { from: "", to: "" };
+  const key = `${id}|${range.from}|${range.to}`;
+  const fresh = result?.key === key;
+  const supplierName = suppliers.find((s) => s.id === id)?.name ?? "";
+  const configured = status.data ? status.data.configured_skus > 0 : null;
+  const rangeInvalid = !range.from || !range.to || range.to < range.from;
+  const overlap = overlapsLast(status.data?.last ?? null, range.from, range.to);
+
+  function chooseSupplier(value: string) {
+    latest.current++;
+    setLoading(false);
+    setSupplierId(value);
+    setEdited(null);
+    setLength("custom");
+    setResult(null);
+    setAcceptIncomplete(false);
+  }
+
+  function changeRange(next: Range, keepLength = false) {
+    latest.current++;
+    setLoading(false);
+    setEdited(next);
+    if (!keepLength) setLength("custom");
+    setAcceptIncomplete(false);
+  }
+
+  async function consult() {
+    const ticket = ++latest.current;
+    const asked = key;
+    setResult(null);
+    setLoading(true);
+    try {
+      const response = await preview({ supplier_id: id, period_from: range.from, period_to: range.to }).unwrap();
+      if (ticket === latest.current) setResult({ key: asked, preview: response });
+    } catch (failure) {
+      if (ticket === latest.current) setResult({ key: asked, error: message(failure, "Não foi possível consultar o período.") });
+    } finally {
+      if (ticket === latest.current) setLoading(false);
+    }
+  }
+
+  async function onConfirm(view: ClosingPreview) {
+    try {
+      const settlement = await confirm({ supplier_id: view.supplier_id, period_from: view.period_from, period_to: view.period_to, accept_incomplete: acceptIncomplete }).unwrap();
+      setConfirmOpen(false);
+      setResult(null);
+      toast.success("Fechamento confirmado: agora conta como valor a pagar.");
+      onConfirmed(settlement);
+    } catch (failure) {
+      setConfirmOpen(false);
+      toast.error(message(failure, "Não foi possível confirmar o fechamento."));
+    }
+  }
+
+  const needsSetup = configured === false;
+  const view = fresh && result && "preview" in result ? result.preview : null;
+  const failed = fresh && result && "error" in result ? result.error : null;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardContent className="flex flex-wrap items-end gap-4 pt-4">
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Fornecedor
+            <Select value={supplierId} onValueChange={chooseSupplier}>
+              <SelectTrigger className="w-64" aria-label="Fornecedor do fechamento">
+                <SelectValue placeholder="Escolha" />
+              </SelectTrigger>
+              <SelectContent>
+                {suppliers.map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Período
+            <Select
+              value={length}
+              onValueChange={(value) => {
+                setLength(value);
+                if (value !== "custom" && range.from) changeRange(rangeOfLength(range.from, Number(value)), true);
+              }}
+            >
+              <SelectTrigger className="w-44" aria-label="Duração do fechamento">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">Semanal · 7 dias</SelectItem>
+                <SelectItem value="10">10 dias</SelectItem>
+                <SelectItem value="15">15 dias</SelectItem>
+                <SelectItem value="custom">Personalizado</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Início
+            <Input
+              type="date"
+              value={range.from}
+              max={today()}
+              onChange={(e) => changeRange(length !== "custom" && e.target.value ? rangeOfLength(e.target.value, Number(length)) : { from: e.target.value, to: range.to }, length !== "custom")}
+              aria-label="Primeiro dia do fechamento"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Fim
+            <Input type="date" value={range.to} max={today()} onChange={(e) => changeRange({ from: range.from, to: e.target.value })} aria-label="Último dia do fechamento" />
+          </label>
+          <Button onClick={consult} disabled={!id || isLoading || needsSetup || rangeInvalid}>
+            {isLoading ? <Loader2 className="size-4 animate-spin" /> : <CalendarDays className="size-4" />}
+            {isLoading ? "Consultando..." : "Consultar período"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {!id && <p className="text-sm text-muted-foreground">Escolha o fornecedor para ver o último fechamento e o próximo período.</p>}
+      {id > 0 && <LastLine status={status.data} loading={status.isLoading} supplierName={supplierName} />}
+      {id > 0 && suggested && (range.from !== suggested.from || range.to !== suggested.to) && (
+        <p className="flex flex-wrap items-center gap-2 text-sm" data-testid="suggestion">
+          Próximo período a fechar: {formatDate(suggested.from)} a {formatDate(suggested.to)}.
+          <Button size="sm" variant="outline" onClick={() => changeRange(suggested)}>
+            Usar este período
+          </Button>
+        </p>
+      )}
+      {id > 0 && overlap && status.data?.last && (
+        <p role="alert" data-testid="overlap-warning" className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 p-2 text-sm">
+          <AlertTriangle className="size-4 shrink-0 text-warning" />O último fechamento termina em {formatDate(status.data.last.period_to)} e este período começa em {formatDate(range.from)}: eles se sobrepõem.
+          <Button size="sm" variant="outline" onClick={() => changeRange({ from: nextAfter(status.data!.last!), to: range.to >= nextAfter(status.data!.last!) ? range.to : nextAfter(status.data!.last!) })}>
+            Começar em {formatDate(nextAfter(status.data.last))}
+          </Button>
+        </p>
+      )}
+
+      {needsSetup && id > 0 && <SetupPanel supplierName={supplierName} onOpen={() => setSetupOpen(true)} />}
+
+      {id > 0 && !needsSetup && !isLoading && !view && !failed && (
+        <p role="status" data-testid="stale-note" className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+          <Info className="size-4 shrink-0" />
+          {result ? "Período alterado. Clique em Consultar período." : "Escolha o período e clique em Consultar período para calcular."}
+        </p>
+      )}
+      {isLoading && (
+        <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Consultando {supplierName} de {formatDate(range.from)} a {formatDate(range.to)}...
+        </p>
+      )}
+      {failed && (
+        <div role="alert" data-testid="query-error" className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 p-3 text-sm">
+          <StatusBadge tone="critical">Erro ao consultar</StatusBadge>
+          <span>{failed}</span>
+          <Button size="sm" variant="outline" onClick={consult}>
+            Tentar de novo
+          </Button>
+        </div>
+      )}
+      {view && (
+        <ResultView
+          view={view}
+          acceptIncomplete={acceptIncomplete}
+          onAccept={setAcceptIncomplete}
+          onConfirm={() => setConfirmOpen(true)}
+          onUseFrom={(from) => changeRange({ from, to: range.to >= from ? range.to : from })}
+          onSetup={() => setSetupOpen(true)}
+        />
+      )}
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar fechamento?</DialogTitle>
+            <DialogDescription>
+              {view ? `${view.supplier_name} · ${formatDate(view.period_from)} a ${formatDate(view.period_to)} · ${formatCents(view.total_cents)}. ` : ""}
+              Passa a contar como valor a pagar e esses dias não poderão ser repassados de novo. O sistema não paga: o “pago” é só o registro.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+              Voltar
+            </Button>
+            <Button onClick={() => view && onConfirm(view)} disabled={confirming}>
+              {confirming ? "Confirmando..." : "Confirmar fechamento"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {id > 0 && <CostsDialog supplierId={id} supplierName={supplierName} open={setupOpen} onOpenChange={setSetupOpen} firstDay={suggested?.from || range.from || today()} />}
+    </div>
+  );
+}
+
+function LastLine({ status, loading, supplierName }: { status: ReturnType<typeof useGetClosingStatusQuery>["data"]; loading: boolean; supplierName: string }) {
+  if (loading || !status) return null;
+  const last = status.last;
+
+  return (
+    <p data-testid="last-settlement" className="text-sm text-muted-foreground">
+      {last
+        ? `Último fechamento de ${supplierName}: ${formatDate(last.period_from)} a ${formatDate(last.period_to)} · ${last.state === "paid" ? `pago em ${formatDate(last.paid_on)}` : "confirmado, aguardando pagamento"} · ${formatCents(last.owed_cents)}. Os detalhes estão no Histórico.`
+        : `Nenhum fechamento confirmado ainda para ${supplierName}.`}
+    </p>
+  );
+}
+
+function SetupPanel({ supplierName, onOpen }: { supplierName: string; onOpen: () => void }) {
+  const steps = [
+    { n: 1, title: "Produtos consignados", text: "Selecione os produtos que serão fornecidos em consignação.", action: "Configurar produtos", enabled: true },
+    { n: 2, title: "Custos de repasse", text: "Informe o custo de repasse de cada produto.", action: "Informar custos", enabled: true },
+    { n: 3, title: "Estoque inicial", text: "Use o estoque que já existe para registrar o saldo inicial.", action: "Conferir saldo", enabled: false },
+  ];
+
+  return (
+    <Card data-testid="setup-panel">
+      <CardHeader>
+        <CardTitle className="text-base">Prepare {supplierName} para o primeiro fechamento</CardTitle>
+        <p className="text-sm text-muted-foreground">Use o estoque que já existe. Não é preciso criar uma compra fictícia.</p>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-3">
+        {steps.map((step) => (
+          <div key={step.n} className="flex flex-col gap-2 rounded-md border p-3">
+            <p className="font-medium">
+              {step.n}. {step.title}
+            </p>
+            <p className="text-sm text-muted-foreground">{step.text}</p>
+            <Button size="sm" variant={step.enabled ? "default" : "outline"} disabled={!step.enabled} onClick={onOpen} className="mt-auto w-fit">
+              {step.action}
+            </Button>
+            {!step.enabled && <p className="text-xs text-muted-foreground">Ainda não é usado neste cálculo (vendas × custo de repasse). Não bloqueia o fechamento.</p>}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ResultView({
+  view,
+  acceptIncomplete,
+  onAccept,
+  onConfirm,
+  onUseFrom,
+  onSetup,
+}: {
+  view: ClosingPreview;
+  acceptIncomplete: boolean;
+  onAccept: (value: boolean) => void;
+  onConfirm: () => void;
+  onUseFrom: (from: string) => void;
+  onSetup: () => void;
+}) {
+  const verdict = verdictOf(view);
+  const showNumbers = view.status === "ready" || view.status === "incomplete";
+  const acceptable = view.issues.length > 0 && view.issues.every((i) => i.acceptable);
+  const canConfirm = view.status === "ready" || (view.status === "incomplete" && acceptable && acceptIncomplete);
+
+  return (
+    <Card data-testid="closing-result">
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-base">
+            Resultado: {view.supplier_name} · {formatDate(view.period_from)} a {formatDate(view.period_to)}
+          </CardTitle>
+          <StatusBadge tone={verdict.tone}>{verdict.title}</StatusBadge>
+        </div>
+        <p className="text-sm text-muted-foreground">{verdict.text}</p>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {view.status === "conflict" && view.conflict && (
+          <Button variant="outline" className="w-fit" onClick={() => onUseFrom(view.conflict!.suggested_from)}>
+            Começar em {formatDate(view.conflict.suggested_from)}
+          </Button>
+        )}
+        {view.status === "config_pending" && (
+          <Button className="w-fit" onClick={onSetup}>
+            Configurar produtos e custos
+          </Button>
+        )}
+        {view.issues.length > 0 && (
+          <ul className="flex flex-col gap-1 text-sm" data-testid="issues">
+            {view.issues.map((issue, index) => (
+              <li key={index} className="flex items-start gap-1">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+                {issueText(issue)}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {showNumbers && (
+          <>
+            <div className="grid gap-3 sm:grid-cols-4">
+              <Figure label="Valor a repassar" value={formatCents(view.total_cents)} />
+              <Figure label="Vendidas" value={`${view.total_units} un.`} />
+              <Figure label="Retiradas por vencimento" value="Não disponível" note="Ainda não lidas por este cálculo." />
+              <Figure label="Devoluções pendentes" value="Não disponível" note="Ainda não lidas por este cálculo." />
+            </div>
+            <Tabs defaultValue="sales">
+              <TabsList variant="line">
+                <TabsTrigger value="sales">Vendas e repasse</TabsTrigger>
+                <TabsTrigger value="expiry">Vencimentos e devoluções</TabsTrigger>
+                <TabsTrigger value="stock">Estoque</TabsTrigger>
+              </TabsList>
+              <TabsContent value="sales">
+                <ClosingLinesTable lines={view.lines} totals={{ units: view.total_units, cents: view.total_cents }} />
+                {view.skus_without_sales > 0 && <p className="mt-2 text-xs text-muted-foreground">{view.skus_without_sales} produto(s) configurado(s) sem venda no período.</p>}
+                <p className="mt-1 text-xs text-muted-foreground">Conta: vendas da rede inteira dos produtos configurados × custo de repasse combinado, vigente no primeiro dia do período (MÉTRICA DERIVADA).</p>
+              </TabsContent>
+              <TabsContent value="expiry">
+                <p className="text-sm text-muted-foreground">Retiradas por vencimento e devoluções ainda não entram neste cálculo. Quando entrarem, aparecem aqui; até lá o valor acima não as desconta.</p>
+              </TabsContent>
+              <TabsContent value="stock">
+                <p className="text-sm text-muted-foreground">A conciliação do estoque ainda não está disponível.</p>
+              </TabsContent>
+            </Tabs>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              {view.status === "incomplete" && acceptable && (
+                <label className="flex items-center gap-1.5 text-sm">
+                  <input type="checkbox" checked={acceptIncomplete} onChange={(e) => onAccept(e.target.checked)} />
+                  Confirmar mesmo incompleto (assumo o número)
+                </label>
+              )}
+              <Button onClick={onConfirm} disabled={!canConfirm}>
+                Confirmar fechamento
+              </Button>
+            </div>
+            {view.status === "incomplete" && !acceptable && <p className="text-right text-xs text-muted-foreground">Não dá para confirmar enquanto faltar custo ou data de venda.</p>}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Figure({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div className="rounded-md border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="tabular text-xl font-semibold">{value}</p>
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
+    </div>
+  );
+}
+
+/** O total vem do servidor quando existe (é o que será confirmado); sem ele, a soma das linhas. */
+function ClosingLinesTable({ lines, totals }: { lines: { sku: string; name: string; sold_units: number; unit_cost_cents: number; total_cents: number }[]; totals?: { units: number; cents: number } }) {
+  const units = totals?.units ?? lines.reduce((s, l) => s + l.sold_units, 0);
+  const total = totals?.cents ?? lines.reduce((s, l) => s + l.total_cents, 0);
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Produto</TableHead>
+          <TableHead className="text-right">Vendidas</TableHead>
+          <TableHead className="text-right">Custo</TableHead>
+          <TableHead className="text-right">Repasse</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {lines.map((line) => (
+          <TableRow key={line.sku}>
+            <TableCell>{line.name}</TableCell>
+            <TableCell className="tabular text-right">{line.sold_units}</TableCell>
+            <TableCell className="tabular text-right">{formatCents(line.unit_cost_cents)}</TableCell>
+            <TableCell className="tabular text-right">{formatCents(line.total_cents)}</TableCell>
+          </TableRow>
+        ))}
+        <TableRow>
+          <TableCell className="font-semibold">Total</TableCell>
+          <TableCell className="tabular text-right font-semibold">{units}</TableCell>
+          <TableCell />
+          <TableCell className="tabular text-right font-semibold">{formatCents(total)}</TableCell>
+        </TableRow>
+      </TableBody>
+    </Table>
+  );
+}
+
+/** Produtos consignados do fornecedor com o custo de repasse de cada um; um custo nunca é editado, a correção é outra vigência. */
+function CostsDialog({ supplierId, supplierName, open, onOpenChange, firstDay }: { supplierId: number; supplierName: string; open: boolean; onOpenChange: (open: boolean) => void; firstDay: string }) {
+  const products = useGetProductsQuery().data ?? [];
+  const costs = useGetConsignmentCostsQuery({ supplierId }, { skip: !open });
+  const [add, { isLoading }] = useAddConsignmentCostMutation();
+  const [sku, setSku] = useState("");
+  const [cost, setCost] = useState("");
+  const [from, setFrom] = useState("");
+
+  const nameOf = (code: string) => products.find((p) => p.sku === code)?.name ?? code;
+  const known = products.find((p) => p.sku === sku.trim());
+  const validFrom = from || firstDay || today();
+
+  async function save() {
+    if (!known) return void toast.error("Escolha um SKU que exista no cadastro de produtos.");
+    const cents = toCents(cost);
+    if (!cost.trim() || cents < 0) return void toast.error("Informe o custo de repasse por unidade, em reais.");
+    try {
+      await add({ supplierId, sku: known.sku, valid_from: validFrom, unit_cost_cents: cents }).unwrap();
+      toast.success(`${known.name}: custo de ${formatCents(cents)} desde ${formatDate(validFrom)}.`);
+      setSku("");
+      setCost("");
+    } catch (failure) {
+      toast.error(message(failure, "Não foi possível salvar o custo."));
+    }
+  }
+
+  const rows = costs.data?.costs ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Produtos consignados e custos de repasse</DialogTitle>
+          <DialogDescription>{supplierName}. Cada produto com custo vira consignado. Um custo não se edita: para corrigir, informe outro com a nova data de início.</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Produto (SKU)
+            <Input list="closing-skus" value={sku} onChange={(e) => setSku(e.target.value)} className="w-40" aria-label="SKU do produto consignado" />
+            <datalist id="closing-skus">
+              {products.map((p) => (
+                <option key={p.sku} value={p.sku}>
+                  {p.name}
+                </option>
+              ))}
+            </datalist>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Custo de repasse (R$)
+            <Input value={cost} onChange={(e) => setCost(e.target.value)} inputMode="decimal" className="w-32" aria-label="Custo de repasse por unidade" />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Vale desde
+            <Input type="date" value={validFrom} onChange={(e) => setFrom(e.target.value)} aria-label="Início da vigência do custo" />
+          </label>
+          <Button onClick={save} disabled={isLoading}>
+            Adicionar
+          </Button>
+        </div>
+        {sku.trim() && <p className="text-xs text-muted-foreground">{known ? known.name : "SKU não encontrado no cadastro."}</p>}
+        <div className="max-h-64 overflow-auto">
+          {rows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum produto consignado configurado ainda.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Produto</TableHead>
+                  <TableHead>Desde</TableHead>
+                  <TableHead className="text-right">Custo</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={`${row.sku}-${row.valid_from}`}>
+                    <TableCell>
+                      {nameOf(row.sku)} <span className="text-xs text-muted-foreground">{row.sku}</span>
+                    </TableCell>
+                    <TableCell className="tabular">{formatDate(row.valid_from)}</TableCell>
+                    <TableCell className="tabular text-right">{formatCents(row.unit_cost_cents)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function History({ onOpen }: { onOpen: (settlement: Settlement) => void }) {
+  const history = useGetSettlementsQuery();
+  const rows = history.data ?? [];
+
+  return (
+    <Card>
+      <CardContent className="pt-4">
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nenhum fechamento ainda.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Fornecedor</TableHead>
+                <TableHead>Período</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead>Situação</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((settlement) => (
+                <TableRow key={settlement.id}>
+                  <TableCell>{settlement.supplier_name}</TableCell>
+                  <TableCell className="tabular">
+                    {formatDate(settlement.period_from)} a {formatDate(settlement.period_to)}
+                  </TableCell>
+                  <TableCell className="tabular text-right">{formatCents(settlement.owed_cents)}</TableCell>
+                  <TableCell>
+                    <StatusBadge tone={STATE_TONE[settlement.state]}>{settlement.state === "paid" ? `Pago em ${formatDate(settlement.paid_on)}` : STATE_LABEL[settlement.state]}</StatusBadge>
+                    {settlement.kind === "legacy" && <span className="ml-2 text-xs text-muted-foreground">Histórico</span>}
+                    {settlement.partial && <span className="ml-2 text-xs text-warning">incompleto</span>}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="sm" onClick={() => onOpen(settlement)}>
+                      Ver detalhes
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DetailDialog({ settlement, onClose }: { settlement: Settlement | null; onClose: () => void }) {
+  const [pay, { isLoading: paying }] = usePaySettlementMutation();
+  const [paidOn, setPaidOn] = useState(today());
+  const [note, setNote] = useState("");
+  // O estado vem sempre da lista atualizada, não da cópia que abriu o diálogo.
+  const history = useGetSettlementsQuery();
+  const current = settlement ? (history.data?.find((s) => s.id === settlement.id) ?? settlement) : null;
+
+  async function onPay() {
+    if (!current) return;
+    try {
+      await pay({ id: current.id, paid_on: paidOn, note: note || undefined }).unwrap();
+      toast.success("Registrado como pago. (O painel não faz pagamento: é só o registro.)");
+    } catch (failure) {
+      toast.error(message(failure, "Não foi possível registrar o pagamento."));
+    }
+  }
+
+  const legacy: LegacyLine[] = current?.evidence.legacy_lines ?? [];
+  const closing = current?.evidence.closing_lines ?? [];
+
+  return (
+    <Dialog open={current !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-3xl">
+        {current && (
+          <>
+            <DialogHeader>
+              <DialogTitle>
+                {current.supplier_name} · {formatDate(current.period_from)} a {formatDate(current.period_to)}
+              </DialogTitle>
+              <DialogDescription>
+                {formatCents(current.owed_cents)} · {STATE_LABEL[current.state]}
+                {current.paid_on ? ` em ${formatDate(current.paid_on)}` : ""}
+                {current.kind === "legacy" ? " · acerto histórico, feito fora do sistema" : ""} · origem: {current.evidence.source ?? "fechamento do painel"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-80 overflow-auto">
+              {current.kind === "legacy" ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Produto</TableHead>
+                      <TableHead className="text-right">Custo</TableHead>
+                      <TableHead className="text-right">Quantidade</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {legacy.map((line) => (
+                      <TableRow key={`${line.name}-${line.sku ?? ""}`}>
+                        <TableCell>{line.name}</TableCell>
+                        <TableCell className="tabular text-right">{formatCents(line.unit_cost_cents)}</TableCell>
+                        <TableCell className="tabular text-right">{line.quantity}</TableCell>
+                        <TableCell className="tabular text-right">{formatCents(line.total_cents)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <ClosingLinesTable lines={closing} totals={{ units: closing.reduce((n, l) => n + l.sold_units, 0), cents: current.owed_cents }} />
+              )}
+            </div>
+            {current.state === "confirmed" && (
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                  Pago em
+                  <Input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} aria-label="Data do pagamento" />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                  Observação
+                  <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex.: PIX" aria-label="Observação do pagamento" />
+                </label>
+                <Button onClick={onPay} disabled={paying}>
+                  {paying ? "Registrando..." : "Marcar como pago"}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

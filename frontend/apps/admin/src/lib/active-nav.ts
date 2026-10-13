@@ -1,5 +1,5 @@
 /**
- * O item de menu que corresponde à rota: o MAIS específico. `/purchases/settlements` pertence a "Acerto semanal", não também a
+ * O item de menu que corresponde à rota: o MAIS específico. `/purchases/settlements` pertence a "Fechamentos de fornecedores", não também a
  * "Compras e Fornecedores" (`/purchases`), e `/inventory/central` não acende "Estoque". Compara por segmento, não por prefixo de texto.
  */
 export function activeHref(pathname: string, hrefs: string[]): string | null {
