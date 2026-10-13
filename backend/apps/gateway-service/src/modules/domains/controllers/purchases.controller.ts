@@ -201,6 +201,20 @@ export class SettlementsController {
     return (await this.domains.suppliers({ method: 'post', path: '/settlements/propose', payload: body, correlationId: correlationOf(request) })).data
   }
 
+  @Get('last')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
+  @ApiOperation({ summary: 'The last confirmed or paid settlement of a supplier' })
+  async last(@Query() query: Record<string, string>, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'get', path: withQuery('/settlements/last', query), correlationId: correlationOf(request) })).data
+  }
+
+  @Post('legacy')
+  @RequiresPermission(PERMISSIONS.SUPPLIERS_WRITE)
+  @ApiOperation({ summary: 'Register a settlement made outside the system, already paid' })
+  async registerLegacy(@Body() body: unknown, @Caller() caller: AuthenticatedCaller, @Req() request: FastifyRequest) {
+    return (await this.domains.suppliers({ method: 'post', path: '/settlements/legacy', payload: asActor(body, caller), correlationId: correlationOf(request) })).data
+  }
+
   @Get(':id')
   @RequiresPermission(PERMISSIONS.SUPPLIERS_READ)
   @ApiOperation({ summary: 'One settlement with its evidence' })
