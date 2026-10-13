@@ -138,4 +138,20 @@ describe('SettlementService.propose — guards', () => {
     expect(priorQuery).toBeDefined()
     expect(priorQuery?.state).toEqual({ in: ['confirmed', 'paid'] })
   })
+
+  it('covers a chosen period (29/09 to 12/10, both included) instead of a week', async () => {
+    const { svc } = service()
+
+    const view = await svc.propose({ supplier_id: 7, period_from: '2026-09-29', period_to: '2026-10-12' })
+
+    expect(view.period_from).toBe('2026-09-29')
+    expect(view.period_to).toBe('2026-10-12')
+  })
+
+  it('refuses an inverted or half-given period', async () => {
+    const { svc } = service()
+
+    await expect(svc.propose({ supplier_id: 7, period_from: '2026-10-12', period_to: '2026-09-29' })).rejects.toThrow(BadRequestException)
+    await expect(svc.propose({ supplier_id: 7, period_from: '2026-09-29' })).rejects.toThrow(BadRequestException)
+  })
 })

@@ -30,6 +30,11 @@ export function weekStartOf(day: string): string {
   return new Date(date.getTime() - weekday * 86_400_000).toISOString().slice(0, 10);
 }
 
+/** `2026-10-05` + 6 → `2026-10-11`. */
+export function addDays(day: string, days: number): string {
+  return new Date(new Date(`${day}T00:00:00Z`).getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
 /** `2026-10-05` → `05/10/2026`. */
 export function formatDate(day: string | null): string {
   return day ? `${day.slice(8, 10)}/${day.slice(5, 7)}/${day.slice(0, 4)}` : "—";

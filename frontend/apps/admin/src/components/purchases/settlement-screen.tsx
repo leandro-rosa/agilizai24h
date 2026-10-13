@@ -24,7 +24,7 @@ import {
   type Settlement,
   type SettlementState,
 } from "@/lib/api/purchases";
-import { formatCents, formatDate, weekStartOf } from "@/lib/purchases/money";
+import { addDays, formatCents, formatDate, weekStartOf } from "@/lib/purchases/money";
 import { supplierOptions } from "@/lib/purchases/supplier-options";
 
 const STATE_LABEL: Record<SettlementState, string> = { proposal: "Proposta (ainda não é devido)", confirmed: "Confirmado (a pagar)", paid: "Pago" };
@@ -104,7 +104,9 @@ export function SettlementScreen() {
   const [pay, { isLoading: paying }] = usePaySettlementMutation();
 
   const [supplierId, setSupplierId] = useState("");
-  const [day, setDay] = useState(today());
+  const [periodFrom, setPeriodFrom] = useState(weekStartOf(today()));
+  const [periodTo, setPeriodTo] = useState(addDays(weekStartOf(today()), 6));
+  const [length, setLength] = useState("7");
   const [current, setCurrent] = useState<Settlement | null>(null);
   const [writeOffs, setWriteOffs] = useState<Record<number, { expired: string; returned: string }>>({});
   const [acceptPartial, setAcceptPartial] = useState(false);
@@ -119,16 +121,18 @@ export function SettlementScreen() {
   function open(settlement: Settlement) {
     setCurrent(settlement);
     setSupplierId(String(settlement.supplier_id));
-    setDay(settlement.week_start);
+    setPeriodFrom(settlement.period_from);
+    setPeriodTo(settlement.period_to);
     setAcceptPartial(false);
     setWriteOffs(Object.fromEntries(settlement.evidence.lines.map((l) => [l.itemId, { expired: String(l.expired), returned: String(l.returned) }])));
   }
 
   async function calculate() {
     if (!supplierId) return void toast.error("Escolha o fornecedor.");
+    if (!periodFrom || !periodTo || periodTo < periodFrom) return void toast.error("Informe o primeiro e o último dia do fechamento (o último não pode ser antes do primeiro).");
     const offs = Object.entries(writeOffs).map(([id, v]) => ({ item_id: Number(id), expired: Number(v.expired) || 0, returned: Number(v.returned) || 0 }));
     try {
-      const result = await propose({ supplier_id: Number(supplierId), week_start: day, write_offs: offs }).unwrap();
+      const result = await propose({ supplier_id: Number(supplierId), period_from: periodFrom, period_to: periodTo, write_offs: offs }).unwrap();
       setCurrent(result);
       if (result.supplier_id !== current?.supplier_id || result.week_start !== current?.week_start)
         setWriteOffs(Object.fromEntries(result.evidence.lines.map((l) => [l.itemId, { expired: String(l.expired), returned: String(l.returned) }])));
@@ -195,10 +199,49 @@ export function SettlementScreen() {
             </Select>
           </label>
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Um dia da semana
-            <Input type="date" value={day} onChange={(e) => setDay(e.target.value)} aria-label="Dia da semana do acerto" />
+            Período
+            <Select
+              value={length}
+              onValueChange={(value) => {
+                setLength(value);
+                if (value !== "custom" && periodFrom) setPeriodTo(addDays(periodFrom, Number(value) - 1));
+              }}
+            >
+              <SelectTrigger className="w-44" aria-label="Duração do fechamento">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">Semanal · 7 dias</SelectItem>
+                <SelectItem value="10">10 dias</SelectItem>
+                <SelectItem value="15">15 dias</SelectItem>
+                <SelectItem value="custom">Personalizado</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
-          <p className="text-sm text-muted-foreground">Semana de segunda {formatDate(weekStartOf(day))}.</p>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Início
+            <Input
+              type="date"
+              value={periodFrom}
+              onChange={(e) => {
+                setPeriodFrom(e.target.value);
+                if (length !== "custom" && e.target.value) setPeriodTo(addDays(e.target.value, Number(length) - 1));
+              }}
+              aria-label="Primeiro dia do fechamento"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Fim
+            <Input
+              type="date"
+              value={periodTo}
+              onChange={(e) => {
+                setPeriodTo(e.target.value);
+                setLength("custom");
+              }}
+              aria-label="Último dia do fechamento"
+            />
+          </label>
           <Button onClick={calculate} disabled={proposing || !editable || (chosen !== undefined && !chosen.consigned)}>
             {proposing ? "Calculando..." : current ? "Recalcular proposta" : "Calcular proposta"}
           </Button>
@@ -218,7 +261,7 @@ export function SettlementScreen() {
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-base">
-                {current.supplier_name} · semana {formatDate(current.week_start)} a {formatDate(current.week_end)}
+                {current.supplier_name} · {formatDate(current.period_from)} a {formatDate(current.period_to)}
               </CardTitle>
               <StatusBadge tone={STATE_TONE[current.state]}>{STATE_LABEL[current.state]}</StatusBadge>
             </div>

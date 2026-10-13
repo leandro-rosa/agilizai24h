@@ -7,7 +7,7 @@ import type { ProposeSettlementDto } from '../dto/settlement.dto'
 import { legacyEvidence, legacyInterval, validateLegacy } from '../utils/legacy-settlement'
 import { computeSettlement, type OnSaleItem, type PriorLine, type SettlementLine, type WriteOff } from '../utils/settlement'
 import { findOverlap, lastDay, weekInterval, type DayInterval } from '../utils/settlement-coverage'
-import { addDays, isDay, weekRange, weekStartOf } from '../utils/week'
+import { addDays, isDay, weekStartOf } from '../utils/week'
 
 export interface SettlementEvidence {
   lines: SettlementLine[]
@@ -91,6 +91,20 @@ function toView(row: Row): SettlementView {
 }
 
 @Injectable()
+/** The days a proposal covers: the chosen first..last day (both included), or the Monday-to-Sunday week of `week_start`. */
+function proposalInterval(dto: ProposeSettlementDto): DayInterval {
+  if (dto.period_from || dto.period_to) {
+    if (!dto.period_from || !dto.period_to) throw new BadRequestException('period_from and period_to go together')
+    if (!isDay(dto.period_from) || !isDay(dto.period_to)) throw new BadRequestException('period_from and period_to must be real dates, YYYY-MM-DD')
+    if (dto.period_to < dto.period_from) throw new BadRequestException('period_to is before period_from')
+
+    return { from: dto.period_from, until: addDays(dto.period_to, 1) }
+  }
+  if (!dto.week_start || !isDay(dto.week_start)) throw new BadRequestException('week_start must be a real date, YYYY-MM-DD')
+
+  return weekInterval(weekStartOf(dto.week_start))
+}
+
 export class SettlementService {
   constructor(
     private readonly prisma: PrismaClientService,
@@ -103,18 +117,19 @@ export class SettlementService {
    * dated receipts owes nothing and says why — it is partial, never silently cheaper.
    */
   async propose(dto: ProposeSettlementDto, correlationId?: string): Promise<SettlementView> {
-    if (!isDay(dto.week_start)) throw new BadRequestException('week_start must be a real date, YYYY-MM-DD')
+    const interval = proposalInterval(dto)
 
     const supplier = await this.prisma.supplier.findUnique({ where: { id: dto.supplier_id } })
     if (!supplier) throw new NotFoundException(`Supplier ${dto.supplier_id} not found`)
 
-    const weekStart = weekStartOf(dto.week_start)
-    const { from, to } = weekRange(weekStart)
+    const weekStart = interval.from
+    const from = interval.from
+    const to = lastDay(interval)
     const weekDate = new Date(`${weekStart}T00:00:00Z`)
 
     const existing = await this.prisma.settlement.findUnique({ where: { supplier_id_week_start: { supplier_id: dto.supplier_id, week_start: weekDate } } })
     if (existing && existing.state !== 'proposal') throw new ConflictException(`The week of ${weekStart} is already ${existing.state}: it can no longer be recomputed`)
-    await this.assertNoCoveredOverlap(dto.supplier_id, weekInterval(weekStart))
+    await this.assertNoCoveredOverlap(dto.supplier_id, interval)
 
     // Delivered means RECEIVED: an order still waiting for receipt is not part of any settlement, and what counts is the received quantity.
     const purchases = await this.prisma.purchase.findMany({
@@ -148,7 +163,7 @@ export class SettlementService {
       formula: 'devido = unidades vendidas × custo unitário; vencidas, devolvidas e sem vender não são devidas',
     }
 
-    const periodEnd = new Date(`${addDays(weekStart, 7)}T00:00:00Z`)
+    const periodEnd = new Date(`${interval.until}T00:00:00Z`)
     const saved = await this.prisma.settlement.upsert({
       where: { supplier_id_week_start: { supplier_id: dto.supplier_id, week_start: weekDate } },
       create: { supplier_id: dto.supplier_id, week_start: weekDate, period_start: weekDate, period_end: periodEnd, state: 'proposal', owed_cents: result.owedCents, partial, evidence: evidence as never },

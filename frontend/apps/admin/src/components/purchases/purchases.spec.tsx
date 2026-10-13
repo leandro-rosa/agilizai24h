@@ -69,7 +69,7 @@ jest.doMock("../../components/ui/select", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const R = require("react");
   return {
-    Select: ({ value, onValueChange, children }: Props) => R.createElement("select", { "aria-label": "Fornecedor do acerto", value, onChange: (e: { target: { value: string } }) => onValueChange?.(e.target.value) }, R.createElement("option", { value: "" }, "Escolha"), children),
+    Select: ({ value, onValueChange, children }: Props) => R.createElement("select", { "aria-label": ["7", "10", "15", "custom"].includes(value ?? "") ? "Duração do fechamento" : "Fornecedor do acerto", value, onChange: (e: { target: { value: string } }) => onValueChange?.(e.target.value) }, R.createElement("option", { value: "" }, "Escolha"), children),
     SelectTrigger: () => null,
     SelectValue: () => null,
     SelectContent: ({ children }: Props) => R.createElement(R.Fragment, null, children),
@@ -277,7 +277,17 @@ describe("SettlementScreen", () => {
     fireEvent.change(screen.getByLabelText("Vencido de Wrap de quinoa"), { target: { value: "10" } });
     fireEvent.click(screen.getByRole("button", { name: "Recalcular proposta" }));
 
-    expect(propose).toHaveBeenCalledWith({ supplier_id: 5, week_start: "2026-10-05", write_offs: [{ item_id: 1, expired: 10, returned: 0 }] });
+    expect(propose).toHaveBeenCalledWith({ supplier_id: 5, period_from: "2026-10-05", period_to: "2026-10-11", write_offs: [{ item_id: 1, expired: 10, returned: 0 }] });
+  });
+
+  it("calcula o período escolhido pela pessoa (29/09 a 12/10), não só uma semana", () => {
+    render(<SettlementScreen />);
+    openFirst();
+    fireEvent.change(screen.getByLabelText("Primeiro dia do fechamento"), { target: { value: "2026-09-29" } });
+    fireEvent.change(screen.getByLabelText("Último dia do fechamento"), { target: { value: "2026-10-12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Recalcular proposta" }));
+
+    expect(propose).toHaveBeenLastCalledWith(expect.objectContaining({ period_from: "2026-09-29", period_to: "2026-10-12" }));
   });
 });
 

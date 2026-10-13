@@ -504,7 +504,7 @@ export const purchasesApi = createApi({
       query: ({ supplierId }) => `/settlements/last?supplier_id=${supplierId}`,
       providesTags: ["Settlement"],
     }),
-    proposeSettlement: builder.mutation<Settlement, { supplier_id: number; week_start: string; write_offs?: WriteOff[] }>({
+    proposeSettlement: builder.mutation<Settlement, { supplier_id: number; week_start?: string; period_from?: string; period_to?: string; write_offs?: WriteOff[] }>({
       query: (body) => ({ url: "/settlements/propose", method: "POST", body }),
       invalidatesTags: ["Settlement"],
     }),

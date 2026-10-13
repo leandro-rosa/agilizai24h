@@ -28,9 +28,20 @@ export class ProposeSettlementDto {
   @Min(1)
   supplier_id: number
 
-  @ApiProperty({ description: 'Qualquer dia da semana; usa-se a segunda-feira dela.', example: '2026-10-05' })
+  @ApiPropertyOptional({ description: 'Qualquer dia da semana; usa-se a segunda-feira dela. Ignorado quando period_from/period_to vêm.', example: '2026-10-05' })
+  @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  week_start: string
+  week_start?: string
+
+  @ApiPropertyOptional({ description: 'Primeiro dia do fechamento (incluso). Vem junto com period_to.', example: '2026-09-29' })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  period_from?: string
+
+  @ApiPropertyOptional({ description: 'Último dia do fechamento (incluso).', example: '2026-10-12' })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  period_to?: string
 
   @ApiPropertyOptional({ type: [WriteOffDto], description: 'Vencidos e devolvidos informados pelo operador (o abastecimento só os registra por mês).' })
   @IsOptional()
