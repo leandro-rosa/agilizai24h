@@ -31,7 +31,8 @@ Exemplo de referência (teste): abertura 20, recebido 30, 18 vendas, baixa de 2 
 | `ConsignmentCost` | Custo de repasse por SKU com vigência (`valid_from`, sem sobreposição). Nunca editado: nova vigência substitui. |
 | `OpeningBalance` | A contagem confirmada: `cutoff_at` (timestamptz), por SKU e local, quantidade, lote e validade **nulos quando ausentes**, origem da sugestão (`central_lot`/`derived_store`/`manual`), confirmado por e quando. |
 | `ConsignmentMovement` | Append-only. `supplier_id`, `sku`, `location` (depósito ou loja), `lot`/`expires_on` (nulos), `kind`, `quantity` assinada, `occurred_at`, `source_ref` **único**, `reverses_id` opcional. |
-| `ExpiryWriteoff` | Baixa por vencimento: quantidade baixada (vendável → aguardando devolução), data, vínculo opcional a `RemovalRecord` do supply-service. Gera o movimento `expiry_writeoff`. |
+| `ExpiryWriteoff` | Baixa por vencimento: quantidade baixada (vendável → aguardando devolução), loja, data, lote/validade (nulos se não confirmados), `lot_status` (`confirmed`/`unconfirmed`), vínculo à linha de visita de origem. Criada automaticamente a partir da retirada por vencimento (§5A); gera o movimento `expiry_writeoff`. |
+| `SupplyVisitLineRemoval` (supply-service) | Retirada por motivo dentro de uma linha de visita (motivo, quantidade, texto original); data = `ended_at` da visita. |
 | `SupplierReturn` | **Uma linha por entrega** ao fornecedor: `writeoff_id`, quantidade, data, comprovante, observação. Soma ≤ quantidade baixada, validada na transação. Não gera movimento de saldo. |
 | `SettlementPayment` | Pagamentos de um fechamento: valor, data, forma, observação, `reversed_by` (correção por registro compensatório). |
 | `SettlementSaleLine` | Congelada ao confirmar: `sale_key` **único entre fechamentos ativos**, quantidade, custo unitário, vigência do custo, `kind` (`sale`/`adjustment_cancel`/`adjustment_late`/`adjustment_qty`), atribuição de fornecedor e sua base. |
@@ -46,7 +47,7 @@ Exemplo de referência (teste): abertura 20, recebido 30, 18 vendas, baixa de 2 
 - **Saldo inicial**: assistente. Depósito: sugere lotes do `CentralStockLot` com `supplier_id` do fornecedor. Lojas: sugere o saldo derivado dos SKUs vinculados, marcado "conferir" (o derivado não conhece fornecedor). O operador ajusta e confirma por produto e local. Lote ausente permanece ausente; lote já existente não é duplicado (`source_ref` do lote). Entra como `opening`, sem dívida.
 - **Recebimento**: a confirmação de recebimento do pedido passa a gravar um **evento de recebimento** com quantidade, destino, data e lote/validade quando houver; recebimentos parciais são vários eventos, cada um com id próprio. O `receipt` usa o id do evento como `source_ref`. Pedido, por si só, não altera estoque nem gera valor devido.
 - **Transferência**: linha de visita **ingerida de relatório finalizado** (`ended_at`, `restocked > 0`) para SKU consignado. Duas pontas gravadas **na mesma transação**, `source_ref` distintos (`visit-line:<id>:out` e `visit-line:<id>:in`). Origem real respeitada; origem não identificada vira pendência (ver §6.2).
-- **Baixa por vencimento**: se já houver `RemovalRecord` `expired` para loja/SKU/mês no supply-service, a tela o mostra como sugestão e vincula; não cria o movimento a partir dele sozinho.
+- **Baixa por vencimento**: nasce **automaticamente** da retirada com motivo vencimento registrada na visita (§5A), sem segundo lançamento. O `RemovalRecord` mensal continua sendo a fonte da perda mensal e só é usado para conferência; baixa manual existe apenas para retirada sem visita correspondente.
 - **Outras devoluções**: devolução de produto ainda vendável é `return_sellable` e **reduz o saldo**. Entrega de produto já baixado é `SupplierReturn` e **não** reduz.
 - **Conferência**: razão × estoque derivado × `CentralStockLot`; divergência sinalizada, nunca corrigida sozinha.
 
@@ -56,6 +57,53 @@ Exemplo de referência (teste): abertura 20, recebido 30, 18 vendas, baixa de 2 
 - Saldo negativo é mostrado, nunca zerado.
 - **Saldo físico** (última contagem do operador) exibe data e hora e é comparado **no mesmo instante**: saldo esperado em `t_contagem` (não o atual) × contado. Movimentos posteriores à contagem são mostrados à parte. Contagem antiga nunca é comparada com o saldo atual.
 - **Divergência** mostra a causa quando identificável (visita sem transferência, venda sem recibo datado, baixa não registrada, importação ausente). Bloqueia a confirmação **apenas** se comprometer a origem do fornecedor ou o valor devido; nos demais casos permite confirmar com a pendência registrada.
+
+## 5A. Vencimentos × retiradas das lojas
+
+### O que os dados de abastecimento registram hoje (verificado no código)
+
+| Campo | Registrado? |
+|---|---|
+| Produto, loja, quantidade | Sim. |
+| Motivo | Só em texto livre (`Detalhes das Remoções`), que o parser separa por motivo. O `supply-service` guarda **por mês, loja, SKU e motivo** (`RemovalRecord`); a linha de visita guarda só o total assinado (`removedTotal`), **sem motivo**. |
+| Data da retirada | **Não.** A ligação com a visita se perde na agregação mensal. |
+| Lote e validade | **Não existem** no relatório. Só o `CentralStockLot` do depósito tem `expires_on`. |
+| Origem do abastecimento | **Não.** |
+
+Consequência: hoje não dá para dizer, só com o dado existente, qual retirada de qual dia foi por vencimento nem de qual lote. A solução abaixo corrige o que é corrigível sem inventar o resto.
+
+### Mudanças de captura (aditivas, sem duplicar lançamentos)
+
+1. **Motivo por visita.** O contrato de ingestão (`SupplyVisitLine`) passa a carregar `removals: {reason, quantity, sourceText}[]`, o mesmo que o parser já produz por linha. O `supply-service` guarda em `SupplyVisitLineRemoval` (data = `ended_at` da visita). Não substitui `RemovalRecord`, que continua sendo a fonte mensal de perda. Reimportar o período converge (visitas já são substituídas na mesma transação). Visitas antigas ganham o motivo ao serem reimportadas; até lá a retirada é "a conferir".
+2. **Lote e origem.** Nenhum dos dois existe no relatório. Para registros **novos**, a captura entra no fluxo operacional: o contrato aceita colunas **opcionais** `Origem` e `Lote`/`Validade` por linha quando o formulário/relatório de campo passar a trazê-las (ingestão mapeia se presentes, sem exigir). Para registros **antigos ou incompletos**, a confirmação é manual na tela de **Conferência de abastecimento** (confirma origem e, para SKU com mais de um lote, o lote retirado), pré-preenchida com o que o sistema sabe. Sem confirmação, a atribuição fica "não confirmada".
+3. **Motivo ausente.** Se o relatório indica retirada (`removedTotal < 0`) mas sem motivo utilizável, vira **"retirada a conferir"**, nunca vencimento por padrão. O conjunto de motivos oferecido na conferência: vencimento, avaria, transferência, devolução, uso e consumo, outros (os seis motivos existentes do `supply-service`).
+
+> Pendência fora deste repositório: o formulário operacional do campo é externo. Se ele ainda não tiver Origem/Lote, o ganho de captura na origem depende de alterá-lo; enquanto isso, vale a confirmação manual.
+
+### Os estados distinguidos
+
+| Estado | Como é determinado |
+|---|---|
+| Vencido ainda na loja | Validade atingida **e** permanência verificável (saldo rastreável do lote ou contagem física). |
+| Sem retirada registrada / conferir permanência | Validade atingida, sem retirada registrada e sem saldo rastreável ou contagem. **Não prova que o produto está na loja.** |
+| Retirado por vencimento (aguardando devolução) | Retirada com motivo vencimento confirmado na visita; quantidade, loja e data registradas. |
+| Retirado por outro motivo | Motivo avaria, transferência, devolução, uso ou outros. Segue regra própria (§2); não vira vencimento. |
+| Retirada a conferir | Falta motivo, ou há mais de um fornecedor/lote sem como vincular. |
+| Devolvido ao fornecedor | `SupplierReturn` ligado à retirada original (parcial permitido, histórico preservado). |
+
+### Fluxo
+
+1. **Validade atingida:** o lote (do depósito ou confirmado numa transferência) é sinalizado para conferência. O sistema **não presume quantidade restante**. Sem lote confirmado na loja, o sinal é por SKU ("há lote vencido deste produto: conferir").
+2. **Retirada por vencimento confirmada no abastecimento:** gera **automaticamente** o `expiry_writeoff` (movimento) e o registro de baixa, com `source_ref = visit-line:<id>:removal:expired`. Quantidade, loja e data vêm da visita. As unidades passam para "retiradas, aguardando devolução". **Não se lança de novo em outra tela**; se o SKU tem mais de um fornecedor ou lote sem vínculo, a baixa nasce "atribuição não confirmada" e entra como pendência (§6.2).
+3. **Entrega ao fornecedor:** `SupplierReturn` com quantidade, data e comprovante, vinculado à baixa original. Não altera saldo vendável (já descontado em 2). Soma ≤ quantidade baixada.
+
+**Sem desconto duplo:** o estoque derivado já desconta toda remoção (regra do `inventory-service`); o razão desconta a retirada uma única vez, a partir do mesmo evento de visita, e a conferência compara os dois. A devolução ao fornecedor nunca gera novo desconto.
+
+### Aba "Vencimentos e devoluções"
+
+Por produto, loja e lote (quando houver): **vencido confirmado** · **retirado por vencimento** · **ainda na loja** (só quando verificável; senão "não verificável") · **aguardando devolução** (= retirado − entregue) · **entregue ao fornecedor**, com as quatro visões já aprovadas. Mostra também "retirada a conferir" e "outro motivo" à parte. Retiradas e devoluções parciais mantêm histórico.
+
+**Não muda o repasse:** vencidos não vendidos não geram pagamento nem desconto adicional.
 
 ## 6. Cálculo do fechamento
 
@@ -103,9 +151,11 @@ Regra pura primeiro (TDD): saldo, repasse, atribuição, ajustes (cancelamento p
 
 ## 11. Riscos e decisões pendentes
 
-1. **Corte padrão.** Combinado "29/09/2026 23:59:59". Como o primeiro período começa **exatamente** no corte e os intervalos são semiabertos, o padrão passa a ser **30/09/2026 00:00:00 America/Sao_Paulo** (equivale ao fim do dia 29, sem lacuna). Confirmar.
+1. **Corte: não aprovado.** 30/09/2026 00:00 America/Sao_Paulo é só uma **proposta de partida** (intervalos semiabertos, sem lacuna), e só é adotada se (a) a contagem inicial representar o saldo **naquele instante** e (b) os acertos anteriores estiverem conciliados. A confirmação do saldo inicial aplica as duas verificações: a contagem tem data e hora própria; se for diferente do corte, o saldo no corte é **recalculado** revertendo vendas e movimentos entre os dois instantes (MÉTRICA DERIVADA, mostrada e confirmada pelo operador); e nenhum acerto antigo confirmado pode tocar o corte nem restar venda pendente sem acerto (o período 22–29/09, R$ 697,11, pago em 30/09, é registrado como já pago com sua evidência, não por constar na planilha). Sem isso, o corte não é confirmado.
 2. **Janela UTC do acerto antigo × fuso novo.** Há 3 h de diferença nos limites. Se existir acerto antigo confirmado cujo intervalo toque o corte, ele precisa ser resolvido antes. Verificar nos dados reais antes de implementar.
-3. **Visita não tem origem.** `supply_visit` não registra de onde saiu o abastecimento. Hoje a transferência depósito→loja só pode ser presumida ou confirmada pelo operador. Decidir: capturar a origem na ingestão (muda `ingestion-worker-service`/`supply-service`) ou aceitar confirmação manual por visita. Sem isso, a pendência bloqueia sempre que o SKU tiver mais de um fornecedor.
+3. **Origem e lote (decidido, com dependência externa).** Capturar no fluxo operacional para registros novos (colunas opcionais `Origem`/`Lote`/`Validade` na ingestão) e confirmação manual para antigos ou incompletos (§5A). Dependência: o formulário de campo é externo a este repositório; sem alterá-lo, só vale a confirmação manual. Sem confirmação, a pendência bloqueia somente quando o SKU tiver mais de um fornecedor ou o valor depender dela.
+3a. **Reimportação das visitas.** Para trazer motivo por visita aos meses já ingeridos (ago/set 2026), é preciso reimportar os mesmos arquivos (converge, já foi feito antes). Confirmar que os arquivos de origem continuam disponíveis.
+3b. **Validade na loja.** Sem lote confirmado na transferência, "validade atingida" só se sustenta por SKU (lotes do depósito). Saber qual unidade da loja venceu exige o lote registrado no abastecimento.
 4. **Estabilidade do `sale_key`.** `SalesTransaction` é substituído por período a cada reimportação (ids mudam). A chave depende de identificador de recibo; a ordem dentro do recibo precisa ser determinística. Medir nos dados reais (ago e set/2026) quantas linhas ficam sem identificador antes de fixar a regra.
 5. **Vendas anteriores a ago/2026** só têm agregado mensal, sem instante: nunca entram no repasse (pendência).
 6. **Rota de vendas por loja** nova no `sales-service` (hoje a soma é de rede) e leitura das chaves; exposição via gateway e novas permissões (aceite parcial, reversão de pagamento, saldo inicial) a definir com o IAM existente.
