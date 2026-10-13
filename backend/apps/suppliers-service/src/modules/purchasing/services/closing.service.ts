@@ -4,7 +4,8 @@ import { ProductsClient } from '../clients/products.client'
 import { SalesClient } from '../clients/sales.client'
 import { SupplyClient } from '../clients/supply.client'
 import type { ClosingQueryDto, ConfirmClosingDto } from '../dto/closing.dto'
-import { monthsTouched, viewRemovals, type RemovalsView } from '../utils/closing-removals'
+import { monthsTouched, viewRemovals, type PreviousClosingTotals, type RemovalsView } from '../utils/closing-removals'
+import { viewStock, type StockLine } from '../utils/closing-stock'
 import { previewClosing, type Preview, type PreviewIssue, type PreviewLine } from '../utils/closing-preview'
 import type { CostRow } from '../utils/consignment-agreement'
 import { findOverlap, type DayInterval } from '../utils/settlement-coverage'
@@ -28,6 +29,8 @@ export interface ClosingPreviewView {
   skus_without_sales: number
   issues: PreviewIssue[]
   /** Expired withdrawals and pending returns are not read by this basis yet: null means "not available", never zero. */
+  /** What is left in the stores per configured product and the pace of sales: for the supplier and for deciding what to buy. Stock at home is not known here. null when the supply data could not be read. */
+  stock: Array<StockLine & { name: string }> | null
   /** Expired, other reason (theft, borne by the owner) and returned units, by month and valued at the agreed cost: shown SEPARATELY, never added to `total_cents`. null when the supply data could not be read. */
   removals: (Omit<RemovalsView, 'lines'> & { lines: Array<RemovalsView['lines'][number] & { name: string }> }) | null
   /** A person may confirm this exact result (the server recomputes it on confirmation). */
@@ -85,9 +88,13 @@ export class ClosingService {
 
   /** Read-only: stores nothing and creates no obligation. */
   async preview(dto: ClosingQueryDto, correlationId?: string): Promise<ClosingPreviewView> {
+    return (await this.compute(dto, correlationId)).view
+  }
+
+  private async compute(dto: ClosingQueryDto, correlationId?: string): Promise<{ view: ClosingPreviewView; cumulative: PreviousClosingTotals | null }> {
     const interval = this.validate(dto)
     const supplier = await this.assertSupplier(dto.supplier_id)
-    const empty = { lines: [], total_units: 0, total_cents: 0, configured_skus: 0, skus_without_sales: 0, issues: [], removals: null, confirmable: false }
+    const empty = { lines: [], total_units: 0, total_cents: 0, configured_skus: 0, skus_without_sales: 0, issues: [], stock: null, removals: null, confirmable: false }
     const head = { supplier_id: supplier.id, supplier_name: supplier.name, period_from: dto.period_from, period_to: dto.period_to, config_missing: [] as Array<'products'>, conflict: null }
 
     const covered = await this.prisma.settlement.findMany({ where: { supplier_id: dto.supplier_id, state: { in: ['confirmed', 'paid'] } }, select: { id: true, period_start: true, period_end: true, state: true } })
@@ -96,11 +103,11 @@ export class ClosingService {
       const hit = covered.find(r => r.id === hitId)!
       const until = day(hit.period_end)
 
-      return { ...head, ...empty, status: 'conflict', conflict: { settlement_id: hit.id, period_from: day(hit.period_start), period_to: addDays(until, -1), state: hit.state, suggested_from: until } }
+      return { view: { ...head, ...empty, status: 'conflict', conflict: { settlement_id: hit.id, period_from: day(hit.period_start), period_to: addDays(until, -1), state: hit.state, suggested_from: until } }, cumulative: null }
     }
 
     const costs = await this.costsOf(dto.supplier_id)
-    if (costs.length === 0) return { ...head, ...empty, status: 'config_pending', config_missing: ['products'] }
+    if (costs.length === 0) return { view: { ...head, ...empty, status: 'config_pending', config_missing: ['products'] }, cumulative: null }
 
     const skus = [...new Set(costs.map(c => c.sku))]
     const sold = await this.sales.soldBySku(dto.period_from, dto.period_to, skus, correlationId)
@@ -112,20 +119,32 @@ export class ClosingService {
 
     const months = monthsTouched(dto.period_from, dto.period_to)
     const removed = await this.supply.removals(months[0], months[months.length - 1], skus, correlationId).catch(() => null)
+    const previous = removed ? await this.previousTotals(dto.supplier_id) : []
+    const cumulative: PreviousClosingTotals | null = removed ? { rows: removed.rows.map(r => ({ period: r.period, sku: r.sku, reason: r.reason, quantity: r.quantity })), months, data_until: removed.data_until ?? {} } : null
     const removals = removed
       ? (() => {
-          const view = viewRemovals({ from: dto.period_from, to: dto.period_to, costs, rows: removed.rows, monthsWithData: removed.months_with_data })
+          const view = viewRemovals({ from: dto.period_from, to: dto.period_to, costs, rows: removed.rows, monthsWithData: removed.months_with_data, dataUntil: removed.data_until, previous })
 
           return { ...view, lines: view.lines.map(l => ({ ...l, name: names.get(l.sku) ?? l.sku })) }
         })()
       : null
 
-    return { ...head, ...result, lines: result.lines.map(l => ({ ...l, name: names.get(l.sku) ?? l.sku })), removals, confirmable }
+    const balances = await this.supply.balances(skus, correlationId).catch(() => null)
+    const stock = balances ? viewStock({ from: dto.period_from, to: dto.period_to, skus, balances: balances.rows, sold: new Map(sold.rows.map(r => [r.sku, r.quantity])) }).map(l => ({ ...l, name: names.get(l.sku) ?? l.sku })) : null
+
+    return { view: { ...head, ...result, lines: result.lines.map(l => ({ ...l, name: names.get(l.sku) ?? l.sku })), stock, removals, confirmable }, cumulative }
+  }
+
+  /** The month totals each earlier closing of this supplier had when it was confirmed, newest first: what a later closing subtracts to count only what is new. */
+  private async previousTotals(supplierId: number): Promise<PreviousClosingTotals[]> {
+    const rows = await this.prisma.settlement.findMany({ where: { supplier_id: supplierId, kind: 'closing', state: { in: ['confirmed', 'paid'] } }, orderBy: [{ period_end: 'desc' }, { id: 'desc' }], select: { evidence: true } })
+
+    return rows.map(r => (r.evidence as { removals_cumulative?: PreviousClosingTotals } | null)?.removals_cumulative).filter((c): c is PreviousClosingTotals => Boolean(c))
   }
 
   /** Recomputes on the server (never trusts the screen) and stores a CONFIRMED closing: this is the only call here that creates an obligation. */
   async confirm(dto: ConfirmClosingDto, correlationId?: string): Promise<SettlementView> {
-    const view = await this.preview(dto, correlationId)
+    const { view, cumulative } = await this.compute(dto, correlationId)
     const onlyAcceptable = view.issues.length > 0 && view.issues.every(i => i.acceptable)
     if (view.status === 'conflict') throw new ConflictException('This period shares days with a settlement already confirmed or paid')
     if (view.status === 'config_pending') throw new BadRequestException('The supplier has no consigned products with an agreed cost yet')
@@ -133,6 +152,7 @@ export class ClosingService {
     if (view.status === 'incomplete' && !(onlyAcceptable && dto.accept_incomplete === true)) throw new BadRequestException('The period is incomplete: ' + view.issues.map(i => i.code).join(', '))
 
     const extras = this.pickExtras(view, dto.extras ?? [])
+    const homeStock = this.homeStock(view, dto.home_stock ?? [])
     const extrasCents = extras.reduce((sum, e) => sum + e.total_cents, 0)
 
     const interval = { from: dto.period_from, until: addDays(dto.period_to, 1) }
@@ -158,6 +178,10 @@ export class ClosingService {
             registered_by: dto.actor ?? null,
             closing_lines: view.lines,
             extras,
+            stock: view.stock,
+            home_stock: homeStock,
+            removals_snapshot: view.removals,
+            removals_cumulative: cumulative,
           } as never,
         },
         include: { supplier: true },
@@ -178,6 +202,8 @@ export class ClosingService {
       const key = `${w.sku}|${w.month}|${w.kind}`
       if (seen.has(key)) throw new BadRequestException(`${w.sku} ${w.month} ${w.kind} was chosen twice`)
       seen.add(key)
+      const scope = view.removals?.scope.find(m => m.month === w.month)
+      if (scope && !scope.dated_ok) throw new BadRequestException(`The supply data of ${w.month} goes up to ${scope.data_until}, after the last day of the period: its removals cannot be dated to this period, so they cannot be chosen`)
       const line = view.removals?.lines.find(l => l.sku === w.sku && l.month === w.month)
       const cell = line?.[w.kind]
       if (!line || !cell || cell.units <= 0) throw new BadRequestException(`There are no ${w.kind} units of ${w.sku} in ${w.month} to pay`)
@@ -186,6 +212,20 @@ export class ClosingService {
     }
 
     return out
+  }
+
+  /** Stock at home as the person informed it: only for products of this supplier, once each. */
+  private homeStock(view: ClosingPreviewView, wanted: Array<{ sku: string; units: number }>) {
+    const names = new Map((view.stock ?? []).map(l => [l.sku, l.name]))
+    const seen = new Set<string>()
+
+    return wanted.map(w => {
+      if (seen.has(w.sku)) throw new BadRequestException(`Stock at home for ${w.sku} was informed twice`)
+      seen.add(w.sku)
+      if (!names.has(w.sku)) throw new BadRequestException(`${w.sku} is not a configured product of this supplier`)
+
+      return { sku: w.sku, name: names.get(w.sku) as string, units: w.units }
+    })
   }
 
   private validate(dto: ClosingQueryDto): DayInterval {

@@ -335,6 +335,35 @@ export class SupplyService {
     }
   }
 
+  /** The stores' stock per SKU: the balance after each store's latest visit that has a line for it, summed. Never the central stock. */
+  async findNetworkBalances(skus: string[]) {
+    if (skus.length === 0) return { rows: [] as Array<{ sku: string; in_stores: number; stores: number; last_visit: string; oldest_store_visit: string }> }
+
+    const lines = await this.prisma.supplyVisitLine.findMany({
+      where: { sku: { in: skus } },
+      select: { sku: true, balance_after: true, visit: { select: { store_id: true, ended_at: true } } },
+    })
+    const latest = new Map<string, { sku: string; balance: number; endedAt: Date }>()
+    for (const line of lines) {
+      const key = `${line.visit.store_id}|${line.sku}`
+      const held = latest.get(key)
+      if (!held || line.visit.ended_at > held.endedAt) latest.set(key, { sku: line.sku, balance: line.balance_after, endedAt: line.visit.ended_at })
+    }
+
+    const bySku = new Map<string, { in_stores: number; stores: number; newest: Date; oldest: Date }>()
+    for (const row of latest.values()) {
+      const acc = bySku.get(row.sku) ?? { in_stores: 0, stores: 0, newest: row.endedAt, oldest: row.endedAt }
+      acc.in_stores += row.balance
+      acc.stores += 1
+      if (row.endedAt > acc.newest) acc.newest = row.endedAt
+      if (row.endedAt < acc.oldest) acc.oldest = row.endedAt
+      bySku.set(row.sku, acc)
+    }
+    const day = (d: Date) => d.toISOString().slice(0, 10)
+
+    return { rows: [...bySku.entries()].map(([sku, a]) => ({ sku, in_stores: a.in_stores, stores: a.stores, last_visit: day(a.newest), oldest_store_visit: day(a.oldest) })).sort((a, b) => a.sku.localeCompare(b.sku)) }
+  }
+
   /** Removed units per month, SKU and reason across every store: what a supplier closing shows beside the sales. A month never ingested has no row (unknown, not zero). */
   async findNetworkRemovals(from: string, to: string, skus: string[]) {
     const grouped = skus.length
@@ -347,11 +376,14 @@ export class SupplyService {
       : []
     const reasons = new Map((await this.prisma.removalReason.findMany()).map(r => [r.id, r.key]))
     const periods = await this.prisma.removalRecord.findMany({ where: { period: { gte: from, lte: to } }, distinct: ['period'], select: { period: true }, orderBy: { period: 'asc' } })
+    // Up to which day each month was imported: a removal total of a month can only be dated up to there.
+    const visits = await this.prisma.supplyVisit.groupBy({ by: ['period'], where: { period: { gte: from, lte: to } }, _max: { ended_at: true } })
 
     return {
       from,
       to,
       months_with_data: periods.map(p => p.period),
+      data_until: Object.fromEntries(visits.filter(v => v._max.ended_at).map(v => [v.period, (v._max.ended_at as Date).toISOString().slice(0, 10)])),
       rows: grouped
         .map(g => ({ period: g.period, sku: g.sku, reason: reasons.get(g.reason_id) ?? String(g.reason_id), quantity: g._sum.quantity_removed ?? 0, stores: g._count.store_id }))
         .sort((a, b) => a.period.localeCompare(b.period) || a.sku.localeCompare(b.sku) || a.reason.localeCompare(b.reason)),

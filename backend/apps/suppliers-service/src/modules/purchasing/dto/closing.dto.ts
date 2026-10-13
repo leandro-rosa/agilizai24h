@@ -31,6 +31,17 @@ export class ClosingExtraDto {
   kind: 'expired' | 'other_reason'
 }
 
+export class HomeStockDto {
+  @ApiProperty({ example: '100083' })
+  @IsString()
+  sku: string
+
+  @ApiProperty({ description: 'Unidades que a pessoa tem em casa/depósito, informadas por ela.' })
+  @IsInt()
+  @Min(0)
+  units: number
+}
+
 export class ConfirmClosingDto extends ClosingQueryDto {
   @ApiPropertyOptional({ description: 'Segue mesmo com a venda incompleta quando só falta importação de loja. Custo ou data faltando nunca passa.' })
   @IsOptional()
@@ -44,6 +55,14 @@ export class ConfirmClosingDto extends ClosingQueryDto {
   @ValidateNested({ each: true })
   @Type(() => ClosingExtraDto)
   extras?: ClosingExtraDto[]
+
+  @ApiPropertyOptional({ type: [HomeStockDto], description: 'Estoque que a pessoa tem em casa, por produto, informado por ela (o sistema não o conhece). Fica registrado no fechamento para o PDF.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => HomeStockDto)
+  home_stock?: HomeStockDto[]
 
   @ApiPropertyOptional({ description: 'Quem confirmou (o gateway preenche com o usuário da sessão).' })
   @IsOptional()

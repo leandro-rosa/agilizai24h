@@ -67,6 +67,17 @@ export class SupplyController {
     return this.supply.findNetworkRemovals(from, to, (skus ?? '').split(',').map(s => s.trim()).filter(Boolean))
   }
 
+  @Get('supply/network/balances')
+  @ApiOperation({
+    summary: 'Current stock per SKU in the stores: the balance after each store\'s latest visit, summed',
+    description:
+      'Read-only, for a supplier closing. Only stores that ever had a visit line for the SKU count; `last_visit` is the newest visit and `oldest_store_visit` the oldest of the stores\' latest ones, so a stale balance is visible. This is the stores\' stock, never the central stock.',
+  })
+  @ApiQuery({ name: 'skus', required: true, description: 'Comma separated' })
+  findNetworkBalances(@Query('skus') skus: string) {
+    return this.supply.findNetworkBalances((skus ?? '').split(',').map(s => s.trim()).filter(Boolean))
+  }
+
   @Get('supply/:storeId')
   @ApiOperation({
     summary: 'Restocks and per-reason removals for a store and period',

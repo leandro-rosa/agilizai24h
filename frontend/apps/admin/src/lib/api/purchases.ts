@@ -382,6 +382,10 @@ export interface Settlement {
     closing_lines?: ClosingLine[];
     /** Vencidas e outro motivo que a pessoa escolheu pagar; já estão no valor do fechamento. */
     extras?: ClosingExtra[];
+    /** Foto do que sobrou nas lojas no momento da confirmação, e o estoque em casa que a pessoa informou. */
+    stock?: StockLine[] | null;
+    home_stock?: Array<HomeStockEntry & { name: string }>;
+    removals_snapshot?: ClosingRemovals | null;
   };
   confirmed_at: string | null;
   paid_on: string | null;
@@ -441,10 +445,40 @@ export interface RemovalLine {
   returned: RemovalCell;
 }
 
+export interface MonthScope {
+  month: string;
+  /** whole_month: nenhum fechamento anterior contou este mês, então vem inteiro. since_last_closing: só o que o mês acumulou depois do último fechamento que o contou. */
+  mode: "whole_month" | "since_last_closing";
+  /** Último dia de visitas importado nesse mês. */
+  data_until: string | null;
+  /** Os dados não passam do último dia do período: dá para escolher pagar. Falso = misturaria dias de fora. */
+  dated_ok: boolean;
+  counted_since: string | null;
+}
+
+export interface StockLine {
+  sku: string;
+  name: string;
+  /** Saldo nas lojas após a última visita de cada uma; `null` = o abastecimento não tem registro do produto (desconhecido, não zero). */
+  in_stores: number | null;
+  stores: number;
+  last_visit: string | null;
+  oldest_store_visit: string | null;
+  sold_units: number;
+  per_day: number | null;
+  coverage_days: number | null;
+}
+
+export interface HomeStockEntry {
+  sku: string;
+  units: number;
+}
+
 export interface ClosingRemovals {
-  /** O abastecimento guarda só o mês, nunca o dia. */
+  /** O abastecimento guarda só o mês; a data vem da comparação com o último fechamento. */
   basis: "month";
   months: string[];
+  scope: MonthScope[];
   months_without_data: string[];
   lines: RemovalLine[];
   totals: { expired: RemovalCell; other_reason: RemovalCell; returned: RemovalCell };
@@ -464,6 +498,8 @@ export interface ClosingPreview {
   configured_skus: number;
   skus_without_sales: number;
   issues: ClosingIssue[];
+  /** O que sobrou nas lojas por produto e o ritmo de venda; `null` = abastecimento ilegível. O estoque em casa só a pessoa sabe. */
+  stock: StockLine[] | null;
   /** Vencidas, outro motivo (roubo, por conta do Agiliz) e devolvidas, por mês e a custo de repasse: mostradas À PARTE, nunca somadas ao valor a repassar. `null` = o abastecimento não pôde ser lido. */
   removals: ClosingRemovals | null;
   confirmable: boolean;
@@ -615,7 +651,7 @@ export const purchasesApi = createApi({
     previewClosing: builder.mutation<ClosingPreview, { supplier_id: number; period_from: string; period_to: string }>({
       query: (body) => ({ url: "/closings/preview", method: "POST", body }),
     }),
-    confirmClosing: builder.mutation<Settlement, { supplier_id: number; period_from: string; period_to: string; accept_incomplete?: boolean; extras?: ClosingExtraPick[] }>({
+    confirmClosing: builder.mutation<Settlement, { supplier_id: number; period_from: string; period_to: string; accept_incomplete?: boolean; extras?: ClosingExtraPick[]; home_stock?: HomeStockEntry[] }>({
       query: (body) => ({ url: "/closings/confirm", method: "POST", body }),
       invalidatesTags: ["Settlement"],
     }),

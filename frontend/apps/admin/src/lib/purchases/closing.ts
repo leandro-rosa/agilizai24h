@@ -79,3 +79,9 @@ export function pickedTotal(lines: RemovalLine[], keys: Set<string>): { units: n
     }
   return { units, cents };
 }
+
+/** Cobertura em dias somando o que a pessoa tem em casa ao saldo das lojas; sem ritmo de venda ou sem saldo conhecido não há cobertura (nunca "infinito"). */
+export function coverageWithHome(line: { in_stores: number | null; per_day: number | null }, home: number): number | null {
+  if (line.in_stores === null || line.per_day === null || line.per_day <= 0) return null;
+  return Math.round(((line.in_stores + home) / line.per_day) * 10) / 10;
+}

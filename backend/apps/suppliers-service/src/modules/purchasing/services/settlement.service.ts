@@ -26,6 +26,12 @@ export interface SettlementEvidence {
   registered_by?: string | null
   /** Só no fechamento calculado pelo painel (`kind = 'closing'`). */
   closing_lines?: Array<{ sku: string; name: string; sold_units: number; unit_cost_cents: number; total_cents: number }>
+  /** O que sobrou nas lojas na hora da confirmação (foto: não muda depois), com o ritmo de venda do período. null = o abastecimento não pôde ser lido. */
+  stock?: Array<{ sku: string; name: string; in_stores: number | null; stores: number; last_visit: string | null; oldest_store_visit: string | null; sold_units: number; per_day: number | null; coverage_days: number | null }> | null
+  /** Estoque em casa que a pessoa informou; o sistema não o conhece. */
+  home_stock?: Array<{ sku: string; name: string; units: number }>
+  /** Vencidas, outro motivo e devolvidas por mês na hora da confirmação (foto). */
+  removals_snapshot?: unknown
   /** Vencidas e outro motivo que a pessoa escolheu pagar neste fechamento; já estão em `owed_cents`. */
   extras?: Array<{ sku: string; name: string; month: string; kind: 'expired' | 'other_reason'; units: number; unit_cost_cents: number; total_cents: number }>
   legacy_lines?: Array<{ name: string; sku: string | null; unit_cost_cents: number; quantity: number; total_cents: number }>

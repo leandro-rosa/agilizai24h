@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { AlertTriangle, CalendarDays, Info, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, CalendarDays, FileDown, Info, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { DriveFilesSection } from "@/components/ingestion/drive-files-section";
@@ -26,13 +26,14 @@ import {
   usePaySettlementMutation,
   usePreviewClosingMutation,
   type ClosingExtraPick,
+  type HomeStockEntry,
   type ClosingPreview,
   type RemovalKind,
   type LegacyLine,
   type Settlement,
   type SettlementState,
 } from "@/lib/api/purchases";
-import { issueText, nextAfter, overlapsLast, pickedTotal, pickKey, picksOf, rangeOfLength, verdictOf } from "@/lib/purchases/closing";
+import { coverageWithHome, issueText, nextAfter, overlapsLast, pickedTotal, pickKey, picksOf, rangeOfLength, verdictOf } from "@/lib/purchases/closing";
 import { formatCents, formatDate } from "@/lib/purchases/money";
 
 const STATE_LABEL: Record<SettlementState, string> = { proposal: "Proposta", confirmed: "Confirmado (a pagar)", paid: "Pago" };
@@ -96,6 +97,7 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
   const [setupOpen, setSetupOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [pendingExtras, setPendingExtras] = useState<ClosingExtraPick[]>([]);
+  const [pendingHome, setPendingHome] = useState<HomeStockEntry[]>([]);
   const [synced, setSynced] = useState(false);
   // Só a última consulta pode escrever o resultado: uma resposta atrasada de uma seleção anterior é descartada.
   const latest = useRef(0);
@@ -158,7 +160,7 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
 
   async function onConfirm(view: ClosingPreview) {
     try {
-      const settlement = await confirm({ supplier_id: view.supplier_id, period_from: view.period_from, period_to: view.period_to, accept_incomplete: acceptIncomplete, extras: pendingExtras }).unwrap();
+      const settlement = await confirm({ supplier_id: view.supplier_id, period_from: view.period_from, period_to: view.period_to, accept_incomplete: acceptIncomplete, extras: pendingExtras, home_stock: pendingHome }).unwrap();
       setConfirmOpen(false);
       setResult(null);
       toast.success("Fechamento confirmado: agora conta como valor a pagar.");
@@ -284,8 +286,9 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
           view={view}
           acceptIncomplete={acceptIncomplete}
           onAccept={setAcceptIncomplete}
-          onConfirm={(picks) => {
+          onConfirm={(picks, home) => {
             setPendingExtras(picks);
+            setPendingHome(home);
             setConfirmOpen(true);
           }}
           onUseFrom={(from) => changeRange({ from, to: range.to >= from ? range.to : from })}
@@ -388,7 +391,7 @@ function ResultView({
   view: ClosingPreview;
   acceptIncomplete: boolean;
   onAccept: (value: boolean) => void;
-  onConfirm: (picks: ClosingExtraPick[]) => void;
+  onConfirm: (picks: ClosingExtraPick[], home: HomeStockEntry[]) => void;
   onUseFrom: (from: string) => void;
   onSetup: () => void;
   onSync: () => void;
@@ -396,6 +399,9 @@ function ResultView({
   const verdict = verdictOf(view);
   // O que a pessoa escolheu pagar além do vendido. Nasce vazio a cada consulta (este componente só existe enquanto há resultado).
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // Estoque em casa digitado pela pessoa (o sistema não o conhece): só vai ao servidor quando ela confirma, para ficar no PDF.
+  const [home, setHome] = useState<Record<string, string>>({});
+  const homeEntries: HomeStockEntry[] = Object.entries(home).filter(([, v]) => v.trim() !== "" && Number.isInteger(Number(v)) && Number(v) >= 0).map(([sku, v]) => ({ sku, units: Number(v) }));
   const extras = pickedTotal(view.removals?.lines ?? [], picked);
   const showNumbers = view.status === "ready" || view.status === "incomplete";
   const acceptable = view.issues.length > 0 && view.issues.every((i) => i.acceptable);
@@ -467,7 +473,7 @@ function ResultView({
                 <RemovalsTable removals={view.removals} picked={picked} onChange={setPicked} />
               </TabsContent>
               <TabsContent value="stock">
-                <p className="text-sm text-muted-foreground">A conciliação do estoque ainda não está disponível.</p>
+                <StockTable stock={view.stock} home={home} onHome={setHome} />
               </TabsContent>
             </Tabs>
             <div className="flex flex-wrap items-center justify-end gap-3">
@@ -477,7 +483,7 @@ function ResultView({
                   Confirmar mesmo incompleto (assumo o número)
                 </label>
               )}
-              <Button onClick={() => onConfirm(picksOf(picked))} disabled={!canConfirm}>
+              <Button onClick={() => onConfirm(picksOf(picked), homeEntries)} disabled={!canConfirm}>
                 Confirmar fechamento
               </Button>
             </div>
@@ -516,6 +522,7 @@ function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPrevie
     return { units, cents: lines.some((l) => l[field].units > 0 && l[field].cents === null) ? null : lines.reduce((n, l) => n + (l[field].cents ?? 0), 0) };
   };
   const total = { expired: sum("expired"), other_reason: sum("other_reason"), returned: sum("returned") };
+  const datedOk = (month: string) => removals.scope.find((m) => m.month === month)?.dated_ok !== false;
   const toggle = (sku: string, month: string, kind: RemovalKind) => {
     const next = new Set(picked);
     const key = pickKey(sku, month, kind);
@@ -525,15 +532,24 @@ function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPrevie
   };
   const markExpiredOfFilter = () => {
     const next = new Set(picked);
-    for (const l of lines) if (l.expired.units > 0 && l.expired.cents !== null) next.add(pickKey(l.sku, l.month, "expired"));
+    for (const l of lines) if (l.expired.units > 0 && l.expired.cents !== null && datedOk(l.month)) next.add(pickKey(l.sku, l.month, "expired"));
     onChange(next);
   };
 
   return (
     <div className="flex flex-col gap-3" data-testid="removals">
       <p className="text-sm text-muted-foreground">
-        O abastecimento guarda só o <strong>mês</strong> de cada retirada, não o dia: aparecem os meses inteiros que o período toca ({removals.months.map(monthName).join(", ")}). Valor = unidades × custo de repasse (ESTIMATIVA). Só entram no valor a repassar as que você marcar.
+        O abastecimento guarda só o <strong>mês</strong> de cada retirada, não o dia. Por isso cada mês é contado assim: no primeiro fechamento que o inclui, o mês inteiro; nos seguintes, só o que o mês acumulou depois do último fechamento. Valor = unidades × custo de repasse (ESTIMATIVA). Só entram no valor a repassar as que você marcar.
       </p>
+      <ul className="flex flex-col gap-0.5 text-sm" data-testid="removals-scope">
+        {removals.scope.map((m) => (
+          <li key={m.month} className={m.dated_ok ? "" : "text-warning"}>
+            {monthName(m.month)}: {m.mode === "whole_month" ? "mês inteiro (nenhum fechamento anterior contou este mês)" : `só o que veio depois do último fechamento (dados até ${formatDate(m.counted_since)})`}
+            {m.data_until ? ` · abastecimento importado até ${formatDate(m.data_until)}` : ""}
+            {!m.dated_ok ? ". O abastecimento vai além do fim do período: não dá para separar o que é do período, então não pode ser marcado. Escolha o fim do período em ou depois dessa data." : ""}
+          </li>
+        ))}
+      </ul>
       {removals.months_without_data.length > 0 && (
         <p className="flex items-start gap-1 text-sm">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
@@ -593,7 +609,7 @@ function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPrevie
                         type="checkbox"
                         aria-label={`Pagar vencidas de ${line.name} em ${monthName(line.month)}`}
                         checked={picked.has(pickKey(line.sku, line.month, "expired"))}
-                        disabled={line.expired.cents === null}
+                        disabled={line.expired.cents === null || !datedOk(line.month)}
                         onChange={() => toggle(line.sku, line.month, "expired")}
                       />
                     )}
@@ -610,7 +626,7 @@ function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPrevie
                         type="checkbox"
                         aria-label={`Pagar outro motivo de ${line.name} em ${monthName(line.month)}`}
                         checked={picked.has(pickKey(line.sku, line.month, "other_reason"))}
-                        disabled={line.other_reason.cents === null}
+                        disabled={line.other_reason.cents === null || !datedOk(line.month)}
                         onChange={() => toggle(line.sku, line.month, "other_reason")}
                       />
                     )}
@@ -633,6 +649,68 @@ function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPrevie
           </TableBody>
         </Table>
       )}
+    </div>
+  );
+}
+
+/** O que sobrou nas lojas por produto, com o ritmo de venda e a cobertura em dias; o estoque em casa a pessoa digita. É aritmética, não recomendação de compra. */
+function StockTable({ stock, home, onHome }: { stock: ClosingPreview["stock"]; home: Record<string, string>; onHome: (next: Record<string, string>) => void }) {
+  const [onlyStock, setOnlyStock] = useState(false);
+  if (!stock) return <p className="text-sm text-muted-foreground">Não foi possível ler o saldo das lojas no abastecimento agora. Consulte de novo.</p>;
+  const rows = onlyStock ? stock.filter((l) => (l.in_stores ?? 0) > 0 || Number(home[l.sku] ?? 0) > 0) : stock;
+  const homeOf = (sku: string) => (Number.isInteger(Number(home[sku])) && Number(home[sku]) >= 0 ? Number(home[sku] || 0) : 0);
+
+  return (
+    <div className="flex flex-col gap-3" data-testid="stock">
+      <p className="text-sm text-muted-foreground">
+        <strong>Nas lojas</strong>: saldo registrado na última visita de cada loja (o abastecimento não conhece o estoque central nem o que está em casa). <strong>Em casa</strong>: digite o que você tem, só para esta conta e para o PDF do fechamento. Cobertura = (lojas + casa) ÷ vendidas por dia no período.
+      </p>
+      <label className="flex w-fit items-center gap-1.5 text-sm">
+        <input type="checkbox" checked={onlyStock} onChange={(e) => setOnlyStock(e.target.checked)} />
+        Só produtos com estoque
+      </label>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Produto</TableHead>
+            <TableHead className="text-right">Nas lojas</TableHead>
+            <TableHead>Última visita</TableHead>
+            <TableHead className="text-right">Em casa</TableHead>
+            <TableHead className="text-right">Total</TableHead>
+            <TableHead className="text-right">Vendidas</TableHead>
+            <TableHead className="text-right">Por dia</TableHead>
+            <TableHead className="text-right">Cobertura (dias)</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((line) => {
+            const cover = coverageWithHome(line, homeOf(line.sku));
+            return (
+              <TableRow key={line.sku}>
+                <TableCell>{line.name}</TableCell>
+                <TableCell className="tabular text-right">{line.in_stores === null ? "sem registro" : line.in_stores}</TableCell>
+                <TableCell className="tabular">
+                  {line.last_visit ? formatDate(line.last_visit) : "—"}
+                  {line.oldest_store_visit && line.oldest_store_visit < (line.last_visit ?? "") && <span className="ml-1 text-xs text-warning">algumas lojas desde {formatDate(line.oldest_store_visit)}</span>}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Input
+                    className="ml-auto w-20 text-right"
+                    inputMode="numeric"
+                    aria-label={`Estoque em casa de ${line.name}`}
+                    value={home[line.sku] ?? ""}
+                    onChange={(e) => onHome({ ...home, [line.sku]: e.target.value })}
+                  />
+                </TableCell>
+                <TableCell className="tabular text-right">{line.in_stores === null && !home[line.sku] ? "—" : (line.in_stores ?? 0) + homeOf(line.sku)}</TableCell>
+                <TableCell className="tabular text-right">{line.sold_units}</TableCell>
+                <TableCell className="tabular text-right">{line.per_day === null ? "—" : String(line.per_day).replace(".", ",")}</TableCell>
+                <TableCell className="tabular text-right">{cover === null ? "—" : String(cover).replace(".", ",")}</TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
     </div>
   );
 }
@@ -824,11 +902,30 @@ function History({ onOpen }: { onOpen: (settlement: Settlement) => void }) {
 
 function DetailDialog({ settlement, onClose }: { settlement: Settlement | null; onClose: () => void }) {
   const [pay, { isLoading: paying }] = usePaySettlementMutation();
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [paidOn, setPaidOn] = useState(today());
   const [note, setNote] = useState("");
   // O estado vem sempre da lista atualizada, não da cópia que abriu o diálogo.
   const history = useGetSettlementsQuery();
   const current = settlement ? (history.data?.find((s) => s.id === settlement.id) ?? settlement) : null;
+
+  /** O PDF sai do que ficou gravado no fechamento, então é igual em qualquer dia. O renderizador só carrega aqui. */
+  async function onPdf(settlement: Settlement) {
+    setPdfBusy(true);
+    try {
+      const { closingPdfBlob } = await import("@/lib/purchases/closing-pdf");
+      const url = URL.createObjectURL(await closingPdfBlob(settlement));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `fechamento-${(settlement.supplier_name ?? "fornecedor").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${settlement.period_from}-a-${settlement.period_to}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Não foi possível gerar o PDF.");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
 
   async function onPay() {
     if (!current) return;
@@ -909,6 +1006,15 @@ function DetailDialog({ settlement, onClose }: { settlement: Settlement | null; 
                     ))}
                   </TableBody>
                 </Table>
+              </div>
+            )}
+            {current.kind === "closing" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" onClick={() => onPdf(current)} disabled={pdfBusy}>
+                  <FileDown className="size-4" />
+                  {pdfBusy ? "Gerando PDF..." : "Baixar PDF para o fornecedor"}
+                </Button>
+                <span className="text-xs text-muted-foreground">Vendas, o que foi incluído, as retiradas e o que sobrou de cada item, como ficou gravado na confirmação.</span>
               </div>
             )}
             {current.state === "confirmed" && (

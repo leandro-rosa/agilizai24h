@@ -44,4 +44,36 @@ describe('viewRemovals', () => {
   it('says which months of the period were never ingested', () => {
     expect(viewRemovals({ ...base, monthsWithData: ['2026-09'] }).months_without_data).toEqual(['2026-10'])
   })
+
+  describe('only what came after the last closing', () => {
+    // October as it was when the last closing was confirmed (to 12/10): 10 expired cones, 3 expired pão de mel.
+    const previous = [{ rows: [{ period: '2026-10', sku: '100083', reason: 'expired', quantity: 10 }, { period: '2026-10', sku: '110022', reason: 'expired', quantity: 3 }], months: ['2026-10'], data_until: { '2026-10': '2026-10-12' } }]
+    const later = { from: '2026-10-13', to: '2026-10-31', costs, monthsWithData: ['2026-10'], previous }
+
+    it('subtracts what the month already had at the last closing: a later total of 14 cones leaves 4 new ones', () => {
+      const view = viewRemovals({ ...later, rows: [{ period: '2026-10', sku: '100083', reason: 'expired', quantity: 14 }, { period: '2026-10', sku: '110022', reason: 'expired', quantity: 3 }], dataUntil: { '2026-10': '2026-10-31' } })
+
+      expect(view.lines.find(l => l.sku === '100083')?.expired).toEqual({ units: 4, cents: 2380 })
+      expect(view.lines.find(l => l.sku === '110022')?.expired.units).toBe(0)
+      expect(view.scope).toEqual([{ month: '2026-10', mode: 'since_last_closing', data_until: '2026-10-31', dated_ok: true, counted_since: '2026-10-12' }])
+    })
+
+    it('a month no closing counted yet is shown whole and says so', () => {
+      const view = viewRemovals({ ...base, previous: [] })
+
+      expect(view.scope.map(s => s.mode)).toEqual(['whole_month', 'whole_month'])
+    })
+
+    it('data that goes past the last day of the period cannot be dated: dated_ok is false', () => {
+      const view = viewRemovals({ ...later, to: '2026-10-20', rows: [{ period: '2026-10', sku: '100083', reason: 'expired', quantity: 14 }], dataUntil: { '2026-10': '2026-10-31' } })
+
+      expect(view.scope[0].dated_ok).toBe(false)
+    })
+
+    it('a total smaller than the one already counted never goes negative', () => {
+      const view = viewRemovals({ ...later, rows: [{ period: '2026-10', sku: '100083', reason: 'expired', quantity: 8 }], dataUntil: { '2026-10': '2026-10-31' } })
+
+      expect(view.lines.find(l => l.sku === '100083')?.expired.units).toBe(0)
+    })
+  })
 })

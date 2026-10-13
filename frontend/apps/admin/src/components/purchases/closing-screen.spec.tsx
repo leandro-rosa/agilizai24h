@@ -19,14 +19,23 @@ const STATUS: Record<number, unknown> = {
 const head = { supplier_id: 75, supplier_name: "Quinoa Indústria de Alimentos", period_from: "2026-09-30", period_to: "2026-10-12", config_missing: [], conflict: null, removals: REMOVALS };
 const REMOVALS = {
   basis: "month", months: ["2026-09", "2026-10"], months_without_data: [],
+  scope: [
+    { month: "2026-09", mode: "whole_month", data_until: "2026-09-30", dated_ok: true, counted_since: null },
+    { month: "2026-10", mode: "whole_month", data_until: "2026-10-12", dated_ok: true, counted_since: null },
+  ],
   lines: [
     { sku: "100083", name: "Cone trufado", month: "2026-09", expired: { units: 109, cents: 64855 }, other_reason: { units: 2, cents: 1190 }, returned: { units: 0, cents: 0 } },
     { sku: "100083", name: "Cone trufado", month: "2026-10", expired: { units: 10, cents: 5950 }, other_reason: { units: 0, cents: 0 }, returned: { units: 0, cents: 0 } },
   ],
   totals: { expired: { units: 119, cents: 70805 }, other_reason: { units: 2, cents: 1190 }, returned: { units: 0, cents: 0 } },
 };
+const STOCK = [
+  { sku: "110022", name: "Pão de mel doce de leite", in_stores: 69, stores: 21, last_visit: "2026-10-12", oldest_store_visit: "2026-08-18", sold_units: 104, per_day: 8, coverage_days: 8.6 },
+  { sku: "100083", name: "Cone trufado", in_stores: 1, stores: 21, last_visit: "2026-10-12", oldest_store_visit: "2026-10-12", sold_units: 0, per_day: null, coverage_days: null },
+  { sku: "9992", name: "Pizza marguerita", in_stores: null, stores: 0, last_visit: null, oldest_store_visit: null, sold_units: 2, per_day: 0.15, coverage_days: null },
+];
 const READY: Preview = {
-  ...head, status: "ready", total_units: 100, total_cents: 74250, configured_skus: 19, skus_without_sales: 16, issues: [], confirmable: true,
+  ...head, status: "ready", stock: STOCK, total_units: 100, total_cents: 74250, configured_skus: 19, skus_without_sales: 16, issues: [], confirmable: true,
   lines: [{ sku: "110022", name: "Pão de mel", sold_units: 50, unit_cost_cents: 730, total_cents: 36500 }, { sku: "100083", name: "Cone trufado", sold_units: 50, unit_cost_cents: 595, total_cents: 29750 }],
 };
 
@@ -348,6 +357,96 @@ describe("Fechamentos de fornecedores — vencidos e outro motivo, à parte", ()
     expect(screen.getByTestId("closing-result")).toHaveTextContent("Abastecimento não pôde ser lido");
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Vencidos e outro motivo" }), { button: 0, ctrlKey: false });
     expect(screen.getByText(/Não foi possível ler as retiradas/)).toBeInTheDocument();
+  });
+});
+
+describe("Fechamentos de fornecedores — estoque que sobrou", () => {
+  const openStock = async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, READY);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Estoque" }), { button: 0, ctrlKey: false });
+  };
+
+  it("mostra o saldo nas lojas, a data da última visita, o ritmo de venda e a cobertura em dias; sem registro não vira zero", async () => {
+    await openStock();
+
+    const table = screen.getByTestId("stock");
+    expect(table).toHaveTextContent("Pão de mel doce de leite");
+    expect(table).toHaveTextContent("12/10/2026");
+    expect(table).toHaveTextContent("algumas lojas desde 18/08/2026");
+    expect(table).toHaveTextContent("8,6");
+    expect(table).toHaveTextContent("sem registro");
+  });
+
+  it("o estoque em casa que a pessoa digita soma ao das lojas e refaz a cobertura", async () => {
+    await openStock();
+
+    fireEvent.change(screen.getByLabelText("Estoque em casa de Pão de mel doce de leite"), { target: { value: "20" } });
+
+    const row = screen.getByText("Pão de mel doce de leite").closest("tr") as HTMLElement;
+    expect(row).toHaveTextContent("89");
+    expect(row).toHaveTextContent("11,1");
+  });
+
+  it("'Só produtos com estoque' esconde quem está sem saldo e sem registro", async () => {
+    await openStock();
+    expect(screen.getByText("Pizza marguerita")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Só produtos com estoque"));
+
+    expect(screen.queryByText("Pizza marguerita")).not.toBeInTheDocument();
+    expect(screen.getByText("Cone trufado")).toBeInTheDocument();
+  });
+
+  it("o estoque em casa digitado vai ao servidor junto da confirmação", async () => {
+    await openStock();
+    fireEvent.change(screen.getByLabelText("Estoque em casa de Cone trufado"), { target: { value: "30" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar fechamento" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirmar fechamento" }));
+
+    await waitFor(() => expect(confirmClosing).toHaveBeenCalledWith(expect.objectContaining({ home_stock: [{ sku: "100083", units: 30 }] })));
+  });
+});
+
+describe("Fechamentos de fornecedores — vencidos por mês e por fechamento", () => {
+  it("diz como cada mês foi contado (inteiro ou só depois do último fechamento)", async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, { ...READY, removals: { ...REMOVALS, scope: [{ month: "2026-10", mode: "since_last_closing", data_until: "2026-10-31", dated_ok: true, counted_since: "2026-10-12" }] } });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Vencidos e outro motivo" }), { button: 0, ctrlKey: false });
+
+    expect(screen.getByTestId("removals-scope")).toHaveTextContent("outubro/2026: só o que veio depois do último fechamento (dados até 12/10/2026)");
+  });
+
+  it("mês cujo abastecimento passa do fim do período avisa e não deixa marcar", async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, { ...READY, removals: { ...REMOVALS, scope: [{ month: "2026-09", mode: "whole_month", data_until: "2026-09-30", dated_ok: true, counted_since: null }, { month: "2026-10", mode: "since_last_closing", data_until: "2026-10-31", dated_ok: false, counted_since: "2026-10-12" }] } });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Vencidos e outro motivo" }), { button: 0, ctrlKey: false });
+
+    expect(screen.getByTestId("removals-scope")).toHaveTextContent("não pode ser marcado");
+    expect(screen.getByLabelText("Pagar vencidas de Cone trufado em outubro/2026")).toBeDisabled();
+    expect(screen.getByLabelText("Pagar vencidas de Cone trufado em setembro/2026")).toBeEnabled();
+  });
+});
+
+describe("Fechamentos de fornecedores — PDF do fechamento confirmado", () => {
+  it("o detalhe de um fechamento do painel oferece o PDF para o fornecedor; o acerto histórico não", () => {
+    settlements = [{ ...LEGACY, id: 2, kind: "closing", state: "confirmed", paid_on: null, evidence: { ...LEGACY.evidence, legacy_lines: undefined, closing_lines: READY.lines } }, LEGACY];
+    render(<ClosingScreen />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Histórico" }), { button: 0, ctrlKey: false });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Ver detalhes" })[0]);
+    expect(screen.getByRole("button", { name: "Baixar PDF para o fornecedor" })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Ver detalhes" })[1]);
+    expect(screen.queryByRole("button", { name: "Baixar PDF para o fornecedor" })).not.toBeInTheDocument();
   });
 });
 

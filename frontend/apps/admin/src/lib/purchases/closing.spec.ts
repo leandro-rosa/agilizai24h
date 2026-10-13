@@ -1,6 +1,6 @@
 import type { ClosingPreview } from "@/lib/api/purchases";
 
-import { issueText, nextAfter, overlapsLast, pickKey, pickedTotal, picksOf, rangeOfLength, verdictOf } from "./closing";
+import { issueText, nextAfter, overlapsLast, pickKey, pickedTotal, picksOf, rangeOfLength, verdictOf, coverageWithHome } from "./closing";
 
 const base: ClosingPreview = {
   supplier_id: 75, supplier_name: "Quinoa", period_from: "2026-09-30", period_to: "2026-10-12", status: "ready", config_missing: [], conflict: null,
@@ -69,5 +69,17 @@ describe("escolha de vencidas e outro motivo", () => {
 
   it("devolve a seleção na forma que o servidor recebe", () => {
     expect(picksOf(new Set([pickKey("100083", "2026-09", "expired")]))).toEqual([{ sku: "100083", month: "2026-09", kind: "expired" }]);
+  });
+});
+
+describe("cobertura com o estoque em casa", () => {
+  it("(lojas + casa) ÷ vendas por dia, com uma casa decimal", () => {
+    expect(coverageWithHome({ in_stores: 69, per_day: 3 }, 21)).toBe(30);
+    expect(coverageWithHome({ in_stores: 10, per_day: 3 }, 0)).toBe(3.3);
+  });
+
+  it("sem ritmo de venda ou sem saldo conhecido não há cobertura", () => {
+    expect(coverageWithHome({ in_stores: 69, per_day: null }, 5)).toBeNull();
+    expect(coverageWithHome({ in_stores: null, per_day: 3 }, 5)).toBeNull();
   });
 });
