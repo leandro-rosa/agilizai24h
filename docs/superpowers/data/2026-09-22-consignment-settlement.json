@@ -1,0 +1,130 @@
+{
+  "supplier_id": 75,
+  "period_from": "2026-09-22",
+  "period_to": "2026-09-29",
+  "paid_on": "2026-09-30",
+  "total_cents": 69711,
+  "source": "planilha de acerto do fornecedor (22/09 a 29/09/2026)",
+  "note": "Pago em 30/09/2026. Registro histórico: o acerto foi feito fora do sistema.",
+  "lines": [
+    {
+      "name": "Pizza de marguerita",
+      "sku": "9992",
+      "unit_cost_cents": 792,
+      "quantity": 1,
+      "total_cents": 792
+    },
+    {
+      "name": "Pizza de calabresa",
+      "sku": "9993",
+      "unit_cost_cents": 792,
+      "quantity": 0,
+      "total_cents": 0
+    },
+    {
+      "name": "Pudim",
+      "sku": "5055",
+      "unit_cost_cents": 693,
+      "quantity": 0,
+      "total_cents": 0
+    },
+    {
+      "name": "Pão de queijo",
+      "sku": "6015",
+      "unit_cost_cents": 1323,
+      "quantity": 1,
+      "total_cents": 1323
+    },
+    {
+      "name": "Empanada unitária",
+      "sku": "100063",
+      "unit_cost_cents": 747,
+      "quantity": 0,
+      "total_cents": 0
+    },
+    {
+      "name": "Pão de mel",
+      "sku": "110022",
+      "unit_cost_cents": 730,
+      "quantity": 30,
+      "total_cents": 21900
+    },
+    {
+      "name": "Cone trufado",
+      "sku": "100083",
+      "unit_cost_cents": 595,
+      "quantity": 29,
+      "total_cents": 17255
+    },
+    {
+      "name": "Torta de frango",
+      "sku": "100100",
+      "unit_cost_cents": 996,
+      "quantity": 5,
+      "total_cents": 4980
+    },
+    {
+      "name": "Pão de batata",
+      "sku": "100101",
+      "unit_cost_cents": 780,
+      "quantity": 4,
+      "total_cents": 3120
+    },
+    {
+      "name": "Leite em pó doce gourmet avelã branco",
+      "sku": "100099",
+      "unit_cost_cents": 227,
+      "quantity": 24,
+      "total_cents": 5448
+    },
+    {
+      "name": "Leite em pó doce gourmet avelã chocolate",
+      "sku": "100098",
+      "unit_cost_cents": 266,
+      "quantity": 39,
+      "total_cents": 10374
+    },
+    {
+      "name": "Leite em pó doce gourmet tradicional",
+      "sku": "100102",
+      "unit_cost_cents": 227,
+      "quantity": 2,
+      "total_cents": 454
+    },
+    {
+      "name": "Quiche Loran",
+      "sku": "100109",
+      "unit_cost_cents": 837,
+      "quantity": 2,
+      "total_cents": 1674
+    },
+    {
+      "name": "Pão de queijo unitário",
+      "sku": "100037",
+      "unit_cost_cents": 657,
+      "quantity": 3,
+      "total_cents": 1971
+    },
+    {
+      "name": "Choco blank divino",
+      "sku": "100106",
+      "unit_cost_cents": 140,
+      "quantity": 2,
+      "total_cents": 280
+    },
+    {
+      "name": "Chocolate ao leite divino vicio",
+      "sku": "100107",
+      "unit_cost_cents": 140,
+      "quantity": 0,
+      "total_cents": 0
+    },
+    {
+      "name": "Chocolate ao leite amendoim desejo",
+      "sku": "100108",
+      "unit_cost_cents": 140,
+      "quantity": 1,
+      "total_cents": 140
+    }
+  ]
+}
