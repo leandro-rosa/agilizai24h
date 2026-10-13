@@ -1,5 +1,6 @@
 "use client";
 
+import { newUuid } from "@/lib/uuid";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -70,7 +71,7 @@ function ApplyForm({
   const [priceText, setPriceText] = useState(initialPriceCents === null ? "" : reais(initialPriceCents));
   const [reason, setReason] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
-  const [key] = useState(() => crypto.randomUUID());
+  const [key] = useState(() => newUuid());
   const [apply, { isLoading }] = useApplyPriceMutation();
 
   const cents = parsePriceToCents(priceText);

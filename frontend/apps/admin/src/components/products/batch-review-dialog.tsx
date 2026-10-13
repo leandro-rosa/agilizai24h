@@ -1,5 +1,6 @@
 "use client";
 
+import { newUuid } from "@/lib/uuid";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -35,7 +36,7 @@ export function BatchReviewDialog({ rows, onClose, onSaved }: { rows: WorkspaceR
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
   const [keys] = useState(() => new Map<string, string>());
 
-  const keyFor = (sku: string) => keys.get(sku) ?? (keys.set(sku, crypto.randomUUID()), keys.get(sku) as string);
+  const keyFor = (sku: string) => keys.get(sku) ?? (keys.set(sku, newUuid()), keys.get(sku) as string);
   const toggle = (sku: string, on: boolean) =>
     setChecked((previous) => {
       const next = new Set(previous);

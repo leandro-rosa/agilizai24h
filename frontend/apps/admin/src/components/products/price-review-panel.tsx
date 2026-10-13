@@ -1,5 +1,6 @@
 "use client";
 
+import { newUuid } from "@/lib/uuid";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -74,7 +75,7 @@ function PanelBody({ row, scope, canWrite, onClose, onSaved, onEdit, onOpenRecor
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const [key] = useState(() => crypto.randomUUID());
+  const [key] = useState(() => newUuid());
 
   const typedCents = priceText === null ? null : parseMoneyToCents(priceText);
   const projection = usePriceProjection(row, scope, typedCents);
