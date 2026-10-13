@@ -48,6 +48,22 @@ jest.doMock("../../lib/api/purchases", () => ({
   useConfirmSettlementMutation: () => [confirmSettlement, { isLoading: false }],
   usePaySettlementMutation: () => [jest.fn(), { isLoading: false }],
 }));
+jest.doMock("../../lib/api/suppliers", () => ({
+  useGetSuppliersQuery: () => ({ data: [{ id: 5, name: "Quinoa", status: "active" }, { id: 6, name: "Doces e congelados", status: "active" }] }),
+}));
+// O Select do Radix não abre no jsdom: um <select> nativo faz o mesmo papel neste spec.
+jest.doMock("../../components/ui/select", () => {
+  type Props = { children?: unknown; value?: string; onValueChange?: (v: string) => void };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const R = require("react");
+  return {
+    Select: ({ value, onValueChange, children }: Props) => R.createElement("select", { "aria-label": "Fornecedor do acerto", value, onChange: (e: { target: { value: string } }) => onValueChange?.(e.target.value) }, R.createElement("option", { value: "" }, "Escolha"), children),
+    SelectTrigger: () => null,
+    SelectValue: () => null,
+    SelectContent: ({ children }: Props) => R.createElement(R.Fragment, null, children),
+    SelectItem: ({ value, children }: Props) => R.createElement("option", { value }, children),
+  };
+});
 jest.doMock("../../lib/api/products", () => ({
   useGetProductsQuery: () => ({ data: PRODUCTS }),
   useAddProductEanMutation: () => [addEan, { isLoading: false }],
@@ -250,5 +266,30 @@ describe("SettlementScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Recalcular proposta" }));
 
     expect(propose).toHaveBeenCalledWith({ supplier_id: 5, week_start: "2026-10-05", write_offs: [{ item_id: 1, expired: 10, returned: 0 }] });
+  });
+});
+
+describe("SettlementScreen — escolha do fornecedor", () => {
+  it("lista o fornecedor ativo que ainda não tem nenhuma compra, e marca quem já tem consignado", () => {
+    render(<SettlementScreen />);
+
+    expect(screen.getByRole("option", { name: "Doces e congelados" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Quinoa · consignado" })).toBeInTheDocument();
+  });
+
+  it("fornecedor sem item consignado: explica o que falta e não deixa calcular uma proposta que não existe", () => {
+    render(<SettlementScreen />);
+    fireEvent.change(screen.getByLabelText("Fornecedor do acerto"), { target: { value: "6" } });
+
+    expect(screen.getByTestId("no-consigned-notice")).toHaveTextContent(/ainda não tem item consignado/);
+    expect(screen.getByRole("button", { name: "Calcular proposta" })).toBeDisabled();
+  });
+
+  it("fornecedor com consignado: sem aviso e pode calcular", () => {
+    render(<SettlementScreen />);
+    fireEvent.change(screen.getByLabelText("Fornecedor do acerto"), { target: { value: "5" } });
+
+    expect(screen.queryByTestId("no-consigned-notice")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Calcular proposta|Recalcular proposta/ })).toBeEnabled();
   });
 });

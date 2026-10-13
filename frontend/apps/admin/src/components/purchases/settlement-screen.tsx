@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useGetProductsQuery } from "@/lib/api/products";
+import { useGetSuppliersQuery } from "@/lib/api/suppliers";
 import {
   useConfirmSettlementMutation,
   useGetOpenTotalQuery,
@@ -22,6 +23,7 @@ import {
   type SettlementState,
 } from "@/lib/api/purchases";
 import { formatCents, formatDate, weekStartOf } from "@/lib/purchases/money";
+import { supplierOptions } from "@/lib/purchases/supplier-options";
 
 const STATE_LABEL: Record<SettlementState, string> = { proposal: "Proposta (ainda não é devido)", confirmed: "Confirmado (a pagar)", paid: "Pago" };
 const STATE_TONE: Record<SettlementState, StatusTone> = { proposal: "attention", confirmed: "neutral", paid: "positive" };
@@ -35,6 +37,7 @@ const message = (failure: unknown, fallback: string) => (failure as { data?: { m
 export function SettlementScreen() {
   const purchasesQuery = useGetPurchasesQuery();
   const products = useGetProductsQuery().data ?? [];
+  const suppliersQuery = useGetSuppliersQuery();
   const history = useGetSettlementsQuery();
   const openTotal = useGetOpenTotalQuery();
   const [propose, { isLoading: proposing }] = useProposeSettlementMutation();
@@ -50,12 +53,9 @@ export function SettlementScreen() {
   const [note, setNote] = useState("");
 
   const nameOf = (sku: string) => products.find((p) => p.sku === sku)?.name ?? sku;
-  // Só quem tem item consignado entra no seletor: é para esses que existe acerto.
-  const onSaleSuppliers = useMemo(() => {
-    const seen = new Map<number, string>();
-    for (const purchase of purchasesQuery.data ?? []) if (purchase.items.some((i) => i.condition === "on_sale")) seen.set(purchase.supplier_id, purchase.supplier_name ?? `Fornecedor ${purchase.supplier_id}`);
-    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
-  }, [purchasesQuery.data]);
+  // Todo fornecedor ativo pode ser escolhido (o consignado novo ainda não tem compra); quem já tem item consignado vem primeiro.
+  const options = useMemo(() => supplierOptions(suppliersQuery.data ?? [], purchasesQuery.data ?? []), [suppliersQuery.data, purchasesQuery.data]);
+  const chosen = options.find((option) => String(option.id) === supplierId);
 
   function open(settlement: Settlement) {
     setCurrent(settlement);
@@ -120,15 +120,16 @@ export function SettlementScreen() {
       <Card>
         <CardContent className="flex flex-wrap items-end gap-4 pt-4">
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Fornecedor (com item consignado)
+            Fornecedor
             <Select value={supplierId} onValueChange={setSupplierId}>
               <SelectTrigger className="w-64" aria-label="Fornecedor do acerto">
                 <SelectValue placeholder="Escolha" />
               </SelectTrigger>
               <SelectContent>
-                {onSaleSuppliers.map(([id, name]) => (
-                  <SelectItem key={id} value={String(id)}>
-                    {name}
+                {options.map((option) => (
+                  <SelectItem key={option.id} value={String(option.id)}>
+                    {option.name}
+                    {option.consigned ? " · consignado" : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -139,12 +140,16 @@ export function SettlementScreen() {
             <Input type="date" value={day} onChange={(e) => setDay(e.target.value)} aria-label="Dia da semana do acerto" />
           </label>
           <p className="text-sm text-muted-foreground">Semana de segunda {formatDate(weekStartOf(day))}.</p>
-          <Button onClick={calculate} disabled={proposing || !editable}>
+          <Button onClick={calculate} disabled={proposing || !editable || (chosen !== undefined && !chosen.consigned)}>
             {proposing ? "Calculando..." : current ? "Recalcular proposta" : "Calcular proposta"}
           </Button>
         </CardContent>
       </Card>
-      {onSaleSuppliers.length === 0 && <p className="text-sm text-muted-foreground">Nenhum fornecedor tem item consignado ainda. Marque a condição “Consignado” ao lançar uma compra.</p>}
+      {chosen && !chosen.consigned && (
+        <p data-testid="no-consigned-notice" className="text-sm text-muted-foreground">
+          {chosen.name} ainda não tem item consignado. Lance uma compra com o item na condição “Consignado” para calcular o acerto.
+        </p>
+      )}
 
       {current && (
         <Card>
