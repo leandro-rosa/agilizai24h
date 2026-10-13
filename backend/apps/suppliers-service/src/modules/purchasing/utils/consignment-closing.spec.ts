@@ -1,3 +1,4 @@
+import type { Adjustment } from './consignment-adjustments'
 import { computeClosing, type ClosingInput } from './consignment-closing'
 import { periodFromDays } from './consignment-period'
 import type { KeyedSale, SaleFact } from './consignment-sale-key'
@@ -18,6 +19,7 @@ const base = (over: Partial<ClosingInput> = {}): ClosingInput => ({
   claimedKeys: new Set(),
   legacyCovered: [],
   adjustments: [],
+  missingKeys: [],
   salesImportedUntil: new Date('2026-10-07T03:00:00Z'),
   partialAccepted: false,
   ...over,
@@ -108,26 +110,82 @@ describe('computeClosing — what to pay the supplier', () => {
     expect(computeClosing(base({ sales: [sale('k1', 1)], salesImportedUntil: early, partialAccepted: true })).confirmable).toBe(true)
   })
 
-  it('adds priced adjustments: a cancellation at its original cost, a late sale at the cost of its own day', () => {
-    const result = computeClosing(base({
-      sales: [sale('k1', 2)],
-      adjustments: [
-        { saleKey: 'old', kind: 'adjustment_cancel', storeId: 1, sku: 'A', occurredAt: new Date('2026-09-20T15:00:00Z'), quantity: -3, unitCostCents: 700 },
-        { saleKey: 'late', kind: 'adjustment_late', storeId: 1, sku: 'A', occurredAt: new Date('2026-09-25T15:00:00Z'), quantity: 4, unitCostCents: null },
-      ],
-    }))
+  describe('adjustments to sales an earlier closing already counted', () => {
+    const next = periodFromDays('2026-10-07', '2026-10-13')
+    const later = { period: next, salesImportedUntil: new Date('2026-10-14T03:00:00Z') }
+    const lateSale = (key: string, over: Partial<KeyedSale> = {}) => sale(key, 4, { occurredAt: new Date('2026-10-02T15:00:00Z'), ...over })
+    const lateAdj = (saleKey: string, over: Partial<Adjustment> = {}): Adjustment => ({ saleKey, kind: 'adjustment_late', supplierId: null, storeId: 1, sku: 'A', occurredAt: new Date('2026-10-02T15:00:00Z'), quantity: 4, unitCostCents: null, ...over })
 
-    expect(result.adjustments).toEqual([
-      { saleKey: 'old', kind: 'adjustment_cancel', storeId: 1, sku: 'A', quantity: -3, unitCostCents: 700, totalCents: -2100 },
-      { saleKey: 'late', kind: 'adjustment_late', storeId: 1, sku: 'A', quantity: 4, unitCostCents: 730, totalCents: 2920 },
-    ])
-    expect(result.adjustmentsCents).toBe(820)
-    expect(result.owedCents).toBe(2 * 730 + 820)
+    it('adds priced adjustments: a cancellation at its original cost, a late sale at the cost of its own day', () => {
+      const result = computeClosing(base({
+        ...later,
+        sales: [sale('k1', 2, { occurredAt: new Date('2026-10-08T15:00:00Z') }), lateSale('late')],
+        adjustments: [
+          { saleKey: 'old', kind: 'adjustment_cancel', supplierId: 7, storeId: 1, sku: 'A', occurredAt: new Date('2026-10-01T15:00:00Z'), quantity: -3, unitCostCents: 700 },
+          lateAdj('late'),
+        ],
+      }))
+
+      expect(result.adjustments).toEqual([
+        { saleKey: 'old', kind: 'adjustment_cancel', storeId: 1, sku: 'A', quantity: -3, unitCostCents: 700, totalCents: -2100 },
+        { saleKey: 'late', kind: 'adjustment_late', storeId: 1, sku: 'A', quantity: 4, unitCostCents: 730, totalCents: 2920 },
+      ])
+      expect(result.adjustmentsCents).toBe(820)
+      expect(result.owedCents).toBe(2 * 730 + 820)
+    })
+
+    it('blocks a late adjustment that has no cost on its day', () => {
+      const result = computeClosing(base({ ...later, sales: [lateSale('late', { sku: 'Z' })], adjustments: [lateAdj('late', { sku: 'Z' })] }))
+
+      expect(result.blockers).toEqual([{ code: 'cost_missing', saleKey: 'late', storeId: 1, sku: 'Z' }])
+    })
+
+    it('a late sale of a SKU held by two suppliers is pending, not paid by both closings', () => {
+      const holders = () => [{ supplierId: 7, balance: 5 }, { supplierId: 8, balance: 9 }]
+      const seven = computeClosing(base({ ...later, sales: [lateSale('late')], adjustments: [lateAdj('late')], holdersOf: holders }))
+      const eight = computeClosing(base({ ...later, supplierId: 8, sales: [lateSale('late')], adjustments: [lateAdj('late')], holdersOf: holders }))
+
+      expect(seven.blockers).toEqual([{ code: 'attribution_pending', saleKey: 'late', storeId: 1, sku: 'A' }])
+      expect(eight.blockers).toEqual(seven.blockers)
+      expect(seven.owedCents + eight.owedCents).toBe(0)
+    })
+
+    it('a late sale belonging to another supplier is not charged here', () => {
+      const result = computeClosing(base({ ...later, sales: [lateSale('late')], adjustments: [lateAdj('late')], holdersOf: () => [{ supplierId: 8, balance: 5 }] }))
+
+      expect(result.adjustments).toEqual([])
+      expect(result.owedCents).toBe(0)
+    })
+
+    it('never charges a late sale that is already claimed, before the cutoff, or inside a legacy settled interval', () => {
+      const legacy = periodFromDays('2026-10-02', '2026-10-02')
+      const claimed = computeClosing(base({ ...later, sales: [lateSale('late')], adjustments: [lateAdj('late')], claimedKeys: new Set(['late']) }))
+      const old = computeClosing(base({ ...later, sales: [lateSale('late', { occurredAt: new Date('2026-09-20T15:00:00Z') })], adjustments: [lateAdj('late', { occurredAt: new Date('2026-09-20T15:00:00Z') })] }))
+      const settled = computeClosing(base({ ...later, sales: [lateSale('late')], adjustments: [lateAdj('late')], legacyCovered: [legacy] }))
+
+      expect(claimed.adjustments).toEqual([])
+      expect(old.adjustments).toEqual([])
+      expect(settled.adjustments).toEqual([])
+    })
+
+    it('ignores a cancellation adjustment that a closing of another supplier owns', () => {
+      const result = computeClosing(base({ ...later, adjustments: [{ saleKey: 'old', kind: 'adjustment_cancel', supplierId: 8, storeId: 1, sku: 'A', occurredAt: null, quantity: -3, unitCostCents: 700 }] }))
+
+      expect(result.adjustments).toEqual([])
+    })
   })
 
-  it('blocks a late adjustment that has no cost on its day', () => {
-    const result = computeClosing(base({ adjustments: [{ saleKey: 'late', kind: 'adjustment_late', storeId: 1, sku: 'Z', occurredAt: new Date('2026-09-25T15:00:00Z'), quantity: 1, unitCostCents: null }] }))
+  it('a confirmed sale key that vanished from the latest import blocks: its replacement could be the same sale again', () => {
+    const result = computeClosing(base({ sales: [sale('k1', 1)], missingKeys: ['gone'] }))
 
-    expect(result.blockers).toEqual([{ code: 'cost_missing', saleKey: 'late', storeId: 1, sku: 'Z' }])
+    expect(result.blockers).toEqual([{ code: 'sale_missing', saleKey: 'gone' }])
+    expect(result.confirmable).toBe(false)
+  })
+
+  it('a sale whose holders are listed but have no sellable stock blocks instead of vanishing from the total', () => {
+    const result = computeClosing(base({ sales: [sale('k1', 1)], holdersOf: () => [{ supplierId: 7, balance: 0 }] }))
+
+    expect(result.blockers).toEqual([{ code: 'attribution_pending', saleKey: 'k1', storeId: 1, sku: 'A' }])
+    expect(result.owedCents).toBe(0)
   })
 })

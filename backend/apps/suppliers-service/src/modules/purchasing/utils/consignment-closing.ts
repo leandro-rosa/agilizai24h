@@ -12,7 +12,7 @@ export interface ClosingInput {
   sales: KeyedSale[]
   /** Linked-SKU sales without an instant or receipt identifier that could belong to this closing. */
   unidentifiedSales: SaleFact[]
-  /** Suppliers holding the sale's SKU in its store at the time of the sale, with their sellable balance. */
+  /** Suppliers with ledger entries for the sale's SKU in its store, with their balance strictly BEFORE the sale (see attributeSale). */
   holdersOf: (sale: KeyedSale) => SupplierBalance[]
   /** Manual attributions: sale key → supplier id. */
   manualAssignments: Map<string, number>
@@ -22,6 +22,8 @@ export interface ClosingInput {
   /** Intervals already settled by legacy weekly settlements: their sales are never charged again. */
   legacyCovered: Period[]
   adjustments: Adjustment[]
+  /** Confirmed sale keys absent from the latest import: they may reappear under another key, so they block until resolved. */
+  missingKeys: string[]
   /** Latest instant the sales imports reach; null when unknown. */
   salesImportedUntil: Date | null
   /** The operator accepted a partial period (permission, confirmation and justification live in the service). */
@@ -39,7 +41,7 @@ export interface ClosingLine {
   saleKeys: string[]
 }
 
-export type BlockerCode = 'sale_unidentified' | 'attribution_pending' | 'cost_missing' | 'sales_incomplete'
+export type BlockerCode = 'sale_unidentified' | 'attribution_pending' | 'cost_missing' | 'sales_incomplete' | 'sale_missing'
 
 export interface Blocker {
   code: BlockerCode
@@ -113,8 +115,27 @@ export function computeClosing(input: ClosingInput): ClosingResult {
     lines.set(id, line)
   }
 
+  for (const key of input.missingKeys) blockers.push({ code: 'sale_missing', saleKey: key })
+
+  const salesByKey = new Map(input.sales.map(s => [s.key, s]))
   const adjustments: PricedAdjustment[] = []
   for (const adjustment of input.adjustments) {
+    if (adjustment.kind === 'adjustment_late') {
+      // A late sale goes through the same guards as a regular one: it is nobody's until it is attributed.
+      const late = salesByKey.get(adjustment.saleKey)
+      if (!late) {
+        blockers.push({ code: 'attribution_pending', saleKey: adjustment.saleKey, storeId: adjustment.storeId, sku: adjustment.sku })
+        continue
+      }
+      if (input.claimedKeys.has(late.key) || late.occurredAt < input.cutoff || input.legacyCovered.some(p => contains(p, late.occurredAt))) continue
+      const attribution = attributeSale(input.holdersOf(late), input.manualAssignments.get(late.key))
+      if (attribution.pending) {
+        blockers.push({ code: 'attribution_pending', saleKey: late.key, storeId: late.storeId, sku: late.sku })
+        continue
+      }
+      if (attribution.supplierId !== input.supplierId) continue
+    } else if (adjustment.supplierId !== input.supplierId) continue
+
     const cost = adjustment.unitCostCents ?? (adjustment.occurredAt ? resolveCost(input.costs, adjustment.sku, adjustment.occurredAt)?.unitCostCents : undefined)
     if (cost === undefined) {
       blockers.push({ code: 'cost_missing', saleKey: adjustment.saleKey, storeId: adjustment.storeId, sku: adjustment.sku })
