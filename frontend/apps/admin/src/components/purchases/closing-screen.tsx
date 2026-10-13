@@ -289,7 +289,7 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
       )}
 
       <Dialog open={syncOpen} onOpenChange={onSyncOpenChange}>
-        <DialogContent className="max-h-[90vh] max-w-6xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>Sincronizar vendas e abastecimento</DialogTitle>
             <DialogDescription>
@@ -551,7 +551,7 @@ function CostsDialog({ supplierId, supplierName, open, onOpenChange, firstDay }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Produtos consignados e custos de repasse</DialogTitle>
           <DialogDescription>{supplierName}. Cada produto com custo vira consignado. Um custo não se edita: para corrigir, informe outro com a nova data de início.</DialogDescription>
@@ -683,7 +683,7 @@ function DetailDialog({ settlement, onClose }: { settlement: Settlement | null; 
 
   return (
     <Dialog open={current !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="sm:max-w-3xl">
         {current && (
           <>
             <DialogHeader>
