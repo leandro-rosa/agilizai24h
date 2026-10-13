@@ -288,6 +288,29 @@ describe("Fechamentos de fornecedores — vencidos e outro motivo, à parte", ()
     expect(screen.getByLabelText("Pagar outro motivo de Cone trufado em setembro/2026")).not.toBeChecked();
   });
 
+  it("'Com vencidas' mostra só os produtos com quantidade vencida, só as colunas de vencidas, e o total do que está na tela", async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, { ...READY, removals: { ...REMOVALS, lines: [...REMOVALS.lines, { sku: "9993", name: "Pizza calabresa", month: "2026-09", expired: { units: 0, cents: 0 }, other_reason: { units: 5, cents: 3960 }, returned: { units: 0, cents: 0 } }], totals: REMOVALS.totals } });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Vencidos e outro motivo" }), { button: 0, ctrlKey: false });
+    expect(screen.getByText("Pizza calabresa")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Com vencidas" }));
+
+    const table = screen.getByTestId("removals");
+    expect(within(table).queryByText("Pizza calabresa")).not.toBeInTheDocument();
+    expect(within(table).getAllByText("Cone trufado")).toHaveLength(2);
+    expect(within(table).queryByText("Valor outro motivo")).not.toBeInTheDocument();
+    expect(within(table).queryByText("Devolvidas")).not.toBeInTheDocument();
+    expect(table).toHaveTextContent("Total do que está na tela");
+    expect(table).toHaveTextContent("119");
+    expect(table).toHaveTextContent("R$ 708,05");
+
+    fireEvent.click(screen.getByRole("button", { name: "Todos" }));
+    expect(screen.getByText("Pizza calabresa")).toBeInTheDocument();
+  });
+
   it("o filtro acha o produto, 'Marcar vencidas do filtro' marca só os dele e 'Limpar escolha' volta ao só vendido", async () => {
     render(<ClosingScreen />);
     pickSupplier("75");

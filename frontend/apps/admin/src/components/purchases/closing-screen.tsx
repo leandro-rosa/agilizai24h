@@ -501,10 +501,21 @@ const monthName = (month: string) => `${MONTH_NAMES[Number(month.slice(5, 7)) - 
 /** Vencidas, outro motivo (roubo) e devolvidas por produto e mês, valoradas ao custo de repasse. Só informação: nada aqui altera o valor a repassar. */
 function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPreview["removals"]; picked: Set<string>; onChange: (next: Set<string>) => void }) {
   const [filter, setFilter] = useState("");
+  const [show, setShow] = useState<"all" | "expired" | "other" | "returned">("all");
   if (!removals) return <p className="text-sm text-muted-foreground">Não foi possível ler as retiradas do abastecimento agora. Consulte de novo.</p>;
   const all = removals.lines.filter((l) => l.expired.units + l.other_reason.units + l.returned.units > 0);
   const needle = filter.trim().toLowerCase();
-  const lines = needle ? all.filter((l) => l.name.toLowerCase().includes(needle) || l.sku.includes(needle)) : all;
+  const withKind = (l: (typeof all)[number]) => (show === "expired" ? l.expired.units > 0 : show === "other" ? l.other_reason.units > 0 : show === "returned" ? l.returned.units > 0 : true);
+  const lines = all.filter((l) => withKind(l) && (!needle || l.name.toLowerCase().includes(needle) || l.sku.includes(needle)));
+  // Com um filtro de tipo só as colunas desse tipo ficam: é a visão para mostrar ao fornecedor.
+  const colExpired = show === "all" || show === "expired";
+  const colOther = show === "all" || show === "other";
+  const colReturned = show === "all" || show === "returned";
+  const sum = (field: "expired" | "other_reason" | "returned") => {
+    const units = lines.reduce((n, l) => n + l[field].units, 0);
+    return { units, cents: lines.some((l) => l[field].units > 0 && l[field].cents === null) ? null : lines.reduce((n, l) => n + (l[field].cents ?? 0), 0) };
+  };
+  const total = { expired: sum("expired"), other_reason: sum("other_reason"), returned: sum("returned") };
   const toggle = (sku: string, month: string, kind: RemovalKind) => {
     const next = new Set(picked);
     const key = pickKey(sku, month, kind);
@@ -529,6 +540,20 @@ function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPrevie
           Sem abastecimento importado em {removals.months_without_data.map(monthName).join(", ")}: nada foi contado nesse mês.
         </p>
       )}
+      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Mostrar">
+        {(
+          [
+            ["all", "Todos"],
+            ["expired", "Com vencidas"],
+            ["other", "Com outro motivo"],
+            ["returned", "Com devolvidas"],
+          ] as const
+        ).map(([value, label]) => (
+          <Button key={value} size="sm" variant={show === value ? "default" : "outline"} aria-pressed={show === value} onClick={() => setShow(value)}>
+            {label}
+          </Button>
+        ))}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <Input className="w-56" placeholder="Filtrar produto ou SKU" aria-label="Filtrar produto das retiradas" value={filter} onChange={(e) => setFilter(e.target.value)} />
         <Button size="sm" variant="outline" onClick={markExpiredOfFilter} disabled={lines.every((l) => l.expired.units === 0)}>
@@ -547,11 +572,11 @@ function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPrevie
             <TableRow>
               <TableHead>Produto</TableHead>
               <TableHead>Mês</TableHead>
-              <TableHead className="text-right">Vencidas</TableHead>
-              <TableHead className="text-right">Valor vencidas</TableHead>
-              <TableHead className="text-right">Outro motivo</TableHead>
-              <TableHead className="text-right">Valor outro motivo</TableHead>
-              <TableHead className="text-right">Devolvidas</TableHead>
+              {colExpired && <TableHead className="text-right">Vencidas</TableHead>}
+              {colExpired && <TableHead className="text-right">Valor vencidas</TableHead>}
+              {colOther && <TableHead className="text-right">Outro motivo</TableHead>}
+              {colOther && <TableHead className="text-right">Valor outro motivo</TableHead>}
+              {colReturned && <TableHead className="text-right">Devolvidas</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -559,7 +584,8 @@ function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPrevie
               <TableRow key={`${line.sku}-${line.month}`}>
                 <TableCell>{line.name}</TableCell>
                 <TableCell>{monthName(line.month)}</TableCell>
-                <TableCell className="tabular text-right">{line.expired.units}</TableCell>
+                {colExpired && <TableCell className="tabular text-right">{line.expired.units}</TableCell>}
+                {colExpired && (
                 <TableCell className="tabular text-right">
                   <label className="inline-flex items-center justify-end gap-1.5">
                     {line.expired.units > 0 && (
@@ -574,7 +600,9 @@ function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPrevie
                     {line.expired.cents === null ? "sem custo" : formatCents(line.expired.cents)}
                   </label>
                 </TableCell>
-                <TableCell className="tabular text-right">{line.other_reason.units}</TableCell>
+                )}
+                {colOther && <TableCell className="tabular text-right">{line.other_reason.units}</TableCell>}
+                {colOther && (
                 <TableCell className="tabular text-right">
                   <label className="inline-flex items-center justify-end gap-1.5">
                     {line.other_reason.units > 0 && (
@@ -589,17 +617,18 @@ function RemovalsTable({ removals, picked, onChange }: { removals: ClosingPrevie
                     {line.other_reason.cents === null ? "sem custo" : formatCents(line.other_reason.cents)}
                   </label>
                 </TableCell>
-                <TableCell className="tabular text-right">{line.returned.units}</TableCell>
+                )}
+                {colReturned && <TableCell className="tabular text-right">{line.returned.units}</TableCell>}
               </TableRow>
             ))}
             <TableRow>
-              <TableCell className="font-semibold">Total</TableCell>
+              <TableCell className="font-semibold">{show === "all" && !needle ? "Total" : "Total do que está na tela"}</TableCell>
               <TableCell />
-              <TableCell className="tabular text-right font-semibold">{removals.totals.expired.units}</TableCell>
-              <TableCell className="tabular text-right font-semibold">{removals.totals.expired.cents === null ? "—" : formatCents(removals.totals.expired.cents)}</TableCell>
-              <TableCell className="tabular text-right font-semibold">{removals.totals.other_reason.units}</TableCell>
-              <TableCell className="tabular text-right font-semibold">{removals.totals.other_reason.cents === null ? "—" : formatCents(removals.totals.other_reason.cents)}</TableCell>
-              <TableCell className="tabular text-right font-semibold">{removals.totals.returned.units}</TableCell>
+              {colExpired && <TableCell className="tabular text-right font-semibold">{total.expired.units}</TableCell>}
+              {colExpired && <TableCell className="tabular text-right font-semibold">{total.expired.cents === null ? "—" : formatCents(total.expired.cents)}</TableCell>}
+              {colOther && <TableCell className="tabular text-right font-semibold">{total.other_reason.units}</TableCell>}
+              {colOther && <TableCell className="tabular text-right font-semibold">{total.other_reason.cents === null ? "—" : formatCents(total.other_reason.cents)}</TableCell>}
+              {colReturned && <TableCell className="tabular text-right font-semibold">{total.returned.units}</TableCell>}
             </TableRow>
           </TableBody>
         </Table>
