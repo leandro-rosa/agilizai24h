@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { AlertTriangle, CalendarDays, Info, Loader2 } from "lucide-react";
+import { AlertTriangle, CalendarDays, Info, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
+import { DriveFilesSection } from "@/components/ingestion/drive-files-section";
 import { StatusBadge, type StatusTone } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,6 +92,8 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
   const [acceptIncomplete, setAcceptIncomplete] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [synced, setSynced] = useState(false);
   // Só a última consulta pode escrever o resultado: uma resposta atrasada de uma seleção anterior é descartada.
   const latest = useRef(0);
 
@@ -123,10 +126,22 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
     setAcceptIncomplete(false);
   }
 
+  /** Fechar a sincronização invalida o resultado: o que foi importado pode mudar o valor, então só uma nova consulta vale. */
+  function onSyncOpenChange(open: boolean) {
+    setSyncOpen(open);
+    if (!open) {
+      latest.current++;
+      setLoading(false);
+      setResult(null);
+      setSynced(true);
+    }
+  }
+
   async function consult() {
     const ticket = ++latest.current;
     const asked = key;
     setResult(null);
+    setSynced(false);
     setLoading(true);
     try {
       const response = await preview({ supplier_id: id, period_from: range.from, period_to: range.to }).unwrap();
@@ -212,6 +227,10 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
             {isLoading ? <Loader2 className="size-4 animate-spin" /> : <CalendarDays className="size-4" />}
             {isLoading ? "Consultando..." : "Consultar período"}
           </Button>
+          <Button variant="outline" onClick={() => setSyncOpen(true)}>
+            <RefreshCw className="size-4" />
+            Sincronizar vendas e abastecimento
+          </Button>
         </CardContent>
       </Card>
 
@@ -239,7 +258,7 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
       {id > 0 && !needsSetup && !isLoading && !view && !failed && (
         <p role="status" data-testid="stale-note" className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
           <Info className="size-4 shrink-0" />
-          {result ? "Período alterado. Clique em Consultar período." : "Escolha o período e clique em Consultar período para calcular."}
+          {synced ? "Vendas e abastecimento sincronizados? Clique em Consultar período para recalcular." : result ? "Período alterado. Clique em Consultar período." : "Escolha o período e clique em Consultar período para calcular."}
         </p>
       )}
       {isLoading && (
@@ -265,8 +284,21 @@ function NewClosing({ onConfirmed }: { onConfirmed: (settlement: Settlement) => 
           onConfirm={() => setConfirmOpen(true)}
           onUseFrom={(from) => changeRange({ from, to: range.to >= from ? range.to : from })}
           onSetup={() => setSetupOpen(true)}
+          onSync={() => setSyncOpen(true)}
         />
       )}
+
+      <Dialog open={syncOpen} onOpenChange={onSyncOpenChange}>
+        <DialogContent className="max-h-[90vh] max-w-6xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Sincronizar vendas e abastecimento</DialogTitle>
+            <DialogDescription>
+              Procura no Drive os relatórios novos. Nada é importado sozinho: confira cada arquivo e clique em “Importar”. Ao fechar, consulte o período de novo.
+            </DialogDescription>
+          </DialogHeader>
+          <DriveFilesSection />
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
@@ -344,6 +376,7 @@ function ResultView({
   onConfirm,
   onUseFrom,
   onSetup,
+  onSync,
 }: {
   view: ClosingPreview;
   acceptIncomplete: boolean;
@@ -351,6 +384,7 @@ function ResultView({
   onConfirm: () => void;
   onUseFrom: (from: string) => void;
   onSetup: () => void;
+  onSync: () => void;
 }) {
   const verdict = verdictOf(view);
   const showNumbers = view.status === "ready" || view.status === "incomplete";
@@ -377,6 +411,12 @@ function ResultView({
         {view.status === "config_pending" && (
           <Button className="w-fit" onClick={onSetup}>
             Configurar produtos e custos
+          </Button>
+        )}
+        {view.issues.some((i) => i.code === "sales_dates_missing" || i.code === "stores_missing") && (
+          <Button variant="outline" className="w-fit" onClick={onSync}>
+            <RefreshCw className="size-4" />
+            Sincronizar vendas
           </Button>
         )}
         {view.issues.length > 0 && (

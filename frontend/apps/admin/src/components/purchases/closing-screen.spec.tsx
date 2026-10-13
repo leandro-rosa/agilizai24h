@@ -43,6 +43,7 @@ jest.doMock("../../lib/api/purchases", () => ({
 jest.doMock("../../lib/api/suppliers", () => ({
   useGetSuppliersQuery: () => ({ data: [{ id: 75, name: "Quinoa Indústria de Alimentos", status: "active" }, { id: 76, name: "Fornecedor novo", status: "active" }] }),
 }));
+jest.doMock("../ingestion/drive-files-section", () => ({ DriveFilesSection: () => <p>Arquivos do Drive (seção de ingestão)</p> }));
 jest.doMock("../../lib/api/products", () => ({
   useGetProductsQuery: () => ({ data: [{ id: 1, sku: "110022", name: "Pão de mel" }] }),
 }));
@@ -237,6 +238,42 @@ describe("Fechamentos de fornecedores — novo fechamento", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar fechamento" }));
 
     await waitFor(() => expect(confirmClosing).toHaveBeenCalledWith({ supplier_id: 75, period_from: "2026-09-30", period_to: "2026-10-12", accept_incomplete: false }));
+  });
+});
+
+describe("Fechamentos de fornecedores — sincronizar vendas e abastecimento", () => {
+  it("o botão fica sempre na tela e abre a seção do Drive (a mesma da ingestão, onde cada importação é confirmada)", () => {
+    render(<ClosingScreen />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sincronizar vendas e abastecimento" }));
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("Nada é importado sozinho");
+    expect(screen.getByText("Arquivos do Drive (seção de ingestão)")).toBeInTheDocument();
+  });
+
+  it("fechar a sincronização invalida o resultado antigo e pede nova consulta", async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, READY);
+    expect(screen.getByTestId("closing-result")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sincronizar vendas e abastecimento" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(screen.queryByTestId("closing-result")).not.toBeInTheDocument());
+    expect(screen.getByTestId("stale-note")).toHaveTextContent("sincronizados? Clique em Consultar período");
+  });
+
+  it("vendas sem data no resultado oferecem o atalho Sincronizar vendas", async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, { ...READY, status: "incomplete", confirmable: false, issues: [{ code: "sales_dates_missing", acceptable: false, detail: "2026-10" }] });
+
+    fireEvent.click(within(screen.getByTestId("closing-result")).getByRole("button", { name: "Sincronizar vendas" }));
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("Sincronizar vendas e abastecimento");
   });
 });
 
