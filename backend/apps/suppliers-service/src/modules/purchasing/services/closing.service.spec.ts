@@ -18,11 +18,12 @@ function build(opts: { settlements?: Row[]; costs?: Row[]; agreement?: Row | nul
     consignmentCost: { findMany: async () => opts.costs ?? [] },
   }
   const sales = { soldBySku: jest.fn(async () => opts.sold ?? { rows: [], months_without_dated_receipts: [], stores_missing: 0 }) }
+  const supply = { removals: jest.fn(async () => ({ from: '2026-09', to: '2026-10', months_with_data: ['2026-09', '2026-10'], rows: [{ period: '2026-09', sku: 'A', reason: 'expired', quantity: 4 }, { period: '2026-10', sku: 'A', reason: 'other_reason', quantity: 2 }] })) }
   const products = { products: async () => [{ sku: 'A', name: 'Pão de mel' }] }
   const settlementSvc = { last: async () => null, findById: async (id: number) => ({ id }) }
-  const service = new ClosingService(prisma as never, sales as never, products as never, settlementSvc as never)
+  const service = new ClosingService(prisma as never, sales as never, supply as never, products as never, settlementSvc as never)
 
-  return { service, created, sales, settlementSvc }
+  return { service, created, sales, supply, settlementSvc }
 }
 
 const q = { supplier_id: 75, period_from: '2026-09-30', period_to: '2026-10-12' }
@@ -54,7 +55,27 @@ describe('ClosingService.preview', () => {
     expect(view.status).toBe('ready')
     expect(view.total_cents).toBe(36500)
     expect(view.lines[0].name).toBe('Pão de mel')
-    expect(view.withdrawals).toBeNull()
+    expect(view.removals?.lines).toEqual([
+      expect.objectContaining({ sku: 'A', name: 'Pão de mel', month: '2026-09', expired: { units: 4, cents: 2920 } }),
+      expect.objectContaining({ sku: 'A', month: '2026-10', other_reason: { units: 2, cents: 1460 } }),
+    ])
+  })
+
+  it('expired and other-reason units are shown beside the sales and never added to the amount to settle', async () => {
+    const { service } = build({ costs: [cost], sold: { rows: [{ sku: 'A', quantity: 50 }], months_without_dated_receipts: [], stores_missing: 0 } })
+    const view = await service.preview(q)
+
+    expect(view.total_cents).toBe(36500)
+    expect(view.removals?.totals.expired.units).toBe(4)
+  })
+
+  it('when the supply data cannot be read the closing still answers, with removals unknown (null), never zero', async () => {
+    const { service, supply } = build({ costs: [cost], sold: { rows: [{ sku: 'A', quantity: 50 }], months_without_dated_receipts: [], stores_missing: 0 } })
+    supply.removals.mockRejectedValueOnce(new Error('down'))
+    const view = await service.preview(q)
+
+    expect(view.status).toBe('ready')
+    expect(view.removals).toBeNull()
   })
 
   it('refuses today and future days, and an inverted period', async () => {

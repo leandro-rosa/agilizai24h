@@ -18,6 +18,11 @@ class EnvironmentVariables {
   @IsNotEmpty()
   SALES_SERVICE_URL: string
 
+  /** Removals by reason (expired, other reason, return), shown beside a supplier closing. Read-only. */
+  @IsString()
+  @IsNotEmpty()
+  SUPPLY_SERVICE_URL: string
+
   @IsString()
   @IsNotEmpty()
   PRODUCTS_SERVICE_URL: string

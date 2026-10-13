@@ -49,6 +49,24 @@ export class SupplyController {
     return this.supply.findVisitCounts(from, to)
   }
 
+  /** Declared before `supply/:storeId` so "network" is not read as a store id. */
+  @Get('supply/network/removals')
+  @ApiOperation({
+    summary: 'Units removed per SKU, month and reason, network-wide',
+    description:
+      'Read-only, for a supplier closing. The supply data keeps only the MONTH of a removal, never the day: a caller that needs a window of days gets the whole months it touches, labelled as such.',
+  })
+  @ApiQuery({ name: 'from', required: true, example: '2026-09' })
+  @ApiQuery({ name: 'to', required: true, example: '2026-10' })
+  @ApiQuery({ name: 'skus', required: true, description: 'Comma separated' })
+  findNetworkRemovals(@Query('from') from: string, @Query('to') to: string, @Query('skus') skus: string) {
+    if (!isValidPeriod(from) || !isValidPeriod(to) || from > to) {
+      throw new BadRequestException('from and to are required, as YYYY-MM, with from <= to')
+    }
+
+    return this.supply.findNetworkRemovals(from, to, (skus ?? '').split(',').map(s => s.trim()).filter(Boolean))
+  }
+
   @Get('supply/:storeId')
   @ApiOperation({
     summary: 'Restocks and per-reason removals for a store and period',

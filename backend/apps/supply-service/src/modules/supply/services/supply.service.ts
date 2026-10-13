@@ -335,6 +335,29 @@ export class SupplyService {
     }
   }
 
+  /** Removed units per month, SKU and reason across every store: what a supplier closing shows beside the sales. A month never ingested has no row (unknown, not zero). */
+  async findNetworkRemovals(from: string, to: string, skus: string[]) {
+    const grouped = skus.length
+      ? await this.prisma.removalRecord.groupBy({
+          by: ['period', 'sku', 'reason_id'],
+          where: { period: { gte: from, lte: to }, sku: { in: skus } },
+          _sum: { quantity_removed: true },
+          _count: { store_id: true },
+        })
+      : []
+    const reasons = new Map((await this.prisma.removalReason.findMany()).map(r => [r.id, r.key]))
+    const periods = await this.prisma.removalRecord.findMany({ where: { period: { gte: from, lte: to } }, distinct: ['period'], select: { period: true }, orderBy: { period: 'asc' } })
+
+    return {
+      from,
+      to,
+      months_with_data: periods.map(p => p.period),
+      rows: grouped
+        .map(g => ({ period: g.period, sku: g.sku, reason: reasons.get(g.reason_id) ?? String(g.reason_id), quantity: g._sum.quantity_removed ?? 0, stores: g._count.store_id }))
+        .sort((a, b) => a.period.localeCompare(b.period) || a.sku.localeCompare(b.sku) || a.reason.localeCompare(b.reason)),
+    }
+  }
+
   /** The stores that have at least one visit in the range — what a network-wide reader iterates over. */
   async findVisitStoreIds(from: string, to: string): Promise<number[]> {
     const rows = await this.prisma.supplyVisit.findMany({

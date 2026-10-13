@@ -435,13 +435,13 @@ function ResultView({
             <div className="grid gap-3 sm:grid-cols-4">
               <Figure label="Valor a repassar" value={formatCents(view.total_cents)} />
               <Figure label="Vendidas" value={`${view.total_units} un.`} />
-              <Figure label="Retiradas por vencimento" value="Não disponível" note="Ainda não lidas por este cálculo." />
-              <Figure label="Devoluções pendentes" value="Não disponível" note="Ainda não lidas por este cálculo." />
+              <Figure label="Vencidas (à parte)" value={cellText(view.removals?.totals.expired)} note={view.removals ? "Por mês, a custo de repasse. Não entram no valor a repassar." : "Abastecimento não pôde ser lido."} />
+              <Figure label="Outro motivo (à parte)" value={cellText(view.removals?.totals.other_reason)} note={view.removals ? "Roubo: por conta do Agiliz. Não entra no valor a repassar." : "Abastecimento não pôde ser lido."} />
             </div>
             <Tabs defaultValue="sales">
               <TabsList variant="line">
                 <TabsTrigger value="sales">Vendas e repasse</TabsTrigger>
-                <TabsTrigger value="expiry">Vencimentos e devoluções</TabsTrigger>
+                <TabsTrigger value="expiry">Vencidos e outro motivo</TabsTrigger>
                 <TabsTrigger value="stock">Estoque</TabsTrigger>
               </TabsList>
               <TabsContent value="sales">
@@ -450,7 +450,7 @@ function ResultView({
                 <p className="mt-1 text-xs text-muted-foreground">Conta: vendas da rede inteira dos produtos configurados × custo de repasse combinado, vigente no primeiro dia do período (MÉTRICA DERIVADA).</p>
               </TabsContent>
               <TabsContent value="expiry">
-                <p className="text-sm text-muted-foreground">Retiradas por vencimento e devoluções ainda não entram neste cálculo. Quando entrarem, aparecem aqui; até lá o valor acima não as desconta.</p>
+                <RemovalsTable removals={view.removals} />
               </TabsContent>
               <TabsContent value="stock">
                 <p className="text-sm text-muted-foreground">A conciliação do estoque ainda não está disponível.</p>
@@ -472,6 +472,74 @@ function ResultView({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** `12 un. · R$ 71,40`; sem custo, só as unidades (o valor é desconhecido, não zero). */
+function cellText(cell: { units: number; cents: number | null } | undefined): string {
+  if (!cell) return "Não disponível";
+  return cell.cents === null ? `${cell.units} un. · sem custo` : `${cell.units} un. · ${formatCents(cell.cents)}`;
+}
+
+const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const monthName = (month: string) => `${MONTH_NAMES[Number(month.slice(5, 7)) - 1]}/${month.slice(0, 4)}`;
+
+/** Vencidas, outro motivo (roubo) e devolvidas por produto e mês, valoradas ao custo de repasse. Só informação: nada aqui altera o valor a repassar. */
+function RemovalsTable({ removals }: { removals: ClosingPreview["removals"] }) {
+  if (!removals) return <p className="text-sm text-muted-foreground">Não foi possível ler as retiradas do abastecimento agora. Consulte de novo.</p>;
+  const lines = removals.lines.filter((l) => l.expired.units + l.other_reason.units + l.returned.units > 0);
+
+  return (
+    <div className="flex flex-col gap-3" data-testid="removals">
+      <p className="text-sm text-muted-foreground">
+        O abastecimento guarda só o <strong>mês</strong> de cada retirada, não o dia: aparecem os meses inteiros que o período toca ({removals.months.map(monthName).join(", ")}). Valor = unidades × custo de repasse (ESTIMATIVA). Estes números ficam à parte: não entram no valor a repassar.
+      </p>
+      {removals.months_without_data.length > 0 && (
+        <p className="flex items-start gap-1 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+          Sem abastecimento importado em {removals.months_without_data.map(monthName).join(", ")}: nada foi contado nesse mês.
+        </p>
+      )}
+      {lines.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nenhuma retirada vencida, por outro motivo ou devolvida dos produtos desse fornecedor nesses meses.</p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Produto</TableHead>
+              <TableHead>Mês</TableHead>
+              <TableHead className="text-right">Vencidas</TableHead>
+              <TableHead className="text-right">Valor vencidas</TableHead>
+              <TableHead className="text-right">Outro motivo</TableHead>
+              <TableHead className="text-right">Valor outro motivo</TableHead>
+              <TableHead className="text-right">Devolvidas</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {lines.map((line) => (
+              <TableRow key={`${line.sku}-${line.month}`}>
+                <TableCell>{line.name}</TableCell>
+                <TableCell>{monthName(line.month)}</TableCell>
+                <TableCell className="tabular text-right">{line.expired.units}</TableCell>
+                <TableCell className="tabular text-right">{line.expired.cents === null ? "sem custo" : formatCents(line.expired.cents)}</TableCell>
+                <TableCell className="tabular text-right">{line.other_reason.units}</TableCell>
+                <TableCell className="tabular text-right">{line.other_reason.cents === null ? "sem custo" : formatCents(line.other_reason.cents)}</TableCell>
+                <TableCell className="tabular text-right">{line.returned.units}</TableCell>
+              </TableRow>
+            ))}
+            <TableRow>
+              <TableCell className="font-semibold">Total</TableCell>
+              <TableCell />
+              <TableCell className="tabular text-right font-semibold">{removals.totals.expired.units}</TableCell>
+              <TableCell className="tabular text-right font-semibold">{removals.totals.expired.cents === null ? "—" : formatCents(removals.totals.expired.cents)}</TableCell>
+              <TableCell className="tabular text-right font-semibold">{removals.totals.other_reason.units}</TableCell>
+              <TableCell className="tabular text-right font-semibold">{removals.totals.other_reason.cents === null ? "—" : formatCents(removals.totals.other_reason.cents)}</TableCell>
+              <TableCell className="tabular text-right font-semibold">{removals.totals.returned.units}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      )}
+    </div>
   );
 }
 

@@ -16,7 +16,15 @@ const STATUS: Record<number, unknown> = {
   76: { last: null, configured_skus: 0, period_days: null, suggested: null, suggestion_reason: "no_history" },
 };
 
-const head = { supplier_id: 75, supplier_name: "Quinoa Indústria de Alimentos", period_from: "2026-09-30", period_to: "2026-10-12", config_missing: [], conflict: null, withdrawals: null };
+const head = { supplier_id: 75, supplier_name: "Quinoa Indústria de Alimentos", period_from: "2026-09-30", period_to: "2026-10-12", config_missing: [], conflict: null, removals: REMOVALS };
+const REMOVALS = {
+  basis: "month", months: ["2026-09", "2026-10"], months_without_data: [],
+  lines: [
+    { sku: "100083", name: "Cone trufado", month: "2026-09", expired: { units: 109, cents: 64855 }, other_reason: { units: 2, cents: 1190 }, returned: { units: 0, cents: 0 } },
+    { sku: "100083", name: "Cone trufado", month: "2026-10", expired: { units: 10, cents: 5950 }, other_reason: { units: 0, cents: 0 }, returned: { units: 0, cents: 0 } },
+  ],
+  totals: { expired: { units: 119, cents: 70805 }, other_reason: { units: 2, cents: 1190 }, returned: { units: 0, cents: 0 } },
+};
 const READY: Preview = {
   ...head, status: "ready", total_units: 100, total_cents: 74250, configured_skus: 19, skus_without_sales: 16, issues: [], confirmable: true,
   lines: [{ sku: "110022", name: "Pão de mel", sold_units: 50, unit_cost_cents: 730, total_cents: 36500 }, { sku: "100083", name: "Cone trufado", sold_units: 50, unit_cost_cents: 595, total_cents: 29750 }],
@@ -102,8 +110,10 @@ describe("Fechamentos de fornecedores — novo fechamento", () => {
     expect(result).toHaveTextContent("Resultado: Quinoa Indústria de Alimentos · 30/09/2026 a 12/10/2026");
     expect(result).toHaveTextContent("R$ 742,50");
     expect(result).toHaveTextContent("100 un.");
-    expect(result).toHaveTextContent("Retiradas por vencimento");
-    expect(result).toHaveTextContent("Não disponível");
+    expect(result).toHaveTextContent("Vencidas (à parte)");
+    expect(result).toHaveTextContent("119 un. · R$ 708,05");
+    expect(result).toHaveTextContent("Outro motivo (à parte)");
+    expect(result).toHaveTextContent("2 un. · R$ 11,90");
     expect(screen.getByText("Pão de mel")).toBeInTheDocument();
     expect(confirmClosing).not.toHaveBeenCalled();
   });
@@ -238,6 +248,38 @@ describe("Fechamentos de fornecedores — novo fechamento", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar fechamento" }));
 
     await waitFor(() => expect(confirmClosing).toHaveBeenCalledWith({ supplier_id: 75, period_from: "2026-09-30", period_to: "2026-10-12", accept_incomplete: false }));
+  });
+});
+
+describe("Fechamentos de fornecedores — vencidos e outro motivo, à parte", () => {
+  it("a aba mostra vencidas e outro motivo por produto e mês, com valores, e deixa claro que não entram no repasse", async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, READY);
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Vencidos e outro motivo" }), { button: 0, ctrlKey: false });
+
+    const table = screen.getByTestId("removals");
+    expect(table).toHaveTextContent("não entram no valor a repassar");
+    expect(table).toHaveTextContent("setembro/2026");
+    expect(table).toHaveTextContent("109");
+    expect(table).toHaveTextContent("R$ 648,55");
+    expect(table).toHaveTextContent("outubro/2026");
+    expect(table).toHaveTextContent("R$ 59,50");
+    expect(table).toHaveTextContent("R$ 11,90");
+    expect(screen.getByTestId("closing-result")).toHaveTextContent("R$ 742,50");
+  });
+
+  it("sem leitura do abastecimento diz isso, em vez de mostrar zero", async () => {
+    render(<ClosingScreen />);
+    pickSupplier("75");
+    consult();
+    await answer(0, { ...READY, removals: null });
+
+    expect(screen.getByTestId("closing-result")).toHaveTextContent("Abastecimento não pôde ser lido");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Vencidos e outro motivo" }), { button: 0, ctrlKey: false });
+    expect(screen.getByText(/Não foi possível ler as retiradas/)).toBeInTheDocument();
   });
 });
 

@@ -408,6 +408,30 @@ export interface ClosingIssue {
 export type ClosingStatusCode = "ready" | "no_sales" | "incomplete" | "config_pending" | "conflict";
 
 /** O que o servidor calculou para ESTE fornecedor e ESTE período (os campos `supplier_*` e `period_*` são os efetivamente consultados). */
+export interface RemovalCell {
+  units: number;
+  /** Unidades × custo de repasse vigente no 1º dia do período; `null` quando o produto não tem custo. */
+  cents: number | null;
+}
+
+export interface RemovalLine {
+  sku: string;
+  name: string;
+  month: string;
+  expired: RemovalCell;
+  other_reason: RemovalCell;
+  returned: RemovalCell;
+}
+
+export interface ClosingRemovals {
+  /** O abastecimento guarda só o mês, nunca o dia. */
+  basis: "month";
+  months: string[];
+  months_without_data: string[];
+  lines: RemovalLine[];
+  totals: { expired: RemovalCell; other_reason: RemovalCell; returned: RemovalCell };
+}
+
 export interface ClosingPreview {
   supplier_id: number;
   supplier_name: string;
@@ -422,8 +446,8 @@ export interface ClosingPreview {
   configured_skus: number;
   skus_without_sales: number;
   issues: ClosingIssue[];
-  /** Retiradas por vencimento e devoluções pendentes: `null` = ainda não lidas por este cálculo, nunca zero. */
-  withdrawals: null;
+  /** Vencidas, outro motivo (roubo, por conta do Agiliz) e devolvidas, por mês e a custo de repasse: mostradas À PARTE, nunca somadas ao valor a repassar. `null` = o abastecimento não pôde ser lido. */
+  removals: ClosingRemovals | null;
   confirmable: boolean;
 }
 

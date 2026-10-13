@@ -2,7 +2,9 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { PrismaClientService } from '../../db-client/prisma-client.service'
 import { ProductsClient } from '../clients/products.client'
 import { SalesClient } from '../clients/sales.client'
+import { SupplyClient } from '../clients/supply.client'
 import type { ClosingQueryDto, ConfirmClosingDto } from '../dto/closing.dto'
+import { monthsTouched, viewRemovals, type RemovalsView } from '../utils/closing-removals'
 import { previewClosing, type Preview, type PreviewIssue, type PreviewLine } from '../utils/closing-preview'
 import type { CostRow } from '../utils/consignment-agreement'
 import { findOverlap, type DayInterval } from '../utils/settlement-coverage'
@@ -26,7 +28,8 @@ export interface ClosingPreviewView {
   skus_without_sales: number
   issues: PreviewIssue[]
   /** Expired withdrawals and pending returns are not read by this basis yet: null means "not available", never zero. */
-  withdrawals: null
+  /** Expired, other reason (theft, borne by the owner) and returned units, by month and valued at the agreed cost: shown SEPARATELY, never added to `total_cents`. null when the supply data could not be read. */
+  removals: (Omit<RemovalsView, 'lines'> & { lines: Array<RemovalsView['lines'][number] & { name: string }> }) | null
   /** A person may confirm this exact result (the server recomputes it on confirmation). */
   confirmable: boolean
 }
@@ -50,6 +53,7 @@ export class ClosingService {
   constructor(
     private readonly prisma: PrismaClientService,
     private readonly sales: SalesClient,
+    private readonly supply: SupplyClient,
     private readonly products: ProductsClient,
     private readonly settlements: SettlementService,
   ) {}
@@ -83,7 +87,7 @@ export class ClosingService {
   async preview(dto: ClosingQueryDto, correlationId?: string): Promise<ClosingPreviewView> {
     const interval = this.validate(dto)
     const supplier = await this.assertSupplier(dto.supplier_id)
-    const empty = { lines: [], total_units: 0, total_cents: 0, configured_skus: 0, skus_without_sales: 0, issues: [], withdrawals: null, confirmable: false }
+    const empty = { lines: [], total_units: 0, total_cents: 0, configured_skus: 0, skus_without_sales: 0, issues: [], removals: null, confirmable: false }
     const head = { supplier_id: supplier.id, supplier_name: supplier.name, period_from: dto.period_from, period_to: dto.period_to, config_missing: [] as Array<'products'>, conflict: null }
 
     const covered = await this.prisma.settlement.findMany({ where: { supplier_id: dto.supplier_id, state: { in: ['confirmed', 'paid'] } }, select: { id: true, period_start: true, period_end: true, state: true } })
@@ -106,7 +110,17 @@ export class ClosingService {
     const names = new Map((await this.products.products(correlationId).catch(() => [])).map(p => [p.sku, p.name]))
     const confirmable = result.status === 'ready'
 
-    return { ...head, ...result, lines: result.lines.map(l => ({ ...l, name: names.get(l.sku) ?? l.sku })), withdrawals: null, confirmable }
+    const months = monthsTouched(dto.period_from, dto.period_to)
+    const removed = await this.supply.removals(months[0], months[months.length - 1], skus, correlationId).catch(() => null)
+    const removals = removed
+      ? (() => {
+          const view = viewRemovals({ from: dto.period_from, to: dto.period_to, costs, rows: removed.rows, monthsWithData: removed.months_with_data })
+
+          return { ...view, lines: view.lines.map(l => ({ ...l, name: names.get(l.sku) ?? l.sku })) }
+        })()
+      : null
+
+    return { ...head, ...result, lines: result.lines.map(l => ({ ...l, name: names.get(l.sku) ?? l.sku })), removals, confirmable }
   }
 
   /** Recomputes on the server (never trusts the screen) and stores a CONFIRMED closing: this is the only call here that creates an obligation. */

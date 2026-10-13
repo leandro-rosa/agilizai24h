@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { AccountingClient } from './clients/accounting.client'
 import { ProductsClient } from './clients/products.client'
 import { SalesClient } from './clients/sales.client'
+import { SupplyClient } from './clients/supply.client'
 import { ClosingsController } from './controllers/closings.controller'
 import { ConsignmentController } from './controllers/consignment.controller'
 import { PayablesController } from './controllers/payables.controller'
@@ -20,7 +21,7 @@ import { SettlementService } from './services/settlement.service'
 
 @Module({
   controllers: [PurchasesController, PayablesController, SettlementsController, ConsignmentController, ClosingsController],
-  providers: [PurchasesService, PayablesService, PurchaseImportService, SettlementService, ClosingService, ConsignmentAgreementService, OrderEmailService, { provide: MailTransport, useClass: SmtpTransport }, ProductsClient, SalesClient, AccountingClient, CostSyncService],
+  providers: [PurchasesService, PayablesService, PurchaseImportService, SettlementService, ClosingService, ConsignmentAgreementService, OrderEmailService, { provide: MailTransport, useClass: SmtpTransport }, ProductsClient, SalesClient, SupplyClient, AccountingClient, CostSyncService],
   exports: [PurchasesService],
 })
 export class PurchasingModule {}
