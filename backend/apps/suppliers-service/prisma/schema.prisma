@@ -104,7 +104,7 @@ model Purchase {
   /// on_receipt (paga ao receber) | due_date (boleto para o dia payment_due_on) | NULL (não informado).
   payment_term   String?
   payment_due_on DateTime? @db.Date
-  /// Como se paga: boleto | transfer (Pix/transferência) | other. Junto de `payment_term`: "ao receber" é a forma "na entrega".
+  /// Como se paga: boleto | transfer (Pix/transferência) | credit_card | other. Junto de `payment_term`: "ao receber" é a forma "na entrega".
   payment_method String?
 
   created_at  DateTime @default(now())
@@ -151,7 +151,7 @@ model PurchaseItem {
   /// pending | paid. Só vale para `paid`; `on_sale` é quitado pelo acerto e `bonus` não deve nada.
   payment_status String   @default("pending")
   paid_on        DateTime? @db.Date
-  /// Forma em que foi pago (boleto | transfer | other), quando registrada a baixa.
+  /// Forma em que foi pago (boleto | transfer | credit_card | other), quando registrada a baixa.
   paid_method    String?
   payment_note   String?
   /// Saída para o custo do produto (outbox): pending | synced | unchanged | skipped_bonus | skipped_not_received | failed. NULL = compra ainda não recebida

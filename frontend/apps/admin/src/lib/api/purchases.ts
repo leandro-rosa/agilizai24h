@@ -7,7 +7,7 @@ export type PaymentStatus = "pending" | "paid";
 export type SettlementState = "proposal" | "confirmed" | "paid";
 export type Stage = "requisition" | "awaiting_invoice" | "invoiced" | "awaiting_receipt" | "received";
 export type PaymentTerm = "on_receipt" | "due_date";
-export type PaymentMethod = "boleto" | "transfer" | "other";
+export type PaymentMethod = "boleto" | "transfer" | "credit_card" | "other";
 
 export interface PurchaseItem {
   id: number;

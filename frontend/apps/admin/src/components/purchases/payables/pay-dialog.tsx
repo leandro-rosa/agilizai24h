@@ -79,6 +79,7 @@ export function PayDialog({ candidates, preselected, open, onOpenChange }: { can
                 <SelectItem value={KEEP}>A do pedido</SelectItem>
                 <SelectItem value="boleto">{FORM_LABEL.boleto}</SelectItem>
                 <SelectItem value="transfer">Pix / transferência</SelectItem>
+                <SelectItem value="credit_card">{FORM_LABEL.credit_card}</SelectItem>
                 <SelectItem value="other">{FORM_LABEL.other}</SelectItem>
               </SelectContent>
             </Select>

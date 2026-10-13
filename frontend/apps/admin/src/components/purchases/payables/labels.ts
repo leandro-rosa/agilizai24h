@@ -1,7 +1,7 @@
 import type { PayableForm, PayableState } from "@/lib/api/purchases";
 import type { StatusTone } from "@/components/status-badge";
 
-export const FORM_LABEL: Record<NonNullable<PayableForm>, string> = { on_delivery: "Na entrega", boleto: "Boleto", transfer: "Transferência", other: "Outra" };
+export const FORM_LABEL: Record<NonNullable<PayableForm>, string> = { on_delivery: "Na entrega", boleto: "Boleto", transfer: "Transferência", credit_card: "Cartão de crédito", other: "Outra" };
 export const formLabel = (form: PayableForm): string => (form ? FORM_LABEL[form] : "Não informada");
 
 export const STATE_LABEL: Record<PayableState, string> = { overdue: "Vencido", due_today: "Vence hoje", upcoming: "A vencer", on_delivery: "Na entrega", undated: "Sem data", paid: "Pago" };

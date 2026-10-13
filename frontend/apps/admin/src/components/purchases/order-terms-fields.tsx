@@ -70,6 +70,7 @@ export function OrderTermsFields({ value, onChange }: { value: OrderTerms; onCha
             <SelectItem value={NONE}>Não informada</SelectItem>
             <SelectItem value="boleto">Boleto</SelectItem>
             <SelectItem value="transfer">Pix / transferência</SelectItem>
+            <SelectItem value="credit_card">Cartão de crédito</SelectItem>
             <SelectItem value="other">Outra</SelectItem>
           </SelectContent>
         </Select>

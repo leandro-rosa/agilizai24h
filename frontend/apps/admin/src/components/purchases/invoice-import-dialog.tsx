@@ -107,7 +107,9 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
     const suggested = suggestedOf(item);
     return suggested ? labelOf(suggested) : "";
   };
-  const skuFor = (item: InvoicePreview["items"][number]) => item.sku ?? products.find((p) => labelOf(p) === chosenLabel(item))?.sku ?? null;
+  /** "Deixar para depois" vale mais que o parecido pré-escolhido: a linha fica sem produto. */
+  const skuFor = (item: InvoicePreview["items"][number]) =>
+    item.sku ?? (later[item.line] ? null : (products.find((p) => labelOf(p) === chosenLabel(item))?.sku ?? null));
   const isSuggested = (item: InvoicePreview["items"][number]) => !item.sku && chosen[item.line] === undefined && suggestedOf(item) !== null;
   /** Os parecidos primeiro na lista do seletor, o resto do catálogo depois. */
   const optionsFor = (item: InvoicePreview["items"][number]) => {
@@ -294,12 +296,15 @@ export function InvoiceImportDialog({ trigger }: { trigger?: React.ReactNode }) 
                                 </Button>
                               )}
                               {eanLinked[item.line] && <p className="text-xs text-success">EAN {item.ean} vinculado ao produto escolhido.</p>}
-                              {canRegister && !sku && canCreateProduct && !isLater && (
-                                <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setNewProductLine(item.line)}>
-                                  Cadastrar produto novo
-                                </Button>
+                              {canRegister && canCreateProduct && !isLater && (
+                                <>
+                                  <Button variant="link" size="sm" className="h-auto px-0" disabled={!preview.supplier} onClick={() => setNewProductLine(item.line)}>
+                                    Cadastrar produto novo
+                                  </Button>
+                                  {!preview.supplier && <p className="text-xs text-muted-foreground">Vincule o emitente a um fornecedor (acima) para cadastrar o produto por esta nota.</p>}
+                                </>
                               )}
-                              {fixable && !sku && !isLater && (
+                              {fixable && !isLater && (
                                 <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setLater((current) => ({ ...current, [item.line]: true }))}>
                                   Deixar para depois
                                 </Button>

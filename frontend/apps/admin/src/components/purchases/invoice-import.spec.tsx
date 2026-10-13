@@ -131,6 +131,23 @@ describe("InvoiceImportDialog — sugestões por nome", () => {
     expect(screen.getByRole("button", { name: "Registrar 1 item" })).toBeEnabled();
   });
 
+  it("com o parecido já escolhido, ainda oferece cadastrar produto novo e deixar para depois (o produto pode ser outro)", async () => {
+    await openWithFile();
+
+    expect(screen.getByText(/Sugerido pelo nome/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cadastrar produto novo" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Deixar para depois" }));
+    expect(screen.getByRole("button", { name: "Registrar 0 itens (+1 aguardando cadastro)" })).toBeEnabled();
+  });
+
+  it("emitente ainda não é fornecedor: o cadastro do produto aparece, desabilitado, dizendo o que falta", async () => {
+    preview = { ...preview, supplier: null, matched_by: null };
+    await openWithFile();
+
+    expect(screen.getByRole("button", { name: "Cadastrar produto novo" })).toBeDisabled();
+    expect(screen.getByText(/Vincule o emitente a um fornecedor/)).toBeInTheDocument();
+  });
+
   it("sem parecido de mesma medida, a linha fica de fora até a pessoa escolher", async () => {
     preview = { ...preview, items: [{ ...unmatched(), suggestions: [{ sku: "M2", name: "Monster 269ml", score: 0.6, measure_differs: true }] }] };
     await openWithFile();
