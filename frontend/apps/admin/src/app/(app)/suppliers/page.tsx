@@ -4,6 +4,7 @@ import { Pencil, Plus, Tags, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { ResourceFormDialog, type FieldSpec } from "@/components/resource-form-dialog";
@@ -235,14 +236,19 @@ function AliasSheet({
                     <p className="truncate text-xs text-muted-foreground">{alias.normalized_alias}</p>
                   </div>
                   {canWrite && supplierId !== null && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Remover"
-                      onClick={() => removeAlias({ id: supplierId, aliasId: alias.id })}
-                    >
-                      <Trash2 />
-                    </Button>
+                    <ConfirmDialog
+                      title="Remover esta grafia?"
+                      description={`"${alias.alias}" deixa de ser reconhecida como este fornecedor nos próximos extratos.`}
+                      confirmLabel="Remover"
+                      destructive
+                      successMessage="Grafia removida."
+                      onConfirm={() => removeAlias({ id: supplierId, aliasId: alias.id }).unwrap()}
+                      trigger={
+                        <Button variant="ghost" size="icon" title="Remover" aria-label={`Remover grafia ${alias.alias}`}>
+                          <Trash2 />
+                        </Button>
+                      }
+                    />
                   )}
                 </li>
               ))}

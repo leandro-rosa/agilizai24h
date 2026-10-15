@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import { z } from "zod";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { ResourceFormDialog, toCents, type FieldSpec } from "@/components/resource-form-dialog";
@@ -287,10 +288,22 @@ export default function PnlPage() {
         description="Receita, despesas e resultado do período. Acompanhe a evolução e entenda o que está puxando os números."
         actions={
           canWrite ? (
-            <Button variant="outline" onClick={close} disabled={computing}>
-              {data?.status === "closed" ? <Lock /> : <RefreshCw />}
-              {computing ? "Buscando dados e apurando..." : data?.status === "closed" ? "Reapurar e fechar" : "Fechar o mês"}
-            </Button>
+            <ConfirmDialog
+              title={data?.status === "closed" ? `Reapurar o DRE de ${fmtPeriod(period)}?` : `Fechar o DRE de ${fmtPeriod(period)}?`}
+              description={
+                data?.status === "closed"
+                  ? "Os números do mês serão recalculados a partir das vendas, do abastecimento e dos lançamentos atuais, e substituem os já fechados. A Visão geral passa a mostrar os novos valores."
+                  : "Apura todas as lojas e congela o mês. Confira antes se vendas, abastecimento e extratos do mês já foram importados."
+              }
+              confirmLabel={data?.status === "closed" ? "Reapurar e fechar" : "Fechar o mês"}
+              onConfirm={close}
+              trigger={
+                <Button variant="outline" disabled={computing}>
+                  {data?.status === "closed" ? <Lock /> : <RefreshCw />}
+                  {computing ? "Buscando dados e apurando..." : data?.status === "closed" ? "Reapurar e fechar" : "Fechar o mês"}
+                </Button>
+              }
+            />
           ) : null
         }
       />

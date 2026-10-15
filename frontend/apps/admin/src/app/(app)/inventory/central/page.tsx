@@ -4,6 +4,7 @@ import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { ResourceFormDialog, toCents, type FieldSpec } from "@/components/resource-form-dialog";
@@ -203,9 +204,19 @@ export default function CentralStockPage() {
                   <TableCell className="tabular text-right">{money(lot.unit_cost_cents)}</TableCell>
                   {canWrite && (
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" title="Excluir" onClick={() => deleteLot(lot.id)}>
-                        <Trash2 />
-                      </Button>
+                      <ConfirmDialog
+                        title={`Excluir o lote de ${lot.sku}?`}
+                        description="O lote sai do estoque central. Não dá para desfazer."
+                        confirmLabel="Excluir lote"
+                        destructive
+                        successMessage="Lote excluído."
+                        onConfirm={() => deleteLot(lot.id).unwrap()}
+                        trigger={
+                          <Button variant="ghost" size="icon" title="Excluir" aria-label={`Excluir lote de ${lot.sku}`}>
+                            <Trash2 />
+                          </Button>
+                        }
+                      />
                     </TableCell>
                   )}
                 </TableRow>

@@ -25,6 +25,12 @@ type LoginValues = z.infer<typeof loginSchema>;
  * password was wrong — the gateway's own login response is deliberately
  * generic for the same reason (see `AuthController`'s 401 doc).
  */
+/** Where the 401 redirect came from; only same-origin paths are honoured. */
+function safeNext(): string {
+  const next = new URLSearchParams(window.location.search).get("next");
+  return next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login") ? next : "/";
+}
+
 const GENERIC_LOGIN_ERROR = "E-mail ou senha incorretos.";
 
 export default function LoginPage() {
@@ -43,7 +49,7 @@ export default function LoginPage() {
 
     try {
       await login(values).unwrap();
-      router.push("/");
+      router.push(safeNext());
     } catch {
       // Every failure reason — wrong email, wrong password, account
       // disabled — surfaces identically here, by design.

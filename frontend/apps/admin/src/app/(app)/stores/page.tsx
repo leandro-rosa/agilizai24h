@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
+import { RequestState } from "@/components/request-state";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -36,7 +36,7 @@ const typeLabel: Record<Store["type"], string> = {
 };
 
 export default function StoresPage() {
-  const { data: stores, isLoading } = useGetStoresQuery();
+  const { data: stores, isLoading, error, refetch } = useGetStoresQuery();
   const [search, setSearch] = useState("");
   const [type, setType] = useState<string>("all");
 
@@ -72,40 +72,31 @@ export default function StoresPage() {
         </Select>
       </div>
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Nome</TableHead>
-              <TableHead>Código do site</TableHead>
-              <TableHead>CNPJ</TableHead>
-              <TableHead>Cidade</TableHead>
-              <TableHead className="tabular text-right">Pessoas</TableHead>
-              <TableHead>Inauguração</TableHead>
-              <TableHead>Voltagem</TableHead>
-              <TableHead>Tipo</TableHead>
-              <TableHead>Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              Array.from({ length: 6 }).map((_, i) => (
-                <TableRow key={i}>
-                  {Array.from({ length: 5 }).map((__, j) => (
-                    <TableCell key={j}>
-                      <Skeleton className="h-4 w-full" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : filtered.length === 0 ? (
+      <RequestState
+        isLoading={isLoading}
+        error={error}
+        isEmpty={filtered.length === 0}
+        emptyMessage="Nenhuma loja encontrada."
+        onRetry={refetch}
+        loadingRows={6}
+      >
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-muted-foreground">
-                  Nenhuma loja encontrada.
-                </TableCell>
+                <TableHead>Nome</TableHead>
+                <TableHead>Código do site</TableHead>
+                <TableHead>CNPJ</TableHead>
+                <TableHead>Cidade</TableHead>
+                <TableHead className="tabular text-right">Pessoas</TableHead>
+                <TableHead>Inauguração</TableHead>
+                <TableHead>Voltagem</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Status</TableHead>
               </TableRow>
-            ) : (
-              filtered.map((store) => (
+            </TableHeader>
+            <TableBody>
+              {filtered.map((store) => (
                 <TableRow key={store.id}>
                   <TableCell className="font-medium">
                     {store.name}
@@ -126,11 +117,11 @@ export default function StoresPage() {
                     </Badge>
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </RequestState>
     </div>
   );
 }

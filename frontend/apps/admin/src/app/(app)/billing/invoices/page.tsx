@@ -4,6 +4,7 @@ import { Check, Plus } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { ResourceFormDialog, toCents, type FieldSpec } from "@/components/resource-form-dialog";
@@ -182,16 +183,20 @@ export default function InvoicesPage() {
                 {canWrite && (
                   <TableCell className="text-right">
                     {invoice.status === "issued" && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Marcar como paga"
-                        onClick={() =>
-                          payInvoice({ id: invoice.id, paid_on: new Date().toISOString().slice(0, 10) })
+                      <ConfirmDialog
+                        title="Marcar nota como paga?"
+                        description={`Será registrada como paga hoje (${new Date().toLocaleDateString("pt-BR")}). Se o pagamento caiu em outra data, ajuste depois no extrato.`}
+                        confirmLabel="Marcar como paga"
+                        successMessage="Nota marcada como paga."
+                        onConfirm={() =>
+                          payInvoice({ id: invoice.id, paid_on: new Date().toISOString().slice(0, 10) }).unwrap()
                         }
-                      >
-                        <Check />
-                      </Button>
+                        trigger={
+                          <Button variant="ghost" size="icon" title="Marcar como paga" aria-label="Marcar como paga">
+                            <Check />
+                          </Button>
+                        }
+                      />
                     )}
                   </TableCell>
                 )}

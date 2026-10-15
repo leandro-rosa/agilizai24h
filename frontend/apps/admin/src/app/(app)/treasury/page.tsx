@@ -47,6 +47,7 @@ import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from "rec
 import { toast } from "sonner";
 import { z } from "zod";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DateRangePicker, type DayRange } from "@/components/date-range-picker";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
@@ -725,7 +726,7 @@ export default function TreasuryPage() {
             accountById={accountById}
             canWrite={canWrite}
             onEdit={setEditing}
-            onDelete={deleteTransaction}
+            onDelete={(id) => deleteTransaction(id).unwrap()}
             provenanceLabel={provenanceLabel}
           />
         )}
@@ -846,7 +847,7 @@ const TransactionsTable = memo(function TransactionsTable({
   accountById: Map<number, { name: string }>;
   canWrite: boolean;
   onEdit: (t: BankTransaction) => void;
-  onDelete: (id: number) => void;
+  onDelete: (id: number) => Promise<unknown>;
   provenanceLabel: (t: BankTransaction) => string;
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -1022,12 +1023,22 @@ const TransactionsTable = memo(function TransactionsTable({
               </TableCell>
               {canWrite && (
                 <TableCell className="text-right">
-                  <Button variant="ghost" size="icon" title="Editar" onClick={() => onEdit(transaction)}>
+                  <Button variant="ghost" size="icon" title="Editar" aria-label="Editar" onClick={() => onEdit(transaction)}>
                     <Pencil />
                   </Button>
-                  <Button variant="ghost" size="icon" title="Excluir" onClick={() => onDelete(transaction.id)}>
-                    <Trash2 />
-                  </Button>
+                  <ConfirmDialog
+                    title="Excluir este lançamento?"
+                    description="Ele alimenta o DRE e o fluxo de caixa. Em meses já fechados, reapure o mês depois."
+                    confirmLabel="Excluir lançamento"
+                    destructive
+                    successMessage="Lançamento excluído."
+                    onConfirm={() => onDelete(transaction.id)}
+                    trigger={
+                      <Button variant="ghost" size="icon" title="Excluir" aria-label="Excluir lançamento">
+                        <Trash2 />
+                      </Button>
+                    }
+                  />
                 </TableCell>
               )}
             </TableRow>

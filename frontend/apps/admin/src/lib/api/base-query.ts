@@ -50,8 +50,8 @@ const withSessionHandling: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQue
     // runs inside a baseQuery, outside any component's render or event
     // handler, and a client-side route change would leave the previous
     // session's Redux/RTK Query cache mounted into the next login.
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign("/login");
+    const here = window.location.pathname + window.location.search;
+    window.location.assign(here === "/" ? "/login" : `/login?next=${encodeURIComponent(here)}`);
   }
 
   if (result.error && result.error.status !== 503) {

@@ -180,10 +180,9 @@ describe("LossDecisionDrawer", () => {
     expect(screen.getByText("Limitações")).toBeInTheDocument();
     expect(screen.getByText("margem_desconhecida")).toBeInTheDocument();
 
-    // Fase 2 (adenda 2026-09-23 §23.4): visual only, disabled, no persistence
-    expect(screen.getByRole("button", { name: "Aceitar recomendação" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Monitorar" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Discordar" })).toBeDisabled();
+    // Fase 2 (adenda 2026-09-23 §23.4): no persistence yet, so no dead buttons — only a notice
+    expect(screen.queryByRole("button", { name: "Aceitar recomendação" })).not.toBeInTheDocument();
+    expect(screen.getByText(/registro da sua decisão/i)).toBeInTheDocument();
   });
 
   it("renders nothing and does not throw when recommendation is null", () => {

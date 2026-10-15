@@ -4,6 +4,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PageHeader } from "@/components/page-header";
 import { RequestState } from "@/components/request-state";
 import { ResourceFormDialog, type FieldSpec } from "@/components/resource-form-dialog";
@@ -147,12 +148,22 @@ export default function MappingsPage() {
                 </TableCell>
                 {canWrite && (
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" title="Editar" onClick={() => setEditing(mapping)}>
+                    <Button variant="ghost" size="icon" title="Editar" aria-label="Editar" onClick={() => setEditing(mapping)}>
                       <Pencil />
                     </Button>
-                    <Button variant="ghost" size="icon" title="Excluir" onClick={() => deleteMapping(mapping.id)}>
-                      <Trash2 />
-                    </Button>
+                    <ConfirmDialog
+                      title="Excluir esta regra?"
+                      description="Os próximos extratos deixam de ser classificados automaticamente por ela. Lançamentos já classificados não mudam."
+                      confirmLabel="Excluir regra"
+                      destructive
+                      successMessage="Regra excluída."
+                      onConfirm={() => deleteMapping(mapping.id).unwrap()}
+                      trigger={
+                        <Button variant="ghost" size="icon" title="Excluir" aria-label="Excluir regra">
+                          <Trash2 />
+                        </Button>
+                      }
+                    />
                   </TableCell>
                 )}
               </TableRow>

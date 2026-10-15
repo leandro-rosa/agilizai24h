@@ -2,7 +2,6 @@
 
 import { ConfidenceBadge } from "@/components/commercial-intelligence/confidence-badge";
 import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { money, period } from "@/lib/format";
@@ -152,18 +151,10 @@ export function LossDecisionDrawer({
             </section>
           )}
 
-          {/* Fase 2 (adenda 2026-09-23 §23.4): só a estrutura visual, sem persistência — decisão do operador ainda não é registrada em lugar nenhum. */}
-          <div className="flex flex-wrap gap-2">
-            <Button variant="default" size="sm" disabled>
-              Aceitar recomendação
-            </Button>
-            <Button variant="outline" size="sm" disabled>
-              Monitorar
-            </Button>
-            <Button variant="outline" size="sm" disabled>
-              Discordar
-            </Button>
-          </div>
+          {/* Fase 2 (adenda 2026-09-23 §23.4): registrar a decisão do operador ainda não existe. Sem botões desabilitados — só o aviso. */}
+          <p className="text-xs text-muted-foreground">
+            Esta é uma recomendação para leitura. O registro da sua decisão (aceitar, monitorar, discordar) ainda não está disponível.
+          </p>
         </div>
       </SheetContent>
     </Sheet>
