@@ -148,3 +148,23 @@ flag precisa de vigência datada, espelhando as versões de custo em
 - Sem rastreio de qual loja originou uma transferência: o export não nomeia a
   loja de origem, e pareamento por horário não fecha de forma confiável (ver
   design "Open Questions" de `align-ingestion-with-real-reports`).
+
+## Relatório de divergências para clientes (`GET /reports/divergences`)
+
+`?store_ids=1,2&from=YYYY-MM-DD&to=YYYY-MM-DD` — as unidades retiradas sob **`other_reason`** ("Outro motivo", o "Outros (roubo)"
+interno; `constants/client-report.ts` cita a evidência: o fechamento de fornecedor já trata `other_reason` como roubo e o parser
+rejeita um rótulo "Roubo"), **uma linha por visita e SKU**, com a conferência anterior do SKU. Só leitura.
+
+- **A divisão por motivo agora é guardada por visita**: `supply_visit_line.removals_by_reason` (JSON, `{"other_reason": 3, "return": 6}`),
+  vinda do texto "Detalhes das Remoções" via `StagedVisitLine` → `SupplyVisitLine.removalsByReason` (campo opcional, aditivo, sem bump de
+  `schemaVersion`). **NULL = a linha foi importada antes disso: motivo DESCONHECIDO, nunca "sem remoção"** — a resposta traz
+  `unsplit_visits` e a tela avisa. **Meses já importados só ganham ocorrências quando reimportados** (`/ingestion`); nada é rateado a partir
+  do total mensal.
+- **Conferência** = linha de visita com `confirmed_count` não nulo (de qualquer tipo: abastecimento, inventário, combinado). A anterior é a
+  mais recente **estritamente antes** da visita que identificou, na mesma loja e SKU, em qualquer período (pode estar fora do filtro). Reposição
+  sem contagem não conta; `previous_ended_at` da operação não é usado (é por operação, não por produto). Sem anterior → `null`.
+- A **data da falta** é o `ended_at` da visita que registrou a retirada (o export não dá o dia exato da ocorrência — é um intervalo).
+- `ended_at` é horário de parede do relatório gravado em campos UTC, sem conversão; os dias do filtro são comparados do mesmo jeito,
+  inclusivos nas duas pontas.
+- Mesma operação em dois períodos ou reimportada = uma ocorrência (chave loja+SKU+instante; vence o maior `visit.id`).
+- Teste de integração em banco descartável: `pnpm test:integration:divergences` (`test/support/with-test-db.sh`).

@@ -449,7 +449,22 @@ describe('StagedRowsWorker — supply visit lines (add-stock-quality-phase0)', (
         adjustment: 0,
         balanceAfter: 29,
         capacity: null,
+        removalsByReason: [],
       },
+    ])
+  })
+
+  it('carries the per-reason split of the removals onto the visit line, so a loss can be dated to its visit', async () => {
+    const { worker, ingestions } = build()
+
+    await worker.process(
+      jobOf([supplyMessage(line({ Qtd_Anterior: 12, Qtd_confirmada: 12, Qtd_abastecida: 0, Remocoes: -9, Qtd_final: 3, Detalhes_das_Remocoes: '-6 Devolução, -3 Outro motivo' }))]),
+    )
+
+    const [, lines] = ingestions.stageVisitLines.mock.calls[0]
+    expect(lines[0].removalsByReason).toEqual([
+      { reason: 'return', quantity: 6 },
+      { reason: 'other_reason', quantity: 3 },
     ])
   })
 

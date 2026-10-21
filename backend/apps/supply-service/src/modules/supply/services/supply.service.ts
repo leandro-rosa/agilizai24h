@@ -7,6 +7,8 @@ import type {
   SupplyVisit,
 } from '@app/ingestion-contracts'
 import { PrismaClientService } from '../../db-client/prisma-client.service'
+import { CLIENT_REPORT_REASON_KEY } from '../constants/client-report'
+import { deriveDivergences, type VisitLineFact } from '../utils/derive-divergences'
 import { deriveLoss, type ClassifiedRemoval, type DerivedLoss } from '../utils/derive-loss'
 
 export interface RestockView {
@@ -75,6 +77,45 @@ export interface VisitsView {
   visits: VisitView[]
 }
 
+const lineSelect = {
+  sku: true,
+  confirmed_count: true,
+  removed_total: true,
+  removals_by_reason: true,
+  visit: { select: { id: true, store_id: true, kind: true, period: true, source_reference: true, ended_at: true } },
+} as const
+
+function toFact(line: {
+  sku: string
+  confirmed_count: number | null
+  removed_total: number
+  removals_by_reason: unknown
+  visit: { id: number; store_id: number; kind: string; period: string; source_reference: string; ended_at: Date }
+}): VisitLineFact {
+  const split = line.removals_by_reason
+
+  return {
+    storeId: line.visit.store_id,
+    sku: line.sku,
+    visitId: line.visit.id,
+    kind: line.visit.kind,
+    period: line.visit.period,
+    sourceReference: line.visit.source_reference,
+    endedAt: line.visit.ended_at,
+    confirmedCount: line.confirmed_count,
+    removedTotal: line.removed_total,
+    removalsByReason: split !== null && typeof split === 'object' && !Array.isArray(split) ? (split as Record<string, number>) : null,
+  }
+}
+
+/** `[{ reason, quantity }]` → `{ reason: total }`; a repeated reason adds up. */
+function splitByReason(entries: Array<{ reason: string; quantity: number }>): Record<string, number> {
+  const split: Record<string, number> = {}
+  for (const entry of entries) split[entry.reason] = (split[entry.reason] ?? 0) + entry.quantity
+
+  return split
+}
+
 export interface IngestPeriodInput {
   storeId: number
   period: string
@@ -88,6 +129,30 @@ export interface IngestPeriodInput {
    * worker that predates visits); a list — even an empty one — replaces them.
    */
   visits?: SupplyVisit[]
+}
+
+export interface DivergenceView {
+  store_id: number
+  sku: string
+  quantity: number
+  /** The report's own instants (wall-clock in UTC fields) of the visit that reported the units and of the earlier count. */
+  identified_at: string
+  identified_kind: string
+  previous_conference_at: string | null
+  previous_conference_kind: string | null
+  /** Where each date came from, for tracing back to the report — internal, never printed in a client document. */
+  identified_source: { visit_id: number; sheet: string }
+  previous_conference_source: { visit_id: number; sheet: string } | null
+}
+
+export interface DivergencesView {
+  reason: string
+  from: string
+  to: string
+  store_ids: number[]
+  divergences: DivergenceView[]
+  /** Visits in the range that removed units whose reasons were not stored (reports imported before the split was kept): re-import the month. */
+  unsplit_visits: number
 }
 
 export interface IngestResult {
@@ -224,6 +289,8 @@ export class SupplyService {
                   adjustment: line.adjustment,
                   balance_after: line.balanceAfter,
                   capacity: line.capacity,
+                  // Undefined (a worker that predates the split) stores NULL = unknown, never an empty split.
+                  removals_by_reason: line.removalsByReason === undefined ? undefined : splitByReason(line.removalsByReason),
                 })),
               },
             },
@@ -331,6 +398,53 @@ export class SupplyService {
           balance_after: line.balance_after,
           capacity: line.capacity,
         })),
+      })),
+    }
+  }
+
+  /**
+   * The units removed under the client-report reason, per visit and SKU, with the previous count of that SKU. `from`/`to` are
+   * report days (YYYY-MM-DD) compared against the report's own instants, inclusive of both whole days. Read-only.
+   */
+  async findDivergences(storeIds: number[], from: string, to: string): Promise<DivergencesView> {
+    const start = new Date(`${from}T00:00:00.000Z`)
+    const end = new Date(`${to}T23:59:59.999Z`)
+    const reasonKey = CLIENT_REPORT_REASON_KEY
+
+    const visitFilter = { store_id: { in: storeIds } }
+    const reporting = await this.prisma.supplyVisitLine.findMany({
+      where: { removed_total: { lt: 0 }, visit: { ...visitFilter, ended_at: { gte: start, lte: end } } },
+      select: lineSelect,
+    })
+
+    const reportingFacts = reporting.map(toFact)
+    const skus = [...new Set(reportingFacts.filter(f => f.removalsByReason?.[reasonKey]).map(f => f.sku))]
+    const counted = skus.length === 0
+      ? []
+      : await this.prisma.supplyVisitLine.findMany({
+          where: { confirmed_count: { not: null }, sku: { in: skus }, visit: { ...visitFilter, ended_at: { lt: end } } },
+          select: lineSelect,
+        })
+
+    const result = deriveDivergences([...reportingFacts, ...counted.map(toFact)], reasonKey, start, end)
+
+    return {
+      reason: reasonKey,
+      from,
+      to,
+      store_ids: storeIds,
+      unsplit_visits: result.unsplitVisits,
+      divergences: result.divergences.map(d => ({
+        store_id: d.storeId,
+        sku: d.sku,
+        quantity: d.quantity,
+        identified_at: d.identifiedAt.toISOString(),
+        identified_kind: d.identifiedKind,
+        previous_conference_at: d.previousConferenceAt?.toISOString() ?? null,
+        previous_conference_kind: d.previousConferenceKind,
+        identified_source: { visit_id: d.identifiedVisitId, sheet: d.identifiedReference },
+        previous_conference_source:
+          d.previousConferenceVisitId === null ? null : { visit_id: d.previousConferenceVisitId, sheet: d.previousConferenceReference ?? '' },
       })),
     }
   }

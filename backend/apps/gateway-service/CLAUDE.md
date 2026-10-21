@@ -202,3 +202,12 @@ Categorias: `GET /categories` e `POST /classification/suggest`, `GET /classifica
 ### Precificação: base de hoje
 
 `GET /pricing/current`, `POST /pricing/current/:sku/simulate` e `GET /pricing/current/:sku/stores` (todas `products:read`) repassam ao intelligence a decisão de preço com custo e preço de hoje. `POST /pricing/decisions/apply` aceita `basis: "current"`. `POST /products` aceita `sku` omitido (SKU automático) e `netWeight`.
+
+## Relatórios para clientes (`GET /client-reports/divergences`, `supply:read`)
+
+`client_id`, `store_ids` (opcional = todas as unidades do cliente), `from`/`to` (`YYYY-MM-DD`). `ClientDivergenceReportService` junta:
+billing (`/billing/clients/:id` → unidades = `sites` com `store_id`, nunca por nome; **uma loja fora das unidades do cliente é recusada com 400**),
+supply (`/reports/divergences`), products (nome por SKU e `POST /prices/bulk` **uma vez por dia de identificação**: o preço de venda em vigor
+naquele dia, nunca o de hoje nem o custo). Preço ausente = `unit_price_cents: null` / `loss_cents: null` (nunca 0) e total `partial`. Tela, PDF
+e Excel renderizam este mesmo payload. Centavos inteiros: `quantidade × preço` é exato. Limite: a versão de preço é datada e só se acrescenta,
+mas um preço lançado DEPOIS com vigência retroativa muda o valor de ocorrências antigas.

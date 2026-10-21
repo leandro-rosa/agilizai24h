@@ -1183,3 +1183,14 @@ ou cadastrar; em compra já recebida o custo da nota vai ao produto na hora), e 
 variação, "Igual ao custo vigente", "Bonificação: não cria custo", "Quando a compra for recebida", e uma falha visível com **Reenviar**; avisos de variação grande e de **mês já fechado**
 (o CMV dele não é recalculado sozinho). Em `/purchases/pricing` o produto cadastrado por nota dentro da janela aparece como **Produto novo** (e "Sem histórico de vendas" se ainda
 não vendeu). Não visto no navegador logado (sem credencial); specs com API mockada.
+
+## `/supply` — aba "Relatórios para clientes" (`add-client-divergence-reports`)
+
+`components/supply/client-reports-tab.tsx` (filtros próprios: cliente, unidades, datas, atalhos; o seletor de loja/mês some nessa aba) →
+`GET /client-reports/divergences`. **Consultar** congela os filtros aplicados; mudar um filtro depois avisa e **desliga as exportações** (elas
+sempre usam o resultado da última consulta, `currentData`). Paginação (25) só na tela; **PDF** (`lib/client-reports/pdf.tsx`, A4 paisagem,
+resumo + uma unidade por página, cabeçalho/colunas repetidos, `wrap={false}` por linha) e **Excel** (`excel.ts`, `exceljs` — o `xlsx@0.18.5` não
+grava painel congelado; Resumo + uma aba por unidade, filtro, datas e dinheiro como tipo de célula) saem do mesmo payload, com os mesmos textos
+(`model.ts`). Nada de custo, margem, câmera ou classificação interna nos documentos; só o título "Relatório de divergências de estoque".
+Marca: gradiente roxo→magenta do `BRAND.md`, `lockup-dark.png` e `contour.png` (renderizado do `contour.svg` oficial); fonte Helvetica como os
+outros PDFs do painel (Montserrat não está embutida). `lib/client-reports/fixtures.ts` = dados FICTÍCIOS (testes/prévia).

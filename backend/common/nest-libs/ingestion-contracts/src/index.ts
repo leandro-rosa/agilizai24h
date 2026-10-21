@@ -158,6 +158,12 @@ export interface SupplyVisitLine {
    * writes 0 where no capacity is set, so only a positive value means one is known.
    */
   capacity: number | null
+  /**
+   * The line's removals split per reason key, as the report's removal-detail text states them (positive quantities,
+   * e.g. `[{ reason: 'other_reason', quantity: 3 }]`). Optional and additive: a worker that predates it sends none, and
+   * the stored line then reads as "split unknown" — never as "no removals". An empty list means the line had none.
+   */
+  removalsByReason?: Array<{ reason: string; quantity: number }>
 }
 
 /**

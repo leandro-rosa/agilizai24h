@@ -411,6 +411,27 @@ describe('IngestionService.finalize — supply visits (add-stock-quality-phase0)
     expect(lines.find(line => line.sku === '6001')!.confirmedCount).toBe(0)
   })
 
+  it('carries the per-reason split of a visit line onto the published job, and leaves it out when it was never staged', async () => {
+    const { service, holdIt } = build({
+      staged: [stagedMovement(7, 'Operação 1', '5010', 21), stagedMovement(7, 'Operação 1', '6001', 4)],
+      visitLines: [
+        visitLine({ removed_total: -9, removals_by_reason: [{ reason: 'return', quantity: 6 }, { reason: 'other_reason', quantity: 3 }] }),
+        visitLine({ sku: '6001', removals_by_reason: null }),
+      ],
+      operations: [operation()],
+    })
+
+    await service.finalize('ing-1')
+
+    const lines = supplyJobs(holdIt)[0].visits![0].lines
+    expect(lines.find(line => line.sku === '5010')!.removalsByReason).toEqual([
+      { reason: 'return', quantity: 6 },
+      { reason: 'other_reason', quantity: 3 },
+    ])
+    // A line staged before the split existed has none: supply reads it as "unknown", never as "no removals".
+    expect('removalsByReason' in lines.find(line => line.sku === '6001')!).toBe(false)
+  })
+
   it('sends each store its own visits only', async () => {
     const { service, holdIt } = build({
       staged: [stagedMovement(7, 'Operação 1', '5010', 21), stagedMovement(9, 'Operação 2', '5010', 6)],

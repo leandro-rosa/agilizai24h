@@ -591,3 +591,9 @@ Ver referências de spec/plano (original e extensão multi-bank) logo acima.
 
 `POST /purchase-invoices/parse {xml}` → emitente (CNPJ/CPF), número, data (como escrita, sem mudar fuso), itens (código, EAN ou `null` se "SEM GTIN", quantidade, custo unitário em centavos). **Sem estado, sem fila, sem banco** (um XML pequeno; a prévia precisa do resultado na hora); o gateway guarda o arquivo bruto antes. Leitor de XML próprio e mínimo (`xml.ts`, sem dependência nova). XML que não é NF-e, ou sem o que uma compra precisa, é **422** com o motivo — nunca se adivinha. Quantidade fracionada é sinalizada (`quantityIsWhole`), não arredondada.
 
+
+## A divisão por motivo atravessa até a visita (`add-client-divergence-reports`)
+
+`parseRemovalReasons` já separava o texto por motivo, mas a divisão se perdia no `finalize()` (só sobrava o total mensal por motivo). Agora ela
+também vai em cada linha de visita (`staged_visit_line.removals_by_reason` → `SupplyVisitLine.removalsByReason`), para o `supply-service`
+datar a perda à visita que a registrou. Linha já em `staged_visit_line` sem a coluna sai sem o campo (supply lê "desconhecido").

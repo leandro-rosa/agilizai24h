@@ -3,6 +3,8 @@ import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { isValidPeriod } from '@app/ingestion-contracts'
 import { SupplyService } from '../services/supply.service'
 
+const isValidDay = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value ?? '') && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value)
+
 @ApiTags('supply')
 @Controller()
 export class SupplyController {
@@ -105,6 +107,26 @@ export class SupplyController {
     }
 
     return this.supply.findVisits(storeId, from, to)
+  }
+
+  @Get('reports/divergences')
+  @ApiOperation({
+    summary: 'Units removed under the client-report reason, per visit and SKU, with the SKU previous count',
+    description:
+      'Read-only. `from`/`to` are inclusive report days (YYYY-MM-DD) matched against the visit end instant that reported the units. ' +
+      'The previous conference is the latest earlier visit that COUNTED that SKU in that store (null when none). `unsplit_visits` counts ' +
+      'visits in the range whose removal reasons were never stored — their loss is unknown, not zero.',
+  })
+  @ApiQuery({ name: 'store_ids', required: true, example: '2,3' })
+  @ApiQuery({ name: 'from', required: true, example: '2026-05-01' })
+  @ApiQuery({ name: 'to', required: true, example: '2026-05-11' })
+  findDivergences(@Query('store_ids') storeIds: string, @Query('from') from: string, @Query('to') to: string) {
+    const ids = [...new Set((storeIds ?? '').split(',').filter(Boolean).map(Number))]
+    if (ids.length === 0 || ids.some(id => !Number.isInteger(id) || id <= 0) || !isValidDay(from) || !isValidDay(to) || from > to) {
+      throw new BadRequestException('store_ids (positive integers) and from/to (YYYY-MM-DD, from <= to) are required')
+    }
+
+    return this.supply.findDivergences(ids, from, to)
   }
 
   @Get('supply/:storeId/loss')

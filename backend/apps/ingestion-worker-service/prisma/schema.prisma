@@ -164,6 +164,9 @@ model StagedVisitLine {
   adjustment          Int
   balance_after       Int
   capacity            Int?
+  /// `[{ reason, quantity }]` — the removals of this line split per reason, kept per visit so a loss can be dated to the
+  /// visit that reported it. Null only for a line staged before this column existed.
+  removals_by_reason  Json?
 
   ingestion Ingestion @relation(fields: [ingestion_id], references: [id], onDelete: Cascade)
 

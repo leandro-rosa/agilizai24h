@@ -5,6 +5,7 @@ import { AlertTriangle } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ComposedChart, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import { DriveSyncButton } from "@/components/supply/drive-sync-button";
+import { ClientReportsTab } from "@/components/supply/client-reports-tab";
 import { LossTab } from "@/components/supply/loss-tab";
 import { PendingDialog } from "@/components/supply/pending-dialog";
 import { PageHeader } from "@/components/page-header";
@@ -853,47 +854,59 @@ function OverviewView({ storeId, range }: { storeId: StoreSelection; range: Peri
 export default function SupplyPage() {
   const [storeId, setStoreId] = useState<StoreSelection>(null);
   const [range, setRange] = useState<PeriodRange>(defaultRange());
+  const [tab, setTab] = useState("overview");
+  // "Relatórios para clientes" has its own filters (client, units, days); the store and month picker does not apply to it.
+  const byStore = tab !== "clients";
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Abastecimento"
-        description="Reposição, investigação de perdas e a reconciliação mensal (valor abastecido, CMV, sobra e perda real), por loja e período."
+        description="Reposição, investigação de perdas, a reconciliação mensal (valor abastecido, CMV, sobra e perda real) e os relatórios de divergências para clientes."
         actions={<DriveSyncButton />}
       />
 
-      <StorePeriodPicker storeId={storeId} onStoreIdChange={setStoreId} range={range} onRangeChange={setRange} allowNetwork />
+      {byStore ? <StorePeriodPicker storeId={storeId} onStoreIdChange={setStoreId} range={range} onRangeChange={setRange} allowNetwork /> : null}
 
-      {storeId === null ? (
-        <p className="text-sm text-muted-foreground">
-          Selecione uma loja, ou &ldquo;Rede (todas as lojas)&rdquo;, para ver o abastecimento do período.
-        </p>
-      ) : (
-        <Tabs defaultValue="overview">
-          <TabsList>
-            <TabsTrigger value="overview">Visão geral</TabsTrigger>
-            <TabsTrigger value="restock">Reposição</TabsTrigger>
-            <TabsTrigger value="losses">Perdas</TabsTrigger>
-            <TabsTrigger value="reconciliation">Reconciliação</TabsTrigger>
-          </TabsList>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="overview">Visão geral</TabsTrigger>
+          <TabsTrigger value="restock">Reposição</TabsTrigger>
+          <TabsTrigger value="losses">Perdas</TabsTrigger>
+          <TabsTrigger value="reconciliation">Reconciliação</TabsTrigger>
+          <TabsTrigger value="clients">Relatórios para clientes</TabsTrigger>
+        </TabsList>
 
-          <TabsContent value="overview">
-            <OverviewView storeId={storeId} range={range} />
+        {storeId === null ? (
+          <TabsContent value={tab === "clients" ? "none" : tab}>
+            <p className="text-sm text-muted-foreground">
+              Selecione uma loja, ou &ldquo;Rede (todas as lojas)&rdquo;, para ver o abastecimento do período.
+            </p>
           </TabsContent>
+        ) : (
+          <>
+            <TabsContent value="overview">
+              <OverviewView storeId={storeId} range={range} />
+            </TabsContent>
 
-          <TabsContent value="restock">
-            {storeId === NETWORK ? <NetworkSupplyMovementsView range={range} /> : <StoreSupplyMovementsView storeId={storeId} range={range} />}
-          </TabsContent>
+            <TabsContent value="restock">
+              {storeId === NETWORK ? <NetworkSupplyMovementsView range={range} /> : <StoreSupplyMovementsView storeId={storeId} range={range} />}
+            </TabsContent>
 
-          <TabsContent value="losses">
-            <LossTab storeId={storeId} range={range} />
-          </TabsContent>
+            <TabsContent value="losses">
+              <LossTab storeId={storeId} range={range} />
+            </TabsContent>
 
-          <TabsContent value="reconciliation">
-            {storeId === NETWORK ? <NetworkReconciliationView range={range} /> : <StoreReconciliationView storeId={storeId} range={range} />}
-          </TabsContent>
-        </Tabs>
-      )}
+            <TabsContent value="reconciliation">
+              {storeId === NETWORK ? <NetworkReconciliationView range={range} /> : <StoreReconciliationView storeId={storeId} range={range} />}
+            </TabsContent>
+          </>
+        )}
+
+        <TabsContent value="clients">
+          <ClientReportsTab />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

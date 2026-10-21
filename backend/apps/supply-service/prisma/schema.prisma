@@ -198,6 +198,9 @@ model SupplyVisitLine {
   balance_after       Int
   /// The report's `Capacidade`; NULL when empty. The export writes 0 where none is set.
   capacity            Int?
+  /// The line's removals split per reason, `{ "other_reason": 3, "return": 6 }` — what dates a loss to the visit that
+  /// reported it. NULL = the line was ingested before the split was kept (UNKNOWN, never "no removals"); `{}` = none.
+  removals_by_reason  Json?
 
   visit SupplyVisit @relation(fields: [visit_id], references: [id], onDelete: Cascade)
 

@@ -4,6 +4,8 @@ import { DriveFilesController } from '../ingestion/drive-files.controller'
 import { IngestionController } from '../ingestion/ingestion.controller'
 import { AnalysisController } from './controllers/analysis.controller'
 import { PricingController } from './controllers/pricing.controller'
+import { ClientDivergenceReportService } from './client-divergence-report.service'
+import { ClientReportsController } from './controllers/client-reports.controller'
 import { PricingApplyService } from './pricing-apply.service'
 import { OverviewController } from './controllers/overview.controller'
 import { FinanceController } from './controllers/finance.controller'
@@ -23,7 +25,7 @@ import { TreasuryImportsController } from './controllers/treasury-imports.contro
 
 @Module({
   imports: [AwsModule],
-  providers: [PricingApplyService],
+  providers: [PricingApplyService, ClientDivergenceReportService],
   controllers: [
     StoresController,
     ProductsController,
@@ -34,6 +36,7 @@ import { TreasuryImportsController } from './controllers/treasury-imports.contro
     TaxonomyController,
     SalesController,
     SupplyController,
+    ClientReportsController,
     InventoryController,
     FinanceController,
     SuppliersController,

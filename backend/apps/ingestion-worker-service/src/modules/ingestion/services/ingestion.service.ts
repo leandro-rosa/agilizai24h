@@ -59,6 +59,8 @@ export interface StagedVisitLineInput {
   adjustment: number
   balanceAfter: number
   capacity: number | null
+  /** The removals of the line split per reason key (positive quantities). */
+  removalsByReason: Array<{ reason: string; quantity: number }>
 }
 
 /** One transaction-detail row awaiting staging — see `StagedSalesTransaction` and design D1/D4. */
@@ -97,6 +99,7 @@ interface StagedVisitLineRow {
   adjustment: number
   balance_after: number
   capacity: number | null
+  removals_by_reason: unknown
 }
 
 @Injectable()
@@ -333,6 +336,7 @@ export class IngestionService {
         adjustment: line.adjustment,
         balance_after: line.balanceAfter,
         capacity: line.capacity,
+        removals_by_reason: line.removalsByReason,
       })),
     })
   }
@@ -643,6 +647,8 @@ export class IngestionService {
           adjustment: line.adjustment,
           balanceAfter: line.balance_after,
           capacity: line.capacity,
+          // A line staged before the split was carried has none: it is left out, so supply-service reads it as "unknown".
+          ...(Array.isArray(line.removals_by_reason) ? { removalsByReason: line.removals_by_reason as Array<{ reason: string; quantity: number }> } : {}),
         })),
       }
 

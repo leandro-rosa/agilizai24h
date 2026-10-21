@@ -17,6 +17,7 @@ import { treasuryApi } from "@/lib/api/treasury";
 import { accountingApi } from "@/lib/api/accounting";
 import { billingApi } from "@/lib/api/billing";
 import { capexApi } from "@/lib/api/capex";
+import { clientReportsApi } from "@/lib/api/client-reports";
 import { supplyApi } from "@/lib/api/supply";
 
 export function makeStore() {
@@ -40,6 +41,7 @@ export function makeStore() {
       [accountingApi.reducerPath]: accountingApi.reducer,
       [billingApi.reducerPath]: billingApi.reducer,
       [capexApi.reducerPath]: capexApi.reducer,
+      [clientReportsApi.reducerPath]: clientReportsApi.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware().concat(
@@ -61,6 +63,7 @@ export function makeStore() {
         accountingApi.middleware,
         billingApi.middleware,
         capexApi.middleware,
+        clientReportsApi.middleware,
       ),
   });
 }

@@ -501,6 +501,7 @@ export class StagedRowsWorker extends HoldItWorkerHost<SheeterRowMessage[] | She
       adjustment,
       balanceAfter: recordedClosing,
       capacity: toQuantity(readColumn(rowData, 'capacity')),
+      removalsByReason: parsed.quantities.map(entry => ({ reason: entry.reasonKey, quantity: entry.quantity })),
     })
 
     return undefined
