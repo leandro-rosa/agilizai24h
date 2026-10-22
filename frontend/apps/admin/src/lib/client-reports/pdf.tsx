@@ -45,7 +45,7 @@ const right = { textAlign: "right" as const };
 
 export interface ClientReportPdfProps {
   report: ClientDivergenceReport;
-  /** Absolute URL of the official white lockup (`/brand/lockup-dark.png`). Without it the band falls back to the wordmark as text. */
+  /** Absolute URL of the all-white lockup (`/brand/lockup-white.png`, the official lockup with every colour set to white). Without it the band falls back to the wordmark as text. */
   logoSrc?: string;
   /** Absolute URL of the official contour pattern rendered to PNG (`/brand/contour.png`). Optional. */
   contourSrc?: string;

@@ -108,7 +108,7 @@ export function ClientReportsTab() {
       const [{ pdf }, { ClientReportPdf }] = await Promise.all([import("@react-pdf/renderer"), import("@/lib/client-reports/pdf")]);
       const origin = window.location.origin;
       const issuedOn = new Date().toLocaleDateString("pt-BR");
-      const blob = await pdf(<ClientReportPdf report={report} logoSrc={`${origin}/brand/lockup-dark.png`} contourSrc={`${origin}/brand/contour.png`} issuedOn={issuedOn} />).toBlob();
+      const blob = await pdf(<ClientReportPdf report={report} logoSrc={`${origin}/brand/lockup-white.png`} contourSrc={`${origin}/brand/contour.png`} issuedOn={issuedOn} />).toBlob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
