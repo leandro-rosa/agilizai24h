@@ -71,14 +71,21 @@ describe('ClientDivergenceReportService (fictitious data)', () => {
     expect(report.totals).toMatchObject({ partial: true, unpriced_rows: 1, loss_cents: 3000 })
   })
 
-  it('orders the rows by identification instant, then by product name', async () => {
+  it('orders each unit by quantity, largest first, then by identification instant and product name', async () => {
     const { service } = build({
-      divergences: [divergence({ sku: 'COLA' }), divergence({ sku: 'ENERGY' }), divergence({ sku: 'ENERGY', identified_at: '2026-05-06T10:00:00.000Z' })],
+      divergences: [
+        divergence({ sku: 'COLA', quantity: 2 }),
+        divergence({ sku: 'ENERGY', quantity: 9 }),
+        divergence({ sku: 'ENERGY', quantity: 2, identified_at: '2026-05-06T10:00:00.000Z' }),
+        divergence({ sku: 'COLA', quantity: 5, store_id: 2 }),
+        divergence({ sku: 'ENERGY', quantity: 7, store_id: 2 }),
+      ],
     })
 
-    const rows = (await ask(service)).units[0].rows
+    const units = (await ask(service)).units
 
-    expect(rows.map(r => [r.identified_at.slice(5, 10), r.product_name])).toEqual([['05-06', 'Energético 473 ml'], ['05-07', 'Cola 350 ml'], ['05-07', 'Energético 473 ml']])
+    expect(units[0].rows.map(r => [r.quantity, r.product_name, r.identified_at.slice(5, 10)])).toEqual([[9, 'Energético 473 ml', '05-07'], [2, 'Energético 473 ml', '05-06'], [2, 'Cola 350 ml', '05-07']])
+    expect(units[1].rows.map(r => r.quantity)).toEqual([7, 5])
   })
 
   it('refuses a store that is not a unit of the client, so a client never sees another one', async () => {

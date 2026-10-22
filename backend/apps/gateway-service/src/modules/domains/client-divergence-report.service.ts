@@ -172,8 +172,14 @@ export class ClientDivergenceReportService {
               },
             }
           })
-        // Identification instant first, then the product (by name) — the order of the printed report.
-        rows.sort((a, b) => a.identified_at.localeCompare(b.identified_at) || a.product_name.localeCompare(b.product_name, 'pt-BR') || a.sku.localeCompare(b.sku))
+        // Largest quantity first within each unit (operator request); ties by identification instant, then product name.
+        rows.sort(
+          (a, b) =>
+            b.quantity - a.quantity ||
+            a.identified_at.localeCompare(b.identified_at) ||
+            a.product_name.localeCompare(b.product_name, 'pt-BR') ||
+            a.sku.localeCompare(b.sku),
+        )
         const unpriced = rows.filter(row => row.loss_cents === null).length
 
         return {
